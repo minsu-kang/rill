@@ -36,6 +36,12 @@ importers:
         specifier: ^1.4.6
         version: 1.4.6
 
+  packages/nodes-core:
+    dependencies:
+      typebox:
+        specifier: ^1.4.6
+        version: 1.4.6
+
 packages:
 
   '@cacheable/memory@2.2.0':
