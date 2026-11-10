@@ -1,7 +1,15 @@
-import type { Workflow } from './schema'
+import type { Workflow, WorkflowEdge } from './schema'
 
 export function isTrigger(type: string): boolean {
   return type.startsWith('trigger.')
+}
+
+export function incomingEdges(wf: Workflow, id: string): WorkflowEdge[] {
+  return wf.edges.filter((e) => e.to === id)
+}
+
+export function outgoingEdges(wf: Workflow, id: string): WorkflowEdge[] {
+  return wf.edges.filter((e) => e.from === id)
 }
 
 function successors(wf: Workflow): Map<string, string[]> {
@@ -62,6 +70,11 @@ export function validateGraph(wf: Workflow): string[] {
   const trigger = triggers[0]
   if (errors.length > 0 || !trigger) return errors
   if (wf.edges.some((e) => e.to === trigger.id)) errors.push(`trigger must not have incoming edges: ${trigger.id}`)
+  for (const e of wf.edges) {
+    if (e.when !== undefined && e.from === trigger.id) {
+      errors.push(`edge from the trigger cannot have a when condition: ${e.from} -> ${e.to}`)
+    }
+  }
   if (topologicalOrder(wf) === null) errors.push('graph contains a cycle')
   const reachable = reachableFrom(wf, trigger.id)
   for (const n of wf.nodes) {

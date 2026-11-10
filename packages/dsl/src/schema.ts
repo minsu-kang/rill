@@ -28,6 +28,7 @@ export const WorkflowEdgeSchema = Type.Object(
   {
     from: Type.String({ pattern: NODE_ID }),
     to: Type.String({ pattern: NODE_ID }),
+    when: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
   },
   { additionalProperties: false },
 )
