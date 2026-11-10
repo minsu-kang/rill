@@ -3,6 +3,7 @@ import { condition } from './nodes/condition'
 import { csvAppend } from './nodes/csv-append'
 import { delay } from './nodes/delay'
 import { fileRead } from './nodes/file-read'
+import { httpRequest } from './nodes/http-request'
 import { transform } from './nodes/transform'
 import { triggerManual } from './nodes/trigger-manual'
 
@@ -14,4 +15,5 @@ export function createCoreRegistry(): NodeRegistry {
     .register(condition)
     .register(delay)
     .register(fileRead)
+    .register(httpRequest)
 }
