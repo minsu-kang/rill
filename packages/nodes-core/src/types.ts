@@ -43,6 +43,7 @@ export interface ActionNodeDefinition extends NodeBase {
   kind: 'action'
   sideEffect: SideEffect
   configSchema: Type.TSchema
+  lenientRefs?: boolean
   execute(config: unknown, ctx: NodeContext): Promise<unknown>
 }
 
@@ -65,6 +66,7 @@ export function defineAction<C extends Type.TSchema, O extends Type.TSchema>(def
   description: string
   sideEffect: SideEffect
   configSchema: C
+  lenientRefs?: boolean
   outputSchema: O
   execute: (config: Type.Static<C>, ctx: NodeContext) => Promise<Type.Static<O>>
 }): ActionNodeDefinition {

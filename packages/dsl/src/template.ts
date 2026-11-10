@@ -36,6 +36,7 @@ function lookup(ref: TemplateRef, outputs: Record<string, unknown>): unknown {
 }
 
 function stringify(value: unknown): string {
+  if (value === undefined) return ''
   return typeof value === 'string' ? value : (JSON.stringify(value) ?? 'null')
 }
 
@@ -55,17 +56,33 @@ export function findMalformedTemplates(value: unknown): string[] {
   return []
 }
 
-export function resolveTemplates(value: unknown, outputs: Record<string, unknown>): unknown {
+export interface ResolveOptions {
+  lenient?: boolean
+}
+
+export function resolveTemplates(
+  value: unknown,
+  outputs: Record<string, unknown>,
+  options: ResolveOptions = {},
+): unknown {
+  const read = (ref: TemplateRef): unknown => {
+    try {
+      return lookup(ref, outputs)
+    } catch (error) {
+      if (options.lenient && error instanceof TemplateError) return undefined
+      throw error
+    }
+  }
   if (typeof value === 'string') {
     const whole = REF_WHOLE.exec(value)
-    if (whole) return lookup({ nodeId: whole[1]!, path: parsePath(whole[2]!) }, outputs)
+    if (whole) return read({ nodeId: whole[1]!, path: parsePath(whole[2]!) })
     return value.replace(REF_ANY, (_match, nodeId: string, path: string) =>
-      stringify(lookup({ nodeId, path: parsePath(path) }, outputs)),
+      stringify(read({ nodeId, path: parsePath(path) })),
     )
   }
-  if (Array.isArray(value)) return value.map((v) => resolveTemplates(v, outputs))
+  if (Array.isArray(value)) return value.map((v) => resolveTemplates(v, outputs, options))
   if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveTemplates(v, outputs)]))
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveTemplates(v, outputs, options)]))
   }
   return value
 }
