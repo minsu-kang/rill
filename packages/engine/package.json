@@ -1,0 +1,13 @@
+{
+  "name": "@rill/engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "cli": "node --import tsx src/cli.ts" },
+  "dependencies": {
+    "@rill/dsl": "workspace:*",
+    "@rill/nodes-core": "workspace:*",
+    "typebox": "^1.4.6"
+  }
+}
