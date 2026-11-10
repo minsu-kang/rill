@@ -10,9 +10,10 @@ export class TemplateError extends Error {
   }
 }
 
-const REF_SOURCE = String.raw`\{\{\s*([a-z][a-z0-9_]*)\.output((?:\.[A-Za-z0-9_]+)*)\s*\}\}`
+const REF_SOURCE = String.raw`\{\{\s*([a-z][a-z0-9_]*)\.output((?:\.[A-Za-z0-9_-]+)*)\s*\}\}`
 const REF_ANY = new RegExp(REF_SOURCE, 'g')
 const REF_WHOLE = new RegExp(`^\\s*${REF_SOURCE}\\s*$`)
+const MALFORMED_SPAN = /\{\{[\s\S]*?\}\}/g
 
 function parsePath(raw: string): string[] {
   return raw === '' ? [] : raw.slice(1).split('.')
@@ -44,6 +45,13 @@ export function extractRefs(value: unknown): TemplateRef[] {
   }
   if (Array.isArray(value)) return value.flatMap((v) => extractRefs(v))
   if (value !== null && typeof value === 'object') return Object.values(value).flatMap((v) => extractRefs(v))
+  return []
+}
+
+export function findMalformedTemplates(value: unknown): string[] {
+  if (typeof value === 'string') return (value.match(MALFORMED_SPAN) ?? []).filter((span) => !REF_WHOLE.test(span))
+  if (Array.isArray(value)) return value.flatMap((v) => findMalformedTemplates(v))
+  if (value !== null && typeof value === 'object') return Object.values(value).flatMap((v) => findMalformedTemplates(v))
   return []
 }
 
