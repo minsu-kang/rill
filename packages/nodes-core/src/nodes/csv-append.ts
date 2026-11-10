@@ -9,9 +9,9 @@ import {
   truncateSync,
   writeSync,
 } from 'node:fs'
-import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import Type from 'typebox'
+import { assertPathAllowed } from '../guard'
 import { defineAction } from '../types'
 
 type Cell = string | number | boolean | null
@@ -26,10 +26,6 @@ export function encodeRow(cells: Cell[]): string {
   return cells.map(encodeCell).join(',') + '\n'
 }
 
-function expandHome(path: string): string {
-  return path === '~' || path.startsWith('~/') ? join(homedir(), path.slice(1)) : path
-}
-
 function sizeOf(file: string): number {
   return existsSync(file) ? statSync(file).size : 0
 }
@@ -41,6 +37,19 @@ function rowPresentAt(file: string, offset: number, bytes: Buffer): boolean {
     const actual = Buffer.alloc(bytes.length)
     readSync(fd, actual, 0, bytes.length, offset)
     return actual.equals(bytes)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function tornWriteAt(file: string, offset: number, bytes: Buffer): boolean {
+  const tailLength = sizeOf(file) - offset
+  if (tailLength <= 0 || tailLength >= bytes.length) return false
+  const fd = openSync(file, 'r')
+  try {
+    const tail = Buffer.alloc(tailLength)
+    readSync(fd, tail, 0, tailLength, offset)
+    return tail.equals(bytes.subarray(0, tailLength))
   } finally {
     closeSync(fd)
   }
@@ -70,7 +79,7 @@ export const csvAppend = defineAction({
   ),
   outputSchema: Type.Object({ file: Type.String(), written: Type.Boolean() }),
   execute: async (config, ctx) => {
-    const file = expandHome(config.file)
+    const file = assertPathAllowed(config.file, ctx.allowedRoots)
     if (ctx.dryRun) return { file, written: false }
     const entry = ctx.journal.get(ctx.idempotencyKey)
     if (entry?.state === 'done') return { file, written: true }
@@ -84,7 +93,7 @@ export const csvAppend = defineAction({
         ctx.journal.put(ctx.idempotencyKey, 'done')
         return { file, written: true }
       }
-      if (size > offset) truncateSync(file, offset)
+      if (tornWriteAt(file, offset, bytes)) truncateSync(file, offset)
     }
     appendDurably(file, bytes)
     ctx.journal.put(ctx.idempotencyKey, 'done')
