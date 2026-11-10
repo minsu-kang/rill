@@ -1,12 +1,17 @@
 import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
-import { createCoreRegistry } from '@rill/nodes-core'
+import { createCoreRegistry, type ConnectionResolver } from '@rill/nodes-core'
 import { Db } from './db'
 import { Engine, WorkflowValidationError } from './engine'
 
 const USAGE = `usage:
-  rill-engine run <workflow.json> [--db <path>] [--payload <json>] [--dry-run]
-  rill-engine recover [--db <path>]`
+  rill-engine run <workflow.json> [--db <path>] [--payload <json>] [--dry-run] [--allow <dir>]... [--connections <file.json>]
+  rill-engine recover [--db <path>] [--allow <dir>]... [--connections <file.json>]`
+
+function loadConnections(file: string | undefined): ConnectionResolver {
+  const table: Record<string, string> = file ? JSON.parse(readFileSync(file, 'utf8')) : {}
+  return { get: (id) => (Object.hasOwn(table, id) ? table[id] : undefined) }
+}
 
 async function main(argv: string[]): Promise<number> {
   const { positionals, values } = parseArgs({
@@ -16,12 +21,19 @@ async function main(argv: string[]): Promise<number> {
       db: { type: 'string' },
       payload: { type: 'string' },
       'dry-run': { type: 'boolean' },
+      allow: { type: 'string', multiple: true },
+      connections: { type: 'string' },
     },
   })
   const [command, file] = positionals
   const db = Db.open(values.db ?? 'rill.db')
-  const engine = new Engine({ db, registry: createCoreRegistry() })
   try {
+    const engine = new Engine({
+      db,
+      registry: createCoreRegistry(),
+      allowedRoots: values.allow,
+      connections: loadConnections(values.connections),
+    })
     if (command === 'run' && file) {
       const id = engine.deploy(JSON.parse(readFileSync(file, 'utf8')))
       const payload = JSON.parse(values.payload ?? '{}')
