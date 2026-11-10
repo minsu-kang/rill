@@ -4,7 +4,7 @@ import type { Journal, JournalEntry } from '@rill/nodes-core'
 import type { Db } from './db'
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
-export type AttemptStatus = 'running' | 'succeeded' | 'failed' | 'abandoned'
+export type AttemptStatus = 'running' | 'succeeded' | 'failed' | 'abandoned' | 'skipped' | 'continued'
 
 export interface RunRow {
   id: string
@@ -176,6 +176,45 @@ export class Store {
       nodeId,
       attempt,
     )
+  }
+
+  recordSkipped(runId: string, nodeId: string, idempotencyKey: string): void {
+    this.db.transaction(() => {
+      const last = this.db.get<{ attempt: number; status: AttemptStatus }>(
+        'SELECT attempt, status FROM step_attempts WHERE run_id = ? AND node_id = ? ORDER BY attempt DESC LIMIT 1',
+        runId,
+        nodeId,
+      )
+      if (last?.status === 'skipped') return
+      const now = this.now()
+      this.db.run(
+        "INSERT INTO step_attempts (run_id, node_id, attempt, status, idempotency_key, started_at, finished_at) VALUES (?, ?, ?, 'skipped', ?, ?, ?)",
+        runId,
+        nodeId,
+        (last?.attempt ?? 0) + 1,
+        idempotencyKey,
+        now,
+        now,
+      )
+    })
+  }
+
+  markContinued(runId: string, nodeId: string, attempt: number): void {
+    this.db.run(
+      "UPDATE step_attempts SET status = 'continued' WHERE run_id = ? AND node_id = ? AND attempt = ? AND status = 'failed'",
+      runId,
+      nodeId,
+      attempt,
+    )
+  }
+
+  isContinued(runId: string, nodeId: string): boolean {
+    const row = this.db.get<{ status: AttemptStatus }>(
+      'SELECT status FROM step_attempts WHERE run_id = ? AND node_id = ? ORDER BY attempt DESC LIMIT 1',
+      runId,
+      nodeId,
+    )
+    return row?.status === 'continued'
   }
 
   abandonRunningAttempts(runId: string): number {

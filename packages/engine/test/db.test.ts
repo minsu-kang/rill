@@ -30,7 +30,8 @@ describe('Db', () => {
     const path = join(dir, 'a.db')
     Db.open(path).close()
     const db = Db.open(path)
-    expect(db.all('SELECT version FROM schema_migrations')).toHaveLength(1)
+    const versions = db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version')
+    expect(versions.map((r) => r.version)).toEqual([1, 2])
     db.close()
   })
 

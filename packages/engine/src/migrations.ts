@@ -1,6 +1,6 @@
 import type { Db } from './db'
 
-const MIGRATIONS: string[] = [
+export const MIGRATIONS: string[] = [
   `
   CREATE TABLE workflows (
     id TEXT PRIMARY KEY,
@@ -41,6 +41,28 @@ const MIGRATIONS: string[] = [
     data TEXT,
     updated_at INTEGER NOT NULL
   );
+  `,
+  `
+  CREATE TABLE step_attempts_next (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES runs(id),
+    node_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('running','succeeded','failed','abandoned','skipped','continued')),
+    input TEXT,
+    output TEXT,
+    error TEXT,
+    idempotency_key TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    finished_at INTEGER,
+    UNIQUE (run_id, node_id, attempt)
+  );
+  INSERT INTO step_attempts_next
+    (id, run_id, node_id, attempt, status, input, output, error, idempotency_key, started_at, finished_at)
+    SELECT id, run_id, node_id, attempt, status, input, output, error, idempotency_key, started_at, finished_at
+    FROM step_attempts;
+  DROP TABLE step_attempts;
+  ALTER TABLE step_attempts_next RENAME TO step_attempts;
   `,
 ]
 
