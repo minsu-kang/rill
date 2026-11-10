@@ -108,14 +108,20 @@ describe('Engine.startRun', () => {
     expect(engine.store.listAttempts(result.runId).map((a) => a.status)).toEqual(['failed'])
   })
 
-  it('fails a node whose template cannot be resolved', async () => {
+  it('fails a node whose template points at a missing field', async () => {
     const { engine } = createTestEngine()
     const id = engine.deploy(
-      linearWorkflow([trigger, { id: 'n1', type: 'test.echo@1', config: { value: '{{ghost.output.x}}' } }]),
+      linearWorkflow([trigger, { id: 'n1', type: 'test.echo@1', config: { value: '{{t1.output.missing}}' } }]),
     )
-    const result = await engine.startRun(id)
+    const result = await engine.startRun(id, {})
     expect(result.status).toBe('failed')
-    expect(result.error).toContain('unresolved reference: ghost.output.x')
+    expect(result.error).toContain('unresolved reference: t1.output.missing')
+  })
+
+  it('rejects references to unknown nodes at deploy time', () => {
+    const { engine } = createTestEngine()
+    const wf = linearWorkflow([trigger, { id: 'n1', type: 'test.echo@1', config: { value: '{{ghost.output.x}}' } }])
+    expect(() => engine.deploy(wf)).toThrow('reference to unknown node ghost')
   })
 
   it('continues past a failed node when onError is continue', async () => {

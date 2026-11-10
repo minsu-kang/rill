@@ -1,13 +1,22 @@
 import {
+  incomingEdges,
   isTrigger,
   parseWorkflowShape,
   resolveTemplates,
   topologicalOrder,
   validateGraph,
+  validateReferences,
   type Workflow,
+  type WorkflowEdge,
   type WorkflowNode,
 } from '@rill/dsl'
-import { RetryableError, type ActionNodeDefinition, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
+import {
+  RetryableError,
+  declaredBranches,
+  type ActionNodeDefinition,
+  type ConnectionResolver,
+  type NodeRegistry,
+} from '@rill/nodes-core'
 import Value from 'typebox/value'
 import type { Db } from './db'
 import { Store, type RunRow } from './store'
@@ -29,7 +38,7 @@ export interface RunResult {
   outputs: Record<string, unknown>
 }
 
-type NodeOutcome = { ok: true; output: unknown } | { ok: false; error: string }
+type NodeOutcome = { ok: true; output: unknown } | { ok: false; error: string; attempt: number }
 
 export class WorkflowValidationError extends Error {
   readonly problems: string[]
@@ -48,6 +57,16 @@ export function computeBackoff(failures: number, baseDelayMs: number, random: ()
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function branchOf(output: unknown): string | undefined {
+  if (output === null || typeof output !== 'object' || !('branch' in output)) return undefined
+  const branch = (output as { branch: unknown }).branch
+  return typeof branch === 'string' ? branch : undefined
+}
+
+function edgeFires(edge: WorkflowEdge, sourceOutput: unknown): boolean {
+  return edge.when === undefined || branchOf(sourceOutput) === edge.when
 }
 
 export class Engine {
@@ -70,7 +89,11 @@ export class Engine {
   deploy(input: unknown): string {
     const parsed = parseWorkflowShape(input)
     if (!parsed.ok) throw new WorkflowValidationError(parsed.errors)
-    const problems = [...validateGraph(parsed.workflow), ...this.registryProblems(parsed.workflow)]
+    const problems = [
+      ...validateGraph(parsed.workflow),
+      ...validateReferences(parsed.workflow),
+      ...this.registryProblems(parsed.workflow),
+    ]
     if (problems.length > 0) throw new WorkflowValidationError(problems)
     return this.store.saveWorkflow(parsed.workflow)
   }
@@ -89,10 +112,22 @@ export class Engine {
 
   private registryProblems(workflow: Workflow): string[] {
     const problems: string[] = []
+    const typeOf = new Map(workflow.nodes.map((n) => [n.id, n.type]))
     for (const node of workflow.nodes) {
       const def = this.registry.get(node.type)
       if (!def) problems.push(`unknown node type: ${node.type}`)
       else if ((def.kind === 'trigger') !== isTrigger(node.type)) problems.push(`node type kind mismatch: ${node.type}`)
+    }
+    for (const edge of workflow.edges) {
+      if (edge.when === undefined) continue
+      const source = this.registry.get(typeOf.get(edge.from) ?? '')
+      if (!source || source.kind === 'trigger') continue
+      const labels = declaredBranches(source)
+      if (labels === null) {
+        problems.push(`edge ${edge.from} -> ${edge.to}: ${edge.from} never produces a branch, remove "when"`)
+      } else if (labels !== 'any' && !labels.includes(edge.when)) {
+        problems.push(`edge ${edge.from} -> ${edge.to}: "${edge.when}" is not one of ${labels.join(', ')}`)
+      }
     }
     return problems
   }
@@ -103,6 +138,7 @@ export class Engine {
     const outputs: Record<string, unknown> = {}
     if (!order) return this.failRun(run.id, 'graph contains a cycle', outputs)
     const nodes = new Map(workflow.nodes.map((n) => [n.id, n]))
+    const settled = new Map<string, 'done' | 'skipped'>()
     this.store.abandonRunningAttempts(run.id)
     this.store.markRunRunning(run.id)
     for (const id of order) {
@@ -111,18 +147,36 @@ export class Engine {
       if (!def) return this.failRun(run.id, `unknown node type: ${node.type}`, outputs)
       if (def.kind === 'trigger') {
         outputs[id] = run.payload
+        settled.set(id, 'done')
+        continue
+      }
+      const active = incomingEdges(workflow, id).some(
+        (edge) => settled.get(edge.from) === 'done' && edgeFires(edge, outputs[edge.from]),
+      )
+      if (!active) {
+        this.store.recordSkipped(run.id, id, `${run.id}:${id}`)
+        settled.set(id, 'skipped')
+        continue
+      }
+      if (this.store.isContinued(run.id, id)) {
+        outputs[id] = null
+        settled.set(id, 'done')
         continue
       }
       const finished = this.store.latestSucceededOutput(run.id, id)
       if (finished) {
         outputs[id] = finished.output
+        settled.set(id, 'done')
         continue
       }
       const outcome = await this.runNode(run, node, def, outputs)
       if (outcome.ok) {
         outputs[id] = outcome.output
+        settled.set(id, 'done')
       } else if (node.onError === 'continue') {
+        this.store.markContinued(run.id, id, outcome.attempt)
         outputs[id] = null
+        settled.set(id, 'done')
       } else {
         return this.failRun(run.id, `node ${id} failed: ${outcome.error}`, outputs)
       }
@@ -145,7 +199,7 @@ export class Engine {
     const idempotencyKey = `${run.id}:${node.id}`
     let config: unknown
     try {
-      config = resolveTemplates(node.config, outputs)
+      config = resolveTemplates(node.config, outputs, { lenient: def.lenientRefs === true })
       if (!Value.Check(def.configSchema, config)) {
         const detail = [...Value.Errors(def.configSchema, config)]
           .map((e) => `${e.instancePath || '/'}: ${e.message}`)
@@ -156,7 +210,7 @@ export class Engine {
       const attempt = this.store.startAttempt({ runId: run.id, nodeId: node.id, input: node.config, idempotencyKey })
       const message = errorMessage(error)
       this.store.finishAttempt(run.id, node.id, attempt, { status: 'failed', error: message })
-      return { ok: false, error: message }
+      return { ok: false, error: message, attempt }
     }
 
     const maxAttempts = node.retry?.maxAttempts ?? 1
@@ -182,7 +236,7 @@ export class Engine {
         failures += 1
         const message = errorMessage(error)
         this.store.finishAttempt(run.id, node.id, attempt, { status: 'failed', error: message })
-        if (!(error instanceof RetryableError) || failures >= maxAttempts) return { ok: false, error: message }
+        if (!(error instanceof RetryableError) || failures >= maxAttempts) return { ok: false, error: message, attempt }
         await this.sleep(computeBackoff(failures, node.retry?.baseDelayMs ?? 500, this.random))
       }
     }
