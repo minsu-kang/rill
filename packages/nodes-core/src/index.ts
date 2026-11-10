@@ -1,2 +1,5 @@
 export * from './types'
 export * from './registry'
+export { triggerManual } from './nodes/trigger-manual'
+export { transform } from './nodes/transform'
+export { createCoreRegistry } from './core'
