@@ -19,6 +19,9 @@ export function makeCtx(overrides: Partial<NodeContext> = {}): NodeContext {
     dryRun: false,
     idempotencyKey: 'r1:n1',
     journal: memoryJournal(),
+    sleep: async () => {},
+    allowedRoots: undefined,
+    connections: { get: () => undefined },
     ...overrides,
   }
 }

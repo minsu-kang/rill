@@ -12,6 +12,10 @@ export interface Journal {
   put(key: string, state: JournalEntry['state'], data?: string): void
 }
 
+export interface ConnectionResolver {
+  get(id: string): string | undefined
+}
+
 export interface NodeContext {
   runId: string
   nodeId: string
@@ -19,6 +23,9 @@ export interface NodeContext {
   dryRun: boolean
   idempotencyKey: string
   journal: Journal
+  sleep(ms: number): Promise<void>
+  allowedRoots: string[] | undefined
+  connections: ConnectionResolver
 }
 
 interface NodeBase {

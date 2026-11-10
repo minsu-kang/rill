@@ -7,7 +7,7 @@ import {
   type Workflow,
   type WorkflowNode,
 } from '@rill/dsl'
-import { RetryableError, type ActionNodeDefinition, type NodeRegistry } from '@rill/nodes-core'
+import { RetryableError, type ActionNodeDefinition, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
 import Value from 'typebox/value'
 import type { Db } from './db'
 import { Store, type RunRow } from './store'
@@ -18,6 +18,8 @@ export interface EngineOptions {
   sleep?: (ms: number) => Promise<void>
   random?: () => number
   now?: () => number
+  allowedRoots?: string[]
+  connections?: ConnectionResolver
 }
 
 export interface RunResult {
@@ -53,12 +55,16 @@ export class Engine {
   private readonly registry: NodeRegistry
   private readonly sleep: (ms: number) => Promise<void>
   private readonly random: () => number
+  private readonly allowedRoots: string[] | undefined
+  private readonly connections: ConnectionResolver
 
   constructor(options: EngineOptions) {
     this.store = new Store(options.db, options.now)
     this.registry = options.registry
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
     this.random = options.random ?? Math.random
+    this.allowedRoots = options.allowedRoots
+    this.connections = options.connections ?? { get: () => undefined }
   }
 
   deploy(input: unknown): string {
@@ -166,6 +172,9 @@ export class Engine {
             dryRun: run.dryRun,
             idempotencyKey,
             journal: this.store.journal(),
+            sleep: this.sleep,
+            allowedRoots: this.allowedRoots,
+            connections: this.connections,
           })) ?? null
         this.store.finishAttempt(run.id, node.id, attempt, { status: 'succeeded', output })
         return { ok: true, output }
