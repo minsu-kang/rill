@@ -1,10 +1,19 @@
 import { isTrigger, parseWorkflowShape, validateGraph, validateReferences, type Workflow } from '@rill/dsl'
-import { declaredBranches, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
+import {
+  declaredBranches,
+  type ConnectionResolver,
+  type NodeRegistry,
+  type TriggerNodeDefinition,
+} from '@rill/nodes-core'
+import Value from 'typebox/value'
+import { systemClock, type Clock } from './clock'
 import type { Db } from './db'
 import { EventBus, type EngineListener } from './events'
 import { RunExecutor, type RunResult } from './executor'
 import { RunQueue } from './queue'
-import { Store } from './store'
+import { Store, type RunRow } from './store'
+import { TriggerManager } from './triggers/manager'
+import type { FireOptions } from './triggers/types'
 
 export { computeBackoff, type RunResult } from './executor'
 
@@ -14,9 +23,11 @@ export interface EngineOptions {
   sleep?: (ms: number) => Promise<void>
   random?: () => number
   now?: () => number
+  clock?: Clock
   allowedRoots?: string[]
   connections?: ConnectionResolver
   maxConcurrentRuns?: number
+  webhookPort?: number
 }
 
 export class WorkflowValidationError extends Error {
@@ -35,9 +46,13 @@ export class Engine {
   private readonly executor: RunExecutor
   private readonly bus: EventBus
   private readonly queue: RunQueue
+  private readonly triggers: TriggerManager
+  private readonly owned = new Set<string>()
 
   constructor(options: EngineOptions) {
-    const now = options.now ?? (() => Date.now())
+    const clock = options.clock ?? systemClock
+    const now = options.now ?? (() => clock.now())
+    const connections = options.connections ?? { get: () => undefined }
     this.store = new Store(options.db, now)
     this.registry = options.registry
     this.bus = new EventBus(now)
@@ -48,8 +63,19 @@ export class Engine {
       sleep: options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
       random: options.random ?? Math.random,
       allowedRoots: options.allowedRoots,
-      connections: options.connections ?? { get: () => undefined },
+      connections,
       emit: (event) => this.bus.emit(event),
+    })
+    this.triggers = new TriggerManager({
+      store: this.store,
+      registry: options.registry,
+      clock,
+      fire: (workflowId, payload, fireOptions) => this.fire(workflowId, payload, fireOptions),
+      isBusy: (workflowId) => this.store.hasActiveRun(workflowId),
+      emit: (event) => this.bus.emit(event),
+      allowedRoots: options.allowedRoots,
+      connections,
+      webhookPort: options.webhookPort ?? 0,
     })
   }
 
@@ -75,22 +101,85 @@ export class Engine {
     options: { dryRun?: boolean } = {},
   ): { runId: string; done: Promise<RunResult> } {
     const run = this.store.createRun({ workflowId, payload, dryRun: options.dryRun ?? false })
-    return { runId: run.id, done: this.queue.run(() => this.executor.execute(run)) }
+    return { runId: run.id, done: this.track(run) }
   }
 
   async startRun(workflowId: string, payload: unknown = {}, options: { dryRun?: boolean } = {}): Promise<RunResult> {
     return this.enqueueRun(workflowId, payload, options).done
   }
 
+  async recover(): Promise<RunResult[]> {
+    const pending = [...this.store.listRunsByStatus('running'), ...this.store.listRunsByStatus('queued')].filter(
+      (run) => !this.owned.has(run.id),
+    )
+    const results: RunResult[] = []
+    for (const run of pending) {
+      this.owned.add(run.id)
+      try {
+        results.push(await this.executor.execute(run))
+      } finally {
+        this.owned.delete(run.id)
+      }
+    }
+    return results
+  }
+
+  async activate(workflowId: string): Promise<void> {
+    await this.triggers.activate(workflowId)
+  }
+
+  deactivate(workflowId: string): void {
+    this.triggers.deactivate(workflowId)
+  }
+
+  async resumeActive(): Promise<void> {
+    await this.triggers.resumeActive()
+  }
+
+  webhookPort(): number | undefined {
+    return this.triggers.webhookPort
+  }
+
   async idle(): Promise<void> {
+    await this.triggers.idle()
     await this.queue.idle()
   }
 
-  async recover(): Promise<RunResult[]> {
-    const pending = [...this.store.listRunsByStatus('running'), ...this.store.listRunsByStatus('queued')]
-    const results: RunResult[] = []
-    for (const run of pending) results.push(await this.executor.execute(run))
-    return results
+  async shutdown(): Promise<void> {
+    await this.triggers.shutdown()
+    await this.queue.idle()
+  }
+
+  private track(run: RunRow): Promise<RunResult> {
+    this.owned.add(run.id)
+    return this.queue
+      .run(() => this.executor.execute(run))
+      .finally(() => {
+        this.owned.delete(run.id)
+      })
+  }
+
+  private fire(workflowId: string, payload: unknown, options: FireOptions = {}): { runId: string } {
+    const run = this.store.createTriggeredRun({ workflowId, payload, fingerprint: options.fingerprint })
+    this.bus.emit({ type: 'trigger.fired', workflowId, runId: run.id })
+    this.track(run).catch((error: unknown) => {
+      this.bus.emit({
+        type: 'trigger.error',
+        workflowId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+    return { runId: run.id }
+  }
+
+  private triggerProblems(id: string, def: TriggerNodeDefinition, config: unknown): string[] {
+    if (!Value.Check(def.configSchema, config)) {
+      const detail = [...Value.Errors(def.configSchema, config)]
+        .map((e) => `${e.instancePath || '/'}: ${e.message}`)
+        .join('; ')
+      return [`trigger ${id}: invalid config: ${detail}`]
+    }
+    return (def.validate?.(config) ?? []).map((message) => `trigger ${id}: ${message}`)
   }
 
   private registryProblems(workflow: Workflow): string[] {
@@ -100,6 +189,7 @@ export class Engine {
       const def = this.registry.get(node.type)
       if (!def) problems.push(`unknown node type: ${node.type}`)
       else if ((def.kind === 'trigger') !== isTrigger(node.type)) problems.push(`node type kind mismatch: ${node.type}`)
+      else if (def.kind === 'trigger') problems.push(...this.triggerProblems(node.id, def, node.config))
     }
     for (const edge of workflow.edges) {
       if (edge.when === undefined) continue
