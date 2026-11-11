@@ -2,6 +2,7 @@ import { capIssues, isWarningIssue, type PlanIssue, type Workflow } from '@rill/
 import { LlmError, costUsd, type LlmMessage, type LlmPart, type LlmRequest, type LlmResult, type LlmUsage } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
 import { ATTACHMENT_RULES, attachmentModule } from './attachments'
+import { createNameGuard } from './attachments/names'
 import { fold } from './attachments/normalize'
 import { createProvenanceCache, userSourcedTest } from './attachments/provenance'
 import { maskConfig, unmaskConfig } from './mask'
@@ -22,7 +23,7 @@ import {
   type CurrentTurnInput,
 } from './prompt'
 import { MAX_QUESTION_TURNS, gapLanguage, gapQuestions, gapSummary, isGapIssue, isNoticeIssue, questionTurnsSinceLastWorkflow } from './questions'
-import { PlanError, type Flag, type PlanRequest, type PlanResult, type PlanQuestion, type PlanResultBody, type PlanRound, type PlanTurn } from './types'
+import { PlanError, type Flag, type PatchOp, type PlanRequest, type PlanResult, type PlanQuestion, type PlanResultBody, type PlanRound, type PlanTurn } from './types'
 
 export const DEFAULT_MAX_REPAIR_ROUNDS = 3
 export const MAX_TARGETED_NODES = 2
@@ -292,12 +293,16 @@ class Run {
     return this.attachments.provenance({ workflow, ...this.provenanceInput() })
   }
 
-  private redact(issues: PlanIssue[], workflow: Workflow | undefined, flags: Flag[]): PlanIssue[] {
+  private redact(issues: PlanIssue[], workflow: Workflow | undefined, flags: Flag[], patch?: readonly PatchOp[]): PlanIssue[] {
+    const existing = this.request.context.existingWorkflow
     return this.attachments.redactIssues(issues, {
       ...(workflow === undefined ? {} : { workflow }),
       registry: this.registry,
       attachmentTexts: this.attachmentTexts,
       flags,
+      userTexts: userTexts(this.request),
+      ...(existing === undefined ? {} : { existingWorkflow: existing }),
+      ...(patch === undefined ? {} : { patch }),
     })
   }
 
@@ -319,6 +324,14 @@ class Run {
     const issues: PlanIssue[] = []
     const flags = this.flagsFor(workflow)
     const userSourced = userSourcedTest(this.provenanceInput())
+    const existing = this.request.context.existingWorkflow
+    const names = createNameGuard({
+      attachmentTexts: this.attachmentTexts,
+      registry: this.registry,
+      userTexts: userTexts(this.request),
+      workflow,
+      ...(existing === undefined ? {} : { existingWorkflow: existing }),
+    })
     for (const index of indexes) {
       this.checkAbort()
       const node = workflow.nodes[index]!
@@ -328,11 +341,12 @@ class Run {
         errors.filter((issue) => issue.pointer === pointer || issue.pointer.startsWith(`${pointer}/`)),
         workflow,
         flags,
+        decoded.patch,
       )
       const visible = withoutHiddenFields(def)
       const hidden = hiddenValues(def, node.config)
       const own = Object.fromEntries(Object.entries(node.config).filter(([key]) => !Object.hasOwn(hidden, key)))
-      const { shown, masked } = maskConfig(own, { def, nodePointer: pointer, flags, userSourced, attachmentTexts: this.attachmentTexts })
+      const { shown, masked } = maskConfig(own, { def, nodePointer: pointer, flags, userSourced, attachmentTexts: this.attachmentTexts, names })
       const text = targetedText(this.request, userTexts(this.request), node, shown, redacted)
       const result = await this.call(this.baseRequest([{ role: 'user', content: text }], convertSchema(visible).schema))
       if (result instanceof LlmError) {
@@ -393,13 +407,13 @@ class Run {
       const issues = [...extra, ...decoded.issues]
       const { errors, gaps } = classify(issues, this.request, decoded.workflow)
       const flags = this.flagsFor(decoded.workflow)
-      const recorded = this.redact(capIssues(issues), decoded.workflow, flags)
+      const recorded = this.redact(capIssues(issues), decoded.workflow, flags, decoded.patch)
       this.rounds.push({ index, issues: recorded, usage: this.roundUsage, durationMs: Date.now() - started, targeted })
       if (errors.length === 0 && decoded.body !== undefined) {
         this.lastIssues = []
         return this.finish(this.complete(decoded.body, gaps, decoded.workflow, flags))
       }
-      const sent = this.redact(capIssues(errors.length > 0 ? errors : issues), decoded.workflow, flags)
+      const sent = this.redact(capIssues(errors.length > 0 ? errors : issues), decoded.workflow, flags, decoded.patch)
       this.lastIssues = sent
       if (index >= maxRepairRounds) {
         throw this.fail('invalid_after_repair', `no valid answer after ${maxRepairRounds} repair rounds`)

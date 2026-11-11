@@ -1,5 +1,6 @@
-import { stringLeaves } from '@rill/dsl'
-import { fieldRoles, isWriteField, type NodeDefinition } from '@rill/nodes-core'
+import { joinPointer, stringLeaves } from '@rill/dsl'
+import { fieldRoles, isWriteField, subschemaAt, type NodeDefinition } from '@rill/nodes-core'
+import type { NameGuard } from './attachments/names'
 import { CHECKED_ROLES, type CheckedRole, type UserSourcedTest } from './attachments/provenance'
 import { containsAttachmentLiteral } from './attachments/redact'
 import type { Flag } from './types'
@@ -12,6 +13,7 @@ export interface MaskInput {
   flags: readonly Flag[]
   userSourced: UserSourcedTest
   attachmentTexts: readonly string[]
+  names?: NameGuard
 }
 
 export interface MaskedConfig {
@@ -51,6 +53,29 @@ function getAt(target: unknown, pointer: string): unknown {
   return current
 }
 
+type Json = Record<string, unknown>
+
+function isObject(value: unknown): value is Json {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isClosed(schema: Json | undefined): schema is Json & { properties: Json } {
+  return schema?.type === 'object' && isObject(schema.properties) && schema.additionalProperties === false && schema.patternProperties === undefined
+}
+
+function dropForeignKeys(value: unknown, schema: Json, pointer: string, names: NameGuard): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => dropForeignKeys(item, schema, joinPointer(pointer, index), names))
+    return
+  }
+  if (!isObject(value)) return
+  const closed = isClosed(subschemaAt(schema, pointer))
+  for (const key of Object.keys(value)) {
+    if (closed && names.hides(key)) delete value[key]
+    else dropForeignKeys(value[key], schema, joinPointer(pointer, key), names)
+  }
+}
+
 export function maskConfig(config: Record<string, unknown>, input: MaskInput): MaskedConfig {
   const roles = new Map(fieldRoles(input.def).map((field) => [field.pointer, field.role]))
   const shown = structuredClone(config)
@@ -65,6 +90,7 @@ export function maskConfig(config: Record<string, unknown>, input: MaskInput): M
       setAt(shown, leaf.pointer, MASK)
     }
   }
+  if (input.names !== undefined) dropForeignKeys(shown, input.def.configSchema as unknown as Json, '', input.names)
   return { shown, masked }
 }
 

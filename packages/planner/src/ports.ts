@@ -2,7 +2,7 @@ import type { PlanIssue, Workflow } from '@rill/dsl'
 import type { JsonSchema, LlmPart, LlmProvider } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
 import type { ProvenanceCache } from './attachments/provenance'
-import type { AttachmentRef, Flag, PlanRequest, PlanResult, PlanResultBody } from './types'
+import type { AttachmentRef, Flag, PatchOp, PlanRequest, PlanResult, PlanResultBody } from './types'
 
 export const MAX_ATTACHMENTS_PER_MESSAGE = 5
 export const MAX_ATTACHMENTS_PER_CONVERSATION = 10
@@ -32,6 +32,9 @@ export interface RedactInput {
   registry: NodeRegistry
   attachmentTexts: string[]
   flags: Flag[]
+  userTexts?: string[]
+  existingWorkflow?: Workflow
+  patch?: readonly PatchOp[]
 }
 
 export interface AttachmentModule {
