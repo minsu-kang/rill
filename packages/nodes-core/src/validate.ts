@@ -126,6 +126,11 @@ function kindOf(value: unknown): string {
   return Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value
 }
 
+function isFreeText(schema: Json): boolean {
+  const [first] = nonNullBranches(schema)
+  return first?.type === 'string' && first.const === undefined && !(Array.isArray(first.enum) && first.enum.length > 0)
+}
+
 export function placeholderFor(schema: Json): Placeholder | undefined {
   const branches = Array.isArray(schema.anyOf) ? (schema.anyOf as Json[]) : [schema]
   const nullable = branches.some((branch) => branch.type === 'null')
@@ -303,14 +308,25 @@ class NodeChecker {
   fill(node: WorkflowNode): Filled {
     const templated = new Map<string, Placeholder | undefined>()
     const open = new Set<string>()
+    const literals = new Set<unknown>(
+      stringLeaves(node.config, '')
+        .filter((leaf) => extractRefs(leaf.value).length === 0)
+        .map((leaf) => leaf.value),
+    )
+    let counter = 0
+    const fresh = (make: (token: string) => string): string => {
+      for (;;) {
+        const text = make(`x${++counter}`)
+        if (!literals.has(text)) return text
+      }
+    }
     const walk = (value: unknown, pointer: string): { check: unknown; hook: unknown } => {
       if (typeof value === 'string') {
         if (extractRefs(value).length === 0) return { check: value, hook: value }
         const whole = matchWholeRef(value)
         if (!whole) {
           templated.set(pointer, undefined)
-          const text = replaceRefs(value, () => 'x')
-          return { check: text, hook: text }
+          return { check: replaceRefs(value, () => 'x'), hook: fresh((token) => replaceRefs(value, () => token)) }
         }
         const resolved = this.resolve(node, whole)
         const placeholder = resolved?.kind === 'schema' ? placeholderFor(resolved.schema) : undefined
@@ -319,7 +335,8 @@ class NodeChecker {
           return { check: OPEN, hook: value }
         }
         templated.set(pointer, placeholder)
-        return { check: placeholder.value, hook: placeholder.value }
+        const unique = resolved?.kind === 'schema' && isFreeText(resolved.schema)
+        return { check: placeholder.value, hook: unique ? fresh((token) => token) : placeholder.value }
       }
       if (Array.isArray(value)) {
         const parts = value.map((item, i) => walk(item, joinPointer(pointer, i)))

@@ -78,6 +78,17 @@ const custom = createCoreRegistry()
   )
   .register(
     defineAction({
+      type: 'test.fixed@1',
+      title: 'Fixed',
+      description: 'Returns a constant string.',
+      sideEffect: 'none',
+      configSchema: Type.Object({}),
+      outputSchema: Type.Object({ word: Type.Literal('bad') }),
+      execute: async () => ({ word: 'bad' as const }),
+    }),
+  )
+  .register(
+    defineAction({
       type: 'test.sink@1',
       title: 'Sink',
       description: 'Accepts typed values.',
@@ -507,6 +518,37 @@ describe('validateWorkflow through record outputs', () => {
     const numeric = { type: 'object', patternProperties: { '^(0|[1-9][0-9]*)$': { type: 'integer' } } }
     expect(walkOutput(numeric, ['7'])).toEqual({ kind: 'schema', schema: { type: 'integer' } })
     expect(walkOutput(numeric, ['seven'])).toEqual({ kind: 'open' })
+  })
+})
+
+describe('validateWorkflow hooks see distinct placeholders', () => {
+  const folder = n('t1', 'trigger.folderWatch@1', { folder: '/in' })
+
+  it('does not report a duplicate for two templated field names', () => {
+    const fields = [{ name: '{{t1.output.name}}', type: 'string' }, { name: '{{t1.output.extension}}', type: 'string' }]
+    expect(validateWorkflow(chain(folder, n('ex', 'llm.extract@1', { text: 'r', fields })), env)).toEqual([])
+  })
+
+  it('does not report a duplicate for two embedded templates', () => {
+    const fields = [{ name: 'a_{{t1.output.name}}', type: 'string' }, { name: 'a_{{t1.output.extension}}', type: 'string' }]
+    expect(validateWorkflow(chain(folder, n('ex', 'llm.extract@1', { text: 'r', fields })), env)).toEqual([])
+  })
+
+  it('does not let a placeholder collide with a literal field name', () => {
+    const fields = [{ name: 'x1', type: 'string' }, { name: '{{t1.output.name}}', type: 'string' }]
+    expect(validateWorkflow(chain(folder, n('ex', 'llm.extract@1', { text: 'r', fields })), env)).toEqual([])
+  })
+
+  it('still reports two identical literal names', () => {
+    const fields = [{ name: 'x1', type: 'string' }, { name: 'x1', type: 'string' }, { name: '{{t1.output.name}}', type: 'string' }]
+    expect(validateWorkflow(chain(folder, n('ex', 'llm.extract@1', { text: 'r', fields })), env).map((i) => i.message)).toEqual([
+      'node ex: duplicate field name: x1',
+    ])
+  })
+
+  it('hands a constant upstream value to the hook as it is', () => {
+    const wf = chain(manual, n('f', 'test.fixed@1'), n('a', 'test.sink@1', { text: '{{f.output.word}}' }))
+    expect(validateWorkflow(wf, customEnv).map((i) => i.message)).toEqual(['node a: text must not be bad'])
   })
 })
 
