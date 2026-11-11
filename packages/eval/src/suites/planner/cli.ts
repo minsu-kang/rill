@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
-import { STREAMING_ABOVE_MAX_TOKENS, type LlmEffort } from '@rill/llm'
+import type { LlmEffort } from '@rill/llm'
 import { formatUsdPlain, guardReserveUsd, money, plural, worstCallUsd } from '../../budget'
 import {
   DEFAULT_BASE_URL,
@@ -29,8 +29,14 @@ import {
   DEFAULT_MAX_REPAIR_ROUNDS,
   HISTORY_TOKENS_PER_REPAIR_ROUND,
   BASE_INPUT_TOKENS,
+  PLANNER_EFFORTS,
+  PLANNER_MAX_OUTPUT_TOKENS,
   TARGETED_EXTRA_CALLS,
   TYPICAL_OUTPUT_TOKENS,
+  effortTable,
+  isMeasurableEffort,
+  measurableEfforts,
+  unmeasurableEffortMessage,
   worstCaseCalls,
 } from './budget'
 import { verifyAttachments } from './attachments'
@@ -47,7 +53,6 @@ export const PLANNER_DEFAULT_CONCURRENCY = 2
 export const PLANNER_DEFAULT_MAX_CALL_SECONDS = 300
 export const PLANNER_DEFAULT_MAX_ATTEMPTS = 2
 export const PLANNER_DEFAULT_SEED = 1
-export const PLANNER_DEFAULT_MAX_OUTPUT_TOKENS = STREAMING_ABOVE_MAX_TOKENS
 export const PLANNER_PROGRESS_EVERY = 5
 
 export const PLANNER_LIMITS = {
@@ -55,12 +60,9 @@ export const PLANNER_LIMITS = {
   concurrency: { min: 1, max: 16 },
   maxCallSeconds: { min: 1, max: 1800 },
   maxAttempts: { min: 1, max: 10 },
-  maxOutputTokens: { min: 1, max: STREAMING_ABOVE_MAX_TOKENS },
   maxRepairRounds: { min: 0, max: 5 },
   seed: { min: 0, max: 4_294_967_295 },
 } as const
-
-export const PLANNER_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
 const COMMAND = 'pnpm eval planner'
 const MODEL_ID = /^[a-z0-9][a-z0-9._-]*$/u
@@ -72,7 +74,7 @@ Without --yes nothing is sent: it prints the plan, the cost estimate and the com
 
 options:
   --model <a,b>           models to compare (default: ${PLANNER_DEFAULT_MODELS.join(',')}); --models is the same option
-  --effort <e>            override the effort of every case: ${PLANNER_EFFORTS.join(', ')} (default: the case's own, low, medium or high)
+  --effort <e>            override the effort of every case: ${measurableEfforts().join(', ')} (default: the case's own); xhigh and max stream their reply and cannot be measured
   --group <g>             only this group of cases, or a comma list: ${CATEGORIES.join(', ')}
   --only <ids>            a case id substring, or a comma list of exact case ids
   --dry                   print the plan and exit (also what happens without --yes); cannot be combined with --yes
@@ -80,8 +82,6 @@ options:
   --concurrency <n>       cases in flight at once (default: ${PLANNER_DEFAULT_CONCURRENCY})
   --max-repair-rounds <n> repair rounds the planner may use, ${PLANNER_LIMITS.maxRepairRounds.min} to ${PLANNER_LIMITS.maxRepairRounds.max} (default: ${DEFAULT_MAX_REPAIR_ROUNDS}); sets the worst case of the budget guard
   --budget-usd <usd>      spending cap, required with --yes (the plan prints a suggested value)
-  --max-output-tokens <n> max_tokens per request and the output side of the budget guard, at most ${STREAMING_ABOVE_MAX_TOKENS}
-                          (default: ${PLANNER_DEFAULT_MAX_OUTPUT_TOKENS}; above that the provider streams and the harness cannot read the usage)
   --max-call-seconds <n>  ceiling for one attempt of one case, repair rounds included, ${PLANNER_LIMITS.maxCallSeconds.min} to ${PLANNER_LIMITS.maxCallSeconds.max} (default: ${PLANNER_DEFAULT_MAX_CALL_SECONDS})
   --max-attempts <n>      attempts per case for transient provider failures, at most ${PLANNER_LIMITS.maxAttempts.max} (default: ${PLANNER_DEFAULT_MAX_ATTEMPTS})
   --seed <n>              schedule and bootstrap seed, 0 to ${PLANNER_LIMITS.seed.max} (default: ${PLANNER_DEFAULT_SEED})
@@ -105,7 +105,6 @@ export interface PlannerCliConfig {
   concurrency: number
   maxRepairRounds: number
   budgetUsd: number | undefined
-  maxOutputTokens: number
   maxCallSeconds: number
   maxAttempts: number
   seed: number
@@ -154,6 +153,9 @@ export function parsePlannerCli(argv: readonly string[]): PlannerCliConfig {
   const empty = emptyPlannerConfig()
   if (values.help === true) return { ...empty, help: true }
   if (positionals.length > 0) throw new UsageError(`unexpected argument: ${positionals[0]}`)
+  if (values['max-output-tokens'] !== undefined) {
+    throw new UsageError(`--max-output-tokens is not an option of the planner command: the planner sets max_tokens itself, by effort (${effortTable()}); choose the effort with --effort`)
+  }
   const yes = values.yes === true
   const dry = values.dry === true
   if (yes && dry) throw new UsageError('--dry cannot be combined with --yes: a dry run never calls the API')
@@ -163,8 +165,9 @@ export function parsePlannerCli(argv: readonly string[]): PlannerCliConfig {
   for (const model of models) if (!MODEL_ID.test(model)) throw new UsageError(`--model must list model ids, got: ${model}`)
   let effort: LlmEffort | undefined
   if (values.effort !== undefined) {
-    if (!(PLANNER_EFFORTS as readonly string[]).includes(values.effort)) throw new UsageError(`--effort must be one of ${PLANNER_EFFORTS.join(', ')}`)
+    if (!(PLANNER_EFFORTS as readonly string[]).includes(values.effort)) throw new UsageError(`--effort must be one of ${measurableEfforts().join(', ')}`)
     effort = values.effort as LlmEffort
+    if (!isMeasurableEffort(effort)) throw new UsageError(`--effort ${effort}: ${unmeasurableEffortMessage([effort])}`)
   }
   let budgetUsd: number | undefined
   const rawBudget = values['budget-usd']
@@ -185,7 +188,6 @@ export function parsePlannerCli(argv: readonly string[]): PlannerCliConfig {
     concurrency: integerOption('--concurrency', values.concurrency, PLANNER_DEFAULT_CONCURRENCY, PLANNER_LIMITS.concurrency),
     maxRepairRounds: integerOption('--max-repair-rounds', values['max-repair-rounds'], DEFAULT_MAX_REPAIR_ROUNDS, PLANNER_LIMITS.maxRepairRounds),
     budgetUsd,
-    maxOutputTokens: integerOption('--max-output-tokens', values['max-output-tokens'], PLANNER_DEFAULT_MAX_OUTPUT_TOKENS, PLANNER_LIMITS.maxOutputTokens),
     maxCallSeconds: integerOption('--max-call-seconds', values['max-call-seconds'], PLANNER_DEFAULT_MAX_CALL_SECONDS, PLANNER_LIMITS.maxCallSeconds),
     maxAttempts: integerOption('--max-attempts', values['max-attempts'], PLANNER_DEFAULT_MAX_ATTEMPTS, PLANNER_LIMITS.maxAttempts),
     seed: integerOption('--seed', values.seed, PLANNER_DEFAULT_SEED, PLANNER_LIMITS.seed),
@@ -207,7 +209,6 @@ function emptyPlannerConfig(): PlannerCliConfig {
     concurrency: PLANNER_DEFAULT_CONCURRENCY,
     maxRepairRounds: DEFAULT_MAX_REPAIR_ROUNDS,
     budgetUsd: undefined,
-    maxOutputTokens: PLANNER_DEFAULT_MAX_OUTPUT_TOKENS,
     maxCallSeconds: PLANNER_DEFAULT_MAX_CALL_SECONDS,
     maxAttempts: PLANNER_DEFAULT_MAX_ATTEMPTS,
     seed: PLANNER_DEFAULT_SEED,
@@ -226,7 +227,6 @@ export function plannerCommandLine(config: PlannerCliConfig, budgetUsd: number |
   if (config.reps !== PLANNER_DEFAULT_REPS) parts.push('--reps', String(config.reps))
   if (config.concurrency !== PLANNER_DEFAULT_CONCURRENCY) parts.push('--concurrency', String(config.concurrency))
   if (config.maxRepairRounds !== DEFAULT_MAX_REPAIR_ROUNDS) parts.push('--max-repair-rounds', String(config.maxRepairRounds))
-  if (config.maxOutputTokens !== PLANNER_DEFAULT_MAX_OUTPUT_TOKENS) parts.push('--max-output-tokens', String(config.maxOutputTokens))
   if (config.maxCallSeconds !== PLANNER_DEFAULT_MAX_CALL_SECONDS) parts.push('--max-call-seconds', String(config.maxCallSeconds))
   if (config.maxAttempts !== PLANNER_DEFAULT_MAX_ATTEMPTS) parts.push('--max-attempts', String(config.maxAttempts))
   if (config.seed !== PLANNER_DEFAULT_SEED) parts.push('--seed', String(config.seed))
@@ -287,7 +287,7 @@ function worstTotalUsd(suite: PlannerSuite, model: string, maxOutputTokens: numb
 function budgetFor(config: PlannerCliConfig, suite: PlannerSuite, estimate: RunEstimate): number | undefined {
   if (config.budgetUsd !== undefined) return config.budgetUsd
   if (estimate.totalUsd === undefined) return undefined
-  const worst = worstCallUsd(suite, config.models, config.maxOutputTokens)
+  const worst = worstCallUsd(suite, config.models, PLANNER_MAX_OUTPUT_TOKENS)
   return suggestedBudgetUsd(estimate.totalUsd, guardReserveUsd(worst, config.concurrency, estimate.calls))
 }
 
@@ -295,7 +295,7 @@ export function plannerPlanText(config: PlannerCliConfig, suite: PlannerSuite, e
   const cases = suite.cases()
   const tasks = cases.length * config.reps * config.models.length
   const calls = worstCaseCalls(config.maxRepairRounds)
-  const worstOne = worstCallUsd(suite, config.models, config.maxOutputTokens)
+  const worstOne = worstCallUsd(suite, config.models, PLANNER_MAX_OUTPUT_TOKENS)
   const lines = [
     `rill eval: ${suite.name} (suite version ${suite.version})`,
     '',
@@ -304,7 +304,7 @@ export function plannerPlanText(config: PlannerCliConfig, suite: PlannerSuite, e
     `reps: ${config.reps}`,
     `tasks: ${tasks} (${plural(cases.length, 'case')} x ${plural(config.reps, 'rep')} x ${plural(config.models.length, 'model')}), one planner call chain per task`,
     `provider calls: ${tasks} planned at one call per task if no plan needs repair; at most ${tasks * calls} (${calls} per task)`,
-    `effort: ${config.effort === undefined ? `each case sets its own (${countBy(cases, (testCase) => testCase.spec.effort)})` : `${config.effort} (override)`}`,
+    `effort: ${config.effort === undefined ? `each case sets its own (${countBy(cases, (testCase) => testCase.spec.effort)})` : `${config.effort} (override)`}; the planner sets max_tokens from it: ${effortTable({ measurableOnly: true })}`,
     `planner: up to ${plural(config.maxRepairRounds, 'repair round')}; worst case ${calls} calls per case = 1 first call + ${config.maxRepairRounds} repair rounds + ${TARGETED_EXTRA_CALLS} targeted calls`,
     `schedule seed ${config.seed}, concurrency ${config.concurrency}, at most ${config.maxAttempts} attempts per case, ${config.maxCallSeconds} s per attempt`,
     '',
@@ -314,12 +314,12 @@ export function plannerPlanText(config: PlannerCliConfig, suite: PlannerSuite, e
     `estimate (prices as of ${PRICE_TABLE_AS_OF}):`,
     ...estimate.perModel.map((entry) => {
       if (priceFor(entry.model) === undefined) return `  ${entry.model}: ${plural(entry.calls, 'case')}, no price in the price table`
-      const worst = worstTotalUsd(suite, entry.model, config.maxOutputTokens, config.reps)
-      return `  ${entry.model}: typical ${money(entry.usd)} (one call per case, no repair), worst case ${money(worst)} (${calls} calls per case, every call at ${config.maxOutputTokens} output tokens)`
+      const worst = worstTotalUsd(suite, entry.model, PLANNER_MAX_OUTPUT_TOKENS, config.reps)
+      return `  ${entry.model}: typical ${money(entry.usd)} (one call per case, no repair), worst case ${money(worst)} (${calls} calls per case, every call at the max_tokens of its effort)`
     }),
-    `  total: typical ${money(estimate.totalUsd)}, worst case ${money(config.models.reduce<number | undefined>((total, model) => (total === undefined ? undefined : addOrUndefined(total, worstTotalUsd(suite, model, config.maxOutputTokens, config.reps))), 0))}`,
+    `  total: typical ${money(estimate.totalUsd)}, worst case ${money(config.models.reduce<number | undefined>((total, model) => (total === undefined ? undefined : addOrUndefined(total, worstTotalUsd(suite, model, PLANNER_MAX_OUTPUT_TOKENS, config.reps))), 0))}`,
     `assumptions: input of the first call is ${BASE_INPUT_TOKENS} tokens of rules and node catalog plus the case text, plus 2400 for a PDF, 2000 for a PNG or chars / 3.5 + 400 for a text attachment; typical output is ${estimate.assumptions.outputTokens} tokens per call (thinking included). These are estimates, not measurements, and need a live pilot.`,
-    `guard formula: the budget guard reserves, for every case in flight, ${calls} calls x (input + ${config.maxOutputTokens} output tokens) at the price of the model, where the input is the first-call estimate plus ${HISTORY_TOKENS_PER_REPAIR_ROUND} tokens for each of the ${config.maxRepairRounds} repair rounds (the history a repair round re-sends); ${calls} = 1 + ${config.maxRepairRounds} repair rounds + ${TARGETED_EXTRA_CALLS} targeted calls.`,
+    `guard formula: the budget guard reserves, for every case in flight, ${calls} calls x (input + the max_tokens of the case's effort as output tokens) at the price of the model, where the input is the first-call estimate plus ${HISTORY_TOKENS_PER_REPAIR_ROUND} tokens for each of the ${config.maxRepairRounds} repair rounds (the history a repair round re-sends); ${calls} = 1 + ${config.maxRepairRounds} repair rounds + ${TARGETED_EXTRA_CALLS} targeted calls.`,
   ]
   if (estimate.unpricedModels.length > 0) lines.push(`no price for: ${estimate.unpricedModels.join(', ')}; the budget guard needs one, so --yes would refuse this run`)
   if (budgetUsd === undefined) lines.push('budget: n/a (needs a price for every model)')
@@ -386,7 +386,7 @@ async function runYesMode(config: PlannerCliConfig, suite: PlannerSuite, io: Cli
   const secrets = [key]
   const createProvider = io.planner?.createProvider ?? createEvalProvider
   io.stdout(`notice: the case prompts, their folder and connection names, and the synthetic attachments (receipt PDF, PNG and text, two of them with a hostile sentence) are sent to ${endpoint.host} for ${config.models.join(', ')}\n`)
-  io.stdout(`budget: $${formatUsdPlain(budgetUsd)}, max_tokens ${config.maxOutputTokens} per request, ${suite.cases().length * config.reps * config.models.length} tasks planned, results go to ${out}\n`)
+  io.stdout(`budget: $${formatUsdPlain(budgetUsd)}, max_tokens set by the planner from the effort (${effortTable({ measurableOnly: true })}), ${suite.cases().length * config.reps * config.models.length} tasks planned, results go to ${out}\n`)
   const total = suite.cases().length * config.reps * config.models.length
   let done = 0
   const progress = (task: TaskResult<PlannerOutput>): void => {
@@ -404,7 +404,7 @@ async function runYesMode(config: PlannerCliConfig, suite: PlannerSuite, io: Cli
       concurrency: config.concurrency,
       maxAttempts: config.maxAttempts,
       maxCallMs: config.maxCallSeconds * 1000,
-      maxOutputTokens: config.maxOutputTokens,
+      maxOutputTokens: PLANNER_MAX_OUTPUT_TOKENS,
       budgetUsd,
       seed: config.seed,
       now: io.now,
@@ -440,7 +440,7 @@ async function runYesMode(config: PlannerCliConfig, suite: PlannerSuite, io: Cli
     sentRequestOf: plannerSentRequestOf,
     secrets,
     versions: plannerVersions(config.effort, config.maxRepairRounds),
-    maxOutputTokens: config.maxOutputTokens,
+    maxOutputTokens: PLANNER_MAX_OUTPUT_TOKENS,
   })
   const reportPath = join(out, 'report.md')
   writeFileSync(
@@ -459,7 +459,7 @@ async function runYesMode(config: PlannerCliConfig, suite: PlannerSuite, io: Cli
         fallback: false,
         baselines: [],
         maxRepairRounds: config.maxRepairRounds,
-        maxOutputTokens: config.maxOutputTokens,
+        maxOutputTokens: PLANNER_MAX_OUTPUT_TOKENS,
       },
     }),
   )

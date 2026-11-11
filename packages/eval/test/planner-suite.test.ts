@@ -1,11 +1,11 @@
 import { homedir } from 'node:os'
-import type { LlmProvider, LlmRequest, LlmResult } from '@rill/llm'
+import { STREAMING_ABOVE_MAX_TOKENS, type LlmProvider, type LlmRequest, type LlmResult } from '@rill/llm'
 import { createCoreRegistry } from '@rill/nodes-core'
-import { PlanError, createPlanner, type PlanRequest, type PlannerDeps } from '@rill/planner'
+import { EFFORT_BUDGETS, PlanError, createPlanner, type PlanRequest, type PlannerDeps } from '@rill/planner'
 import { describe, expect, it, vi } from 'vitest'
 import type { RunContext } from '../src/suite'
 import { PDF_INPUT_TOKENS, PNG_INPUT_TOKENS, TEXT_CHARS_PER_TOKEN } from '../src/suites/extract/suite'
-import { BASE_INPUT_TOKENS, DEFAULT_MAX_REPAIR_ROUNDS } from '../src/suites/planner/budget'
+import { BASE_INPUT_TOKENS, DEFAULT_MAX_REPAIR_ROUNDS, plannerWorstCaseUsd } from '../src/suites/planner/budget'
 import { loadPlannerData } from '../src/suites/planner/cases'
 import { ERROR_ISSUE, fakeResult, fakeRound, workflowBody } from '../src/suites/planner/fake-results'
 import { scorePlannerCase } from '../src/suites/planner/scoring'
@@ -127,11 +127,42 @@ describe('createPlannerSuite: run', () => {
 
   it('applies an effort override to the request', async () => {
     const { factory, seen } = capture()
-    const suite = createPlannerSuite({ makePlanner: factory, effort: 'max', maxRepairRounds: 1 })
+    const suite = createPlannerSuite({ makePlanner: factory, effort: 'high', maxRepairRounds: 1 })
     await suite.run(caseIn(suite, 'easy-03-webhook-to-slack'), ctxOf())
-    expect(seen[0]?.request.effort).toBe('max')
+    expect(seen[0]?.request.effort).toBe('high')
     expect(seen[0]?.input.deps.maxRepairRounds).toBe(1)
-    expect(suite.effort).toBe('max')
+    expect(suite.effort).toBe('high')
+  })
+
+  it.each(['xhigh', 'max'] as const)('refuses the effort %s, which streams and cannot be metered', (effort) => {
+    expect(() => createPlannerSuite({ effort })).toThrow(`effort ${effort} cannot be measured`)
+  })
+
+  it('refuses a selected case whose own effort streams and ignores an unselected one', () => {
+    const base = data.cases.find((entry) => entry.id === 'easy-03-webhook-to-slack')!
+    const other = data.cases.find((entry) => entry.id === 'easy-01-receipt-folder-to-csv')!
+    const streaming = { ...data, cases: [{ ...base, effort: 'max' as unknown as typeof base.effort }, other] }
+    expect(() => createPlannerSuite({ data: streaming })).toThrow('effort max cannot be measured')
+    expect(() => createPlannerSuite({ data: streaming, only: other.id })).not.toThrow()
+    expect(() => createPlannerSuite({ data: streaming, only: base.id, effort: 'low' })).not.toThrow()
+  })
+
+  it('has no effort above the streaming threshold in the shipped cases', () => {
+    for (const entry of data.cases) expect(EFFORT_BUDGETS[entry.effort].maxTokens).toBeLessThanOrEqual(STREAMING_ABOVE_MAX_TOKENS)
+  })
+
+  it('reserves the max_tokens of the effort of each case, and of the override when there is one', () => {
+    const own = createPlannerSuite()
+    const lows = own.cases().filter((entry) => entry.spec.effort === 'low')
+    const highs = own.cases().filter((entry) => entry.spec.effort === 'high')
+    const first = (entry: (typeof lows)[number]) => own.estimateInputTokens!(entry)
+    for (const [group, tokens] of [[lows, 8000], [highs, 16_000]] as const) {
+      const entry = group[0]!
+      expect(own.worstCaseUsd!(entry, 'claude-sonnet-5-5', 16_000)).toBeCloseTo(plannerWorstCaseUsd('claude-sonnet-5-5', first(entry), DEFAULT_MAX_REPAIR_ROUNDS, tokens)!, 12)
+    }
+    const forced = createPlannerSuite({ effort: 'medium' })
+    const low = forced.cases().find((entry) => entry.id === lows[0]!.id)!
+    expect(forced.worstCaseUsd!(low, 'claude-sonnet-5-5', 16_000)).toBeCloseTo(plannerWorstCaseUsd('claude-sonnet-5-5', first(low), DEFAULT_MAX_REPAIR_ROUNDS, 12_000)!, 12)
   })
 
   it('sends the selected node and the existing workflow of a patch case', async () => {

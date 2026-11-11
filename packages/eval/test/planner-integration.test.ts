@@ -19,14 +19,14 @@ import {
   type PlanResult,
 } from '@rill/planner'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { EXIT_OK, type CliIo } from '../src/cli-shared'
+import { EXIT_OK, EXIT_USAGE, type CliIo } from '../src/cli-shared'
 import { createEvalProvider } from '../src/record'
 import { PRICE_TABLE, estimateCallUsd, priceFor } from '../src/pricing'
 import { runEval, type RunResult } from '../src/runner'
 import { isPassingOutcome } from '../src/score'
 import { BASE_INPUT_TOKENS, DEFAULT_MAX_REPAIR_ROUNDS, HISTORY_TOKENS_PER_REPAIR_ROUND, TARGETED_EXTRA_CALLS, firstCallInputTokens, plannerWorstCaseUsd, worstCaseCalls } from '../src/suites/planner/budget'
 import { loadPlannerData, type PlannerData } from '../src/suites/planner/cases'
-import { plannerMain } from '../src/suites/planner/cli'
+import { parsePlannerCli, plannerMain } from '../src/suites/planner/cli'
 import { resolveAttachments } from '../src/suites/planner/attachments'
 import { plannerMetrics } from '../src/suites/planner/metrics'
 import type { PlannerOutput } from '../src/suites/planner/scoring'
@@ -586,16 +586,16 @@ describe('4. injection through the real attachment module and the eval injection
 })
 
 describe('5. budget guard and the real request sizes', () => {
-  it('reserves 1 + maxRepairRounds + 2 calls per case, each priced at the maximum output', () => {
+  it('reserves 1 + maxRepairRounds + 2 calls per case, each priced at the max_tokens of the case effort', () => {
     const suite = createPlannerSuite()
     const sonnet = PRICE_TABLE[SONNET]!
-    const maxOutput = 16_000
     let total = 0
     for (const testCase of suite.cases()) {
+      const maxOutput = EFFORT_BUDGETS[testCase.spec.effort].maxTokens
       const attachments = resolveAttachments(testCase.spec)
       const first = firstCallInputTokens(testCase.spec, attachments)
       const perCall = ((first + DEFAULT_MAX_REPAIR_ROUNDS * HISTORY_TOKENS_PER_REPAIR_ROUND) * sonnet.input + maxOutput * sonnet.output) / 1_000_000
-      const guard = suite.worstCaseUsd!(testCase, SONNET, maxOutput)!
+      const guard = suite.worstCaseUsd!(testCase, SONNET, 16_000)!
       expect(guard).toBeCloseTo(perCall * (1 + DEFAULT_MAX_REPAIR_ROUNDS + TARGETED_EXTRA_CALLS), 10)
       total += guard
     }
@@ -609,11 +609,12 @@ describe('5. budget guard and the real request sizes', () => {
     const chars = prompt.length + context.connections.join(', ').length + context.allowedFolders.join(', ').length
     const firstCall = 4500 + Math.ceil(chars / 3.5)
     const inputTokens = firstCall + 3 * 4000
-    const perCallUsd = (inputTokens * 2 + 16_000 * 10) / 1_000_000
+    const perCallUsd = (inputTokens * 2 + 8000 * 10) / 1_000_000
+    expect(testCase.spec.effort).toBe('low')
     expect(suite.worstCaseUsd!(testCase, SONNET, 16_000)).toBeCloseTo(perCallUsd * 6, 12)
-    expect(plannerWorstCaseUsd(SONNET, firstCall, 3, 16_000)).toBeCloseTo(perCallUsd * 6, 12)
+    expect(plannerWorstCaseUsd(SONNET, firstCall, 3, 8000)).toBeCloseTo(perCallUsd * 6, 12)
     expect(worstCaseCalls(3)).toBe(6)
-    expect(estimateCallUsd(SONNET, inputTokens, 16_000)).toBeCloseTo(perCallUsd, 12)
+    expect(estimateCallUsd(SONNET, inputTokens, 8000)).toBeCloseTo(perCallUsd, 12)
     expect(priceFor(SONNET)?.output).toBe(10)
   })
 
@@ -638,27 +639,42 @@ describe('5. budget guard and the real request sizes', () => {
     for (const effort of efforts) expect(EFFORT_BUDGETS[effort].maxTokens).toBeLessThanOrEqual(STREAMING_ABOVE_MAX_TOKENS)
   })
 
-  it.fails('never asks for more max_tokens than the harness reserves, for every effort the command line accepts', () => {
-    for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
-      expect(EFFORT_BUDGETS[effort].maxTokens).toBeLessThanOrEqual(STREAMING_ABOVE_MAX_TOKENS)
+  it('never asks for more max_tokens than the harness reserves, for every effort the command line accepts', () => {
+    const accepted = (['low', 'medium', 'high', 'xhigh', 'max'] as const).filter((effort) => {
+      try {
+        parsePlannerCli(['--effort', effort])
+        return true
+      } catch {
+        return false
+      }
+    })
+    expect(accepted).toEqual(['low', 'medium', 'high'])
+    for (const effort of accepted) expect(EFFORT_BUDGETS[effort].maxTokens).toBeLessThanOrEqual(STREAMING_ABOVE_MAX_TOKENS)
+  })
+
+  it('refuses --effort xhigh and max before any provider is built or any call is paid', async () => {
+    for (const effort of ['xhigh', 'max'] as const) {
+      expect(() => createPlannerSuite({ only: 'easy-03-webhook-to-slack', effort })).toThrow(`effort ${effort} cannot be measured`)
+      const out: string[] = []
+      const err: string[] = []
+      const providers: number[] = []
+      const io: CliIo = {
+        stdout: (text) => void out.push(text),
+        stderr: (text) => void err.push(text),
+        env: { ANTHROPIC_API_KEY: 'sk-ant-api03-NEVER-USED-IN-THIS-TEST' },
+        now: () => Date.UTC(2026, 10, 12, 9, 30, 0),
+        planner: { createProvider: () => (providers.push(1), offlineProvider()) },
+      }
+      expect(await plannerMain(['--yes', '--budget-usd', '50', '--effort', effort], io)).toBe(EXIT_USAGE)
+      expect(err.join('')).toContain(`effort ${effort} cannot be measured`)
+      expect(providers).toHaveLength(0)
     }
   })
 
-  it.fails('completes a run with --effort xhigh instead of stopping at the oversized request guard', async () => {
-    const suite = createPlannerSuite({ only: 'easy-03-webhook-to-slack', effort: 'xhigh' })
-    const noNetwork = (): Promise<Response> => Promise.reject(new Error('no network in this test'))
-    const run = await runEval({
-      suite,
-      models: [SONNET],
-      reps: 1,
-      concurrency: 1,
-      maxAttempts: 1,
-      maxOutputTokens: STREAMING_ABOVE_MAX_TOKENS,
-      seed: 1,
-      sleep: () => Promise.resolve(),
-      createProvider: (model, signal, settings) => createEvalProvider({ model, signal, apiKey: 'sk-ant-api03-not-used', maxTokens: settings.maxOutputTokens, fetch: noNetwork }),
-    })
-    expect(run.tasks).toHaveLength(1)
+  it('refuses a case whose own effort streams, whatever the command line says', () => {
+    const base = data.cases.find((entry) => entry.id === 'easy-03-webhook-to-slack')!
+    const streaming = { ...data, cases: [{ ...base, effort: 'xhigh' as unknown as typeof base.effort }] }
+    expect(() => createPlannerSuite({ data: streaming })).toThrow('effort xhigh cannot be measured')
   })
 })
 
@@ -699,12 +715,12 @@ describe('6. the command line: dry run', () => {
     let sum = 0
     for (const testCase of suite.cases()) {
       const first = firstCallInputTokens(testCase.spec, resolveAttachments(testCase.spec))
-      const perCall = ((first + 3 * 4000) * sonnet.input + 16_000 * sonnet.output) / 1_000_000
+      const perCall = ((first + 3 * 4000) * sonnet.input + EFFORT_BUDGETS[testCase.spec.effort].maxTokens * sonnet.output) / 1_000_000
       sum += perCall * (1 + 3 + 2)
     }
     const h = harness()
     await plannerMain(['--dry'], h.io)
-    expect(h.out()).toContain(`worst case $${sum.toFixed(2)} (6 calls per case, every call at 16000 output tokens)`)
+    expect(h.out()).toContain(`worst case $${sum.toFixed(2)} (6 calls per case, every call at the max_tokens of its effort)`)
     expect(sum).toBeGreaterThan(5)
   })
 

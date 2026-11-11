@@ -7,6 +7,7 @@ import {
   BASE_INPUT_TOKENS,
   HISTORY_TOKENS_PER_REPAIR_ROUND,
   TARGETED_EXTRA_CALLS,
+  effortMaxTokens,
   firstCallInputTokens,
   plannerWorstCaseUsd,
   worstCallInputTokens,
@@ -59,7 +60,8 @@ describe('the budget guard reserves the worst case of the whole case', () => {
   const [testCase] = suite.cases()
   if (testCase === undefined) throw new Error('no case')
   const worst = worstCaseCallUsd(suite, testCase, SONNET, 16_000) ?? 0
-  const singleCall = estimateCallUsd(SONNET, suite.estimateInputTokens?.(testCase) ?? 0, 16_000) ?? 0
+  const caseTokens = effortMaxTokens(testCase.spec.effort)
+  const singleCall = estimateCallUsd(SONNET, suite.estimateInputTokens?.(testCase) ?? 0, caseTokens) ?? 0
 
   it('is wired into the runner through the suite', () => {
     expect(worst).toBe(suite.worstCaseUsd?.(testCase, SONNET, 16_000))
