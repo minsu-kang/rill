@@ -30,4 +30,5 @@ export interface Suite<C extends EvalCase, O> {
   run(testCase: C, ctx: RunContext): Promise<O>
   score(testCase: C, output: O): CaseScore
   estimateInputTokens?(testCase: C): number
+  worstCaseUsd?(testCase: C, model: string, maxOutputTokens: number): number | undefined
 }
