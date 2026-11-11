@@ -17,6 +17,17 @@ export function normalizeVendor(value: string): string {
   return tokens.join(' ')
 }
 
+const HANGUL = /\p{Script=Hangul}/u
+
+export function vendorKey(normalized: string, other: string): string {
+  return HANGUL.test(normalized) || HANGUL.test(other) ? normalized.replace(/\s+/gu, '') : normalized
+}
+
+export function vendorsEqual(left: string, right: string): boolean {
+  if (left === '' || right === '') return false
+  return left === right || vendorKey(left, right) === vendorKey(right, left)
+}
+
 function centsFromNumber(value: number): number | null {
   if (!Number.isFinite(value)) return null
   const cents = Math.round(value * 100)

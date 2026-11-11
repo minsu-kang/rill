@@ -87,6 +87,8 @@ export function fakeExchange(overrides: Partial<Exchange> = {}): Exchange {
     thinkingChars: 0,
     bodyBytes: 100,
     failure: null,
+    badReply: null,
+    requestMaxTokens: null,
     ...overrides,
   }
 }

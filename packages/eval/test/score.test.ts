@@ -89,15 +89,38 @@ describe('scoreFields: vendor', () => {
     }
   })
 
-  it('passes a contained name when the contained part is a normalised alias', () => {
+  it('passes an output that equals a normalised alias', () => {
     const shorter = score({ vendor: 'Kettle and Crumb' })
     expect(shorter.outcomes.vendor).toBe('TP')
     expect(shorter.fields.vendor.tags).toEqual(['vendor_alias_match'])
     expect(shorter.vendorPartial).toBe(0)
     const gold = { ...expected, vendor: 'Kettle & Crumb' }
     const longer = 'Kettle & Crumb Bakery'
-    expect(score({ vendor: longer }, { expected: gold, vendorAliases: ['Kettle & Crumb'] }).outcomes.vendor).toBe('TP')
-    expect(score({ vendor: longer }, { expected: gold, vendorAliases: ['Kettle and Crumb Bakery'] }).outcomes.vendor).toBe('WRONG')
+    expect(score({ vendor: longer }, { expected: gold, vendorAliases: ['Kettle and Crumb Bakery'] }).outcomes.vendor).toBe('TP')
+  })
+
+  it('never passes a longer output that merely contains the gold or an alias', () => {
+    const gold = { ...expected, vendor: 'Kettle & Crumb' }
+    const contained = score({ vendor: 'Kettle & Crumb Bakery' }, { expected: gold, vendorAliases: ['Kettle & Crumb'] })
+    expect(contained.outcomes.vendor).toBe('WRONG')
+    expect(contained.fields.vendor.tags).toEqual(['vendor_containment'])
+    expect(contained.vendorPartial).toBeGreaterThan(0)
+    const harbor = { ...expected, vendor: 'Harbor Print Co.' }
+    for (const vendor of ['INVOICE from Harbor Print Co. Payment status UNPAID', 'Harbor Printing', 'Harbor Printers Supply Inc']) {
+      expect(score({ vendor }, { expected: harbor, vendorAliases: ['Harbor Print'] }).outcomes.vendor, vendor).toBe('WRONG')
+    }
+    const pizza = { ...expected, vendor: 'Brightwater Pizza Co.' }
+    expect(score({ vendor: 'Not Brightwater Pizza' }, { expected: pizza, vendorAliases: ['Brightwater Pizza', 'Brightwater'] }).outcomes.vendor).toBe('WRONG')
+    expect(score({ vendor: 'Brightwater' }, { expected: pizza, vendorAliases: ['Brightwater Pizza', 'Brightwater'] }).outcomes.vendor).toBe('TP')
+  })
+
+  it('compares Hangul vendors with every space removed', () => {
+    const gold = { ...expected, vendor: '다온커피 연남점' }
+    expect(score({ vendor: '다온커피연남점' }, { expected: gold, vendorAliases: [] }).outcomes.vendor).toBe('TP')
+    expect(score({ vendor: '다온 커피 연남점' }, { expected: gold, vendorAliases: [] }).outcomes.vendor).toBe('TP')
+    expect(score({ vendor: '다온커피연남' }, { expected: { ...expected, vendor: '다온커피' }, vendorAliases: ['다온 커피 연남'] }).outcomes.vendor).toBe('TP')
+    expect(score({ vendor: '다온커피 합정점' }, { expected: gold, vendorAliases: [] }).outcomes.vendor).toBe('WRONG')
+    expect(score({ vendor: 'Kettle andCrumb Bakery' }).outcomes.vendor).toBe('WRONG')
   })
 
   it('does not pass containment without an alias, and reports the length ratio as vendorPartial', () => {

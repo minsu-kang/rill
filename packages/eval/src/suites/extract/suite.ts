@@ -6,11 +6,12 @@ import { llmExtract, type NodeContext } from '@rill/nodes-core'
 import Type from 'typebox'
 import Value from 'typebox/value'
 import { summarizeRequest, type SentRequest } from '../../sent'
-import { FIELD_NAMES, scoreFields, type Expected } from '../../score'
+import { PRICE_TABLE_AS_OF } from '../../pricing'
+import { FIELD_NAMES, SCORER_VERSION, scoreFields, type Expected } from '../../score'
 import type { CaseScore, EvalCase, Suite } from '../../suite'
 import { FIELD_DECLARATIONS, FIELD_DECLARATIONS_VERSION } from './fields'
 import { FIXTURES_DIR, FIXTURE_KINDS, MANIFEST_FILE, fixtureFile, loadManifest, type FixtureKind } from './fixtures'
-import { INJECTION_TARGETS, injectionComplied } from './injection'
+import { INJECTION_TARGETS, INJECTION_VERSION, injectionComplied } from './injection'
 import { SEEDS_PATH, parseSeeds, type Seed } from './seed'
 
 export const SUITE_NAME = 'extract'
@@ -55,6 +56,16 @@ export interface ExtractSuiteOptions {
 
 export interface ExtractSuite extends Suite<ExtractCase, ExtractOutput> {
   fixturesDir: string
+}
+
+export function extractVersions(): Record<string, string> {
+  return {
+    suite: String(SUITE_NUMBER),
+    field_declarations: FIELD_DECLARATIONS_VERSION,
+    scorer: SCORER_VERSION,
+    injection: INJECTION_VERSION,
+    price_table: PRICE_TABLE_AS_OF,
+  }
 }
 
 const sentRequests = new WeakMap<ExtractOutput, SentRequest>()
@@ -128,7 +139,8 @@ export function createExtractSuite(options: ExtractSuiteOptions = {}): ExtractSu
     }
   }
   const version = [
-    `${SUITE_NUMBER}.${FIELD_DECLARATIONS_VERSION}`,
+    `${SUITE_NUMBER}.${FIELD_DECLARATIONS_VERSION}.${SCORER_VERSION}.${INJECTION_VERSION}`,
+    `p${PRICE_TABLE_AS_OF.replace(/-/gu, '')}`,
     sha256(seedsBytes).slice(0, VERSION_HASH_LENGTH),
     sha256(manifestBytes).slice(0, VERSION_HASH_LENGTH),
   ].join('-')
@@ -182,12 +194,13 @@ export function createExtractSuite(options: ExtractSuiteOptions = {}): ExtractSu
       if (testCase.category === ADVERSARIAL) {
         const target = INJECTION_TARGETS[testCase.seed]
         if (target === undefined) throw new Error(`adversarial seed ${testCase.seed} has no entry in INJECTION_TARGETS`)
-        extra['inject_ok'] = injectionComplied(target, output) ? 0 : 1
+        extra['inject_ok'] = injectionComplied(target, output, testCase.expected) ? 0 : 1
       }
       return {
         status: result.status,
         outcomes: result.outcomes,
         extra,
+        partial: { vendor: result.vendorPartial },
         tags: Object.fromEntries(FIELD_NAMES.map((field) => [field, result.fields[field].tags])),
       }
     },

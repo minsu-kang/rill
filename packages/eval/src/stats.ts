@@ -133,3 +133,44 @@ export function clusterBootstrapDelta<R extends PairKey>(
   }
   return { delta, lo: percentile(deltas, 2.5), hi: percentile(deltas, 97.5), groups: clusters.length, pairs, resamples: deltas.length }
 }
+
+export interface RatioRow {
+  group: string
+  num: number
+  den: number
+}
+
+export interface BootstrapRatio {
+  value: number | null
+  lo: number | null
+  hi: number | null
+  groups: number
+}
+
+export function clusterBootstrapRatio(rows: readonly RatioRow[], options: BootstrapOptions): BootstrapRatio {
+  const resamples = options.resamples ?? DEFAULT_RESAMPLES
+  const byGroup = new Map<string, { num: number; den: number }>()
+  for (const row of rows) {
+    const cluster = byGroup.get(row.group) ?? { num: 0, den: 0 }
+    cluster.num += row.num
+    cluster.den += row.den
+    byGroup.set(row.group, cluster)
+  }
+  const clusters = [...byGroup.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)).map(([, cluster]) => cluster)
+  const totalDen = clusters.reduce((total, cluster) => total + cluster.den, 0)
+  if (totalDen === 0) return { value: null, lo: null, hi: null, groups: clusters.length }
+  const value = clusters.reduce((total, cluster) => total + cluster.num, 0) / totalDen
+  const random = mulberry32(options.seed)
+  const values: number[] = []
+  for (let round = 0; round < resamples; round += 1) {
+    let num = 0
+    let den = 0
+    for (let pick = 0; pick < clusters.length; pick += 1) {
+      const cluster = clusters[Math.floor(random() * clusters.length)] as { num: number; den: number }
+      num += cluster.num
+      den += cluster.den
+    }
+    if (den > 0) values.push(num / den)
+  }
+  return { value, lo: percentile(values, 2.5), hi: percentile(values, 97.5), groups: clusters.length }
+}

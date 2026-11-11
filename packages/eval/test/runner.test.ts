@@ -1,9 +1,7 @@
-import { createServer, type IncomingHttpHeaders, type Server } from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { LlmError, type LlmErrorKind } from '@rill/llm'
 import { RetryableError } from '@rill/nodes-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PRICE_TABLE_AS_OF, costUsd } from '../src/pricing'
+import { PRICE_TABLE_AS_OF, costUsd, estimateCallUsd } from '../src/pricing'
 import { createEvalProvider, type FetchFn } from '../src/record'
 import {
   BACKOFF_BASE_MS,
@@ -11,9 +9,11 @@ import {
   backoffMs,
   buildSchedule,
   classifyFailure,
+  breakEvenOutputTokens,
   estimateRun,
   findLlmError,
   runEval,
+  servedModelMatches,
   type RunOptions,
   type TaskResult,
 } from '../src/runner'
@@ -39,6 +39,9 @@ interface Scripted {
   elapsedMs?: number
   delayMs?: number
   hang?: boolean
+  raw?: string
+  contentType?: string
+  stream?: 'hang' | 'reset' | 'break'
 }
 
 function message(model: string, text: string, overrides: Record<string, unknown> = {}) {
@@ -57,6 +60,19 @@ function message(model: string, text: string, overrides: Record<string, unknown>
 
 const okBody = (model: string) => message(model, '{"value":1}')
 const errorBody = (type: string) => ({ type: 'error', error: { type, message: 'nope' } })
+
+function streamBody(mode: 'hang' | 'reset' | 'break', signal: AbortSignal | undefined): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"id":"msg_1",'))
+      if (mode !== 'hang') {
+        setTimeout(() => controller.error(mode === 'reset' ? new TypeError('terminated') : new Error('stream broke')), 1)
+        return
+      }
+      signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')), { once: true })
+    },
+  })
+}
 
 function createHarness() {
   const clock = { now: 0 }
@@ -98,10 +114,9 @@ function createHarness() {
         active -= 1
       }
       clock.now += scripted.elapsedMs ?? 10
-      return new Response(JSON.stringify(scripted.body ?? okBody(model)), {
-        status: scripted.status ?? 200,
-        headers: { 'content-type': 'application/json', ...scripted.headers },
-      })
+      const responseInit = { status: scripted.status ?? 200, headers: { 'content-type': scripted.contentType ?? 'application/json', ...scripted.headers } }
+      if (scripted.stream !== undefined) return new Response(streamBody(scripted.stream, init?.signal ?? undefined), responseInit)
+      return new Response(scripted.raw ?? JSON.stringify(scripted.body ?? okBody(model)), responseInit)
     }
   }
 
@@ -119,9 +134,9 @@ function createHarness() {
         clock.now += ms
         return Promise.resolve()
       },
-      createProvider: (model: string, signal: AbortSignal) => {
+      createProvider: (model: string, signal: AbortSignal, settings: { maxOutputTokens: number }) => {
         providers.push({ model, signal })
-        return createEvalProvider({ model, apiKey: KEY, signal, fetch: fetchFn, clock: () => clock.now })
+        return createEvalProvider({ model, apiKey: KEY, signal, fetch: fetchFn, clock: () => clock.now, maxTokens: settings.maxOutputTokens })
       },
       ...extra,
     }
@@ -546,11 +561,12 @@ describe('runEval: failures and retries', () => {
 
 describe('runEval: budget', () => {
   const suite = (count: number) => makeSuite(count, { estimateInputTokens: () => 1000 })
+  const budget = (budgetUsd: number) => ({ budgetUsd, maxOutputTokens: 2000 })
   const sonnetReply = () => ({ body: message(SONNET, '{"value":1}') })
 
   it('skips the remaining tasks, calling nothing for them, once the worst case no longer fits', async () => {
     const harness = createHarness()
-    const result = await runEval({ suite: suite(6), ...harness.options(sonnetReply, { models: [SONNET], budgetUsd: 0.03 }) })
+    const result = await runEval({ suite: suite(6), ...harness.options(sonnetReply, { models: [SONNET], ...budget(0.03) }) })
     expect(result.tasks.map((entry) => entry.status)).toEqual(['ok', 'ok', 'ok', 'skipped', 'skipped', 'skipped'])
     expect(harness.calls).toHaveLength(3)
     expect(result.spentUsd).toBeCloseTo(0.009, 12)
@@ -563,14 +579,14 @@ describe('runEval: budget', () => {
 
   it('uses the real cost of finished tasks, not the worst case, when it moves on', async () => {
     const harness = createHarness()
-    const result = await runEval({ suite: suite(4), ...harness.options(sonnetReply, { models: [SONNET], budgetUsd: 0.1 }) })
+    const result = await runEval({ suite: suite(4), ...harness.options(sonnetReply, { models: [SONNET], ...budget(0.1) }) })
     expect(result.tasks.every((entry) => entry.status === 'ok')).toBe(true)
     expect(result.spentUsd).toBeCloseTo(0.012, 12)
   })
 
   it('reserves the worst case of calls still in flight', async () => {
     const harness = createHarness()
-    const result = await runEval({ suite: suite(6), ...harness.options(() => ({ ...sonnetReply(), delayMs: 5 }), { models: [SONNET], concurrency: 3, budgetUsd: 0.05 }) })
+    const result = await runEval({ suite: suite(6), ...harness.options(() => ({ ...sonnetReply(), delayMs: 5 }), { models: [SONNET], concurrency: 3, ...budget(0.05) }) })
     expect(result.tasks.map((entry) => entry.status)).toEqual(['ok', 'ok', 'skipped', 'skipped', 'skipped', 'skipped'])
     expect(harness.calls).toHaveLength(2)
   })
@@ -579,7 +595,7 @@ describe('runEval: budget', () => {
     const harness = createHarness()
     const result = await runEval({
       suite: suite(6),
-      ...harness.options(() => ({ body: okBody('claude-opus-4-8') }), { models: [SONNET], budgetUsd: 0.03 }),
+      ...harness.options(() => ({ body: okBody('claude-opus-4-8') }), { models: [SONNET], ...budget(0.03) }),
     })
     expect(result.tasks.map((entry) => entry.status)).toEqual(['failed', 'failed', 'failed', 'skipped', 'skipped', 'skipped'])
     expect(result.spentUsd).toBeCloseTo(0.009, 12)
@@ -656,7 +672,7 @@ describe('runEval: scheduling', () => {
     const seen: TaskResult<FakeOutput>[] = []
     const result = await runEval({
       suite: makeSuite(4, { estimateInputTokens: () => 1000 }),
-      ...harness.options(() => ({ body: message(SONNET, '{"value":1}') }), { models: [SONNET], budgetUsd: 0.03, onTask: (task) => seen.push(task) }),
+      ...harness.options(() => ({ body: message(SONNET, '{"value":1}') }), { models: [SONNET], budgetUsd: 0.03, maxOutputTokens: 2000, onTask: (task) => seen.push(task) }),
     })
     expect(seen).toHaveLength(4)
     expect(new Set(seen)).toEqual(new Set(result.tasks))
@@ -683,7 +699,7 @@ describe('runEval: scheduling', () => {
   it('returns an empty result for a suite without cases', async () => {
     const harness = createHarness()
     const result = await runEval({ suite: makeSuite(0), ...harness.options(() => ({})) })
-    expect(result).toEqual({ tasks: [], spentUsd: 0, budgetUsd: undefined })
+    expect(result).toEqual({ tasks: [], spentUsd: 0, budgetUsd: undefined, maxOutputTokens: 16_000, partial: false })
   })
 })
 
@@ -764,44 +780,252 @@ describe('estimateRun', () => {
   })
 })
 
-describe('runEval: default provider', () => {
-  const servers: Server[] = []
-
-  afterEach(async () => {
+describe('runEval: no implicit provider', () => {
+  afterEach(() => {
     vi.unstubAllEnvs()
-    for (const server of servers.splice(0)) {
-      server.closeAllConnections()
-      await new Promise<void>((resolve) => server.close(() => resolve()))
-    }
   })
 
-  it('builds the recording provider from the environment key and sends no fallback request', async () => {
-    const seen: { headers: IncomingHttpHeaders; body: Record<string, unknown> }[] = []
-    const server = createServer((req, res) => {
-      let raw = ''
-      req.on('data', (chunk) => {
-        raw += String(chunk)
-      })
-      req.on('end', () => {
-        const body = JSON.parse(raw) as { model: string }
-        seen.push({ headers: req.headers, body })
-        res.writeHead(200, { 'content-type': 'application/json', 'request-id': 'req_local' })
-        res.end(JSON.stringify(okBody(body.model)))
-      })
-    })
-    servers.push(server)
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+  it('refuses to run without createProvider, even with a key in the environment', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-env-key')
-    vi.stubEnv('ANTHROPIC_BASE_URL', `http://127.0.0.1:${(server.address() as AddressInfo).port}`)
-    const result = await runEval({ suite: makeSuite(1), models: [HAIKU], reps: 1, concurrency: 1, seed: 1 })
+    const options = { suite: makeSuite(1), models: [HAIKU], reps: 1, concurrency: 1, seed: 1 } as unknown as RunOptions<EvalCase, FakeOutput>
+    await expect(runEval(options)).rejects.toThrow(/createProvider/)
+  })
+
+  it('needs an explicit, non-blank key to build the eval provider', () => {
+    expect(() => createEvalProvider({ model: HAIKU, apiKey: '   ' })).toThrow(/apiKey/)
+  })
+})
+
+describe('runEval: budget guard', () => {
+  const suite = (count: number) => makeSuite(count, { estimateInputTokens: () => 1000 })
+  const worst = (model: string, outputTokens: number) => estimateCallUsd(model, 1000, outputTokens) as number
+  const input = (model: string) => estimateCallUsd(model, 1000, 0) as number
+
+  it('reserves exactly the max_tokens the request sends, 16000 by default', async () => {
+    const fits = createHarness()
+    const ran = await runEval({ suite: suite(1), ...fits.options(() => ({ body: okBody(SONNET) }), { models: [SONNET], budgetUsd: worst(SONNET, 16_000) }) })
+    expect(ran.tasks[0]?.status).toBe('ok')
+    expect(fits.requests.map((request) => request.body['max_tokens'])).toEqual([16_000])
+    expect(ran.maxOutputTokens).toBe(16_000)
+    const short = createHarness()
+    const skipped = await runEval({ suite: suite(1), ...short.options(() => ({}), { models: [SONNET], budgetUsd: worst(SONNET, 16_000) - 1e-6 }) })
+    expect(skipped.tasks[0]?.status).toBe('skipped')
+    expect(short.calls).toHaveLength(0)
+  })
+
+  it('sends and reserves a custom maxOutputTokens', async () => {
+    const harness = createHarness()
+    const result = await runEval({ suite: suite(2), ...harness.options(() => ({ body: okBody(SONNET) }), { models: [SONNET], maxOutputTokens: 3000, budgetUsd: worst(SONNET, 3000) + 0.003 }) })
+    expect(harness.requests.map((request) => request.body['max_tokens'])).toEqual([3000, 3000])
+    expect(result.tasks.map((task) => task.status)).toEqual(['ok', 'ok'])
+    expect(result.maxOutputTokens).toBe(3000)
+  })
+
+  it('stops the run when a request asks for more max_tokens than the reservation', async () => {
+    const harness = createHarness()
+    const base = harness.options(() => ({}), { budgetUsd: 1 })
+    await expect(
+      runEval({ suite: suite(3), ...base, maxOutputTokens: 1000, createProvider: (model, signal) => base.createProvider(model, signal, { maxOutputTokens: 1001 }) }),
+    ).rejects.toThrow(/max_tokens 1001/)
+    expect(harness.calls).toHaveLength(1)
+  })
+
+  it('stops dispatching after the first budget skip, even when a cheaper task would still fit', async () => {
+    const harness = createHarness()
+    const budgetUsd = worst(OPUS, 2000) + 0.001
+    const result = await runEval({ suite: suite(4), ...harness.options((call) => ({ body: okBody(call.model) }), { models: [OPUS, HAIKU], maxOutputTokens: 2000, budgetUsd }) })
+    const statuses = result.tasks.map((task) => task.status)
+    const firstSkip = statuses.indexOf('skipped')
+    expect(firstSkip).toBeGreaterThan(0)
+    expect(statuses.slice(firstSkip).every((status) => status === 'skipped')).toBe(true)
+    expect(result.tasks.slice(firstSkip).some((task) => task.model === HAIKU)).toBe(true)
+    expect(result.spentUsd + worst(HAIKU, 2000)).toBeLessThan(budgetUsd)
+    expect(result).toMatchObject({ stop: 'budget', partial: true })
+    expect(result.tasks.filter((task) => task.status === 'skipped').every((task) => task.skipped === 'budget')).toBe(true)
+  })
+
+  it('charges an attempt stopped at the ceiling its worst case', async () => {
+    const { task, result } = await runOne(() => ({ hang: true }), { maxCallMs: 25, maxOutputTokens: 2000 }, suite(1))
+    expect(task.failureClass).toBe('timeout_ceiling')
+    expect(task.costUsd).toBeCloseTo(worst(HAIKU, 2000), 12)
+    expect(result.spentUsd).toBeCloseTo(worst(HAIKU, 2000), 12)
+    expect(task.failedAttempts[0]?.assumedUsd).toBeCloseTo(worst(HAIKU, 2000), 12)
+  })
+
+  it('charges the input estimate of a sent attempt that has no usage and no HTTP answer', async () => {
+    const result = await runEval({
+      suite: suite(1),
+      models: [HAIKU],
+      reps: 1,
+      concurrency: 1,
+      seed: 1,
+      sleep: () => Promise.resolve(),
+      createProvider: (model, signal, settings) =>
+        createEvalProvider({ model, apiKey: KEY, signal, maxTokens: settings.maxOutputTokens, fetch: () => Promise.reject(new TypeError('fetch failed')) }),
+    })
     const task = result.tasks[0] as TaskResult<FakeOutput>
+    expect(task).toMatchObject({ status: 'failed', failureClass: 'connection', attempts: 3 })
+    expect(task.costUsd).toBeCloseTo(3 * input(HAIKU), 12)
+    expect(result.spentUsd).toBeCloseTo(3 * input(HAIKU), 12)
+  })
+
+  it('sends no retry that would no longer fit the budget, and stops the run there', async () => {
+    const budgetUsd = worst(HAIKU, 2000) + input(HAIKU) / 2
+    const result = await runEval({
+      suite: suite(2),
+      models: [HAIKU],
+      reps: 1,
+      concurrency: 1,
+      seed: 1,
+      maxOutputTokens: 2000,
+      budgetUsd,
+      sleep: () => Promise.resolve(),
+      createProvider: (model, signal, settings) =>
+        createEvalProvider({ model, apiKey: KEY, signal, maxTokens: settings.maxOutputTokens, fetch: () => Promise.reject(new TypeError('fetch failed')) }),
+    })
+    expect(result.tasks.map((task) => [task.status, task.attempts])).toEqual([
+      ['failed', 1],
+      ['skipped', 0],
+    ])
+    expect(result.spentUsd).toBeLessThanOrEqual(budgetUsd)
+    expect(result.stop).toBe('budget')
+  })
+
+  it('does not charge an HTTP error answer that carried no usage', async () => {
+    const { task } = await runOne(() => ({ status: 429, body: errorBody('rate_limit_error') }), {}, suite(1))
+    expect(task.costUsd).toBe(0)
+  })
+
+  it.each([
+    ['huge output tokens', { output_tokens: 1e308, input_tokens: 10 }],
+    ['negative input tokens', { input_tokens: -5, output_tokens: 10 }],
+    ['infinite cache tokens', { input_tokens: 5, output_tokens: 10, cache_read_input_tokens: 1e9 }],
+    ['string tokens', { input_tokens: '5', output_tokens: 10 }],
+  ])('turns a reply with invalid usage (%s) into bad_response instead of a cost', async (_name, usage) => {
+    const { task, result } = await runOne(() => ({ body: message(HAIKU, '{"value":1}', { usage }) }), {}, suite(1))
+    expect(task).toMatchObject({ status: 'failed', failureClass: 'bad_response', attempts: 3 })
+    expect(task.score).toBeUndefined()
+    expect(Number.isFinite(result.spentUsd)).toBe(true)
+    expect(result.spentUsd).toBeCloseTo(3 * input(HAIKU), 12)
+    expect(task.usage).toEqual({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
+  })
+})
+
+describe('runEval: outcome buckets', () => {
+  it.each([
+    ['an HTML page', { raw: '<html>portal</html>', contentType: 'text/html' }],
+    ['HTML labelled as JSON', { raw: '<html>portal</html>' }],
+    ['an empty body', { raw: '' }],
+    ['a cut-off JSON body', { raw: '{"id":"m","type":"mess' }],
+    ['an object without content', { body: { id: 'm', type: 'message', model: HAIKU, usage: { input_tokens: 1, output_tokens: 1 } } }],
+    ['a message without usage', { body: { id: 'm', type: 'message', model: HAIKU, stop_reason: 'end_turn', content: [{ type: 'text', text: '{"value":1}' }] } }],
+  ])('retries %s as bad_response and never grades it', async (_name, scripted: Scripted) => {
+    const { task, harness } = await runOne(() => scripted)
+    expect(task).toMatchObject({ status: 'failed', failureClass: 'bad_response', attempts: 3 })
+    expect(task.score).toBeUndefined()
+    expect(task.failedAttempts.map((attempt) => attempt.failureClass)).toEqual(['bad_response', 'bad_response', 'bad_response'])
+    expect(harness.calls).toHaveLength(3)
+  })
+
+  it('grades the model once a good reply follows a bad one', async () => {
+    const { task } = await runOne((call) => (call.callNo === 1 ? { raw: '<html></html>' } : {}))
     expect(task.status).toBe('ok')
-    expect(task.exchanges[0]).toMatchObject({ status: 200, requestId: 'req_local', model: HAIKU })
-    expect(task.latencyMs).toBeGreaterThanOrEqual(0)
-    expect(seen).toHaveLength(1)
-    expect(seen[0]?.headers.authorization).toBe('Bearer sk-env-key')
-    expect(seen[0]?.body).toMatchObject({ model: HAIKU })
-    expect(seen[0]?.body).not.toHaveProperty('fallbacks')
-    expect(JSON.stringify(result)).not.toContain('sk-env-key')
+    expect(task.failedAttempts.map((attempt) => attempt.failureClass)).toEqual(['bad_response'])
+  })
+
+  it.each(['reset', 'break'] as const)('retries a body that breaks off mid-read (%s) as a connection failure', async (stream) => {
+    const { task } = await runOne((call) => (call.callNo === 1 ? { stream } : {}))
+    expect(task.status).toBe('ok')
+    expect(task.failedAttempts.map((attempt) => attempt.failureClass)).toEqual(['connection'])
+  })
+
+  it('reports a body that hangs until the ceiling as timeout_ceiling, not unknown', async () => {
+    const { task } = await runOne(() => ({ stream: 'hang' }), { maxCallMs: 25 })
+    expect(task).toMatchObject({ status: 'failed', failureClass: 'timeout_ceiling', attempts: 1 })
+  })
+
+  it('maps an unknown error whose cause is a terminated body to connection', () => {
+    const error = new LlmError('unknown', 'unexpected error calling the model provider: terminated', { cause: new TypeError('terminated') })
+    expect(classifyFailure(error)).toEqual({ class: 'connection', retryable: true })
+    expect(classifyFailure(new LlmError('unknown', 'x'), { ceilingFired: true })).toEqual({ class: 'timeout_ceiling', retryable: false })
+  })
+
+  it.each([
+    [HAIKU, true],
+    [`${HAIKU}-20260301`, true],
+    [`${HAIKU}x-evil`, false],
+    [`${HAIKU}-evil`, false],
+    [`${HAIKU}-2026030`, false],
+    [`${HAIKU}-202603011`, false],
+    [`${HAIKU}-20260301-x`, false],
+    ['claude-haiku-5', false],
+  ])('accepts %s as the served model: %s', (served, ok) => {
+    expect(servedModelMatches(HAIKU, served)).toBe(ok)
+  })
+
+  it('fails a reply from a look-alike model id', async () => {
+    const { task } = await runOne(() => ({ body: okBody(`${HAIKU}x-evil`) }))
+    expect(task).toMatchObject({ status: 'failed', failureClass: 'served_model_mismatch' })
+  })
+})
+
+describe('runEval: stopping early', () => {
+  it('stops at the first authentication failure and sends nothing more', async () => {
+    const harness = createHarness()
+    const result = await runEval({ suite: makeSuite(4), ...harness.options(() => ({ status: 401, body: errorBody('authentication_error') })) })
+    expect(harness.calls).toHaveLength(1)
+    expect(result.tasks.filter((task) => task.status === 'failed')).toHaveLength(1)
+    expect(result.tasks.filter((task) => task.skipped === 'auth')).toHaveLength(3)
+    expect(result).toMatchObject({ stop: 'auth', partial: true })
+  })
+
+  it('stops dispatching when the stop signal fires and lets the call in flight finish', async () => {
+    const harness = createHarness()
+    const stop = new AbortController()
+    const result = await runEval({
+      suite: makeSuite(5),
+      ...harness.options(() => ({ delayMs: 5 }), {
+        concurrency: 2,
+        stopSignal: stop.signal,
+        onTask: () => stop.abort(),
+      }),
+    })
+    expect(harness.calls).toHaveLength(2)
+    expect(result.tasks.filter((task) => task.status === 'ok')).toHaveLength(2)
+    expect(result.tasks.filter((task) => task.skipped === 'interrupted')).toHaveLength(3)
+    expect(result).toMatchObject({ stop: 'interrupted', partial: true })
+  })
+
+  it('aborts the calls in flight on the abort signal and charges their worst case', async () => {
+    const harness = createHarness()
+    const stop = new AbortController()
+    const abort = new AbortController()
+    setTimeout(() => {
+      stop.abort()
+      abort.abort()
+    }, 10)
+    const result = await runEval({
+      suite: makeSuite(3, { estimateInputTokens: () => 1000 }),
+      ...harness.options(() => ({ hang: true }), { stopSignal: stop.signal, abortSignal: abort.signal, maxCallMs: 60_000, maxOutputTokens: 2000 }),
+    })
+    const [first] = result.tasks.filter((task) => task.status === 'failed')
+    expect(first).toMatchObject({ failureClass: 'aborted', attempts: 1 })
+    expect(first?.costUsd).toBeCloseTo(estimateCallUsd(HAIKU, 1000, 2000) as number, 12)
+    expect(result.tasks.filter((task) => task.skipped === 'interrupted')).toHaveLength(2)
+  })
+})
+
+describe('breakEvenOutputTokens', () => {
+  it('is the average output per call that spends the budget after inputs and the reserve', () => {
+    const suite = makeSuite(10, { estimateInputTokens: () => 1000 })
+    const estimate = estimateRun({ suite, models: [HAIKU, SONNET], reps: 2 })
+    expect(estimate.inputUsd).toBeCloseTo(20 * (1000 * 0.1 + 1000 * 2) / 1e6, 12)
+    expect(estimate.usdPerOutputToken).toBeCloseTo(20 * (0.5 + 10) / 1e6, 15)
+    const inputUsd = estimate.inputUsd as number
+    const perToken = estimate.usdPerOutputToken as number
+    expect(breakEvenOutputTokens(estimate, 1)).toBeCloseTo((1 - inputUsd) / perToken, 6)
+    expect(breakEvenOutputTokens(estimate, 1, 0.25)).toBeCloseTo((0.75 - inputUsd) / perToken, 6)
+    expect(breakEvenOutputTokens(estimate, 0.001)).toBe(0)
+    expect(breakEvenOutputTokens(estimateRun({ suite, models: ['mystery'], reps: 1 }), 1)).toBeUndefined()
   })
 })

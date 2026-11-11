@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isPassingOutcome, type FieldOutcome } from './score'
@@ -25,7 +25,8 @@ export interface ResultsMeta<O> {
   refRoot?: string
   sentRequestOf?: (output: O) => SentRequest | undefined
   secrets?: readonly string[]
-  runnerSha?: string
+  versions?: Readonly<Record<string, string>>
+  maxOutputTokens?: number
 }
 
 export interface VariantFiles {
@@ -39,14 +40,16 @@ export interface VariantFiles {
 export interface WrittenResults {
   dir: string
   variants: VariantFiles[]
+  rows: number
 }
+
+export const PARTIAL_FILE = 'tasks.partial.jsonl'
 
 export const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 const PROMPT_ID_UNSAFE = /[^A-Za-z0-9_.-]/gu
 const REDACTED = '[redacted]'
 const BASELINE_VARIANT = 'baseline'
-const SHIPPED_MODEL = 'claude-opus-5-5'
 const GOLD_SOURCE = 'seed'
 
 interface MetricDef {
@@ -61,14 +64,14 @@ export function promptId(caseId: string): string {
   return caseId.replace(PROMPT_ID_UNSAFE, '-')
 }
 
-export function variantNames(models: readonly string[]): { variant: string; model: string }[] {
-  const base = models.includes(SHIPPED_MODEL) ? SHIPPED_MODEL : models[0]
+export function variantNames(models: readonly string[], hasRows: (model: string) => boolean = () => true): { variant: string; model: string }[] {
+  const base = models.find(hasRows) ?? models[0]
   let next = 1
   return models.map((model) => ({ model, variant: model === base ? BASELINE_VARIANT : `v${next++}` }))
 }
 
-export function assertWritableDir(dir: string): void {
-  if (existsSync(dir) && readdirSync(dir).length > 0) throw new Error(`output directory is not empty: ${dir}`)
+export function assertWritableDir(dir: string, allowed: readonly string[] = []): void {
+  if (existsSync(dir) && readdirSync(dir).some((name) => !allowed.includes(name))) throw new Error(`output directory is not empty: ${dir}`)
 }
 
 function round(value: number, digits: number): number {
@@ -219,7 +222,6 @@ function rowOf<O>(task: TaskResult<O>, testCase: ResultCase | undefined, meta: R
       field_outcome: outcomes,
       effort: meta.effort,
       suite_version: meta.suiteVersion,
-      ...(meta.runnerSha === undefined ? {} : { runner_sha: meta.runnerSha }),
     },
   }
 }
@@ -246,6 +248,9 @@ function errorLines(task: TaskResult<unknown>, id: string, ts: string): Record<s
   if (task.status === 'failed') {
     lines.push({ ...base, scope: 'task', attempts: task.attempts, failure_class: task.failureClass ?? 'harness', model: null, wall_s: round(task.wallMs / 1000, 3) })
   }
+  if (task.status === 'skipped') {
+    lines.push({ ...base, scope: 'task', attempts: 0, failure_class: `${task.skipped ?? 'budget'}_skipped`, model: null })
+  }
   return lines
 }
 
@@ -258,15 +263,35 @@ function jsonl(lines: readonly unknown[]): string {
   return lines.map((line) => `${JSON.stringify(line)}\n`).join('')
 }
 
+export function partialLine(task: TaskResult<unknown>): Record<string, unknown> {
+  return {
+    case_id: task.caseId,
+    model: task.model,
+    rep: task.rep,
+    status: task.status,
+    ...(task.failureClass === undefined ? {} : { failure_class: task.failureClass }),
+    attempts: task.attempts,
+    ...(task.score === undefined ? {} : { outcomes: task.score.outcomes, extra: task.score.extra }),
+    ...(task.output === undefined ? {} : { output: task.output }),
+    usage: usageOf(task),
+    cost_usd: task.costUsd ?? null,
+  }
+}
+
+export function appendPartial(dir: string, task: TaskResult<unknown>, secrets: readonly string[] = []): void {
+  mkdirSync(dir, { recursive: true })
+  appendFileSync(join(dir, PARTIAL_FILE), scrubber(secrets)(`${JSON.stringify(partialLine(task))}\n`))
+}
+
 export function writeResults<O>(dir: string, run: RunResult<O>, meta: ResultsMeta<O>): WrittenResults {
-  assertWritableDir(dir)
+  assertWritableDir(dir, [PARTIAL_FILE])
   const scrub = scrubber(meta.secrets)
   const write = (path: string, content: string): void => {
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, scrub(content))
   }
   const byId = new Map(meta.cases.map((testCase) => [testCase.id, testCase]))
-  const variants = variantNames(meta.models)
+  const variants = variantNames(meta.models, (model) => run.tasks.some((task) => task.model === model && isScorable(task)))
   for (const task of run.tasks) {
     if (!meta.models.includes(task.model)) throw new Error(`task for a model that is not in meta.models: ${task.model}`)
   }
@@ -306,6 +331,7 @@ export function writeResults<O>(dir: string, run: RunResult<O>, meta: ResultsMet
     written.push({ variant, model, dir: variantDir, rows: rows.length, errors: errors.length })
   }
   const skipped = run.tasks.filter((task) => task.status === 'skipped')
+  const partial = run.partial === true || run.stop !== undefined || skipped.length > 0
   write(
     join(dir, 'run.json'),
     `${JSON.stringify(
@@ -317,15 +343,20 @@ export function writeResults<O>(dir: string, run: RunResult<O>, meta: ResultsMet
         reps: meta.reps,
         effort: meta.effort,
         models: meta.models,
+        ...(meta.versions === undefined ? {} : { versions: meta.versions }),
         budget_usd: run.budgetUsd ?? null,
         spent_usd: run.spentUsd,
+        max_output_tokens: run.maxOutputTokens ?? meta.maxOutputTokens ?? null,
+        partial,
+        ...(run.stop === undefined ? {} : { stop_reason: run.stop }),
         tasks: run.tasks.length,
         failed: run.tasks.filter((task) => task.status === 'failed').length,
-        skipped: skipped.map((task) => ({ prompt_id: promptId(task.caseId), rep: task.rep, model: task.model })),
+        skipped: skipped.map((task) => ({ prompt_id: promptId(task.caseId), rep: task.rep, model: task.model, reason: task.skipped ?? 'budget' })),
       },
       null,
       2,
     )}\n`,
   )
-  return { dir, variants: written }
+  rmSync(join(dir, PARTIAL_FILE), { force: true })
+  return { dir, variants: written, rows: written.reduce((total, entry) => total + entry.rows, 0) }
 }

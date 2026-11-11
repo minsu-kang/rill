@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { PRICE_TABLE_AS_OF } from '../src/pricing'
-import { INDICATIVE_BELOW, noiseFloorPoints, renderReport, type ReportMeta } from '../src/report'
+import { INDICATIVE_BELOW, MIN_SEEDS_FOR_VERDICT, noiseFloorPoints, renderReport, type ReportMeta } from '../src/report'
 import type { RunResult, TaskResult } from '../src/runner'
-import { wilson } from '../src/stats'
+import { clusterBootstrapRatio } from '../src/stats'
 import { ALL_TP, AMOUNT_WRONG, HAIKU, OPUS, SONNET, fakeTask, type FakeTaskInput } from './fake-run'
 
 const META: ReportMeta = {
@@ -72,11 +72,11 @@ function grid(spec: Grid): TaskResult<unknown>[] {
 }
 
 describe('noiseFloorPoints', () => {
-  it('is the paired minimum detectable difference at the worst-case proportion', () => {
+  it('is the paired minimum detectable difference at p 0.5 and correlation 0.5, conservative over seeds', () => {
     const floor = noiseFloorPoints(36, 3)
-    expect(floor.typical).toBeCloseTo(13.47, 2)
-    expect(floor.worst).toBeCloseTo(23.33, 2)
-    expect(noiseFloorPoints(100, 3).typical).toBeCloseTo(8.08, 2)
+    expect(floor.conservative).toBeCloseTo(23.33, 2)
+    expect(floor.optimistic).toBeCloseTo(13.47, 2)
+    expect(noiseFloorPoints(100, 3).conservative).toBeCloseTo(14, 2)
   })
 })
 
@@ -100,14 +100,15 @@ describe('renderReport: header', () => {
     expect(report).toContain('- Data: synthetic clean receipts only. The results say nothing about photos, scans or real receipts.')
   })
 
-  it('computes the noise floor from the scored seeds and reps, not a constant', () => {
-    expect(report).toContain('with 4 seeds and 2 reps')
-    expect(report).toContain('smaller than about 49 points')
-    expect(report).toContain('up to about 70 points')
+  it('leads with the conservative noise floor from the scored seeds and states its assumptions', () => {
+    expect(report).toContain('- Noise floor: about 70 points with 4 seeds.')
+    expect(report).toContain('Optimistic bound: about 49 points, only if the 2 reps of every case were independent draws.')
     const bigger = renderReport({ run: run(grid({ seeds: 36, reps: 3, pass: () => true })), meta: { ...META, reps: 3 } })
-    expect(bigger).toContain('with 36 seeds and 3 reps')
-    expect(bigger).toContain('smaller than about 13 points')
-    expect(bigger).toContain('up to about 23 points')
+    expect(bigger).toContain('- Noise floor: about 23 points with 36 seeds.')
+    expect(bigger).toContain('Optimistic bound: about 13 points')
+    for (const phrase of ['minimum detectable difference, not a significance threshold', '80% power', '5% level', 'pass rate near 50%', 'between-model correlation 0.5', 'clustered by seed']) {
+      expect(bigger).toContain(phrase)
+    }
   })
 
   it('treats an explicit low as the shipped setting', () => {
@@ -119,7 +120,8 @@ describe('renderReport: header', () => {
   it('names an effort override and one seed in the singular', () => {
     const overridden = renderReport({ run: run(grid({ seeds: 1, reps: 1, pass: () => true })), meta: { ...META, effort: 'high', reps: 1 } })
     expect(overridden).toContain('- Effort: high (override; the node ships low)')
-    expect(overridden).toContain('with 1 seed and 1 rep,')
+    expect(overridden).toContain('about 140 points with 1 seed.')
+    expect(overridden).toContain('the 1 rep of every case')
   })
 
   it('shows the fallback as on when it was on', () => {
@@ -143,33 +145,43 @@ describe('renderReport: numbers', () => {
   })
   const report = renderReport({ run: run(tasks, { budgetUsd: 1, spentUsd: 0.1 }), meta: META })
 
-  it('reports case pass with a Wilson interval and the counts', () => {
-    const haiku = wilson(10, 16)
-    expect(haiku).not.toBeNull()
+  it('reports case pass with a seed-cluster bootstrap interval and the counts', () => {
+    const haikuRows = tasks.filter((task) => task.model === HAIKU).map((task) => ({ group: task.group, num: Object.values(task.score?.outcomes ?? {}).every((outcome) => outcome === 'TP') ? 1 : 0, den: 1 }))
+    const expected = clusterBootstrapRatio(haikuRows, { seed: META.seed, resamples: 4000 })
     const line = row(report, 'Results by model', HAIKU)
-    expect(line).toContain(`${(((haiku?.p ?? 0) * 100).toFixed(1))}% (${((haiku?.lo ?? 0) * 100).toFixed(1)}% to ${((haiku?.hi ?? 0) * 100).toFixed(1)}%), 10/16`)
-    expect(line).toContain('62.5% (')
-    expect(row(report, 'Results by model', SONNET)).toContain('100.0% (')
-    expect(section(report, 'Results by model')).toContain('clustered')
-    expect(section(report, 'Results by model')).toContain('Wilson 95%')
+    expect(line).toContain(`62.5% (${((expected.lo ?? 0) * 100).toFixed(1)}% to ${((expected.hi ?? 0) * 100).toFixed(1)}%), 10/16`)
+    expect(row(report, 'Results by model', SONNET)).toContain('100.0% (100.0% to 100.0%), 16/16')
+    expect(section(report, 'Results by model')).toContain('seed-cluster bootstrap')
+    expect(section(report, 'Results by model')).not.toContain('Wilson')
+  })
+
+  it('makes a seed-clustered interval wider than one that treats the calls as independent', () => {
+    const correlated = clusterBootstrapRatio(
+      Array.from({ length: 40 }, (_, index) => ({ group: `s${Math.floor(index / 4)}`, num: Math.floor(index / 4) % 2, den: 1 })),
+      { seed: 1, resamples: 4000 },
+    )
+    const independent = clusterBootstrapRatio(Array.from({ length: 40 }, (_, index) => ({ group: `s${index}`, num: index % 2, den: 1 })), { seed: 1, resamples: 4000 })
+    expect((correlated.hi ?? 0) - (correlated.lo ?? 0)).toBeGreaterThan(((independent.hi ?? 0) - (independent.lo ?? 0)) * 1.5)
   })
 
   it('reports field accuracy per field', () => {
     const line = row(report, 'Results by model', HAIKU)
-    expect(line.split('|').map((cell) => cell.trim())).toContain('62.5%')
-    expect(line.split('|').map((cell) => cell.trim()).filter((cell) => cell === '100.0%')).toHaveLength(2)
-    expect(row(report, 'Results by model', SONNET)).toMatch(/\| 100.0% \| 100.0% \| 100.0% \| 0.0% \|/)
+    const cells = line.split('|').map((cell) => cell.trim())
+    expect(cells[3]).toMatch(/^62\.5% \(/u)
+    expect(cells[4]).toBe('100.0% (100.0% to 100.0%)')
+    expect(cells[5]).toBe('100.0% (100.0% to 100.0%)')
+    expect(row(report, 'Results by model', SONNET)).toContain('| 100.0% (100.0% to 100.0%) | 100.0% (100.0% to 100.0%) | 100.0% (100.0% to 100.0%) | n/a | 0.0% |')
   })
 
   it('reports pooled precision, recall, specificity, hallucination and miss rate', () => {
     const haiku = row(report, 'Precision, recall and the two ways to be wrong', HAIKU)
-    expect(haiku).toBe(`| ${HAIKU} | 87.5% | 87.5% | n/a | n/a | 0.0% |`)
-    expect(row(report, 'Precision, recall and the two ways to be wrong', SONNET)).toBe(`| ${SONNET} | 100.0% | 100.0% | n/a | n/a | 0.0% |`)
+    expect(haiku).toBe(`| ${HAIKU} | 87.5% | 87.5% | n/a | n/a | 0.0% | 0.0% |`)
+    expect(row(report, 'Precision, recall and the two ways to be wrong', SONNET)).toBe(`| ${SONNET} | 100.0% | 100.0% | n/a | n/a | 0.0% | 0.0% |`)
   })
 
-  it('counts injection failures on any and the mean', () => {
-    expect(row(report, 'Results by model', HAIKU)).toContain('| 1 of 8 failed (mean 0.88) |')
-    expect(row(report, 'Results by model', SONNET)).toContain('| 1 of 8 failed (mean 0.88) |')
+  it('counts injection failures, no answers and resisted cases', () => {
+    expect(row(report, 'Results by model', HAIKU)).toContain('| inject_ok: 1 failed, 0 no answer, 7 resisted, of 8 |')
+    expect(row(report, 'Results by model', SONNET)).toContain('| inject_ok: 1 failed, 0 no answer, 7 resisted, of 8 |')
   })
 
   it('reports latency percentiles, mean tokens and cost', () => {
@@ -179,9 +191,9 @@ describe('renderReport: numbers', () => {
     expect(sonnet).toBe(`| ${SONNET} | 2.75 | 3.40 | 2000 | 300 | $0.16 | $1.00 |`)
   })
 
-  it('calls a delta whose interval touches zero not distinguishable', () => {
+  it('refuses to call a delta from four seeds', () => {
     const line = row(report, 'Paired deltas on case pass', SONNET)
-    expect(line).toBe(`| ${SONNET} | +37.5 points | +0.0 to +75.0 | not distinguishable | 4 seeds, 16 pairs |`)
+    expect(line).toBe(`| ${SONNET} | +37.5 points | +0.0 to +75.0 | too few seeds to call | 4 seeds, 16 pairs |`)
   })
 
   it('shows the budget line', () => {
@@ -207,18 +219,18 @@ describe('renderReport: numbers', () => {
 
 describe('renderReport: paired deltas', () => {
   it('names a clear gap and keeps the interval off zero', () => {
-    const tasks = grid({ seeds: 12, reps: 1, pass: (model) => model === SONNET })
+    const tasks = grid({ seeds: 24, reps: 1, pass: (model) => model === SONNET })
     const report = renderReport({ run: run(tasks), meta: { ...META, reps: 1 } })
     const line = row(report, 'Paired deltas on case pass', SONNET)
     expect(line).toContain('+100.0 points')
     expect(line).toContain('| better |')
-    expect(line).toContain('12 seeds, 24 pairs')
+    expect(line).toContain('24 seeds, 48 pairs')
     expect(report).not.toContain('not distinguishable')
     expect(section(report, 'Paired deltas on case pass')).toContain(`Each model against ${HAIKU}`)
   })
 
   it('says not distinguishable when the interval contains zero', () => {
-    const tasks = grid({ seeds: 12, reps: 1, pass: (model, seed) => (model === HAIKU ? seed % 2 === 0 : seed % 3 === 0) })
+    const tasks = grid({ seeds: 48, reps: 1, pass: (model, seed) => (model === HAIKU ? seed % 2 === 0 : seed % 3 === 0) })
     const report = renderReport({ run: run(tasks), meta: { ...META, reps: 1 } })
     const line = row(report, 'Paired deltas on case pass', SONNET)
     expect(line).toContain('| not distinguishable |')
@@ -226,12 +238,26 @@ describe('renderReport: paired deltas', () => {
   })
 
   it('says worse when the second model is clearly behind and repeats for a given seed', () => {
-    const tasks = grid({ seeds: 12, reps: 1, pass: (model) => model === HAIKU })
+    const tasks = grid({ seeds: 24, reps: 1, pass: (model) => model === HAIKU })
     const meta = { ...META, reps: 1 }
     const report = renderReport({ run: run(tasks), meta })
     expect(row(report, 'Paired deltas on case pass', SONNET)).toContain('-100.0 points')
     expect(row(report, 'Paired deltas on case pass', SONNET)).toContain('| worse |')
     expect(renderReport({ run: run(tasks), meta })).toBe(report)
+  })
+
+  it('says too few seeds below the minimum, even for a perfect split', () => {
+    expect(MIN_SEEDS_FOR_VERDICT).toBe(20)
+    const one = grid({ seeds: 1, reps: 1, kinds: ['text'], pass: (model) => model === SONNET })
+    expect(row(renderReport({ run: run(one), meta: { ...META, reps: 1 } }), 'Paired deltas on case pass', SONNET)).toContain('| too few seeds to call |')
+    const nineteen = grid({ seeds: 19, reps: 1, pass: (model) => model === SONNET })
+    expect(row(renderReport({ run: run(nineteen), meta: { ...META, reps: 1 } }), 'Paired deltas on case pass', SONNET)).toContain('| too few seeds to call |')
+  })
+
+  it('says too few seeds when the interval is wider than the noise floor', () => {
+    const noisy = grid({ seeds: 20, reps: 1, kinds: ['text'], pass: (model, seed) => (model === HAIKU ? seed % 2 === 0 : seed % 2 === 1) })
+    const line = row(renderReport({ run: run(noisy), meta: { ...META, reps: 1 } }), 'Paired deltas on case pass', SONNET)
+    expect(line).toContain('| too few seeds to call |')
   })
 
   it('compares every later model with the first and needs two models', () => {
@@ -245,14 +271,17 @@ describe('renderReport: paired deltas', () => {
 })
 
 describe('renderReport: rep agreement', () => {
-  it('counts the cases whose replies were identical on every rep', () => {
+  it('counts the cases whose graded outcome was the same on every rep', () => {
     const tasks = grid({
       seeds: 4,
       reps: 3,
       kinds: ['text'],
       models: [HAIKU],
       pass: () => true,
-      extend: (_model, seed, _kind, rep) => ({ output: { amount: seed === 2 && rep === 1 ? 9 : 5, date: null, vendor: 'V' } }),
+      extend: (_model, seed, _kind, rep) => ({
+        output: { amount: 5, date: null, vendor: rep === 0 ? 'Kiso Ramen' : 'KISO RAMEN' },
+        ...(seed === 2 && rep === 1 ? { outcomes: AMOUNT_WRONG } : {}),
+      }),
     })
     const report = renderReport({ run: run(tasks), meta: { ...META, models: [HAIKU], reps: 3 } })
     expect(row(report, 'Rep agreement', HAIKU)).toBe(`| ${HAIKU} | 4 | 75.0% (3/4) |`)
@@ -308,11 +337,22 @@ describe('renderReport: errors, truncation and the budget', () => {
     expect(section(report, 'Errors')).toContain('- Tasks skipped because of the budget: 2.')
   })
 
+  it('puts a PARTIAL RUN notice at the top with completed and skipped tasks per model', () => {
+    const lines = report.split('\n')
+    expect(lines[2]).toMatch(/^> \*\*PARTIAL RUN\*\*/u)
+    expect(lines[2]).toContain(`${HAIKU} 5 completed, 1 skipped; ${SONNET} 5 completed, 1 skipped`)
+    const stopped = renderReport({ run: run(tasks, { stop: 'budget', partial: true }), meta: META })
+    expect(stopped).toContain('the budget ran out')
+    const clean = renderReport({ run: run(grid({ seeds: 2, reps: 1, pass: () => true })), meta: { ...META, reps: 1 } })
+    expect(clean).not.toContain('PARTIAL RUN')
+  })
+
   it('counts a refusal as no answer and a failed case, and leaves truncated rows out of the rate', () => {
     const line = row(report, 'Results by model', SONNET)
     expect(line).toContain('75.0% (')
     expect(line).toContain(', 3/4 |')
     expect(line).toContain('| 25.0% |')
+    expect(row(report, 'Precision, recall and the two ways to be wrong', SONNET)).toMatch(/\| 25\.0% \|$/u)
   })
 
   it('leaves a truncated call out of the latency and token means', () => {
@@ -356,7 +396,10 @@ describe('renderReport: baselines', () => {
     const text = section(report, 'Baselines')
     expect(text).toContain('| oracle (baseline) | 100.0% (6/6) | 100.0% | 100.0% | n/a | n/a | 0.0% |')
     expect(text).toContain('| all-null (baseline) | 0.0% (0/6) | n/a | 0.0% | n/a | n/a | 100.0% |')
-    expect(text).not.toContain('| regex (baseline)')
+    expect(text).not.toContain('| regex (')
+    const regex = grid({ seeds: 3, reps: 1, kinds: ['text'], pass: () => true, models: ['regex'] })
+    const labelled = renderReport({ run: run([...base, ...regex]), meta: { ...META, models: [HAIKU], reps: 1, baselines: ['all-null', 'oracle', 'regex'], baselineNotes: { regex: 'text only' } } })
+    expect(section(labelled, 'Baselines')).toContain('| regex (text only) | 100.0% (3/3) |')
     expect(report.indexOf('## Baselines')).toBeGreaterThan(report.indexOf('## Results by model'))
     expect(section(report, 'Results by model')).not.toContain('oracle')
     expect(section(report, 'Results by model')).not.toContain('all-null')
@@ -375,7 +418,7 @@ describe('renderReport: baselines', () => {
     expect(report).toContain('- Models: (none, baselines only)')
     expect(report).toContain('No model under test in this run.')
     expect(report).toContain('| oracle (baseline) | 100.0% (6/6) |')
-    expect(report).toContain('with 3 seeds and 1 rep,')
+    expect(report).toContain('about 81 points with 3 seeds.')
   })
 })
 
@@ -433,8 +476,8 @@ describe('renderReport: degenerate runs', () => {
     )
     const report = renderReport({ run: run(tasks), meta: META })
     expect(report).toContain('- Noise floor: n/a, no call was scored.')
-    expect(row(report, 'Results by model', HAIKU)).toBe(`| ${HAIKU} | n/a | n/a | n/a | n/a | n/a | n/a |`)
-    expect(row(report, 'Precision, recall and the two ways to be wrong', HAIKU)).toBe(`| ${HAIKU} | n/a | n/a | n/a | n/a | n/a |`)
+    expect(row(report, 'Results by model', HAIKU)).toBe(`| ${HAIKU} | n/a | n/a | n/a | n/a | n/a | n/a | n/a |`)
+    expect(row(report, 'Precision, recall and the two ways to be wrong', HAIKU)).toBe(`| ${HAIKU} | n/a | n/a | n/a | n/a | n/a | n/a |`)
     expect(row(report, 'Latency, tokens and cost', HAIKU)).toBe(`| ${HAIKU} | n/a | n/a | n/a | n/a | $0.0000 | n/a |`)
     expect(section(report, 'Paired deltas on case pass')).toContain('no paired rows')
     expect(section(report, 'Errors')).toContain('| auth | 2 | 2 | infrastructure, excluded |')
@@ -471,5 +514,33 @@ describe('renderReport: degenerate runs', () => {
     const later = renderReport({ ...input, meta: { ...META, createdAt: '2030-01-01T00:00:00.000Z' } })
     expect(later).toContain('- Date: 2030-01-01T00:00:00.000Z')
     expect(later.replace('2030-01-01T00:00:00.000Z', META.createdAt)).toBe(renderReport(input))
+  })
+})
+
+describe('renderReport: injection and vendor partial cells', () => {
+  it('counts refused or invalid adversarial calls as no answer, apart from failures and resisted cases', () => {
+    const adversarial = { category: 'adversarial' }
+    const tasks = [
+      fakeTask({ group: 'a1', ...adversarial, extra: { inject_ok: 0 } }),
+      fakeTask({ group: 'a2', ...adversarial, extra: { inject_ok: 1 } }),
+      fakeTask({ group: 'a3', ...adversarial, extra: { inject_ok: 1 } }),
+      fakeTask({ group: 'a4', ...adversarial, status: 'refused', failureClass: 'refusal' }),
+      fakeTask({ group: 'a5', ...adversarial, status: 'schema_failed', failureClass: 'invalid_output' }),
+      fakeTask({ group: 'e1', status: 'refused', failureClass: 'refusal' }),
+    ]
+    const report = renderReport({ run: run(tasks), meta: { ...META, models: [HAIKU], reps: 1 } })
+    expect(row(report, 'Results by model', HAIKU)).toContain('| inject_ok: 1 failed, 2 no answer, 2 resisted, of 5 |')
+  })
+
+  it('shows how many wrong vendors were partial matches and their mean overlap', () => {
+    const vendorWrong = { amount: 'TP', date: 'TP', vendor: 'WRONG' } as const
+    const tasks = [
+      { ...fakeTask({ group: 'a', outcomes: vendorWrong }), score: { status: 'ok' as const, outcomes: vendorWrong, extra: {}, partial: { vendor: 0.5 } } },
+      { ...fakeTask({ group: 'b', outcomes: vendorWrong }), score: { status: 'ok' as const, outcomes: vendorWrong, extra: {}, partial: { vendor: 0 } } },
+      fakeTask({ group: 'c' }),
+    ]
+    const report = renderReport({ run: run(tasks), meta: { ...META, models: [HAIKU], reps: 1 } })
+    expect(row(report, 'Results by model', HAIKU)).toContain('| 1 of 2 wrong (mean overlap 0.50) |')
+    expect(section(report, 'Results by model')).toContain('exact or alias')
   })
 })

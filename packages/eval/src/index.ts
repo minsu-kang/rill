@@ -1,4 +1,4 @@
-export { amountToCents, normalizeVendor } from './normalize'
+export { amountToCents, normalizeVendor, vendorKey, vendorsEqual } from './normalize'
 export {
   PRICE_TABLE,
   PRICE_TABLE_AS_OF,
@@ -10,8 +10,11 @@ export {
   type PriceTier,
 } from './pricing'
 export {
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  MAX_USAGE_TOKENS,
   createEvalProvider,
   createRecorder,
+  isValidTokenCount,
   withEffort,
   withSignal,
   zeroUsage,
@@ -24,25 +27,32 @@ export {
 export {
   BACKOFF_BASE_MS,
   BACKOFF_CAP_MS,
+  ESTIMATE_OUTPUT_TOKENS,
   backoffMs,
+  breakEvenOutputTokens,
   buildSchedule,
   classifyFailure,
   estimateRun,
   findLlmError,
   runEval,
+  servedModelMatches,
+  worstCaseCallUsd,
   type FailedAttempt,
   type Failure,
   type FailureClass,
+  type ProviderSettings,
   type RunEstimate,
   type RunOptions,
   type RunResult,
   type ScheduleEntry,
+  type StopReason,
   type TaskResult,
   type TaskStatus,
 } from './runner'
 export {
   FIELD_NAMES,
   FIELD_OUTCOMES,
+  SCORER_VERSION,
   aggregate,
   allNullBaseline,
   allNullOutput,
@@ -64,6 +74,7 @@ export {
 } from './score'
 export {
   clusterBootstrapDelta,
+  clusterBootstrapRatio,
   mean,
   mulberry32,
   percentile,
@@ -71,6 +82,8 @@ export {
   wilson,
   type BootstrapDelta,
   type BootstrapOptions,
+  type BootstrapRatio,
+  type RatioRow,
   type PairKey,
   type WilsonInterval,
 } from './stats'
@@ -78,7 +91,10 @@ export type { CaseScore, EvalCase, RunContext, Suite } from './suite'
 export { summarizeRequest, type SentMessage, type SentPart, type SentRequest } from './sent'
 export {
   PACKAGE_ROOT,
+  PARTIAL_FILE,
+  appendPartial,
   assertWritableDir,
+  partialLine,
   promptId,
   variantNames,
   writeResults,
@@ -88,8 +104,11 @@ export {
   type WrittenResults,
 } from './results'
 export {
+  ADVERSARIAL_CATEGORY,
   INDICATIVE_BELOW,
+  MIN_SEEDS_FOR_VERDICT,
   SHIPPED_EFFORT,
+  injectCounts,
   noiseFloorPoints,
   renderReport,
   type ReportInput,
@@ -98,6 +117,8 @@ export {
 export {
   AMOUNT_KEYWORDS,
   BASELINES as EXTRACT_BASELINES,
+  BASELINE_KINDS as EXTRACT_BASELINE_KINDS,
+  BASELINE_NOTES as EXTRACT_BASELINE_NOTES,
   BASELINE_NAMES as EXTRACT_BASELINE_NAMES,
   OBEYING_NAME as EXTRACT_OBEYING_NAME,
   allNullProvider,
@@ -148,11 +169,13 @@ export {
 } from './suites/extract/fixtures'
 export {
   INJECTION_TARGETS,
+  INJECTION_VERSION,
   LEAKED_TEXT,
   LEAK_RULE,
   injectionComplied,
   looksLeaked,
   obeyedOutput,
+  targetKey,
   type InjectionTarget,
   type LeakRule,
 } from './suites/extract/injection'
@@ -210,6 +233,7 @@ export {
   TEXT_CHARS_PER_TOKEN,
   TEXT_OVERHEAD_TOKENS,
   createExtractSuite,
+  extractVersions,
   sentRequestOf,
   verifyFixtures,
   type ExtractCase,

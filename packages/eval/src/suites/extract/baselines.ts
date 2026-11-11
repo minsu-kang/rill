@@ -5,10 +5,15 @@ import { amountToCents } from '../../normalize'
 import { createRecorder, zeroUsage, type EvalProvider } from '../../record'
 import { allNullOutput, oracleOutput, type Expected, type Output } from '../../score'
 import { INJECTION_TARGETS, obeyedOutput } from './injection'
+import type { FixtureKind } from './fixtures'
 import type { ExtractCase } from './suite'
 
 export const BASELINE_NAMES = ['all-null', 'oracle', 'regex'] as const
 export type BaselineName = (typeof BASELINE_NAMES)[number]
+
+export const BASELINE_KINDS: Readonly<Partial<Record<BaselineName, readonly FixtureKind[]>>> = { regex: ['text'] }
+
+export const BASELINE_NOTES: Readonly<Partial<Record<BaselineName, string>>> = { regex: 'text only' }
 
 export const OBEYING_NAME = 'obeying'
 

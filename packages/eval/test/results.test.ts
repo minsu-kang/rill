@@ -2,7 +2,7 @@ import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { assertWritableDir, promptId, variantNames, writeResults, type ResultsMeta } from '../src/results'
+import { PARTIAL_FILE, appendPartial, assertWritableDir, promptId, variantNames, writeResults, type ResultsMeta } from '../src/results'
 import { runEval, type RunResult, type TaskResult } from '../src/runner'
 import { baselineEvalProviders } from '../src/suites/extract/baselines'
 import { createExtractSuite, sentRequestOf, type ExtractCase, type ExtractOutput } from '../src/suites/extract/suite'
@@ -84,12 +84,18 @@ describe('promptId and variantNames', () => {
     expect(promptId('easy-ko-카페:pdf')).toMatch(/^[A-Za-z0-9_.-]+$/u)
   })
 
-  it('puts claude-opus-5-5 in baseline, and otherwise the first model, then v1, v2 in order', () => {
+  it('puts the first model with rows in baseline, then v1, v2 in order', () => {
     expect(variantNames([HAIKU, OPUS, SONNET])).toEqual([
+      { model: HAIKU, variant: 'baseline' },
+      { model: OPUS, variant: 'v1' },
+      { model: SONNET, variant: 'v2' },
+    ])
+    expect(variantNames([HAIKU, OPUS, SONNET], (model) => model !== HAIKU)).toEqual([
       { model: HAIKU, variant: 'v1' },
       { model: OPUS, variant: 'baseline' },
       { model: SONNET, variant: 'v2' },
     ])
+    expect(variantNames([HAIKU, SONNET], () => false)[0]).toEqual({ model: HAIKU, variant: 'baseline' })
     expect(variantNames([HAIKU, SONNET])).toEqual([
       { model: HAIKU, variant: 'baseline' },
       { model: SONNET, variant: 'v1' },
@@ -105,15 +111,15 @@ describe('writeResults: layout', () => {
     const written = writeResults(dir, runOf(tasks), metaFor([HAIKU, OPUS, SONNET]))
     expect(readdirSync(dir).sort()).toEqual(['_state.json', 'baseline', 'run.json', 'v1', 'v2'])
     expect(written.variants.map((entry) => [entry.variant, entry.model, entry.rows])).toEqual([
-      ['v1', HAIKU, 1],
-      ['baseline', OPUS, 1],
+      ['baseline', HAIKU, 1],
+      ['v1', OPUS, 1],
       ['v2', SONNET, 1],
     ])
     for (const variant of ['baseline', 'v1', 'v2']) {
       expect(readdirSync(join(dir, variant)).sort()).toEqual(['change.md', 'errors.jsonl', 'results.jsonl', 'traces'])
     }
-    expect(readFileSync(join(dir, 'baseline', 'change.md'), 'utf8')).toBe(`# model: ${OPUS}\n`)
-    expect(readFileSync(join(dir, 'v1', 'change.md'), 'utf8')).toBe(`# model: ${HAIKU}\n`)
+    expect(readFileSync(join(dir, 'baseline', 'change.md'), 'utf8')).toBe(`# model: ${HAIKU}\n`)
+    expect(readFileSync(join(dir, 'v1', 'change.md'), 'utf8')).toBe(`# model: ${OPUS}\n`)
     expect(readFileSync(join(dir, 'v2', 'change.md'), 'utf8')).toBe(`# model: ${SONNET}\n`)
     expect(readdirSync(dir).filter((name) => name.includes('claude'))).toEqual([])
   })
@@ -342,15 +348,17 @@ describe('writeResults: outcomes that are not a plain pass', () => {
       ['d-text', 'attempt', 'rate_limit'],
       ['d-text', 'attempt', 'overloaded'],
       ['d-text', 'task', 'overloaded'],
+      ['e-text', 'task', 'budget_skipped'],
       ['f-text', 'attempt', 'timeout'],
     ])
+    expect(errors[3]).toMatchObject({ attempts: 0, requested_model: HAIKU, model: null })
     expect(errors[0]).toMatchObject({ rep: 0, attempt: 1, requested_model: HAIKU, model: null, ts: '2026-11-11T09:00:00.000Z', usage: { input_tokens: 5 } })
     expect(errors[1]).toMatchObject({ usage: null })
     expect(errors[2]).toMatchObject({ attempts: 2 })
   })
 
-  it('lists skipped tasks in run.json and counts the failed ones', () => {
-    expect(readJson(join(dir, 'run.json'))).toMatchObject({ failed: 1, skipped: [{ prompt_id: 'e-text', rep: 0, model: HAIKU }] })
+  it('lists skipped tasks in run.json, counts the failed ones and marks the run partial', () => {
+    expect(readJson(join(dir, 'run.json'))).toMatchObject({ failed: 1, partial: true, skipped: [{ prompt_id: 'e-text', rep: 0, model: HAIKU, reason: 'budget' }] })
   })
 
   it('adds a trace without a captured request but with the grader detail', () => {
@@ -450,5 +458,55 @@ describe('writeResults: secrets', () => {
     writeResults(dir, runOf([fakeTask()]), metaFor([HAIKU], { secrets: ['', 'ab'] }))
     expect(existsSync(join(dir, 'baseline', 'results.jsonl'))).toBe(true)
     expect(readFileSync(join(dir, 'baseline', 'results.jsonl'), 'utf8')).toContain('"prompt_id"')
+  })
+})
+
+describe('writeResults: partial runs', () => {
+  it('chooses as baseline the first model that has a row when the first configured one has none', () => {
+    const dir = freshDir()
+    const tasks = [
+      fakeTask({ model: OPUS, status: 'failed', failureClass: 'auth', failedAttempts: [{ attempt: 1, failureClass: 'auth', message: '401' }] }),
+      fakeTask({ model: HAIKU }),
+      fakeTask({ model: SONNET }),
+    ]
+    const written = writeResults(dir, runOf(tasks), metaFor([OPUS, HAIKU, SONNET]))
+    expect(written.variants.map((entry) => [entry.variant, entry.model, entry.rows])).toEqual([
+      ['v1', OPUS, 0],
+      ['baseline', HAIKU, 1],
+      ['v2', SONNET, 1],
+    ])
+    expect(written.rows).toBe(2)
+  })
+
+  it('writes one budget_skipped task line per skipped task, with the stop reason for other stops', () => {
+    const dir = freshDir()
+    const tasks = [fakeTask({ group: 'a', status: 'skipped' }), { ...fakeTask({ group: 'b', status: 'skipped' }), skipped: 'interrupted' as const }]
+    writeResults(dir, { ...runOf(tasks), stop: 'budget', partial: true }, metaFor([HAIKU]))
+    expect(readJsonl(join(dir, 'baseline', 'errors.jsonl')).map((line) => [line['prompt_id'], line['scope'], line['failure_class']])).toEqual([
+      ['a-text', 'task', 'budget_skipped'],
+      ['b-text', 'task', 'interrupted_skipped'],
+    ])
+    expect(readJson(join(dir, 'run.json'))).toMatchObject({ partial: true, stop_reason: 'budget' })
+  })
+
+  it('says partial false for a complete run and records the versions and the output token cap', () => {
+    const dir = freshDir()
+    writeResults(dir, { ...runOf([fakeTask()]), maxOutputTokens: 3000 }, metaFor([HAIKU], { versions: { scorer: '2', injection: '2', price_table: '2026-11-03' } }))
+    expect(readJson(join(dir, 'run.json'))).toMatchObject({ partial: false, max_output_tokens: 3000, versions: { scorer: '2', injection: '2', price_table: '2026-11-03' } })
+  })
+
+  it('appends compact partial lines without documents or secrets and removes the file on the final write', () => {
+    const dir = freshDir()
+    const task = fakeTask({ output: { amount: 1, date: null, vendor: `vendor ${KEY}` } })
+    appendPartial(dir, task, [KEY])
+    appendPartial(dir, fakeTask({ group: 'b' }), [KEY])
+    const lines = readJsonl(join(dir, PARTIAL_FILE))
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toMatchObject({ case_id: 's1:text', model: HAIKU, rep: 0, status: 'ok', outcomes: ALL_TP })
+    expect(readFileSync(join(dir, PARTIAL_FILE), 'utf8')).not.toContain(KEY)
+    expect(() => assertWritableDir(dir)).toThrow(/not empty/)
+    expect(() => assertWritableDir(dir, [PARTIAL_FILE])).not.toThrow()
+    writeResults(dir, runOf([task]), metaFor([HAIKU], { secrets: [KEY] }))
+    expect(existsSync(join(dir, PARTIAL_FILE))).toBe(false)
   })
 })

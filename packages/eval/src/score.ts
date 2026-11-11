@@ -1,4 +1,6 @@
-import { amountToCents, normalizeVendor } from './normalize'
+import { amountToCents, normalizeVendor, vendorKey, vendorsEqual } from './normalize'
+
+export const SCORER_VERSION = '2'
 
 export const FIELD_NAMES = ['amount', 'date', 'vendor'] as const
 export type FieldName = (typeof FIELD_NAMES)[number]
@@ -92,15 +94,22 @@ function scoreVendor(
   }
   const want = normalizeVendor(expected)
   const got = normalizeVendor(output)
-  if (want === got) return { result: { outcome: 'TP', tags }, partial: 0 }
-  const [shorter, longer] = got.length <= want.length ? [got, want] : [want, got]
-  if (shorter === '' || !longer.includes(shorter)) return { result: { outcome: 'WRONG', tags }, partial: 0 }
-  if (vendorAliases.some((alias) => normalizeVendor(alias) === shorter)) {
+  if (vendorsEqual(got, want)) return { result: { outcome: 'TP', tags }, partial: 0 }
+  const aliases = vendorAliases.map(normalizeVendor)
+  if (aliases.some((alias) => vendorsEqual(got, alias))) {
     tags.push('vendor_alias_match')
     return { result: { outcome: 'TP', tags }, partial: 0 }
   }
-  tags.push('vendor_containment')
-  return { result: { outcome: 'WRONG', tags }, partial: shorter.length >= MIN_PARTIAL_LENGTH ? shorter.length / longer.length : 0 }
+  let partial = 0
+  for (const candidate of [want, ...aliases]) {
+    const left = vendorKey(got, candidate)
+    const right = vendorKey(candidate, got)
+    const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left]
+    if (shorter === '' || !longer.includes(shorter)) continue
+    partial = Math.max(partial, shorter.length >= MIN_PARTIAL_LENGTH ? shorter.length / longer.length : 0)
+    if (!tags.includes('vendor_containment')) tags.push('vendor_containment')
+  }
+  return { result: { outcome: 'WRONG', tags }, partial }
 }
 
 function finish(status: CallStatus, fields: Record<FieldName, FieldResult>, vendorPartial: number): ScoreFieldsResult {

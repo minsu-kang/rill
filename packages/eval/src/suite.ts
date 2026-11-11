@@ -18,6 +18,7 @@ export interface CaseScore {
   status: CallStatus
   outcomes: Record<string, FieldOutcome>
   extra: Record<string, number>
+  partial?: Record<string, number>
   tags?: Record<string, readonly string[]>
 }
 

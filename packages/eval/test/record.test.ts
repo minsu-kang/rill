@@ -92,6 +92,8 @@ describe('createRecorder', () => {
       thinkingChars: 6,
       bodyBytes: new TextEncoder().encode(JSON.stringify(reply)).length,
       failure: null,
+      badReply: null,
+      requestMaxTokens: null,
     })
   })
 
