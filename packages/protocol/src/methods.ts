@@ -1,7 +1,17 @@
 import { WorkflowSchema } from '@rill/dsl'
 import Type from 'typebox'
+import {
+  AttachmentRefSchema,
+  IdSchema,
+  PlanEffortSchema,
+  PlanMetaSchema,
+  PlanRecordSchema,
+  PlanResultBodySchema,
+  PlanSummarySchema,
+  PlanTurnSchema,
+} from './plan'
 
-const id = Type.String({ minLength: 1, maxLength: 128 })
+const id = IdSchema
 const closed = { additionalProperties: false } as const
 
 export const WorkflowSummarySchema = Type.Object({
@@ -102,6 +112,37 @@ export const METHODS = {
     params: noParams,
     result: Type.Object({ nodes: Type.Array(NodeInfoSchema) }),
   },
+  plan: {
+    params: Type.Object(
+      {
+        planId: id,
+        text: Type.String({ minLength: 1, maxLength: 8000 }),
+        turns: Type.Array(PlanTurnSchema, { maxItems: 40 }),
+        attachments: Type.Array(AttachmentRefSchema, { maxItems: 5 }),
+        effort: PlanEffortSchema,
+        workflowId: Type.Optional(id),
+        selection: Type.Optional(Type.Object({ nodeId: id }, closed)),
+      },
+      closed,
+    ),
+    result: Type.Object({ planId: id, result: PlanResultBodySchema, meta: PlanMetaSchema }),
+  },
+  cancelPlan: {
+    params: Type.Object({ planId: id }, closed),
+    result: Type.Object({ cancelled: Type.Boolean() }),
+  },
+  getPlan: {
+    params: Type.Object({ planId: id }, closed),
+    result: Type.Object({ plan: PlanRecordSchema }),
+  },
+  listPlans: {
+    params: Type.Object({ limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })) }, closed),
+    result: Type.Object({ plans: Type.Array(PlanSummarySchema) }),
+  },
+  deployPlan: {
+    params: Type.Object({ planId: id, confirmed: Type.Array(Type.String(), { maxItems: 200 }) }, closed),
+    result: Type.Object({ workflowId: id }),
+  },
   ping: { params: noParams, result: Type.Object({ time: Type.Number() }) },
 } as const
 
@@ -116,4 +157,13 @@ export const ERROR_CODES = [
   'NOT_FOUND',
   'ACTIVATION_FAILED',
   'INTERNAL',
+  'LLM_UNAVAILABLE',
+  'PLAN_INVALID',
+  'PLAN_PROVIDER',
+  'PLAN_CANCELLED',
+  'PLAN_BUSY',
+  'PLAN_EXISTS',
+  'PLAN_NOT_CONFIRMED',
+  'PLAN_DEPLOYED',
+  'ATTACHMENT_REJECTED',
 ] as const

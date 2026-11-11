@@ -135,14 +135,19 @@ describe('METHODS', () => {
     expect(Object.keys(METHODS).sort()).toEqual(
       [
         'activate',
+        'cancelPlan',
         'deactivate',
         'deploy',
+        'deployPlan',
+        'getPlan',
         'getRun',
         'getWorkflow',
+        'listPlans',
         'listRuns',
         'listWorkflows',
         'nodeCatalog',
         'ping',
+        'plan',
         'startRun',
       ].sort(),
     )

@@ -47,6 +47,10 @@ type Handlers = {
   [M in MethodName]: (params: MethodParams<M>) => MethodResult<M> | Promise<MethodResult<M>>
 }
 
+function unwired(): never {
+  throw new Error('planner methods are not wired yet')
+}
+
 function sameToken(expected: string, given: string | undefined): boolean {
   if (given === undefined) return false
   const a = createHash('sha256').update(expected).digest()
@@ -341,6 +345,11 @@ export class RillServer {
       listRuns: (params) => ({ runs: engine.listRuns({ workflowId: params.workflowId, limit: params.limit }) }),
       getRun: (params) => engine.getRunDetail(params.runId),
       nodeCatalog: () => ({ nodes: engine.nodeCatalog() }),
+      plan: unwired,
+      cancelPlan: unwired,
+      getPlan: unwired,
+      listPlans: unwired,
+      deployPlan: unwired,
       ping: () => ({ time: Date.now() }),
     }
   }
