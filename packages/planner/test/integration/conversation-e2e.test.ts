@@ -71,7 +71,7 @@ describe('conversation end to end', () => {
       const sent = provider.calls[1]!.request
       expect(sent.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'user'])
       expect(sent.messages[1]!.content).toBe(JSON.stringify(encodeGeneration(first)))
-      expect(sent.messages[2]!.content).toBe('the first one\n\nAnswers to your questions:\n- folder (question folder?): Receipts')
+      expect(sent.messages[2]!.content).toBe('the first one\n\nAnswers to your questions:\n- folder: Receipts')
       expect((sent.messages[3]!.content as string).endsWith('Request:\nok, go ahead')).toBe(true)
       expect(sent.schema).toEqual(generationSchema(registry))
     })

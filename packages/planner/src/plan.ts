@@ -2,6 +2,8 @@ import { capIssues, isWarningIssue, type PlanIssue, type Workflow } from '@rill/
 import { LlmError, costUsd, type LlmMessage, type LlmPart, type LlmRequest, type LlmResult, type LlmUsage } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
 import { ATTACHMENT_RULES, attachmentModule } from './attachments'
+import { fold, occursIn } from './attachments/normalize'
+import { literalsIn } from './attachments/redact'
 import { convertSchema, restoreConverted } from './convert'
 import { decodeGeneration, type DecodeContext, type Decoded } from './decode'
 import { AttachmentError } from './errors'
@@ -13,7 +15,6 @@ import {
   assistantContent,
   contextText,
   currentTurnText,
-  questionsBefore,
   renderUserTurn,
   systemBlocks,
   userMessage,
@@ -72,11 +73,20 @@ function classify(issues: readonly PlanIssue[], request: PlanRequest): Classifie
   return { errors, gaps }
 }
 
-function userTexts(request: PlanRequest): string[] {
+const LITERAL_KINDS = ['name', 'path', 'host'] as const
+
+export function answerFromAttachment(answer: string, attachmentTexts: readonly string[]): boolean {
+  const haystacks = attachmentTexts.map(fold)
+  const needles = [answer.trim(), ...literalsIn(answer)].map(fold).filter((needle) => needle !== '')
+  return needles.some((needle) => haystacks.some((haystack) => LITERAL_KINDS.some((kind) => occursIn(haystack, needle, kind))))
+}
+
+export function userTexts(request: PlanRequest, attachmentTexts: readonly string[] = []): string[] {
   const texts: string[] = []
   for (const turn of request.turns) {
     if (turn.role !== 'user') continue
-    texts.push(turn.text, ...Object.values(turn.answers ?? {}))
+    const answers = Object.values(turn.answers ?? {}).filter((answer) => !answerFromAttachment(answer, attachmentTexts))
+    texts.push(turn.text, ...answers)
   }
   texts.push(request.text)
   return texts.filter((text) => text !== '')
@@ -175,7 +185,7 @@ class Run {
         continue
       }
       const parts = await this.prepare(turn.attachments, index === lastWithAttachments)
-      messages.push(userMessage(renderUserTurn(turn, questionsBefore(turns, index)), parts))
+      messages.push(userMessage(renderUserTurn(turn), parts))
     }
     const parts = await this.prepare(this.request.attachments, false)
     messages.push(userMessage(currentTurnText(this.turnInput()), parts))
@@ -230,7 +240,7 @@ class Run {
     return this.attachments.provenance({
       workflow,
       registry: this.registry,
-      userTexts: userTexts(this.request),
+      userTexts: userTexts(this.request, this.attachmentTexts),
       ...(existing === undefined ? {} : { existingWorkflow: existing }),
       attachmentTexts: this.attachmentTexts,
       trustedConnections: this.request.context.connections.map((connection) => connection.name),

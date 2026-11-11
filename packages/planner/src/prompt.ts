@@ -4,7 +4,7 @@ import { catalogText } from './catalog'
 import { encodeGeneration } from './generation'
 import { HIDDEN_FIELDS } from './hidden'
 import { MAX_QUESTION_TURNS, MAX_QUESTIONS } from './questions'
-import type { PlanEffort, PlanQuestion, PlanRequest, PlanTurn } from './types'
+import type { PlanEffort, PlanRequest, PlanTurn } from './types'
 
 export interface EffortBudget {
   maxTokens: number
@@ -48,27 +48,16 @@ export function systemBlocks(registry: NodeRegistry, attachmentRules?: string): 
   return [{ text: rules }, { text: catalogText(registry), cache: true }]
 }
 
-export function questionsBefore(turns: readonly PlanTurn[], index: number): PlanQuestion[] {
-  for (let i = index - 1; i >= 0; i--) {
-    const result = turns[i]!.result
-    if (turns[i]!.role === 'assistant') return result?.kind === 'questions' ? result.questions : []
-  }
-  return []
-}
-
-export function renderAnswers(answers: Readonly<Record<string, string>> | undefined, questions: readonly PlanQuestion[]): string {
+export function renderAnswers(answers: Readonly<Record<string, string>> | undefined): string {
   if (answers === undefined || Object.keys(answers).length === 0) return ''
   const lines = Object.entries(answers)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([id, option]) => {
-      const question = questions.find((q) => q.id === id)
-      return `- ${id}${question === undefined ? '' : ` (${question.text})`}: ${option}`
-    })
+    .map(([id, option]) => `- ${id}: ${option}`)
   return `Answers to your questions:\n${lines.join('\n')}`
 }
 
-export function renderUserTurn(turn: PlanTurn, questions: readonly PlanQuestion[]): string {
-  return [turn.text, renderAnswers(turn.answers, questions)].filter((part) => part !== '').join('\n\n')
+export function renderUserTurn(turn: PlanTurn): string {
+  return [turn.text, renderAnswers(turn.answers)].filter((part) => part !== '').join('\n\n')
 }
 
 export function assistantContent(turn: PlanTurn): string {
