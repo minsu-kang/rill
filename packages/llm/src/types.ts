@@ -43,6 +43,7 @@ export interface LlmResult {
   stopReason: string
   durationMs: number
   fallbackUsed: boolean
+  servedModels?: string[]
 }
 
 export interface LlmCallOptions {

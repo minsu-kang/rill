@@ -111,6 +111,7 @@ describe('AnthropicProvider result', () => {
       requestedModel: DEFAULT_MODEL,
       stopReason: 'end_turn',
       fallbackUsed: false,
+      servedModels: ['claude-sonnet-5-5'],
       usage: { inputTokens: 12, outputTokens: 7, cacheReadInputTokens: 3, cacheCreationInputTokens: 2 },
     })
     expect(result.durationMs).toBeGreaterThanOrEqual(0)

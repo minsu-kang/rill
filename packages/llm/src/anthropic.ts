@@ -10,6 +10,7 @@ import {
   type LlmRequest,
   type LlmResult,
   type LlmSystemBlock,
+  type LlmUsage,
 } from './types'
 
 export const DEFAULT_MODEL = 'claude-opus-5-5'
@@ -41,8 +42,14 @@ interface Reply {
     output_tokens: number
     cache_read_input_tokens?: number | null
     cache_creation_input_tokens?: number | null
-    iterations?: ReadonlyArray<{ type: string }> | null
+    iterations?: unknown
   }
+}
+
+interface Iteration {
+  type: string
+  model: string | null
+  usage: LlmUsage
 }
 
 function isReply(value: unknown): value is Reply {
@@ -55,6 +62,61 @@ function isReply(value: unknown): value is Reply {
 
 function cacheControl(cache: boolean | undefined) {
   return cache === true ? { cache_control: { type: 'ephemeral' as const } } : {}
+}
+
+const SERVING_ITERATIONS: ReadonlySet<string> = new Set(['message', 'fallback_message'])
+
+const iterationType = (entry: unknown): unknown =>
+  typeof entry === 'object' && entry !== null ? (entry as { type?: unknown }).type : undefined
+
+const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
+
+function rawIterations(reply: Reply): unknown[] {
+  return Array.isArray(reply.usage.iterations) ? reply.usage.iterations : []
+}
+
+function readIteration(entry: unknown): Iteration | undefined {
+  if (typeof entry !== 'object' || entry === null) return undefined
+  const fields = entry as Record<string, unknown>
+  if (!isCount(fields.input_tokens) || !isCount(fields.output_tokens)) return undefined
+  return {
+    type: typeof fields.type === 'string' ? fields.type : '',
+    model: typeof fields.model === 'string' ? fields.model : null,
+    usage: {
+      inputTokens: fields.input_tokens,
+      outputTokens: fields.output_tokens,
+      cacheReadInputTokens: isCount(fields.cache_read_input_tokens) ? fields.cache_read_input_tokens : 0,
+      cacheCreationInputTokens: isCount(fields.cache_creation_input_tokens) ? fields.cache_creation_input_tokens : 0,
+    },
+  }
+}
+
+function usageOf(reply: Reply): { usage: LlmUsage; servedModels: string[] } {
+  const iterations = rawIterations(reply).flatMap((entry) => readIteration(entry) ?? [])
+  if (iterations.length === 0) {
+    return {
+      servedModels: [reply.model],
+      usage: {
+        inputTokens: reply.usage.input_tokens,
+        outputTokens: reply.usage.output_tokens,
+        cacheReadInputTokens: reply.usage.cache_read_input_tokens ?? 0,
+        cacheCreationInputTokens: reply.usage.cache_creation_input_tokens ?? 0,
+      },
+    }
+  }
+  const served = iterations
+    .filter((entry) => SERVING_ITERATIONS.has(entry.type) && entry.usage.outputTokens > 0)
+    .flatMap((entry) => entry.model ?? [])
+    .reverse()
+  return {
+    servedModels: served.length === 0 ? [reply.model] : [...new Set(served)],
+    usage: {
+      inputTokens: iterations.reduce((sum, entry) => sum + entry.usage.inputTokens, 0),
+      outputTokens: iterations.reduce((sum, entry) => sum + entry.usage.outputTokens, 0),
+      cacheReadInputTokens: iterations.reduce((sum, entry) => sum + entry.usage.cacheReadInputTokens, 0),
+      cacheCreationInputTokens: iterations.reduce((sum, entry) => sum + entry.usage.cacheCreationInputTokens, 0),
+    },
+  }
 }
 
 function toBlock(part: LlmPart): Anthropic.ContentBlockParam {
@@ -128,19 +190,16 @@ function toResult(reply: unknown, requestedModel: string, startedAt: number): Ll
   } catch (error) {
     throw new LlmError('invalid_output', 'the model reply was not valid JSON', { cause: error })
   }
+  const { usage, servedModels } = usageOf(reply)
   return {
     data,
     model: reply.model,
     requestedModel,
     stopReason: reply.stop_reason ?? 'unknown',
     durationMs: Date.now() - startedAt,
-    fallbackUsed: lastFallback >= 0 || (reply.usage.iterations ?? []).some((entry) => entry.type === 'fallback_message'),
-    usage: {
-      inputTokens: reply.usage.input_tokens,
-      outputTokens: reply.usage.output_tokens,
-      cacheReadInputTokens: reply.usage.cache_read_input_tokens ?? 0,
-      cacheCreationInputTokens: reply.usage.cache_creation_input_tokens ?? 0,
-    },
+    fallbackUsed: lastFallback >= 0 || rawIterations(reply).some((entry) => iterationType(entry) === 'fallback_message'),
+    usage,
+    servedModels,
   }
 }
 
