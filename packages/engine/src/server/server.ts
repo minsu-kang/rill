@@ -2,6 +2,9 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
+import type { PlanIssue } from '@rill/dsl'
+import { LlmError } from '@rill/llm'
+import { AttachmentError, PlanError } from '@rill/planner'
 import {
   PROTOCOL_VERSION,
   SUBPROTOCOL,
@@ -19,11 +22,21 @@ import {
 } from '@rill/protocol'
 import { WebSocketServer, type RawData, type WebSocket } from 'ws'
 import { WorkflowValidationError, type Engine } from '../engine'
+import {
+  LlmUnavailableError,
+  PlanBusyError,
+  PlanDeployedError,
+  PlanExistsError,
+  PlanNotConfirmedError,
+  PlanNotFoundError,
+} from '../plans'
 import { NotFoundError } from '../store'
 
 const OPEN = 1
 const CLOSED = 3
 const TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]{16,}$/
+const MAX_PROBLEMS = 20
+const PLANNER_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan'])
 
 export interface RillServerOptions {
   engine: Engine
@@ -47,10 +60,6 @@ type Handlers = {
   [M in MethodName]: (params: MethodParams<M>) => MethodResult<M> | Promise<MethodResult<M>>
 }
 
-function unwired(): never {
-  throw new Error('planner methods are not wired yet')
-}
-
 function sameToken(expected: string, given: string | undefined): boolean {
   if (given === undefined) return false
   const a = createHash('sha256').update(expected).digest()
@@ -69,11 +78,40 @@ function refuse(socket: Duplex, status: number, text: string): void {
   socket.destroy()
 }
 
+function issueProblems(issues: readonly PlanIssue[]): string[] {
+  return issues.slice(0, MAX_PROBLEMS).map((issue) => `${issue.code} at ${issue.pointer === '' ? '/' : issue.pointer}`)
+}
+
+function planErrorBody(error: PlanError): ErrorBody {
+  switch (error.kind) {
+    case 'provider':
+      return error.cause instanceof LlmError && error.cause.kind === 'auth'
+        ? { code: 'LLM_UNAVAILABLE', message: 'the model provider rejected the credentials' }
+        : { code: 'PLAN_PROVIDER', message: 'the model provider failed' }
+    case 'invalid_after_repair':
+      return { code: 'PLAN_INVALID', message: 'no valid plan after the repair rounds', problems: issueProblems(error.lastIssues) }
+    case 'invalid_request':
+      return { code: 'INVALID_PARAMS', message: 'the request does not fit the existing workflow', problems: issueProblems(error.lastIssues) }
+    case 'aborted':
+      return { code: 'PLAN_CANCELLED', message: 'planning was cancelled' }
+    case 'attachment':
+      return { code: 'ATTACHMENT_REJECTED', message: error.message }
+  }
+}
+
 function toErrorBody(method: string, error: unknown): ErrorBody {
   if (error instanceof WorkflowValidationError) {
-    return { code: 'INVALID_WORKFLOW', message: 'the workflow is not valid', problems: error.problems }
+    const problems = method === 'deployPlan' ? issueProblems(error.problemIssues) : error.problems
+    return { code: 'INVALID_WORKFLOW', message: 'the workflow is not valid', problems }
   }
-  if (error instanceof NotFoundError) return { code: 'NOT_FOUND', message: error.message }
+  if (error instanceof PlanError) return planErrorBody(error)
+  if (error instanceof AttachmentError) return { code: 'ATTACHMENT_REJECTED', message: error.message }
+  if (error instanceof LlmUnavailableError) return { code: 'LLM_UNAVAILABLE', message: error.message }
+  if (error instanceof PlanBusyError) return { code: 'PLAN_BUSY', message: error.message }
+  if (error instanceof PlanExistsError) return { code: 'PLAN_EXISTS', message: error.message }
+  if (error instanceof PlanNotConfirmedError) return { code: 'PLAN_NOT_CONFIRMED', message: error.message }
+  if (error instanceof PlanDeployedError) return { code: 'PLAN_DEPLOYED', message: error.message }
+  if (error instanceof PlanNotFoundError || error instanceof NotFoundError) return { code: 'NOT_FOUND', message: error.message }
   if (method === 'activate' && error instanceof Error) return { code: 'ACTIVATION_FAILED', message: error.message }
   return { code: 'INTERNAL', message: 'internal error' }
 }
@@ -278,7 +316,10 @@ export class RillServer {
   }
 
   private logError(method: string, error: unknown): void {
-    this.log(JSON.stringify({ type: 'error', method, message: error instanceof Error ? error.message : String(error) }))
+    const detail = PLANNER_METHODS.has(method)
+      ? { name: error instanceof Error ? error.name : typeof error }
+      : { message: error instanceof Error ? error.message : String(error) }
+    this.log(JSON.stringify({ type: 'error', method, ...detail }))
   }
 
   private send(client: Client, message: ServerMessage): void {
@@ -345,11 +386,11 @@ export class RillServer {
       listRuns: (params) => ({ runs: engine.listRuns({ workflowId: params.workflowId, limit: params.limit }) }),
       getRun: (params) => engine.getRunDetail(params.runId),
       nodeCatalog: () => ({ nodes: engine.nodeCatalog() }),
-      plan: unwired,
-      cancelPlan: unwired,
-      getPlan: unwired,
-      listPlans: unwired,
-      deployPlan: unwired,
+      plan: (params) => engine.plan(params),
+      cancelPlan: (params) => ({ cancelled: engine.cancelPlan(params.planId) }),
+      getPlan: (params) => ({ plan: engine.getPlan(params.planId) }),
+      listPlans: (params) => ({ plans: engine.listPlans({ limit: params.limit }) }),
+      deployPlan: (params) => ({ workflowId: engine.deployPlan(params.planId, params.confirmed) }),
       ping: () => ({ time: Date.now() }),
     }
   }
