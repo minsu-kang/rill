@@ -3,6 +3,7 @@ import { declaredBranches, type ConnectionResolver, type NodeRegistry } from '@r
 import type { Db } from './db'
 import { EventBus, type EngineListener } from './events'
 import { RunExecutor, type RunResult } from './executor'
+import { RunQueue } from './queue'
 import { Store } from './store'
 
 export { computeBackoff, type RunResult } from './executor'
@@ -15,6 +16,7 @@ export interface EngineOptions {
   now?: () => number
   allowedRoots?: string[]
   connections?: ConnectionResolver
+  maxConcurrentRuns?: number
 }
 
 export class WorkflowValidationError extends Error {
@@ -32,12 +34,14 @@ export class Engine {
   private readonly registry: NodeRegistry
   private readonly executor: RunExecutor
   private readonly bus: EventBus
+  private readonly queue: RunQueue
 
   constructor(options: EngineOptions) {
     const now = options.now ?? (() => Date.now())
     this.store = new Store(options.db, now)
     this.registry = options.registry
     this.bus = new EventBus(now)
+    this.queue = new RunQueue(options.maxConcurrentRuns ?? 4)
     this.executor = new RunExecutor({
       store: this.store,
       registry: options.registry,
@@ -65,9 +69,21 @@ export class Engine {
     return this.store.saveWorkflow(parsed.workflow)
   }
 
-  async startRun(workflowId: string, payload: unknown = {}, options: { dryRun?: boolean } = {}): Promise<RunResult> {
+  enqueueRun(
+    workflowId: string,
+    payload: unknown = {},
+    options: { dryRun?: boolean } = {},
+  ): { runId: string; done: Promise<RunResult> } {
     const run = this.store.createRun({ workflowId, payload, dryRun: options.dryRun ?? false })
-    return this.executor.execute(run)
+    return { runId: run.id, done: this.queue.run(() => this.executor.execute(run)) }
+  }
+
+  async startRun(workflowId: string, payload: unknown = {}, options: { dryRun?: boolean } = {}): Promise<RunResult> {
+    return this.enqueueRun(workflowId, payload, options).done
+  }
+
+  async idle(): Promise<void> {
+    await this.queue.idle()
   }
 
   async recover(): Promise<RunResult[]> {
