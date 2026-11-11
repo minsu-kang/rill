@@ -2,6 +2,7 @@ import type { Workflow } from '@rill/dsl'
 import { createCoreRegistry } from '@rill/nodes-core'
 import { describe, expect, it } from 'vitest'
 import { UNTRUSTED_SOURCE_TYPES, attachmentModule, createAttachmentModule } from '../../src/attachments'
+import { occursIn } from '../../src/attachments/normalize'
 import type { ProvenanceInput } from '../../src/ports'
 import type { Flag } from '../../src/types'
 
@@ -108,7 +109,7 @@ describe('provenance: attachment origin and new egress targets', () => {
   })
 
   it('ignores the message role and non-string values', () => {
-    const wf = chain(manual, n('n1', 'notify.slack@1', { connection: 'ops', text: `see ${evilUrl}` }), n('n2', 'http.request@1', { url: 5, auth: { connection: 7 } }))
+    const wf = chain(manual, n('n1', 'notify.slack@1', { connection: 'ops', text: evilUrl }), n('n2', 'http.request@1', { url: 5, auth: { connection: 7 } }))
     expect(provenance(wf, { userTexts: ['use ops'], attachmentTexts: [evilUrl] })).toEqual([])
   })
 
@@ -122,6 +123,12 @@ describe('provenance: normalisation', () => {
     const wf = chain(manual, post('n1', 'https://API.Example.test/v1'))
     expect(provenance(wf, { userTexts: ['HTTPS://api.EXAMPLE.test/'] })).toEqual([])
     expect(provenance(chain(manual, post('n1', 'https://api.example.test/v1')), { userTexts: ['post to Api.Example.TEST'] })).toEqual([])
+  })
+
+  it('ignores a trailing dot after the host and the credentials before it', () => {
+    expect(provenance(chain(manual, post('n1', 'https://example.test./x')), { userTexts: ['use example.test'] })).toEqual([])
+    expect(provenance(chain(manual, post('n1', 'https://user:pw@example.test/x')), { userTexts: ['use example.test'] })).toEqual([])
+    expect(provenance(chain(manual, post('n1', 'https://example.test@evil.test/x')), { userTexts: ['use example.test'] }).length).toBe(1)
   })
 
   it('does not depend on a trailing slash or on the path of the URL', () => {
@@ -150,6 +157,7 @@ describe('provenance: normalisation', () => {
     expect(provenance(chain(manual, csv('n1', '~/receipts/ledger/')), { userTexts: ['into ~/Receipts/Ledger'] })).toEqual([])
     expect(provenance(chain(manual, csv('n1', '~/Receipts/ledger.csv')), { userTexts: ['append to /Receipts/ledger.csv'] }).length).toBe(1)
     expect(provenance(chain(manual, csv('n1', '/data/ledger.csv')), { userTexts: ['append to ~/data/ledger.csv'] }).length).toBe(1)
+    expect(provenance(chain(manual, csv('n1', 'home/receipts/ledger.csv')), { userTexts: ['append to ~/receipts/ledger.csv'] }).length).toBe(1)
   })
 
   it('does not accept a longer or a sibling path as the same path, but a folder the user wrote inside a longer path', () => {
@@ -159,6 +167,22 @@ describe('provenance: normalisation', () => {
     expect(provenance(chain(manual, csv('n1', '~/Receipts')), user).length).toBe(0)
     expect(provenance(chain(manual, csv('n1', '~/Receipts/other.csv')), user).length).toBe(1)
     expect(provenance(chain(manual, csv('n1', 'ledger.csv')), user).length).toBe(1)
+  })
+
+  it('finds a later occurrence when the first one touches a longer token', () => {
+    const wf = chain(manual, post('n1', 'https://example.test/x'))
+    expect(provenance(wf, { userTexts: ['notexample.test and then example.test'] })).toEqual([])
+    expect(provenance(chain(manual, slack('n1', 'ops')), { userTexts: ['ops2 and ops-x, then ops'] })).toEqual([])
+  })
+
+  it('rejects a name that is glued to an e-mail local part, to a digit or to a dash', () => {
+    const flagged = (name: string, text: string) => provenance(chain(manual, slack('n1', name)), { userTexts: [text] }).length
+    expect(flagged('ops', 'send to bob@ops')).toBe(1)
+    expect(flagged('ops', 'use ops2')).toBe(1)
+    expect(flagged('ops', 'use 2ops')).toBe(1)
+    expect(flagged('ops', 'use ops_')).toBe(1)
+    expect(flagged('ops', 'use ops!')).toBe(0)
+    expect(flagged('ops', 'ops')).toBe(0)
   })
 
   it('accepts a name inside Korean text and rejects it inside a longer word', () => {
@@ -259,6 +283,13 @@ describe('provenance: untrusted flow', () => {
     expect(brief(provenance(wf))).toEqual(['n2 /nodes/2/config/file untrusted_flow', 'n3 /nodes/3/config/file untrusted_flow'])
   })
 
+  it('cannot judge a templated connection name, so it only flags the flow', () => {
+    const wf = chain(manual, extract('n1'), slack('n2', 'ops-{{n1.output.amount}}'))
+    expect(brief(provenance(wf, { userTexts: ['tell the team'] }))).toEqual(['n2 /nodes/2/config/connection untrusted_flow'])
+    const plain = chain(manual, n('n1', 'transform@1', { values: { a: 'x' } }), slack('n2', 'ops-{{n1.output.a}}'))
+    expect(provenance(plain, { userTexts: ['tell the team'] })).toEqual([])
+  })
+
   it('ignores the version of the node type', () => {
     const wf = chain(manual, n('n1', 'llm.extract@2', { text: 'x', fields: [] }), post('n2', '{{n1.output.a}}'))
     expect(brief(provenance(wf))).toEqual(['n2 /nodes/2/config/url untrusted_flow'])
@@ -333,9 +364,29 @@ describe('provenance: flag shape, order and content', () => {
     expect(JSON.stringify({ ...input, registry: undefined })).toBe(before)
   })
 
+  it('orders nodes by their position, not by the text of the pointer', () => {
+    const ok = (id: string) => csv(id, '~/Out/ok.csv')
+    const nodes = [manual, ok('n1'), csv('n2', '~/Elsewhere/a.csv'), ...[3, 4, 5, 6, 7, 8, 9].map((i) => ok(`n${i}`)), csv('n10', '~/Elsewhere/b.csv')]
+    const flags = provenance(chain(...nodes), { userTexts: ['write to ~/Out/ok.csv'] })
+    expect(brief(flags)).toEqual(['n2 /nodes/2/config/file new_egress_target', 'n10 /nodes/10/config/file new_egress_target'])
+  })
+
   it('puts a templated untrusted flow after the literal flags of the same pointer', () => {
     const wf = chain(manual, extract('n1'), post('n2', 'https://api.example.test/{{n1.output.amount}}'))
     const flags = provenance(wf, { userTexts: ['go'], attachmentTexts: ['https://api.example.test/'] })
     expect(flags.map((flag) => flag.code)).toEqual(['attachment_origin', 'new_egress_target', 'untrusted_flow'])
+  })
+})
+
+describe('occursIn', () => {
+  it('never matches an empty needle', () => {
+    expect(occursIn('anything', '', 'name')).toBe(false)
+    expect(occursIn('', '', 'host')).toBe(false)
+  })
+
+  it('applies the boundary of the literal kind', () => {
+    expect(occursIn('see /data/x.csv now', '/data/x.csv', 'path')).toBe(true)
+    expect(occursIn('see /mnt/data/x.csv now', '/data/x.csv', 'path')).toBe(false)
+    expect(occursIn('see //example.test/x', 'example.test', 'host')).toBe(true)
   })
 })
