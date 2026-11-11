@@ -1,0 +1,13 @@
+{
+  "name": "@rill/planner",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@rill/dsl": "workspace:*",
+    "@rill/llm": "workspace:*",
+    "@rill/nodes-core": "workspace:*",
+    "typebox": "^1.4.6"
+  }
+}
