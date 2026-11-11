@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LlmError } from '@rill/llm'
-import { PlanError } from '@rill/planner'
+import { EFFORT_BUDGETS, PlanError } from '@rill/planner'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { USAGE, main, type CliIo } from '../src/cli'
 import { formatUsdPlain, guardReserveUsd, worstCallUsd } from '../src/budget'
@@ -15,8 +15,9 @@ import { PRICE_TABLE_AS_OF, estimateCallUsd } from '../src/pricing'
 import { createEvalProvider, type EvalProviderOptions } from '../src/record'
 import { buildSchedule, worstCaseCallUsd } from '../src/runner'
 import { verifyAttachments } from '../src/suites/planner/attachments'
-import { plannerWorstCaseUsd, worstCaseCalls } from '../src/suites/planner/budget'
+import { effortMaxTokens, plannerWorstCaseUsd, worstCaseCalls } from '../src/suites/planner/budget'
 import {
+  PLANNER_LIMITS,
   PLANNER_USAGE,
   parsePlannerCli,
   plannerCommandLine,
@@ -135,8 +136,7 @@ describe('parsePlannerCli', () => {
       concurrency: 2,
       maxRepairRounds: 3,
       budgetUsd: undefined,
-      maxOutputTokens: 16_000,
-      maxCallSeconds: 300,
+      maxCallSeconds: 1260,
       maxAttempts: 2,
       seed: 1,
       out: undefined,
@@ -147,7 +147,7 @@ describe('parsePlannerCli', () => {
   })
 
   it('reads the options of the brief: --model, --effort, --group, --only, --dry, --yes with --budget-usd', () => {
-    expect(config('--model', 'claude-opus-5-5', '--effort', 'xhigh', '--group', 'patch', '--dry')).toMatchObject({ models: ['claude-opus-5-5'], effort: 'xhigh', group: 'patch', dry: true })
+    expect(config('--model', 'claude-opus-5-5', '--effort', 'high', '--group', 'patch', '--dry')).toMatchObject({ models: ['claude-opus-5-5'], effort: 'high', group: 'patch', dry: true })
     expect(config('--only', 'easy-01')).toMatchObject({ only: 'easy-01' })
     expect(config('--yes', '--budget-usd', '2.5')).toMatchObject({ yes: true, budgetUsd: 2.5 })
   })
@@ -159,12 +159,17 @@ describe('parsePlannerCli', () => {
     expect(config('--only', 'easy-01-receipt-folder-to-csv,patch-01-change-schedule').only).toEqual(['easy-01-receipt-folder-to-csv', 'patch-01-change-schedule'])
   })
 
-  it.each(['low', 'medium', 'high', 'xhigh', 'max'])('accepts the effort %s', (effort) => {
+  it.each(['low', 'medium', 'high'])('accepts the effort %s', (effort) => {
     expect(config('--effort', effort).effort).toBe(effort)
   })
 
+  it.each(['xhigh', 'max'])('refuses the effort %s up front: its reply streams and the usage cannot be read', (effort) => {
+    expect(() => parsePlannerCli(['--effort', effort])).toThrow(`--effort ${effort}: effort ${effort} cannot be measured`)
+    expect(() => parsePlannerCli(['--effort', effort])).toThrow('Use low, medium, high.')
+  })
+
   it.each([
-    [['--effort', 'ultra'], '--effort must be one of low, medium, high, xhigh, max'],
+    [['--effort', 'ultra'], '--effort must be one of low, medium, high'],
     [['--model', 'a', '--models', 'b'], 'are the same option'],
     [['--model', 'Bad Model'], '--model must list model ids'],
     [['--model', 'a,,b'], 'without empty entries'],
@@ -179,8 +184,9 @@ describe('parsePlannerCli', () => {
     [['--concurrency', '17'], '--concurrency must be an integer from 1 to 16'],
     [['--max-repair-rounds', '6'], '--max-repair-rounds must be an integer from 0 to 5'],
     [['--max-repair-rounds=-1'], '--max-repair-rounds must be an integer from 0 to 5'],
-    [['--max-output-tokens', '16001'], '--max-output-tokens must be an integer from 1 to 16000'],
-    [['--max-call-seconds', '1801'], '--max-call-seconds must be an integer from 1 to 1800'],
+    [['--max-output-tokens', '8000'], '--max-output-tokens is not an option of the planner command: the planner sets max_tokens itself, by effort (low 8000, medium 12000, high 16000, xhigh 32000 (not measurable), max 32000 (not measurable))'],
+    [['--max-output-tokens', '16001'], 'choose the effort with --effort'],
+    [['--max-call-seconds', '3601'], '--max-call-seconds must be an integer from 1 to 3600'],
     [['--max-attempts', '11'], '--max-attempts must be an integer from 1 to 10'],
     [['--seed', '4294967296'], '--seed must be an integer from 0 to 4294967295'],
     [['--only', ' '], '--only must not be empty'],
@@ -188,6 +194,20 @@ describe('parsePlannerCli', () => {
     [['extract'], 'unexpected argument: extract'],
   ])('rejects %j', (args, message) => {
     expect(() => parsePlannerCli(args)).toThrow(message)
+  })
+
+  it.each([0, 1, 3, 5])('defaults --max-call-seconds to the worst case of one high-effort case with %i repair rounds', (rounds) => {
+    const worst = ((1 + 2 * rounds) * EFFORT_BUDGETS.high.timeoutMs) / 1000
+    const parsed = config('--max-repair-rounds', String(rounds))
+    expect(parsed.maxCallSeconds).toBe(worst)
+    expect(parsed.maxCallSeconds).toBeLessThanOrEqual(PLANNER_LIMITS.maxCallSeconds.max)
+    expect(config('--max-repair-rounds', String(rounds), '--max-call-seconds', '90').maxCallSeconds).toBe(90)
+  })
+
+  it('has a default that is at least one worst-case case for every effort a case can have', () => {
+    for (const effort of ['low', 'medium', 'high'] as const) {
+      expect(config().maxCallSeconds * 1000).toBeGreaterThanOrEqual(worstCaseCalls(3) * EFFORT_BUDGETS[effort].timeoutMs)
+    }
   })
 
   it('shows the help without checking anything else', () => {
@@ -200,14 +220,20 @@ describe('plannerCommandLine', () => {
   it('repeats every option that differs from its default, and nothing else', () => {
     const plain = plannerCommandLine(config(), 4.28)
     expect(plain).toBe('pnpm eval planner --yes --model claude-sonnet-5-5 --budget-usd 4.28')
-    const busy = config('--model', 'a,b', '--effort', 'high', '--group', 'easy,patch', '--only', 'easy-0', '--reps', '2', '--concurrency', '3', '--max-repair-rounds', '1', '--max-output-tokens', '8000', '--max-call-seconds', '120', '--max-attempts', '3', '--seed', '9', '--out', '/tmp/x', '--allow-base-url')
+    const busy = config('--model', 'a,b', '--effort', 'high', '--group', 'easy,patch', '--only', 'easy-0', '--reps', '2', '--concurrency', '3', '--max-repair-rounds', '1', '--max-call-seconds', '120', '--max-attempts', '3', '--seed', '9', '--out', '/tmp/x', '--allow-base-url')
     expect(plannerCommandLine(busy, 1)).toBe(
-      'pnpm eval planner --yes --model a,b --effort high --group easy,patch --only easy-0 --reps 2 --concurrency 3 --max-repair-rounds 1 --max-output-tokens 8000 --max-call-seconds 120 --max-attempts 3 --seed 9 --out /tmp/x --allow-base-url --budget-usd 1.00',
+      'pnpm eval planner --yes --model a,b --effort high --group easy,patch --only easy-0 --reps 2 --concurrency 3 --max-repair-rounds 1 --max-call-seconds 120 --max-attempts 3 --seed 9 --out /tmp/x --allow-base-url --budget-usd 1.00',
     )
   })
 
+  it('leaves out --max-call-seconds when it is the default of the repair rounds, and keeps any other value', () => {
+    expect(plannerCommandLine(config('--max-repair-rounds', '0'), 1)).not.toContain('--max-call-seconds')
+    expect(plannerCommandLine(config('--max-repair-rounds', '5'), 1)).not.toContain('--max-call-seconds')
+    expect(plannerCommandLine(config('--max-repair-rounds', '0', '--max-call-seconds', '1260'), 1)).toContain('--max-call-seconds 1260')
+  })
+
   it('prints a command that parses back to the same plan', () => {
-    for (const args of [[], ['--model', 'a,b', '--effort', 'max'], ['--group', 'patch', '--max-repair-rounds', '0'], ['--only', 'a,b', '--reps', '3']]) {
+    for (const args of [[], ['--model', 'a,b', '--effort', 'high'], ['--group', 'patch', '--max-repair-rounds', '0'], ['--only', 'a,b', '--reps', '3']]) {
       const original = config(...args)
       const words = plannerCommandLine(original, 2.5).split(' ').slice(3)
       const again = parsePlannerCli(words)
@@ -228,12 +254,18 @@ describe('the dry run', () => {
     expect(text).toContain('rill eval: planner (suite version ')
     expect(text).toContain('cases: 48 cases (easy 20, ambiguous 10, unsupported 8, attachment 6, patch 4)')
     expect(text).toContain('tasks: 48 (48 cases x 1 rep x 1 model)')
-    expect(text).toContain('provider calls: 48 planned at one call per task if no plan needs repair; at most 288 (6 per task)')
+    expect(text).toContain('provider calls: 48 planned at one call per task if no plan needs repair; at most 336 (7 per task)')
     expect(text).toContain('effort: each case sets its own (low 18, medium 18, high 12)')
-    expect(text).toContain('planner: up to 3 repair rounds; worst case 6 calls per case = 1 first call + 3 repair rounds + 2 targeted calls')
+    expect(text).toContain('1260 s per attempt (the worst case of one high-effort case is 1260 s: 7 calls x 180 s)')
+    expect(text).toContain(
+      'planner: up to 3 repair rounds; worst case 7 calls per case = 1 first call + 3 repair rounds x up to 2 calls (a repair round re-asks once, or repairs up to 2 nodes with one call each)',
+    )
     expect(text).toContain(`estimate (prices as of ${PRICE_TABLE_AS_OF}):`)
-    expect(text).toMatch(/claude-sonnet-5-5: typical \$\d+\.\d+ \(one call per case, no repair\), worst case \$\d+\.\d+ \(6 calls per case, every call at 16000 output tokens\)/u)
-    expect(text).toContain('guard formula: the budget guard reserves, for every case in flight, 6 calls x (input + 16000 output tokens)')
+    expect(text).toMatch(/claude-sonnet-5-5: typical \$\d+\.\d+ \(one call per case, no repair\), worst case \$\d+\.\d+ \(7 calls per case, every call at the max_tokens of its effort\)/u)
+    expect(text).toContain("guard formula: the budget guard reserves, for every case in flight, 7 calls x (input + the max_tokens of the case's effort as output tokens)")
+    expect(text).toContain("for each of the 3 repair rounds, the max_tokens of the case's effort for the previous answer and 3000 tokens for the issue list")
+    expect(text).toContain('7 = 1 + 3 repair rounds x 2 calls')
+    expect(text).toContain('the planner sets max_tokens from it: low 8000, medium 12000, high 16000')
     expect(text).toContain('Nothing was sent.')
     for (const testCase of createPlannerSuite().cases()) expect(text).toContain(testCase.id)
     expect(text).toMatch(/attach-03-pdf-injection-http-exfil\s+attachment\s+high\s+workflow\s+1\s+hard,injection/u)
@@ -242,12 +274,13 @@ describe('the dry run', () => {
   it('prices the worst case with the number of calls of the planner settings', async () => {
     const suite = createPlannerSuite()
     const expected = suite.cases().reduce((sum, testCase) => sum + (worstCaseCallUsd(suite, testCase, SONNET, 16_000) ?? 0), 0)
-    expect(await plan()).toContain(`worst case $${expected.toFixed(2)} (6 calls`)
+    expect(await plan()).toContain(`worst case $${expected.toFixed(2)} (7 calls`)
     const lean = createPlannerSuite({ maxRepairRounds: 0 })
     const leanTotal = lean.cases().reduce((sum, testCase) => sum + (worstCaseCallUsd(lean, testCase, SONNET, 16_000) ?? 0), 0)
     const leanText = await plan('--max-repair-rounds', '0')
-    expect(leanText).toContain(`worst case $${leanTotal.toFixed(2)} (3 calls`)
-    expect(leanText).toContain('at most 144 (3 per task)')
+    expect(leanText).toContain(`worst case $${leanTotal.toFixed(2)} (1 call per case`)
+    expect(leanText).toContain('at most 48 (1 per task)')
+    expect(leanText).toContain('worst case 1 call per case = 1 first call + 0 repair rounds x up to 2 calls')
     expect(leanTotal).toBeLessThan(expected)
   })
 
@@ -316,7 +349,7 @@ describe('plannerMain without --yes', () => {
   })
 
   it('never constructs a provider for any dry run, whatever the other options', async () => {
-    for (const args of [['--dry'], ['--dry', '--model', 'a,b', '--effort', 'max'], ['--group', 'patch'], ['--only', 'easy-01'], ['--budget-usd', '5'], ['--dry', '--allow-base-url']]) {
+    for (const args of [['--dry'], ['--dry', '--model', 'a,b', '--effort', 'high'], ['--group', 'patch'], ['--only', 'easy-01'], ['--budget-usd', '5'], ['--dry', '--allow-base-url']]) {
       const h = harness({ ANTHROPIC_API_KEY: KEY, ANTHROPIC_BASE_URL: 'https://example.invalid' })
       expect(await main(['planner', ...args], h.io), args.join(' ')).toBe(EXIT_OK)
       expect(h.providers).toHaveLength(0)
@@ -448,11 +481,11 @@ describe('plannerMain --yes: a run', () => {
     expect(runJson).toMatchObject({ suite: 'planner', partial: false, max_output_tokens: 16_000, versions: { max_repair_rounds: '3', effort: 'per case' } })
   })
 
-  it('builds a provider per attempt with the model, the key, max_tokens and a timeout above the call ceiling, and no effort', async () => {
+  it('builds a provider per attempt with the model, the key, the largest measurable max_tokens and a timeout above the call ceiling, and no effort', async () => {
     const h = harness(env, oraclePlanner)
-    await plannerMain(['--yes', '--budget-usd', '50', '--only', 'easy-03-webhook-to-slack', '--effort', 'high', '--max-output-tokens', '8000', '--max-call-seconds', '120', '--out', join(dir, 'o')], h.io)
+    await plannerMain(['--yes', '--budget-usd', '50', '--only', 'easy-03-webhook-to-slack', '--effort', 'high', '--max-call-seconds', '120', '--out', join(dir, 'o')], h.io)
     expect(h.providers).toHaveLength(1)
-    expect(h.providers[0]).toMatchObject({ model: SONNET, apiKey: KEY, baseURL: 'https://api.anthropic.com', maxTokens: 8000, timeoutMs: 125_000 })
+    expect(h.providers[0]).toMatchObject({ model: SONNET, apiKey: KEY, baseURL: 'https://api.anthropic.com', maxTokens: 16_000, timeoutMs: 125_000 })
     expect(h.providers[0]).not.toHaveProperty('effort')
   })
 
@@ -465,9 +498,9 @@ describe('plannerMain --yes: a run', () => {
       },
     })
     const h = harness(env, factory)
-    await plannerMain(['--yes', '--budget-usd', '50', '--group', 'patch', '--effort', 'max', '--max-repair-rounds', '1', '--out', join(dir, 'o')], h.io)
+    await plannerMain(['--yes', '--budget-usd', '50', '--group', 'patch', '--effort', 'high', '--max-repair-rounds', '1', '--out', join(dir, 'o')], h.io)
     expect(seen).toHaveLength(4)
-    expect(seen.every((entry) => entry.effort === 'max' && entry.rounds === 1)).toBe(true)
+    expect(seen.every((entry) => entry.effort === 'high' && entry.rounds === 1)).toBe(true)
   })
 
   it('runs a model list and repetitions, and keeps a partial file out of the final directory', async () => {
@@ -491,8 +524,8 @@ describe('plannerMain --yes: a run', () => {
   it('runs a case only when the budget covers the whole case, not just one call', async () => {
     const suite = createPlannerSuite({ only: 'easy-03-webhook-to-slack' })
     const [testCase] = suite.cases()
-    const worst = plannerWorstCaseUsd(SONNET, suite.estimateInputTokens?.(testCase!) ?? 0, 3, 16_000) ?? 0
-    expect(worstCaseCalls(3)).toBe(6)
+    const worst = plannerWorstCaseUsd(SONNET, suite.estimateInputTokens?.(testCase!) ?? 0, 3, effortMaxTokens(testCase!.spec.effort)) ?? 0
+    expect(worstCaseCalls(3)).toBe(7)
     const tight = harness(env, oraclePlanner)
     expect(await plannerMain(['--yes', '--budget-usd', String(worst * 0.9), '--only', 'easy-03-webhook-to-slack', '--out', join(dir, 'a')], tight.io)).toBe(EXIT_PARTIAL)
     expect(tight.providers).toHaveLength(0)

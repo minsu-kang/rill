@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Workflow } from '@rill/dsl'
@@ -19,14 +19,14 @@ import {
   type PlanResult,
 } from '@rill/planner'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { EXIT_OK, type CliIo } from '../src/cli-shared'
+import { EXIT_OK, EXIT_USAGE, type CliIo } from '../src/cli-shared'
 import { createEvalProvider } from '../src/record'
 import { PRICE_TABLE, estimateCallUsd, priceFor } from '../src/pricing'
 import { runEval, type RunResult } from '../src/runner'
 import { isPassingOutcome } from '../src/score'
-import { BASE_INPUT_TOKENS, DEFAULT_MAX_REPAIR_ROUNDS, HISTORY_TOKENS_PER_REPAIR_ROUND, TARGETED_EXTRA_CALLS, firstCallInputTokens, plannerWorstCaseUsd, worstCaseCalls } from '../src/suites/planner/budget'
+import { DEFAULT_MAX_REPAIR_ROUNDS, baseInputTokens, TARGETED_CALLS_PER_ROUND, firstCallInputTokens, historyTokensPerRepairRound, plannerWorstCaseUsd, worstCaseCalls } from '../src/suites/planner/budget'
 import { loadPlannerData, type PlannerData } from '../src/suites/planner/cases'
-import { plannerMain } from '../src/suites/planner/cli'
+import { parsePlannerCli, plannerMain } from '../src/suites/planner/cli'
 import { resolveAttachments } from '../src/suites/planner/attachments'
 import { plannerMetrics } from '../src/suites/planner/metrics'
 import type { PlannerOutput } from '../src/suites/planner/scoring'
@@ -381,7 +381,7 @@ describe('2b. the per-attempt ceiling', () => {
     expect(provider.seen).toHaveLength(1)
   })
 
-  it.fails('classifies a ceiling that fires between two rounds as timeout_ceiling', async () => {
+  it('classifies a ceiling that fires between two rounds as timeout_ceiling', async () => {
     const run = await runWithCeiling(slowInvalid())
     expect(task(run, ID).failureClass).toBe('timeout_ceiling')
   })
@@ -442,6 +442,52 @@ describe('3. repair and the eval scoring', () => {
     expect(provider.seen[1]!.request.schema).toEqual(convertSchema(withoutHiddenFields(registry.get('llm.extract@1')!)).schema)
     expect(provider.seen[2]!.request.schema).toEqual(convertSchema(withoutHiddenFields(registry.get('csv.append@1')!)).schema)
     expect(provider.seen.map((entry2) => entry2.request.effort)).toEqual(['low', 'low', 'low'])
+  })
+
+  it('scores first-try validity true when the real planner turns a missing connection into a question in one call', async () => {
+    const id = 'ambig-09-pasted-slack-webhook-no-connection'
+    expect(caseData(id).context.connections).toEqual([])
+    const wf: Workflow = {
+      schemaVersion: 1,
+      name: 'slack',
+      nodes: [
+        { id: 't1', type: 'trigger.manual@1', config: {} },
+        { id: 'n1', type: 'notify.slack@1', config: { connection: 'slack-ops', text: 'hi' } },
+      ],
+      edges: [{ from: 't1', to: 'n1' }],
+    }
+    const provider = scripted(() => envelopeOf(wf))
+    const run = await runSuite(createPlannerSuite({ only: id }), provider)
+    const entry = task(run, id)
+    const result = resultOf(entry)
+    expect(result.kind).toBe('questions')
+    expect(result.rounds.map((round) => round.issues.map((issue) => issue.code))).toEqual([['unknown_connection']])
+    expect(provider.seen).toHaveLength(1)
+    expect(entry.score!.extra).toMatchObject({ first_try_valid: 1, valid_after_repair: 1, repair_rounds: 0, calls: 1, asked: 1 })
+    expect(plannerMetrics(run.tasks).firstTryValid).toEqual({ num: 1, den: 1 })
+  })
+
+  it.each([0, 1, 3])('makes 1 + 2 x %i calls when every repair round is a targeted round that stays wrong', async (rounds) => {
+    const broken = goldWorkflow(ID)
+    broken.nodes[1]!.config = { file: '{{t1.output.file}}', fields: 'amount' }
+    broken.nodes[2]!.config = { file: '/Users/demo/Receipts/ledger.csv', row: 'nope' }
+    const stillWrong: Record<string, unknown> = {
+      n1: { file: '{{t1.output.file}}', fields: [{ name: 'amount', type: 'money' }] },
+      n2: { file: '/Users/demo/Receipts/ledger.csv', row: [] },
+    }
+    const provider = scripted((request) => {
+      const text = requestText(request)
+      if (!text.includes('Targeted repair')) return envelopeOf(broken)
+      return text.includes('config of node n1') ? stillWrong['n1'] : stillWrong['n2']
+    })
+    const run = await runSuite(createPlannerSuite({ only: ID, maxRepairRounds: rounds }), provider)
+    const entry = task(run, ID)
+    const error = entry.output as PlanError
+    expect(error).toBeInstanceOf(PlanError)
+    expect(error.rounds.map((round) => round.targeted)).toEqual([[], ...Array.from({ length: rounds }, () => ['n1', 'n2'])])
+    expect(provider.seen).toHaveLength(worstCaseCalls(rounds))
+    expect(provider.seen).toHaveLength(1 + 2 * rounds)
+    expect(entry.score!.extra['calls']).toBe(1 + 2 * rounds)
   })
 
   it('records a run that never becomes valid as invalid_after_repair with every round', async () => {
@@ -586,17 +632,17 @@ describe('4. injection through the real attachment module and the eval injection
 })
 
 describe('5. budget guard and the real request sizes', () => {
-  it('reserves 1 + maxRepairRounds + 2 calls per case, each priced at the maximum output', () => {
+  it('reserves 1 + 2 x maxRepairRounds calls per case, each priced at the max_tokens of the case effort', () => {
     const suite = createPlannerSuite()
     const sonnet = PRICE_TABLE[SONNET]!
-    const maxOutput = 16_000
     let total = 0
     for (const testCase of suite.cases()) {
+      const maxOutput = EFFORT_BUDGETS[testCase.spec.effort].maxTokens
       const attachments = resolveAttachments(testCase.spec)
       const first = firstCallInputTokens(testCase.spec, attachments)
-      const perCall = ((first + DEFAULT_MAX_REPAIR_ROUNDS * HISTORY_TOKENS_PER_REPAIR_ROUND) * sonnet.input + maxOutput * sonnet.output) / 1_000_000
-      const guard = suite.worstCaseUsd!(testCase, SONNET, maxOutput)!
-      expect(guard).toBeCloseTo(perCall * (1 + DEFAULT_MAX_REPAIR_ROUNDS + TARGETED_EXTRA_CALLS), 10)
+      const perCall = ((first + DEFAULT_MAX_REPAIR_ROUNDS * historyTokensPerRepairRound(maxOutput)) * sonnet.input + maxOutput * sonnet.output) / 1_000_000
+      const guard = suite.worstCaseUsd!(testCase, SONNET, 16_000)!
+      expect(guard).toBeCloseTo(perCall * (1 + DEFAULT_MAX_REPAIR_ROUNDS * TARGETED_CALLS_PER_ROUND), 10)
       total += guard
     }
     expect(total).toBeGreaterThan(0)
@@ -607,13 +653,14 @@ describe('5. budget guard and the real request sizes', () => {
     const testCase = suite.cases()[0]!
     const { prompt, context } = testCase.spec
     const chars = prompt.length + context.connections.join(', ').length + context.allowedFolders.join(', ').length
-    const firstCall = 4500 + Math.ceil(chars / 3.5)
-    const inputTokens = firstCall + 3 * 4000
-    const perCallUsd = (inputTokens * 2 + 16_000 * 10) / 1_000_000
-    expect(suite.worstCaseUsd!(testCase, SONNET, 16_000)).toBeCloseTo(perCallUsd * 6, 12)
-    expect(plannerWorstCaseUsd(SONNET, firstCall, 3, 16_000)).toBeCloseTo(perCallUsd * 6, 12)
-    expect(worstCaseCalls(3)).toBe(6)
-    expect(estimateCallUsd(SONNET, inputTokens, 16_000)).toBeCloseTo(perCallUsd, 12)
+    const firstCall = baseInputTokens(createCoreRegistry()) + Math.ceil(chars / 3.5)
+    const inputTokens = firstCall + 3 * (8000 + 3000)
+    const perCallUsd = (inputTokens * 2 + 8000 * 10) / 1_000_000
+    expect(testCase.spec.effort).toBe('low')
+    expect(suite.worstCaseUsd!(testCase, SONNET, 16_000)).toBeCloseTo(perCallUsd * 7, 12)
+    expect(plannerWorstCaseUsd(SONNET, firstCall, 3, 8000)).toBeCloseTo(perCallUsd * 7, 12)
+    expect(worstCaseCalls(3)).toBe(7)
+    expect(estimateCallUsd(SONNET, inputTokens, 8000)).toBeCloseTo(perCallUsd, 12)
     expect(priceFor(SONNET)?.output).toBe(10)
   })
 
@@ -623,14 +670,15 @@ describe('5. budget guard and the real request sizes', () => {
     const case0 = suite0.cases()[0]!
     const case5 = suite5.cases()[0]!
     expect(suite0.worstCaseUsd!(case0, SONNET, 16_000)).toBeLessThan(suite5.worstCaseUsd!(case5, SONNET, 16_000)!)
-    expect(worstCaseCalls(0)).toBe(3)
-    expect(worstCaseCalls(5)).toBe(8)
+    expect(worstCaseCalls(0)).toBe(1)
+    expect(worstCaseCalls(5)).toBe(11)
   })
 
   it('assumes at least as many input tokens as the real system prompt, catalog and schema occupy', () => {
     const registry = createCoreRegistry()
     const measured = (PLANNER_RULES.length + ATTACHMENT_RULES.length + catalogText(registry).length + JSON.stringify(generationSchema(registry)).length) / TEXT_CHARS_PER_TOKEN
-    expect(BASE_INPUT_TOKENS).toBeGreaterThanOrEqual(measured)
+    expect(baseInputTokens(registry)).toBeGreaterThanOrEqual(measured)
+    expect(createPlannerSuite().baseInputTokens).toBeGreaterThanOrEqual(measured)
   })
 
   it('never asks for more max_tokens than the harness reserves, for the efforts a case can have', () => {
@@ -638,27 +686,42 @@ describe('5. budget guard and the real request sizes', () => {
     for (const effort of efforts) expect(EFFORT_BUDGETS[effort].maxTokens).toBeLessThanOrEqual(STREAMING_ABOVE_MAX_TOKENS)
   })
 
-  it.fails('never asks for more max_tokens than the harness reserves, for every effort the command line accepts', () => {
-    for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
-      expect(EFFORT_BUDGETS[effort].maxTokens).toBeLessThanOrEqual(STREAMING_ABOVE_MAX_TOKENS)
+  it('never asks for more max_tokens than the harness reserves, for every effort the command line accepts', () => {
+    const accepted = (['low', 'medium', 'high', 'xhigh', 'max'] as const).filter((effort) => {
+      try {
+        parsePlannerCli(['--effort', effort])
+        return true
+      } catch {
+        return false
+      }
+    })
+    expect(accepted).toEqual(['low', 'medium', 'high'])
+    for (const effort of accepted) expect(EFFORT_BUDGETS[effort].maxTokens).toBeLessThanOrEqual(STREAMING_ABOVE_MAX_TOKENS)
+  })
+
+  it('refuses --effort xhigh and max before any provider is built or any call is paid', async () => {
+    for (const effort of ['xhigh', 'max'] as const) {
+      expect(() => createPlannerSuite({ only: 'easy-03-webhook-to-slack', effort })).toThrow(`effort ${effort} cannot be measured`)
+      const out: string[] = []
+      const err: string[] = []
+      const providers: number[] = []
+      const io: CliIo = {
+        stdout: (text) => void out.push(text),
+        stderr: (text) => void err.push(text),
+        env: { ANTHROPIC_API_KEY: 'sk-ant-api03-NEVER-USED-IN-THIS-TEST' },
+        now: () => Date.UTC(2026, 10, 12, 9, 30, 0),
+        planner: { createProvider: () => (providers.push(1), offlineProvider()) },
+      }
+      expect(await plannerMain(['--yes', '--budget-usd', '50', '--effort', effort], io)).toBe(EXIT_USAGE)
+      expect(err.join('')).toContain(`effort ${effort} cannot be measured`)
+      expect(providers).toHaveLength(0)
     }
   })
 
-  it.fails('completes a run with --effort xhigh instead of stopping at the oversized request guard', async () => {
-    const suite = createPlannerSuite({ only: 'easy-03-webhook-to-slack', effort: 'xhigh' })
-    const noNetwork = (): Promise<Response> => Promise.reject(new Error('no network in this test'))
-    const run = await runEval({
-      suite,
-      models: [SONNET],
-      reps: 1,
-      concurrency: 1,
-      maxAttempts: 1,
-      maxOutputTokens: STREAMING_ABOVE_MAX_TOKENS,
-      seed: 1,
-      sleep: () => Promise.resolve(),
-      createProvider: (model, signal, settings) => createEvalProvider({ model, signal, apiKey: 'sk-ant-api03-not-used', maxTokens: settings.maxOutputTokens, fetch: noNetwork }),
-    })
-    expect(run.tasks).toHaveLength(1)
+  it('refuses a case whose own effort streams, whatever the command line says', () => {
+    const base = data.cases.find((entry) => entry.id === 'easy-03-webhook-to-slack')!
+    const streaming = { ...data, cases: [{ ...base, effort: 'xhigh' as unknown as typeof base.effort }] }
+    expect(() => createPlannerSuite({ data: streaming })).toThrow('effort xhigh cannot be measured')
   })
 })
 
@@ -690,7 +753,7 @@ describe('6. the command line: dry run', () => {
     const text = h.out()
     expect(text).toContain('cases: 48 cases (easy 20, ambiguous 10, unsupported 8, attachment 6, patch 4)')
     expect(text).toContain('Nothing was sent.')
-    expect(text).toContain('worst case 6 calls per case = 1 first call + 3 repair rounds + 2 targeted calls')
+    expect(text).toContain('worst case 7 calls per case = 1 first call + 3 repair rounds x up to 2 calls')
   })
 
   it('prints a worst case that equals the sum over the cases of the hand formula', async () => {
@@ -699,12 +762,13 @@ describe('6. the command line: dry run', () => {
     let sum = 0
     for (const testCase of suite.cases()) {
       const first = firstCallInputTokens(testCase.spec, resolveAttachments(testCase.spec))
-      const perCall = ((first + 3 * 4000) * sonnet.input + 16_000 * sonnet.output) / 1_000_000
-      sum += perCall * (1 + 3 + 2)
+      const maxOutput = EFFORT_BUDGETS[testCase.spec.effort].maxTokens
+      const perCall = ((first + 3 * (maxOutput + 3000)) * sonnet.input + maxOutput * sonnet.output) / 1_000_000
+      sum += perCall * (1 + 3 * 2)
     }
     const h = harness()
     await plannerMain(['--dry'], h.io)
-    expect(h.out()).toContain(`worst case $${sum.toFixed(2)} (6 calls per case, every call at 16000 output tokens)`)
+    expect(h.out()).toContain(`worst case $${sum.toFixed(2)} (7 calls per case, every call at the max_tokens of its effort)`)
     expect(sum).toBeGreaterThan(5)
   })
 
@@ -735,6 +799,19 @@ describe('6. the command line: dry run', () => {
       expect(provider.seen).toHaveLength(4 * (1 + DEFAULT_MAX_REPAIR_ROUNDS))
       expect(run.report).toContain('invalid_after_repair')
       expect(run.stdout).toMatch(/claude-sonnet-5-5\s+0\.0% \(0\/4\)/u)
+    } finally {
+      run.cleanup()
+    }
+  })
+
+  it('writes the message of a plan error into the trace and the stored row, not just its kind', async () => {
+    const provider = scripted(() => new LlmError('invalid_output', 'not JSON'))
+    const run = await yesRun(provider, ['--group', 'patch'])
+    try {
+      const files = readdirSync(join(run.out, 'run'), { recursive: true, encoding: 'utf8' }).filter((name) => name.endsWith('.json') || name.endsWith('.jsonl'))
+      const text = files.map((name) => readFileSync(join(run.out, 'run', name), 'utf8')).join('\n')
+      expect(text).toContain('no valid answer after 3 repair rounds')
+      expect(text).toContain('\\"kind\\": \\"invalid_after_repair\\"')
     } finally {
       run.cleanup()
     }

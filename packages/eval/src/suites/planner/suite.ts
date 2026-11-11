@@ -8,9 +8,10 @@ import { PRICE_TABLE_AS_OF } from '../../pricing'
 import { summarizeRequest, type SentRequest } from '../../sent'
 import type { RunContext, Suite } from '../../suite'
 import { ATTACHMENTS_DIR, ATTACHMENTS_MANIFEST_FILE, createMemoryStore, resolveAttachments, type ResolveOptions, type ResolvedAttachment } from './attachments'
-import { DEFAULT_MAX_REPAIR_ROUNDS, firstCallInputTokens, plannerWorstCaseUsd } from './budget'
+import { DEFAULT_MAX_REPAIR_ROUNDS, baseInputTokens, effortMaxTokens, firstCallInputTokens, isMeasurableEffort, plannerWorstCaseUsd, unmeasurableEffortMessage } from './budget'
 import { loadPlannerData, toPlannerCase, type PlannerCase, type PlannerData } from './cases'
 import { buildPlanRequest, withDemoHome } from './context'
+import { serializablePlanError } from './error-json'
 import { PLANNER_FIELDS, PLANNER_SCORER_VERSION, scorePlannerCase, type PlannerOutput } from './scoring'
 
 export const PLANNER_SUITE_NAME = 'planner'
@@ -38,6 +39,7 @@ export interface PlannerSuiteOptions {
 }
 
 export interface PlannerSuite extends Suite<PlannerCase, PlannerOutput> {
+  baseInputTokens: number
   maxRepairRounds: number
   effort: PlanEffort | undefined
   workflowCases(): PlannerCase[]
@@ -101,9 +103,13 @@ export function createPlannerSuite(options: PlannerSuiteOptions = {}): PlannerSu
   const registry = options.registry ?? createCoreRegistry()
   const makePlanner: PlannerFactory = options.makePlanner ?? (({ deps }) => createPlanner(deps))
   const maxRepairRounds = options.maxRepairRounds ?? DEFAULT_MAX_REPAIR_ROUNDS
+  const baseTokens = baseInputTokens(registry)
   if (!Number.isInteger(maxRepairRounds) || maxRepairRounds < 0) throw new RangeError('maxRepairRounds must be a non-negative integer')
   const all = data.cases.map((spec) => toPlannerCase(spec, data.references))
   const cases = select(all, options)
+  const effortOf = (testCase: PlannerCase): PlanEffort => options.effort ?? testCase.spec.effort
+  const unmeasurable = [...new Set([...(options.effort === undefined ? [] : [options.effort]), ...cases.map(effortOf)].filter((effort) => !isMeasurableEffort(effort)))]
+  if (unmeasurable.length > 0) throw new RangeError(unmeasurableEffortMessage(unmeasurable))
   const attachmentCache = new Map<string, ResolvedAttachment[]>()
   const attachmentsOf = (testCase: PlannerCase): ResolvedAttachment[] => {
     const known = attachmentCache.get(testCase.id)
@@ -130,6 +136,7 @@ export function createPlannerSuite(options: PlannerSuiteOptions = {}): PlannerSu
   return {
     name: PLANNER_SUITE_NAME,
     version,
+    baseInputTokens: baseTokens,
     maxRepairRounds,
     effort: options.effort,
     fields: PLANNER_FIELDS,
@@ -149,14 +156,14 @@ export function createPlannerSuite(options: PlannerSuiteOptions = {}): PlannerSu
         output = await withDemoHome(() => planner.plan(request))
       } catch (error) {
         if (!(error instanceof PlanError) || error.kind !== 'invalid_after_repair') throw error
-        output = error
+        output = serializablePlanError(error)
       }
       if (first !== undefined) sentRequests.set(output, summarizeRequest(first))
       return output
     },
     score: (testCase, output) => scorePlannerCase(testCase, output),
-    estimateInputTokens: (testCase) => firstCallInputTokens(testCase.spec, attachmentsOf(testCase)),
-    worstCaseUsd: (testCase, model, maxOutputTokens) =>
-      plannerWorstCaseUsd(model, firstCallInputTokens(testCase.spec, attachmentsOf(testCase)), maxRepairRounds, maxOutputTokens),
+    estimateInputTokens: (testCase) => firstCallInputTokens(testCase.spec, attachmentsOf(testCase), baseTokens),
+    worstCaseUsd: (testCase, model) =>
+      plannerWorstCaseUsd(model, firstCallInputTokens(testCase.spec, attachmentsOf(testCase), baseTokens), maxRepairRounds, effortMaxTokens(effortOf(testCase))),
   }
 }

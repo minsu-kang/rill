@@ -238,11 +238,11 @@ All commands run from the repository root.
 
    ```
    export ANTHROPIC_API_KEY=...
-   pnpm eval planner --yes --concurrency 1 --budget-usd 1.35 \
+   pnpm eval planner --yes --concurrency 1 --budget-usd 2.19 \
      --only easy-01-receipt-folder-to-csv,ambig-01-which-folder,unsup-01-kakaotalk,attach-03-pdf-injection-http-exfil
    ```
 
-   The typical estimate for these four is about $0.16 and the budget of $1.35 is what the plan suggests: one worst-case case ($1.19) plus margin. The guard needs a budget of at least the worst case of one case to start any.
+   The typical estimate for these four is about $0.17 and the budget of $2.19 is what the plan suggests: one worst-case case ($2.02) plus the typical estimate. The guard needs a budget of at least the worst case of one case to start any.
 
 3. Full run. 48 cases, one rep, Sonnet at the effort each case sets (`pnpm eval planner --dry` prints the budget to pass).
 
@@ -250,12 +250,12 @@ All commands run from the repository root.
    pnpm eval planner --yes --budget-usd <suggested>
    ```
 
-Results go to `packages/eval/results/planner-<timestamp>/` (git-ignored; the directory must be empty or absent), with the same layout as the extract suite: `report.md`, `run.json`, `results.jsonl` and one trace per case. Traces hold the first request as sent (system text and user text; attachments are not embedded) and the grader's verdict.
+Results go to `packages/eval/results/planner-<timestamp>/` (git-ignored; the directory must be empty or absent), with the same layout as the extract suite: `report.md`, `run.json`, `results.jsonl` and one trace per case. Traces hold the first request as sent (system text and user text; attachments are not embedded) and the grader's verdict. A plan that stayed invalid is stored with its kind, its message, the message of its cause (never the cause's other fields), every round and the last issues.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--model a,b` | `claude-sonnet-5-5` | Models to compare (`--models` is the same option). The caller picks the model by picking the provider; the planner only gets the effort. Each needs a price for `--yes`. |
-| `--effort e` | the case's own | One of `low`, `medium`, `high`, `xhigh`, `max`, applied to every request. The cases carry `low`, `medium` or `high` (18, 18 and 12 of them). |
+| `--effort e` | the case's own | One of `low`, `medium`, `high`, applied to every request. The cases carry `low`, `medium` or `high` (18, 18 and 12 of them). `xhigh` and `max` are refused before anything runs: the planner asks for 32000 output tokens there, the provider streams the reply, and the recorder cannot read the usage of a streamed reply, so a run would be paid for and then stop. |
 | `--group g` | all | `easy`, `ambiguous`, `unsupported`, `attachment`, `patch` (20, 10, 8, 6 and 4 cases), or a comma list. |
 | `--only x` | all | A case id substring, or a comma list of exact ids. Applies after `--group`. |
 | `--dry` | off | Print the plan and exit. Cannot be combined with `--yes`. |
@@ -263,11 +263,12 @@ Results go to `packages/eval/results/planner-<timestamp>/` (git-ignored; the dir
 | `--concurrency n` | 2 | Cases in flight at once, 1 to 16. |
 | `--max-repair-rounds n` | 3 | Repair rounds the planner may use, 0 to 5. Also the input of the guard formula. |
 | `--budget-usd n` | none, required with `--yes` | Spending cap. The plan prints a suggested value. |
-| `--max-output-tokens n` | 16000 | `max_tokens` of every request and the output side of the guard, 1 to 16000. Above 16000 the provider streams and the recorder cannot read the usage of a streamed reply, so the harness refuses it. |
-| `--max-call-seconds n` | 300 | Ceiling for one attempt of one case, repair rounds included, 1 to 1800. |
+| `--max-call-seconds n` | 1260 | Ceiling for one attempt of one case, repair rounds included, 1 to 3600. The default is the worst case of one high-effort case: (1 + 2 x repair rounds) calls of 180 s, the call limit of a high-effort request (7 x 180 s for 3 repair rounds, so it follows `--max-repair-rounds`). A ceiling that fires between two calls of the planner ends the attempt as `timeout_ceiling`, like one that fires inside a call. |
 | `--max-attempts n` | 2 | Attempts per case for transient provider failures. A plan that stays invalid is a graded failure, not retried. |
 | `--seed n` | 1 | Schedule and bootstrap seed. |
 | `--out dir`, `--allow-base-url`, `--yes` | | As for extract: results directory, accept another `ANTHROPIC_BASE_URL`, really call the API. |
+
+`--max-output-tokens` is not an option of this command (it is a usage error that says so). The planner sets `max_tokens` itself, from the effort of the request: low 8000, medium 12000, high 16000. The guard reserves exactly that for each case, so choose the effort with `--effort`; the same refusal applies to a case in the case data whose own effort streams.
 
 The guards are the extract ones: no paid call without `--yes`, `ANTHROPIC_API_KEY` in the environment and `--budget-usd` (`--yes` without it is a usage error, exit 2), a base URL other than `https://api.anthropic.com` or custom headers refused without `--allow-base-url`, a model without a price refused, the first authentication failure stops the run, the key is redacted from everything written. The default provider is only constructed inside `--yes`, after those checks; a dry run never builds one (`test/planner-cli.test.ts` checks it in process and in a child process with a reachable mock API).
 
@@ -275,15 +276,15 @@ Exit codes: 0 done, 1 runtime error (a refused base URL or header, a missing key
 
 ### The budget guard
 
-One case is not one call. A plan is a first call, up to `--max-repair-rounds` repair rounds, and targeted per-node repair calls (at most two extra). The guard reserves the worst case of the whole case before it starts it:
+One case is not one call. A plan is a first call and up to `--max-repair-rounds` repair rounds. A repair round is either one call that asks the whole question again, or a targeted round with one call for each broken node, at most two nodes. Targeted rounds can follow each other, so every repair round can cost two calls. The guard reserves the worst case of the whole case before it starts it:
 
 ```
-calls   = 1 + maxRepairRounds + 2
-input   = first-call estimate + maxRepairRounds x 4000
-reserve = calls x price(model, input tokens, --max-output-tokens)
+calls   = 1 + 2 x maxRepairRounds
+input   = first-call estimate + maxRepairRounds x (max_tokens of the effort + 3000)
+reserve = calls x price(model, input tokens, max_tokens of the effort of the case)
 ```
 
-The first-call estimate is 4500 tokens of rules and node catalog plus the case text (chars / 3.5), plus 2400 for a PDF, 2000 for a PNG, or chars / 3.5 + 400 for a text attachment. The 4000 per repair round is the history a repair round sends again (the previous reply and the issue list). The reserve is held for every case in flight and added to the spend; at the first case that would cross the cap the runner stops dispatching and the run ends PARTIAL. Actual usage is charged as it arrives, across all calls of the case. With the defaults on Sonnet the reserve of one case is about $1.19 and the worst case of the whole set about $55.75; the typical estimate (one call per case at 3000 output tokens, thinking included, no repair) is about $1.90. All three are estimates from the price table, not measurements.
+The first-call estimate is the size of the rules, the node catalog and the output schema as the planner sends them (measured from the code at chars / 3.5, plus 15%: about 5100 tokens today, and it grows by itself when a node is added) plus the case text (chars / 3.5), plus 2400 for a PDF, 2000 for a PNG, or chars / 3.5 + 400 for a text attachment. The history of a repair round is the previous answer, which can fill the whole `max_tokens` of the effort, and the issue list (at most 20 issues, 3000 tokens). Every call is priced at that largest input, so the reserve is an upper bound. The reserve is held for every case in flight and added to the spend; at the first case that would cross the cap the runner stops dispatching and the run ends PARTIAL. Actual usage is charged as it arrives, across all calls of the case. With the defaults on Sonnet the reserve of one case is about $2.02 and the worst case of the whole set about $71.51; the typical estimate (one call per case at 3000 output tokens, thinking included, no repair) is about $1.96. All three are estimates from the price table, not measurements.
 
 ### What it measures
 
@@ -292,7 +293,7 @@ Per case the suite classifies the answer as `workflow`, `questions`, `unsupporte
 | Metric | Meaning |
 | --- | --- |
 | Case pass | The planner gave what the case expects, with a 95% case-cluster bootstrap interval. |
-| First-try valid | Round 0 had no error-level issue (warnings such as `nullable_into_required` do not count). |
+| First-try valid | Round 0 had no error-level issue, which is what makes the planner finish in one call. Warnings such as `nullable_into_required`, the question notices (`questions_truncated`, `question_options_truncated`, `question_default_replaced`) and a gap that became a question do not count: `unknown_connection` on a case with no connection and `path_outside_roots` on a case with no allowed folder (16 and 15 of the 48 cases). |
 | Valid after repair | The planner delivered an answer within the repair rounds. |
 | Mean repair rounds | Rounds used after the first. |
 | Assertion pass | Structural assertions passed over all assertions of the 30 workflow cases (257 of them); a case that did not return a workflow counts as all failed. |

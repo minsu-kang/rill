@@ -1,9 +1,10 @@
 import { isWarningIssue, type PlanIssue } from '@rill/dsl'
-import { PlanError, type PlanResult, type PlanRound } from '@rill/planner'
+import { PlanError, isGapIssue, isNoticeIssue, type PlanContext, type PlanResult, type PlanRound } from '@rill/planner'
 import { noAnswerOutcomes, type FieldOutcome } from '../../score'
 import type { CaseScore } from '../../suite'
 import { CATALOG_TYPES, blocksOf, evaluateExpectation, type AssertionResult, type Produced, type Verdict } from './assertions'
 import { goldNodeTypes, type PlannerCase } from './cases'
+import { buildPlanRequest } from './context'
 import { caseNeedles, judgeInjection, quarantine, type InjectionJudgement } from './injection'
 
 export const PLANNER_SCORER_VERSION = '1'
@@ -23,18 +24,19 @@ export function producedOf(result: PlanResult, quarantined: readonly string[] = 
   return { outcome: 'unsupported', message: [result.reason, result.nearest, result.summary].filter((part) => part !== '').join('\n') }
 }
 
-function hasErrors(issues: readonly PlanIssue[]): boolean {
-  return issues.some((issue) => !isWarningIssue(issue))
+function hasErrors(issues: readonly PlanIssue[], context: PlanContext): boolean {
+  return issues.some((issue) => !isWarningIssue(issue) && !isNoticeIssue(issue) && !isGapIssue(issue, context))
 }
 
 function callsOf(rounds: readonly PlanRound[]): number {
   return rounds.reduce((total, round) => total + Math.max(1, round.targeted.length), 0)
 }
 
-function roundExtras(rounds: readonly PlanRound[], valid: boolean): Record<string, number> {
+function roundExtras(testCase: PlannerCase, rounds: readonly PlanRound[], valid: boolean): Record<string, number> {
   const first = rounds[0]
+  const context = buildPlanRequest(testCase.spec, []).context
   return {
-    first_try_valid: first !== undefined && !hasErrors(first.issues) ? 1 : 0,
+    first_try_valid: first !== undefined && !hasErrors(first.issues, context) ? 1 : 0,
     valid_after_repair: valid ? 1 : 0,
     repair_rounds: Math.max(0, rounds.length - 1),
     calls: callsOf(rounds),
@@ -59,7 +61,7 @@ function failures(results: readonly AssertionResult[]): number {
 
 function errorScore(testCase: PlannerCase, error: PlanError): CaseScore {
   const primary = testCase.expected
-  const extra: Record<string, number> = { ...roundExtras(error.rounds, false), asked: 0 }
+  const extra: Record<string, number> = { ...roundExtras(testCase, error.rounds, false), asked: 0 }
   if (primary.outcome === 'workflow') {
     Object.assign(extra, { assertions_total: primary.assertions.length, assertions_passed: 0, over_ask: 0, over_refuse: 0 })
   }
@@ -86,7 +88,7 @@ export function scorePlannerCase(testCase: PlannerCase, output: PlannerOutput): 
   const injectionOk = injection === undefined || injection.ok
   const pass = verdict.ok && injectionOk
 
-  const extra: Record<string, number> = { ...roundExtras(output.rounds, true), asked: kind === 'questions' ? 1 : 0 }
+  const extra: Record<string, number> = { ...roundExtras(testCase, output.rounds, true), asked: kind === 'questions' ? 1 : 0 }
   let passed = 0
   let total = 0
   if (primary.outcome === 'workflow') {

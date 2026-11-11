@@ -21,6 +21,7 @@ import {
   type WorkflowNode,
 } from '@rill/dsl'
 import type Type from 'typebox'
+import { Settings } from 'typebox/system'
 import Value from 'typebox/value'
 import { declaredBranches } from './branches'
 import { assertPathAllowed } from './guard'
@@ -59,7 +60,14 @@ function asJson(schema: Type.TSchema): Json {
 }
 
 function isOpenSchema(schema: Json): boolean {
-  return Object.keys(schema).length === 0 || schema.patternProperties !== undefined
+  return Object.keys(schema).length === 0
+}
+
+function recordValue(schema: Json, segment: string): Json | undefined {
+  const entries = Object.entries((schema.patternProperties ?? {}) as Record<string, Json>)
+  if (entries.length !== 1) return undefined
+  const [[pattern, value]] = entries as [[string, Json]]
+  return new RegExp(pattern).test(segment) ? value : undefined
 }
 
 function nonNullBranches(schema: Json): Json[] {
@@ -82,6 +90,12 @@ export function walkOutput(schema: Json, path: readonly string[]): Resolved {
       continue
     }
     const properties = current.properties as Record<string, Json> | undefined
+    if (current.patternProperties !== undefined && !(properties && Object.hasOwn(properties, segment))) {
+      const value = recordValue(current, segment)
+      if (value === undefined) return { kind: 'open' }
+      current = value
+      continue
+    }
     if (current.type !== 'object' || properties === undefined) return { kind: 'missing', segment, known: [], depth }
     if (!Object.hasOwn(properties, segment)) return { kind: 'missing', segment, known: Object.keys(properties), depth }
     current = properties[segment]!
@@ -110,6 +124,11 @@ function scalarPlaceholder(schema: Json): unknown {
 
 function kindOf(value: unknown): string {
   return Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value
+}
+
+function isFreeText(schema: Json): boolean {
+  const [first] = nonNullBranches(schema)
+  return first?.type === 'string' && first.const === undefined && !(Array.isArray(first.enum) && first.enum.length > 0)
 }
 
 export function placeholderFor(schema: Json): Placeholder | undefined {
@@ -156,6 +175,74 @@ export function subschemaAt(schema: Json, pointer: string): Json | undefined {
 
 function isUnder(pointer: string, base: string): boolean {
   return pointer === base || pointer.startsWith(base + '/')
+}
+
+function shallow(schema: Json): Json {
+  const copy: Json = { ...schema }
+  for (const key of ['properties', 'patternProperties'] as const) {
+    const map = schema[key] as Record<string, Json> | undefined
+    if (map !== undefined) copy[key] = Object.fromEntries(Object.keys(map).map((name) => [name, {}]))
+  }
+  if (Array.isArray(schema.prefixItems)) copy.prefixItems = schema.prefixItems.map(() => ({}))
+  if (typeof schema.items === 'object') copy.items = {}
+  if (typeof schema.additionalProperties === 'object') copy.additionalProperties = {}
+  return copy
+}
+
+function childrenOf(schema: Json, value: unknown, pointer: string): [Json, unknown, string][] {
+  const entries: [string | number, unknown][] = Array.isArray(value)
+    ? value.map((item, index) => [index, item])
+    : value !== null && typeof value === 'object'
+      ? Object.entries(value)
+      : []
+  return entries.flatMap(([key, child]) => {
+    const target = subschemaAt(schema, joinPointer('', key))
+    return target === undefined ? [] : [[target, child, joinPointer(pointer, key)] as [Json, unknown, string]]
+  })
+}
+
+function errorKey(error: SchemaErrorLike): string {
+  return [error.instancePath, error.keyword, JSON.stringify(error.params)].join('|')
+}
+
+function schemaErrors(
+  schema: Json,
+  value: unknown,
+  pointer: string,
+  skipped: (pointer: string) => boolean,
+): SchemaErrorLike[] {
+  if (skipped(pointer)) return []
+  const collect = (target: Json): { kept: SchemaErrorLike[]; full: boolean } => {
+    const raw = [...Value.Errors(target as Type.TSchema, value)]
+    const kept: SchemaErrorLike[] = []
+    for (const found of raw) {
+      const error = { ...found, instancePath: pointer + found.instancePath }
+      if (skipped(error.instancePath)) continue
+      if (error.keyword === 'required') {
+        const names = ((error.params as { requiredProperties?: string[] }).requiredProperties ?? []).filter(
+          (name) => !skipped(joinPointer(error.instancePath, name)),
+        )
+        if (names.length > 0) kept.push({ ...error, params: { requiredProperties: names } })
+        continue
+      }
+      kept.push(error)
+    }
+    return { kept, full: raw.length >= Settings.Get().maxErrors }
+  }
+  const own = collect(schema)
+  if (!own.full) return own.kept
+  const found = [
+    ...own.kept,
+    ...collect(shallow(schema)).kept,
+    ...childrenOf(schema, value, pointer).flatMap(([child, item, at]) => schemaErrors(child, item, at, skipped)),
+  ]
+  const seen = new Set<string>()
+  return found.filter((error) => {
+    const key = errorKey(error)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 class NodeChecker {
@@ -221,14 +308,25 @@ class NodeChecker {
   fill(node: WorkflowNode): Filled {
     const templated = new Map<string, Placeholder | undefined>()
     const open = new Set<string>()
+    const literals = new Set<unknown>(
+      stringLeaves(node.config, '')
+        .filter((leaf) => extractRefs(leaf.value).length === 0)
+        .map((leaf) => leaf.value),
+    )
+    let counter = 0
+    const fresh = (make: (token: string) => string): string => {
+      for (;;) {
+        const text = make(`x${++counter}`)
+        if (!literals.has(text)) return text
+      }
+    }
     const walk = (value: unknown, pointer: string): { check: unknown; hook: unknown } => {
       if (typeof value === 'string') {
         if (extractRefs(value).length === 0) return { check: value, hook: value }
         const whole = matchWholeRef(value)
         if (!whole) {
           templated.set(pointer, undefined)
-          const text = replaceRefs(value, () => 'x')
-          return { check: text, hook: text }
+          return { check: replaceRefs(value, () => 'x'), hook: fresh((token) => replaceRefs(value, () => token)) }
         }
         const resolved = this.resolve(node, whole)
         const placeholder = resolved?.kind === 'schema' ? placeholderFor(resolved.schema) : undefined
@@ -237,7 +335,8 @@ class NodeChecker {
           return { check: OPEN, hook: value }
         }
         templated.set(pointer, placeholder)
-        return { check: placeholder.value, hook: placeholder.value }
+        const unique = resolved?.kind === 'schema' && isFreeText(resolved.schema)
+        return { check: placeholder.value, hook: unique ? fresh((token) => token) : placeholder.value }
       }
       if (Array.isArray(value)) {
         const parts = value.map((item, i) => walk(item, joinPointer(pointer, i)))
@@ -262,19 +361,7 @@ class NodeChecker {
     const filled = this.fill(node)
     const skipped = (pointer: string) =>
       [...filled.open].some((p) => isUnder(pointer, p)) || [...filled.templated.keys()].some((p) => isUnder(pointer, p))
-    const errors: SchemaErrorLike[] = []
-    for (const error of Value.Errors(def.configSchema, filled.check)) {
-      if (skipped(error.instancePath)) continue
-      if (error.keyword === 'required') {
-        const names = ((error.params as { requiredProperties?: string[] }).requiredProperties ?? []).filter(
-          (name) => !skipped(joinPointer(error.instancePath, name)),
-        )
-        if (names.length === 0) continue
-        errors.push({ ...error, params: { requiredProperties: names } })
-        continue
-      }
-      errors.push(error)
-    }
+    const errors = schemaErrors(schema, filled.check, '', skipped)
     const describe = (pointer: string, message: string) => `${label}: invalid config: ${pointer || '/'}: ${message}`
     this.issues.push(...schemaIssues(errors, { stage: 3, prefix: 'config', base, describe }))
     let mismatches = 0

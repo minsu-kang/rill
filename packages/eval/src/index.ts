@@ -320,10 +320,12 @@ export {
   type ResolvedAttachment as PlannerResolvedAttachment,
 } from './suites/planner/attachments'
 export {
-  BASE_INPUT_TOKENS as PLANNER_BASE_INPUT_TOKENS,
+  BASE_INPUT_MARGIN as PLANNER_BASE_INPUT_MARGIN,
+  baseInputTokens as plannerBaseInputTokens,
   DEFAULT_MAX_REPAIR_ROUNDS as PLANNER_DEFAULT_MAX_REPAIR_ROUNDS,
-  HISTORY_TOKENS_PER_REPAIR_ROUND as PLANNER_HISTORY_TOKENS_PER_REPAIR_ROUND,
-  TARGETED_EXTRA_CALLS as PLANNER_TARGETED_EXTRA_CALLS,
+  REPAIR_MESSAGE_TOKENS as PLANNER_REPAIR_MESSAGE_TOKENS,
+  TARGETED_CALLS_PER_ROUND as PLANNER_TARGETED_CALLS_PER_ROUND,
+  historyTokensPerRepairRound as plannerHistoryTokensPerRepairRound,
   TYPICAL_OUTPUT_TOKENS as PLANNER_TYPICAL_OUTPUT_TOKENS,
   firstCallInputTokens as plannerFirstCallInputTokens,
   plannerWorstCaseUsd,

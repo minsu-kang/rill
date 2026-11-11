@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { classifyError } from './classify'
+import { MAX_TIMER_MS, startDeadline } from './deadline'
 import {
   LlmError,
   type LlmCallOptions,
@@ -16,7 +17,7 @@ import {
 export const DEFAULT_MODEL = 'claude-opus-5-5'
 export const DEFAULT_TIMEOUT_MS = 120_000
 export const MAX_CACHE_BREAKPOINTS = 4
-export const MAX_CALL_TIMEOUT_MS = 2_147_483_647
+export const MAX_CALL_TIMEOUT_MS = MAX_TIMER_MS
 export const STREAMING_ABOVE_MAX_TOKENS = 16_000
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 
@@ -258,8 +259,12 @@ export class AnthropicProvider implements LlmProvider {
       ...systemParam(request.system),
       ...cacheControl(request.cache),
     }
-    const requestOptions = { signal: callOptions.signal, ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }) }
     const streaming = maxTokens > STREAMING_ABOVE_MAX_TOKENS
+    const deadline = streaming ? startDeadline(timeoutMs ?? this.timeout, callOptions.signal) : undefined
+    const requestOptions = {
+      signal: deadline?.signal ?? callOptions.signal,
+      ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
+    }
     const startedAt = Date.now()
     let reply: unknown
     try {
@@ -275,7 +280,12 @@ export class AnthropicProvider implements LlmProvider {
           : await client.messages.create(base, requestOptions)
       }
     } catch (error) {
+      if (deadline?.expired() === true) {
+        throw new LlmError('timeout', `the model reply did not finish within ${timeoutMs ?? this.timeout} ms`, { cause: error })
+      }
       throw classifyError(error)
+    } finally {
+      deadline?.dispose()
     }
     return toResult(reply, this.modelId, startedAt)
   }

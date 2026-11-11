@@ -1,9 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { isWarningIssue } from '@rill/dsl'
-import { defineAction, validateWorkflow } from '@rill/nodes-core'
+import { isWarningIssue, resolveTemplates, type PlanIssue, type Workflow } from '@rill/dsl'
+import { NodeRegistry, defineAction, validateWorkflow, type NodeDefinition } from '@rill/nodes-core'
 import Type from 'typebox'
+import Value from 'typebox/value'
 import { afterAll, describe, expect, it } from 'vitest'
 import { Db } from '../src/db'
 import { Engine, WorkflowValidationError } from '../src/engine'
@@ -237,5 +238,284 @@ describe('deploy kind checks', () => {
   it('does not check connection names at deploy, because connections can be added later', () => {
     const input = wf([manual, n('s', 'notify.slack@1', { connection: 'later', text: 'hi' })])
     expect(deployOutcome(input)).toBe('deployed')
+  })
+})
+
+type Json = Record<string, unknown>
+type Mode = 'typical' | 'nulls'
+
+const PAYLOADS: Record<string, Json> = {
+  'echo chain': { x: 'hello' },
+  branching: { amount: 150 },
+  'one labelled branch': { amount: 150 },
+  receipt: { path: join(root, 'a.pdf') },
+  'webhook to http': { headers: { 'x-id': 'abc' }, body: { a: 1 } },
+  'http with auth': { id: '42' },
+  'delay from integer field': { text: 'receipt text' },
+  'transform values': { v: 'value' },
+  'webhook get': { query: { q: 'abc' } },
+  'condition exists': { v: 'value' },
+}
+
+function sampleOf(schema: Json, mode: Mode): unknown {
+  if (Array.isArray(schema.anyOf)) {
+    const branches = schema.anyOf as Json[]
+    const nullable = branches.some((branch) => branch.type === 'null')
+    if (mode === 'nulls' && nullable) return null
+    return sampleOf(branches.find((branch) => branch.type !== 'null') ?? {}, mode)
+  }
+  if (schema.const !== undefined) return schema.const
+  if (Array.isArray(schema.enum)) return schema.enum[0]
+  switch (schema.type) {
+    case 'string':
+      return schema.format === 'date' || String(schema.pattern ?? '').includes('\\d{4}') ? '2026-01-02' : 'sample'
+    case 'integer':
+      return 7
+    case 'number':
+      return 1.5
+    case 'boolean':
+      return true
+    case 'array':
+      return [sampleOf((schema.items ?? {}) as Json, mode)]
+    case 'object': {
+      const properties = (schema.properties ?? {}) as Record<string, Json>
+      const patterns = Object.values((schema.patternProperties ?? {}) as Record<string, Json>)
+      return {
+        ...Object.fromEntries(Object.entries(properties).map(([key, value]) => [key, sampleOf(value, mode)])),
+        ...(patterns.length > 0 ? { sample: sampleOf(patterns[0]!, mode) } : {}),
+      }
+    }
+    default:
+      return 'sample'
+  }
+}
+
+function outputSchemaOf(def: NodeDefinition, resolved: unknown): Json {
+  const dynamic = def.kind === 'action' && def.outputSchemaFor !== undefined && Value.Check(def.configSchema, resolved)
+  return (dynamic ? def.outputSchemaFor!(resolved) : def.outputSchema) as unknown as Json
+}
+
+function triggerOutput(def: NodeDefinition, mode: Mode, payload: Json): Json {
+  return { ...(sampleOf(def.outputSchema as unknown as Json, mode) as Json), ...payload }
+}
+
+function topological(workflow: Workflow): string[] {
+  const order: string[] = []
+  const placed = new Set<string>()
+  while (order.length < workflow.nodes.length) {
+    const next = workflow.nodes.find((node) => !placed.has(node.id) && workflow.edges.filter((edge) => edge.to === node.id).every((edge) => placed.has(edge.from)))
+    if (!next) throw new Error('the corpus workflow has a cycle')
+    placed.add(next.id)
+    order.push(next.id)
+  }
+  return order
+}
+
+interface Verdict {
+  nodeId: string
+  index: number
+  ok: boolean
+  detail: string
+}
+
+function runtimeVerdicts(input: unknown, mode: Mode, payload: Json = {}): Verdict[] {
+  const workflow = input as Workflow
+  const outputs: Record<string, unknown> = {}
+  const verdicts: Verdict[] = []
+  for (const id of topological(workflow)) {
+    const index = workflow.nodes.findIndex((node) => node.id === id)
+    const node = workflow.nodes[index]!
+    const def = registry.get(node.type)!
+    if (def.kind === 'trigger') {
+      outputs[id] = triggerOutput(def, mode, payload)
+      continue
+    }
+    const resolved = resolveTemplates(node.config, outputs, { lenient: def.lenientRefs === true })
+    const errors = [...Value.Errors(def.configSchema, resolved)].map((error) => `${error.instancePath || '/'}: ${error.message}`)
+    verdicts.push({ nodeId: id, index, ok: Value.Check(def.configSchema, resolved), detail: errors.join('; ') })
+    outputs[id] = sampleOf(outputSchemaOf(def, resolved), mode)
+  }
+  return verdicts
+}
+
+const warningsAt = (issues: PlanIssue[], index: number, code: string): boolean =>
+  issues.some((issue) => issue.code === code && issue.pointer.startsWith(`/nodes/${index}/config`))
+
+describe('the run-time config check agrees with the validator on the valid corpus', () => {
+  for (const [name, input] of VALID) {
+    it(`checks every action node of ${name} on sample outputs of the declared schemas`, () => {
+      const issues = validateWorkflow(input, { registry, allowedRoots: [root] })
+      for (const mode of ['typical', 'nulls'] as const) {
+        for (const verdict of runtimeVerdicts(input, mode, PAYLOADS[name])) {
+          const warned = warningsAt(issues, verdict.index, mode === 'typical' ? 'number_into_integer' : 'nullable_into_required')
+          expect(verdict.ok, `${mode} ${verdict.nodeId}: ${verdict.detail}`).toBe(!warned)
+        }
+      }
+    })
+  }
+
+  it('checks every action node of the corpus, and sees the failing node of the warning case in both modes', () => {
+    const checked = VALID.reduce((sum, [name, input]) => sum + runtimeVerdicts(input, 'typical', PAYLOADS[name]).length, 0)
+    expect(checked).toBeGreaterThanOrEqual(35)
+    const warned = VALID.find(([name]) => name === 'warning only: nullable number into delay')![1]
+    expect(runtimeVerdicts(warned, 'typical').filter((verdict) => !verdict.ok).map((verdict) => verdict.nodeId)).toEqual(['d'])
+    expect(runtimeVerdicts(warned, 'nulls').filter((verdict) => !verdict.ok).map((verdict) => verdict.nodeId)).toEqual(['d'])
+  })
+})
+
+describe('the oracle is what the engine does when it runs a node', () => {
+  const SPOT = ['echo chain', 'receipt', 'folder receipts', 'delay from integer field', 'warning only: nullable number into delay', 'transform values', 'http with auth', 'webhook to http', 'diamond']
+
+  function stubbedRegistry(mode: Mode): NodeRegistry {
+    const stubbed = new NodeRegistry()
+    for (const def of registry.list()) {
+      if (def.kind !== 'action' || def.type === 'condition@1') stubbed.register(def)
+      else stubbed.register({ ...def, execute: async (config: unknown) => sampleOf(outputSchemaOf(def, config), mode) })
+    }
+    return stubbed
+  }
+
+  for (const name of SPOT) {
+    for (const mode of ['typical', 'nulls'] as const) {
+      it(`runs ${name} on ${mode} samples and fails on the node the oracle names`, async () => {
+        const input = VALID.find(([entry]) => entry === name)![1]
+        const workflow = input as Workflow
+        const engine = new Engine({ db: Db.open(':memory:'), registry: stubbedRegistry(mode), allowedRoots: [root], sleep: async () => {} })
+        const trigger = registry.get(workflow.nodes[0]!.type)!
+        const result = await engine.startRun(engine.deploy(input), triggerOutput(trigger, mode, PAYLOADS[name] ?? {}))
+        const first = runtimeVerdicts(input, mode, PAYLOADS[name]).find((verdict) => !verdict.ok)
+        if (first === undefined) expect(result, JSON.stringify(result)).toMatchObject({ status: 'succeeded' })
+        else expect(result).toMatchObject({ status: 'failed', error: expect.stringContaining(`node ${first.nodeId} failed: invalid config: ${first.detail}`) })
+      })
+    }
+  }
+})
+
+describe('the run-time config check fails where the validator reports a schema error', () => {
+  const SCHEMA_CODES = /^config_(type|required|additionalProperties|pattern|minLength|maxLength|minimum|maximum|minItems|maxItems|anyOf)$/u
+  for (const [code, input] of INVALID) {
+    if (!SCHEMA_CODES.test(code)) continue
+    const workflow = input as Workflow
+    const errors = validateWorkflow(input, { registry, allowedRoots: [root] }).filter((issue) => !isWarningIssue(issue) && issue.code === code)
+    const actionIndexes = errors.map((issue) => /^\/nodes\/(\d+)\//u.exec(issue.pointer)?.[1]).filter((value): value is string => value !== undefined).map(Number)
+    const actions = actionIndexes.filter((index) => registry.get(workflow.nodes[index]!.type)?.kind === 'action')
+    if (actions.length === 0) continue
+    it(`fails the check of the node behind ${code} at ${errors.map((issue) => issue.pointer).join(', ')}`, () => {
+      const failed = runtimeVerdicts(input, 'typical').filter((verdict) => !verdict.ok).map((verdict) => verdict.index)
+      for (const index of actions) expect(failed).toContain(index)
+    })
+  }
+})
+
+const BASES: Record<string, Json> = {
+  'delay@1': { ms: 1 },
+  'csv.append@1': { file: csv, row: [1] },
+  'http.request@1': { url: 'https://x.test' },
+  'file.read@1': { path: join(root, 'a.txt') },
+  'notify.slack@1': { connection: 'slack', text: 'hi' },
+  'transform@1': { values: {} },
+  'condition@1': { operator: 'exists' },
+  'llm.extract@1': { text: 'doc', fields: [{ name: 'a', type: 'string' }] },
+}
+
+const SOURCES: [string, Node, Node?][] = [
+  ['webhook', n('t1', 'trigger.webhook@1', { path: '/hooks/a' })],
+  ['folder watch', n('t1', 'trigger.folderWatch@1', { folder: join(root, 'in') })],
+  ['cron', n('t1', 'trigger.cron@1', { expression: '* * * * *' })],
+  ['llm.extract', manual, n('u', 'llm.extract@1', { text: 'doc', fields })],
+  ['http.request', manual, n('u', 'http.request@1', { url: 'https://x.test' })],
+  ['file.read', manual, n('u', 'file.read@1', { path: join(root, 'a.txt') })],
+  ['csv.append', manual, n('u', 'csv.append@1', { file: csv, row: [1] })],
+  ['delay', manual, n('u', 'delay@1', { ms: 1 })],
+  ['notify.slack', manual, n('u', 'notify.slack@1', { connection: 'slack', text: 'hi' })],
+  ['transform', manual, n('u', 'transform@1', { values: { a: 1 } })],
+  ['condition', manual, n('u', 'condition@1', { operator: 'exists' })],
+]
+
+interface Leaf {
+  path: string[]
+  schema: Json
+}
+
+function leavesOf(schema: Json, path: string[] = [], depth = 0): Leaf[] {
+  const own: Leaf[] = [{ path, schema }]
+  if (depth >= 3) return own
+  const branches = Array.isArray(schema.anyOf) ? (schema.anyOf as Json[]).filter((branch) => branch.type !== 'null') : [schema]
+  if (branches.length !== 1) return own
+  const only = branches[0]!
+  const children: Leaf[] = []
+  for (const [key, value] of Object.entries((only.properties ?? {}) as Record<string, Json>)) children.push(...leavesOf(value, [...path, key], depth + 1))
+  for (const value of Object.values((only.patternProperties ?? {}) as Record<string, Json>)) children.push(...leavesOf(value, [...path, 'sample'], depth + 1))
+  if (only.type === 'array' && typeof only.items === 'object') children.push(...leavesOf(only.items as Json, [...path, '0'], depth + 1))
+  return [...own, ...children]
+}
+
+function kindOf(schema: Json): string | undefined {
+  if (Object.keys(schema).length === 0) return undefined
+  const rest = Array.isArray(schema.anyOf) ? (schema.anyOf as Json[]).filter((branch) => branch.type !== 'null') : [schema]
+  const kinds = new Set(rest.map((branch) => (Object.keys(branch).length === 0 ? undefined : branch.type === 'integer' ? 'number' : branch.type)))
+  return kinds.size === 1 ? (kinds.values().next().value as string | undefined) : undefined
+}
+
+describe('the validator and the run-time check agree on every typed reference between two nodes', () => {
+  type Target = { type: string; field: string; shape: 'scalar' | 'array' | 'record'; kind: string | undefined }
+  const targets: Target[] = []
+  for (const def of registry.list()) {
+    if (def.kind !== 'action' || BASES[def.type] === undefined) continue
+    for (const [field, schema] of Object.entries((def.configSchema as unknown as { properties: Record<string, Json> }).properties)) {
+      const kind = kindOf(schema)
+      targets.push({ type: def.type, field, shape: 'scalar', kind })
+      if (kind === 'array') targets.push({ type: def.type, field, shape: 'array', kind: undefined })
+      if (kind === 'object') targets.push({ type: def.type, field, shape: 'record', kind: undefined })
+    }
+  }
+
+  function workflowFor(source: (typeof SOURCES)[number], target: Target, ref: string): Workflow {
+    const base: Json = { ...BASES[target.type] }
+    if (target.type === 'llm.extract@1' && target.field === 'file') delete base['text']
+    const value: unknown = target.shape === 'scalar' ? ref : target.shape === 'array' ? [ref] : { k: ref }
+    const nodes = [source[1], ...(source[2] === undefined ? [] : [source[2]]), n('a', target.type, { ...base, [target.field]: value })]
+    return wf(nodes) as Workflow
+  }
+
+  it('compares the two on every reference to a field of a node output and finds no disagreement', () => {
+    const disagreements: string[] = []
+    const limits: string[] = []
+    let compared = 0
+    for (const source of SOURCES) {
+      const holder = source[2] ?? source[1]
+      const schema = outputSchemaOf(registry.get(holder.type)!, holder.config)
+      for (const leaf of leavesOf(schema)) {
+        const open = kindOf(leaf.schema) === undefined
+        const ref = `{{${holder.id}.output${leaf.path.map((part) => `.${part}`).join('')}}}`
+        for (const target of targets) {
+          const workflow = workflowFor(source, target, ref)
+          const index = workflow.nodes.length - 1
+          const issues = validateWorkflow(workflow, { registry, allowedRoots: [root] })
+          const errors = issues.filter((issue) => !isWarningIssue(issue) && issue.pointer.startsWith(`/nodes/${index}/config`))
+          const label = `${source[0]} ${ref} -> ${target.type} ${target.field} (${target.shape})`
+          const elsewhere = issues.filter((issue) => !isWarningIssue(issue) && !issue.pointer.startsWith(`/nodes/${index}/config`))
+          if (elsewhere.length > 0) {
+            disagreements.push(`${label}: the combination is invalid before the check: ${elsewhere.map((issue) => issue.code).join(',')}`)
+            continue
+          }
+          const verdict = runtimeVerdicts(workflow, 'typical', {}).at(-1)!
+          const typeFailure = !verdict.ok && /must be (integer|number|string|boolean|object|array|null)/u.test(verdict.detail)
+          if (kindOf(leaf.schema) === 'object' && target.shape === 'scalar' && target.kind === 'object') {
+            limits.push(label)
+            continue
+          }
+          compared += 1
+          if (errors.length > 0 && verdict.ok) disagreements.push(`${label}: the validator reports ${errors.map((issue) => issue.code).join(',')} but the check passes`)
+          if (errors.length === 0 && typeFailure && !warningsAt(issues, index, 'number_into_integer') && !open) {
+            disagreements.push(`${label}: the check fails (${verdict.detail}) but the validator is silent`)
+          }
+        }
+      }
+    }
+    expect(compared).toBeGreaterThanOrEqual(1200)
+    expect(disagreements).toEqual([])
+    expect(limits.length).toBeGreaterThan(0)
+    expect(limits.every((label) => label.endsWith('(scalar)'))).toBe(true)
   })
 })
