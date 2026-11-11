@@ -47,6 +47,7 @@ export interface LlmResult {
 
 export interface LlmCallOptions {
   signal?: AbortSignal
+  timeoutMs?: number
 }
 
 export interface LlmProvider {

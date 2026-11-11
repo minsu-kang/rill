@@ -15,6 +15,7 @@ import {
 export const DEFAULT_MODEL = 'claude-opus-5-5'
 export const DEFAULT_TIMEOUT_MS = 120_000
 export const MAX_CACHE_BREAKPOINTS = 4
+export const MAX_CALL_TIMEOUT_MS = 2_147_483_647
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 
 export interface AnthropicProviderOptions {
@@ -181,6 +182,10 @@ export class AnthropicProvider implements LlmProvider {
         `a request can carry at most ${MAX_CACHE_BREAKPOINTS} cache breakpoints (system blocks, content parts and the cache flag together), got ${breakpoints}`,
       )
     }
+    const { timeoutMs } = callOptions
+    if (timeoutMs !== undefined && !(Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= MAX_CALL_TIMEOUT_MS)) {
+      throw new LlmError('invalid_request', `timeoutMs must be a number of milliseconds between 1 and ${MAX_CALL_TIMEOUT_MS}, got ${timeoutMs}`)
+    }
     const base = {
       model: this.modelId,
       max_tokens: request.maxTokens ?? this.maxTokens,
@@ -192,7 +197,7 @@ export class AnthropicProvider implements LlmProvider {
       ...systemParam(request.system),
       ...cacheControl(request.cache),
     }
-    const requestOptions = { signal: callOptions.signal }
+    const requestOptions = { signal: callOptions.signal, ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }) }
     const startedAt = Date.now()
     let reply: unknown
     try {
