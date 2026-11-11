@@ -58,7 +58,7 @@ export function outputFieldNames(workflow: Workflow, registry: NodeRegistry): Se
   return names
 }
 
-function catalogWords(registry: NodeRegistry, workflow: Workflow | undefined): Set<string> {
+function catalogWords(registry: NodeRegistry): Set<string> {
   const words = new Set<string>()
   const keys = new Set<string>()
   for (const def of registry.list()) {
@@ -69,7 +69,6 @@ function catalogWords(registry: NodeRegistry, workflow: Workflow | undefined): S
     const labels = declaredBranches(def)
     if (Array.isArray(labels)) for (const label of labels) addWords(words, label)
   }
-  if (workflow !== undefined) for (const name of outputFieldNames(workflow, registry)) keys.add(name)
   for (const key of keys) addWords(words, key)
   return words
 }
@@ -78,7 +77,6 @@ export interface NameGuardInput {
   attachmentTexts: readonly string[]
   userTexts?: readonly string[]
   existingWorkflow?: Workflow
-  workflow?: Workflow
   registry: NodeRegistry
 }
 
@@ -93,7 +91,7 @@ export function createNameGuard(input: NameGuardInput): NameGuard {
   const attachmentWords = new Set<string>()
   for (const text of input.attachmentTexts) addWords(attachmentWords, text)
   if (attachmentWords.size === 0) return NOTHING_HIDDEN
-  const known = catalogWords(input.registry, input.workflow)
+  const known = catalogWords(input.registry)
   for (const text of input.userTexts ?? []) addWords(known, text)
   if (input.existingWorkflow !== undefined) addWords(known, JSON.stringify(input.existingWorkflow))
   return {

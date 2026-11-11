@@ -96,7 +96,6 @@ export function redactIssues(issues: PlanIssue[], input: RedactInput): PlanIssue
     registry: input.registry,
     ...(input.userTexts === undefined ? {} : { userTexts: input.userTexts }),
     ...(input.existingWorkflow === undefined ? {} : { existingWorkflow: input.existingWorkflow }),
-    ...(input.workflow === undefined ? {} : { workflow: input.workflow }),
   })
   const chosen = new Set([...chosenNames(input.workflow, input.patch)].map(fold))
   const echoedName = (word: string): boolean => chosen.has(fold(word)) && guard.hides(word)

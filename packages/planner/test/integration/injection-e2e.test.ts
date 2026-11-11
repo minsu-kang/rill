@@ -321,6 +321,25 @@ describe('injection end to end: real attachment module, in-memory store, scripte
         expect(message).not.toContain('spoolmaster')
       })
 
+      it('hides the word although the model declared it as an extract field itself, in a full and in a targeted repair', async () => {
+        const declared = (config: Record<string, unknown>) =>
+          invalidFirst((workflow) => {
+            ;(workflow.nodes[1]!.config as { fields: unknown[] }).fields.push({ name: 'spoolmaster', type: 'string' })
+            workflow.nodes[2]!.config = config
+          })
+        const full = new FakeProvider([{ data: workflowData(declared({ file: `${ROOT}/ledger.csv`, row: ['{{spoolmaster.output.amount}}'] })) }, { data: workflowData(receipts()) }])
+        const fullResult = await plan(full)
+        expect(fullResult.kind).toBe('workflow')
+        expect(repairUserMessages(full, 1)[0]).not.toContain('spoolmaster')
+        expect(JSON.stringify(fullResult.rounds)).not.toContain('spoolmaster')
+        const fixed = { file: `${ROOT}/ledger.csv`, row: ['{{n1.output.amount}}'] }
+        const targeted = new FakeProvider([{ data: workflowData(declared({ ...fixed, spoolmaster: 1 })) }, { data: fixed }])
+        const targetedResult = await plan(targeted)
+        expect(targetedResult.rounds.map((round) => round.targeted)).toEqual([[], ['n2']])
+        expect(targeted.calls[1]!.request.messages[0]!.content).not.toContain('spoolmaster')
+        expect(JSON.stringify(targetedResult.rounds)).not.toContain('spoolmaster')
+      })
+
       it('hides an unknown property in a targeted repair: out of the issue, the pointer and the config shown', async () => {
         const invalid = invalidFirst((workflow) => {
           workflow.nodes[2]!.config = { file: `${ROOT}/ledger.csv`, row: ['{{n1.output.amount}}'], spoolmaster: 1 }

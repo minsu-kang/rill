@@ -329,7 +329,6 @@ class Run {
       attachmentTexts: this.attachmentTexts,
       registry: this.registry,
       userTexts: userTexts(this.request),
-      workflow,
       ...(existing === undefined ? {} : { existingWorkflow: existing }),
     })
     for (const index of indexes) {

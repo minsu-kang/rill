@@ -419,7 +419,7 @@ describe('redactIssues: plain words that the model took from an attachment', () 
 
   it('hides it in a nested path too and in any letter case', () => {
     const nested = issue('/nodes/2/config/row/0', 'unknown_output_field', 'node n2: n1.output.amount has no field SpoolMaster', 'n1.output.amount is not an object')
-    const [out] = run([nested], rowOf('amount.SpoolMaster'))
+    const [out] = run([nested], rowOf('amount.SpoolMaster'), { userTexts: [...userTexts, 'Keep the amount'] })
     expect(out?.message).toBe('unknown_output_field at /nodes/2/config/row/0')
     expect(out?.hint).toBe('n1.output.amount is not an object')
   })
@@ -455,9 +455,25 @@ describe('redactIssues: plain words that the model took from an attachment', () 
     expect(hint).not.toMatch(/pollMs|stableMs/)
   })
 
+  it('hides the word although the model declared it as an extract field of its own workflow', () => {
+    const declared: Workflow = {
+      ...extracting,
+      nodes: [
+        extracting.nodes[0]!,
+        { ...extracting.nodes[1]!, config: { file: '{{t1.output.file}}', fields: [{ name: 'spoolmaster', type: 'string' }] } },
+        { ...extracting.nodes[2]!, config: { file: '~/Out/ledger.csv', row: ['{{spoolmaster.output.amount}}'], spoolmaster: 1 } },
+      ],
+    }
+    const ref = issue('/nodes/2/config/row/0', 'unknown_ref_node', 'n2: reference to unknown node spoolmaster')
+    const key = issue('/nodes/2/config/spoolmaster', 'config_additionalProperties', 'node n2: invalid config: /spoolmaster: spoolmaster is not allowed')
+    expect(JSON.stringify(run([ref, key], declared))).not.toContain('spoolmaster')
+    const existing = { ...declared, nodes: [declared.nodes[0]!, declared.nodes[1]!, extracting.nodes[2]!] }
+    expect(JSON.stringify(run([ref], declared, { existingWorkflow: existing }))).toContain('spoolmaster')
+  })
+
   it('shows a name that belongs to the catalog even when the attachment has it', () => {
     const wide = 'the file and the amount and the row and the url'
-    for (const name of ['file', 'amount', 'row', 'url', 'date']) {
+    for (const name of ['file', 'row', 'url', 'date']) {
       const original = missing(name)
       expect(run([original], rowOf(name), { attachmentTexts: [wide, 'date'] })[0], name).toEqual(original)
     }
