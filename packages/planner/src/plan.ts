@@ -233,6 +233,8 @@ class Run {
       userTexts: userTexts(this.request),
       ...(existing === undefined ? {} : { existingWorkflow: existing }),
       attachmentTexts: this.attachmentTexts,
+      trustedConnections: this.request.context.connections.map((connection) => connection.name),
+      allowedRoots: this.request.context.allowedRoots,
     })
   }
 

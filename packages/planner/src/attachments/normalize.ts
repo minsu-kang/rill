@@ -1,8 +1,12 @@
+import { domainToUnicode } from 'node:url'
+
 export type LiteralKind = 'host' | 'path' | 'name'
 
 export interface Literal {
   kind: LiteralKind
   text: string
+  alternates?: string[]
+  opaque?: boolean
 }
 
 const HOME = '\uE000home'
@@ -44,17 +48,33 @@ export function occursIn(haystack: string, needle: string, kind: LiteralKind): b
 }
 
 export function occursInAny(haystacks: readonly string[], literal: Literal): boolean {
-  return haystacks.some((haystack) => occursIn(haystack, literal.text, literal.kind))
+  const needles = [literal.text, ...(literal.alternates ?? [])]
+  return haystacks.some((haystack) => needles.some((needle) => occursIn(haystack, needle, literal.kind)))
 }
 
-function literalHost(value: string): string | undefined {
-  const first = value.indexOf('{{')
-  const head = first === -1 ? value : value.slice(0, first)
-  const match = /^[a-z][a-z0-9+.-]*:\/\/(?:[^/?#@]*@)?([^/?#:]*)([/?#:]|$)/i.exec(head)
-  if (match === null) return undefined
-  if (match[2] === '' && first !== -1) return undefined
-  const host = (match[1] as string).toLowerCase().replace(/\.$/, '')
-  return host === '' ? undefined : host
+const SCHEME = /^[a-z][a-z0-9+.-]*:/i
+const AUTHORITY_END = /[/\\?#]/
+
+function authorityClosed(head: string): boolean {
+  const scheme = SCHEME.exec(head)
+  if (scheme === null) return false
+  const rest = head.slice(scheme[0].length).replace(/^[/\\]*/, '')
+  return AUTHORITY_END.test(rest)
+}
+
+function urlHost(head: string, templated: boolean): Literal {
+  const opaque: Literal = { kind: 'name', text: fold(head.trim()), opaque: true }
+  if (templated && !authorityClosed(head.trim())) return opaque
+  let hostname: string
+  try {
+    hostname = new URL(head.trim()).hostname
+  } catch {
+    return opaque
+  }
+  const host = hostname.replace(/\.$/, '')
+  if (host === '') return opaque
+  const unicode = fold(domainToUnicode(host))
+  return { kind: 'host', text: host, ...(unicode !== '' && unicode !== host ? { alternates: [unicode] } : {}) }
 }
 
 function literalHead(value: string): { head: string; templated: boolean } {
@@ -63,11 +83,8 @@ function literalHead(value: string): { head: string; templated: boolean } {
 }
 
 export function literalOf(role: 'path' | 'url' | 'connection' | 'recipient', value: string): Literal | undefined {
-  if (role === 'url') {
-    const host = literalHost(value)
-    if (host !== undefined) return { kind: 'host', text: host }
-  }
   const { head, templated } = literalHead(value)
+  if (role === 'url') return head.trim() === '' ? undefined : urlHost(head, templated)
   if (role === 'path') {
     const text = stripTrailingSlashes(fold(head.trim()))
     if (text === '' || (templated && text === HOME)) return undefined

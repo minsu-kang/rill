@@ -21,6 +21,8 @@ export interface ProvenanceInput {
   userTexts: string[]
   existingWorkflow?: Workflow
   attachmentTexts: string[]
+  trustedConnections?: readonly string[]
+  allowedRoots?: readonly string[]
 }
 
 export interface RedactInput {

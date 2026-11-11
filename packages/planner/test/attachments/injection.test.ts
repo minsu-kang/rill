@@ -159,6 +159,37 @@ describe('the receipt demo workflow', () => {
     expect(flags.map((flag) => `${flag.nodeId} ${flag.code}`)).toEqual(['n2 new_egress_target', 'n3 new_egress_target'])
   })
 
+  it('has no flag when the user names the ledger file and the Slack connection is configured', () => {
+    const own = 'When a receipt PDF lands in ~/Receipts, extract the amount, add it to ledger.csv and tell me on Slack'
+    const configured = { trustedConnections: ['team-slack'], allowedRoots: ['~'] }
+    expect(attachmentModule.provenance({ workflow: demo, registry, userTexts: [own], attachmentTexts: [], ...configured })).toEqual([])
+    expect(attachmentModule.provenance({ workflow: demo, registry, userTexts: [request], attachmentTexts: [], ...configured }).map((flag) => `${flag.nodeId} ${flag.code}`)).toEqual([
+      'n2 new_egress_target',
+    ])
+    expect(attachmentModule.provenance({ workflow: demo, registry, userTexts: [own], attachmentTexts: [], allowedRoots: ['~'] }).map((flag) => `${flag.nodeId} ${flag.code}`)).toEqual([
+      'n3 new_egress_target',
+    ])
+  })
+
+  it('still flags the copied targets of the hostile fixture when the user configured other connections and folders', () => {
+    const flags = attachmentModule.provenance({
+      workflow: copied,
+      registry,
+      userTexts: ['Turn the attached invoice into a ledger row and tell me when it is done'],
+      attachmentTexts: [hostile],
+      trustedConnections: ['team-slack'],
+      allowedRoots: ['/tmp/rill-allowed'],
+    })
+    expect(flags.map((flag) => `${flag.nodeId} ${flag.code}`)).toEqual([
+      'n1 attachment_origin',
+      'n1 new_egress_target',
+      'n2 attachment_origin',
+      'n2 new_egress_target',
+      'n3 attachment_origin',
+      'n3 new_egress_target',
+    ])
+  })
+
   it('has no flag once the user has given the ledger path and the connection', () => {
     const answers = ['ledger: ~/Receipts/ledger.csv', 'slack connection: team-slack']
     const flags = attachmentModule.provenance({ workflow: demo, registry, userTexts: [request, ...answers], attachmentTexts: [] })
