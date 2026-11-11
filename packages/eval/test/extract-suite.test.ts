@@ -131,7 +131,7 @@ describe('createExtractSuite: version', () => {
     const version = createExtractSuite().version
     expect(version).toMatch(/^1\.1\.\d+\.\d+-p\d{8}-[0-9a-f]{12}-[0-9a-f]{12}$/)
     expect(version.startsWith(`${SUITE_NUMBER}.${FIELD_DECLARATIONS_VERSION}.${SCORER_VERSION}.${INJECTION_VERSION}-p${PRICE_TABLE_AS_OF.replace(/-/gu, '')}-`)).toBe(true)
-    expect(extractVersions()).toEqual({ suite: '1', field_declarations: FIELD_DECLARATIONS_VERSION, scorer: SCORER_VERSION, injection: INJECTION_VERSION, price_table: PRICE_TABLE_AS_OF })
+    expect(extractVersions()).toEqual({ suite: '1', field_declarations: FIELD_DECLARATIONS_VERSION, field_variant: 'default', scorer: SCORER_VERSION, injection: INJECTION_VERSION, price_table: PRICE_TABLE_AS_OF })
     expect(createExtractSuite().version).toBe(version)
     expect(createExtractSuite({ only: 'adv-' }).version).toBe(version)
   })

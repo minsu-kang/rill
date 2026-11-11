@@ -23,6 +23,7 @@ import {
   type ExtractOutput,
   type ExtractSuite,
 } from './suites/extract/suite'
+import { FIELD_VARIANT_NAMES, type FieldVariant } from './suites/extract/fields'
 
 export const DEFAULT_MODELS = ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'] as const
 export const PILOT_SEEDS = ['easy-ko-cafe-yeonnam', 'tricky-en-card-approval-vs-total', 'adv-en-ignore-instructions'] as const
@@ -70,6 +71,7 @@ options:
   --only <ids>            a seed id substring, or a comma list of exact seed ids
   --pilot                 three fixed seeds, all kinds, one rep
   --effort <low|medium|high>  override the effort of the node (default: the node's own, low)
+  --fields <default|strict>   field descriptions sent with the three fields (strict: null unless the document is a receipt or invoice)
   --budget-usd <usd>      spending cap, required with --yes (the plan prints a suggested value)
   --max-output-tokens <n> max_tokens per request, also the budget guard's worst case per call
                           (default: ${DEFAULT_MAX_OUTPUT_TOKENS}, as the node ships; at most ${LIMITS.maxOutputTokens.max}; thinking counts against it)
@@ -104,6 +106,7 @@ export interface CliConfig {
   only: string | string[] | undefined
   pilot: boolean
   effort: LlmEffort | undefined
+  fields: FieldVariant
   budgetUsd: number | undefined
   maxOutputTokens: number
   maxCallSeconds: number
@@ -152,6 +155,7 @@ const OPTIONS = {
   only: { type: 'string' },
   pilot: { type: 'boolean' },
   effort: { type: 'string' },
+  fields: { type: 'string' },
   'budget-usd': { type: 'string' },
   'max-output-tokens': { type: 'string' },
   'max-call-seconds': { type: 'string' },
@@ -200,6 +204,11 @@ export function parseCli(argv: readonly string[]): CliConfig {
     if (!(EFFORTS as readonly string[]).includes(values.effort)) throw new UsageError(`--effort must be one of ${EFFORTS.join(', ')}`)
     effort = values.effort as LlmEffort
   }
+  let fields: FieldVariant = 'default'
+  if (values.fields !== undefined) {
+    if (!(FIELD_VARIANT_NAMES as readonly string[]).includes(values.fields)) throw new UsageError(`--fields must be one of ${FIELD_VARIANT_NAMES.join(', ')}`)
+    fields = values.fields as FieldVariant
+  }
   let budgetUsd: number | undefined
   if (values['budget-usd'] !== undefined) {
     budgetUsd = Number(values['budget-usd'])
@@ -224,6 +233,7 @@ export function parseCli(argv: readonly string[]): CliConfig {
     only,
     pilot,
     effort,
+    fields,
     budgetUsd,
     maxOutputTokens: integerOption('--max-output-tokens', values['max-output-tokens'], pilot ? PILOT_MAX_OUTPUT_TOKENS : DEFAULT_MAX_OUTPUT_TOKENS, LIMITS.maxOutputTokens),
     maxCallSeconds: integerOption('--max-call-seconds', values['max-call-seconds'], DEFAULT_MAX_CALL_SECONDS, LIMITS.maxCallSeconds),
@@ -247,6 +257,7 @@ function emptyConfig(): CliConfig {
     only: undefined,
     pilot: false,
     effort: undefined,
+    fields: 'default',
     budgetUsd: undefined,
     maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
     maxCallSeconds: DEFAULT_MAX_CALL_SECONDS,
@@ -304,6 +315,7 @@ export function commandLine(config: CliConfig, budgetUsd: number | undefined): s
   }
   parts.push('--models', config.models.join(','))
   if (config.effort !== undefined) parts.push('--effort', config.effort)
+  if (config.fields !== 'default') parts.push('--fields', config.fields)
   if (config.concurrency !== DEFAULT_CONCURRENCY) parts.push('--concurrency', String(config.concurrency))
   if (config.maxOutputTokens !== DEFAULT_MAX_OUTPUT_TOKENS) parts.push('--max-output-tokens', String(config.maxOutputTokens))
   if (config.maxCallSeconds !== DEFAULT_MAX_CALL_SECONDS) parts.push('--max-call-seconds', String(config.maxCallSeconds))
@@ -337,6 +349,7 @@ function planText(config: CliConfig, suite: ExtractSuite, estimate: RunEstimate,
     `reps: ${config.reps}`,
     `calls: ${estimate.calls} (${plural(cases.length, 'case')} x ${plural(config.reps, 'rep')} x ${plural(config.models.length, 'model')})`,
     `effort: ${config.effort === undefined ? 'low (the node ships it)' : `${config.effort} (override)`}`,
+    `fields: ${config.fields}${config.fields === 'default' ? '' : ' (stricter descriptions: null unless the document is a receipt or invoice)'}`,
     `schedule seed ${config.seed}, concurrency ${config.concurrency}, at most ${config.maxAttempts} attempts per call, ${config.maxCallSeconds} s per attempt`,
     '',
     `estimate (prices as of ${PRICE_TABLE_AS_OF}):`,
@@ -430,6 +443,7 @@ function makeSuite(config: CliConfig, io: CliIo): ExtractSuite {
   try {
     return createExtractSuite({
       kinds: config.kinds,
+      fields: config.fields,
       ...(config.only === undefined ? {} : { only: config.only }),
       ...(io.fixturesDir === undefined ? {} : { fixturesDir: io.fixturesDir }),
     })
@@ -471,6 +485,7 @@ function reportMeta(config: CliConfig, suite: ExtractSuite, io: CliIo, models: r
     reps,
     seed: config.seed,
     effort: config.effort,
+    fields: config.fields,
     priceTableAsOf: PRICE_TABLE_AS_OF,
     fallback: false as const,
     baselines: [...BASELINE_NAMES],
@@ -491,7 +506,7 @@ function resultsMeta(config: CliConfig, suite: ExtractSuite, io: CliIo, models: 
     cases: suite.cases(),
     sentRequestOf,
     secrets,
-    versions: extractVersions(),
+    versions: extractVersions(config.fields),
     maxOutputTokens: config.maxOutputTokens,
   }
 }

@@ -9,7 +9,7 @@ import { summarizeRequest, type SentRequest } from '../../sent'
 import { PRICE_TABLE_AS_OF } from '../../pricing'
 import { FIELD_NAMES, SCORER_VERSION, scoreFields, type Expected } from '../../score'
 import type { CaseScore, EvalCase, Suite } from '../../suite'
-import { FIELD_DECLARATIONS, FIELD_DECLARATIONS_VERSION } from './fields'
+import { FIELD_DECLARATIONS_VERSION, FIELD_VARIANTS, type FieldVariant } from './fields'
 import { FIXTURES_DIR, FIXTURE_KINDS, MANIFEST_FILE, fixtureFile, loadManifest, type FixtureKind } from './fixtures'
 import { INJECTION_TARGETS, INJECTION_VERSION, injectionComplied } from './injection'
 import { SEEDS_PATH, parseSeeds, type Seed } from './seed'
@@ -52,16 +52,19 @@ export interface ExtractSuiteOptions {
   only?: string | readonly string[]
   fixturesDir?: string
   seedsPath?: string
+  fields?: FieldVariant
 }
 
 export interface ExtractSuite extends Suite<ExtractCase, ExtractOutput> {
   fixturesDir: string
+  fieldVariant: FieldVariant
 }
 
-export function extractVersions(): Record<string, string> {
+export function extractVersions(fields: FieldVariant = 'default'): Record<string, string> {
   return {
     suite: String(SUITE_NUMBER),
     field_declarations: FIELD_DECLARATIONS_VERSION,
+    field_variant: fields,
     scorer: SCORER_VERSION,
     injection: INJECTION_VERSION,
     price_table: PRICE_TABLE_AS_OF,
@@ -120,6 +123,7 @@ function nodeContext(testCase: ExtractCase, fixturesDir: string, llm: LlmProvide
 
 export function createExtractSuite(options: ExtractSuiteOptions = {}): ExtractSuite {
   const fixturesDir = options.fixturesDir ?? FIXTURES_DIR
+  const fieldVariant = options.fields ?? 'default'
   const kinds = options.kinds ?? FIXTURE_KINDS
   if (kinds.length === 0 || new Set(kinds).size !== kinds.length) throw new Error('kinds must be a non-empty list without duplicates')
   const seedsPath = options.seedsPath ?? SEEDS_PATH
@@ -139,7 +143,7 @@ export function createExtractSuite(options: ExtractSuiteOptions = {}): ExtractSu
     }
   }
   const version = [
-    `${SUITE_NUMBER}.${FIELD_DECLARATIONS_VERSION}.${SCORER_VERSION}.${INJECTION_VERSION}`,
+    `${SUITE_NUMBER}.${FIELD_DECLARATIONS_VERSION}.${SCORER_VERSION}.${INJECTION_VERSION}${fieldVariant === 'default' ? '' : `-f${fieldVariant}`}`,
     `p${PRICE_TABLE_AS_OF.replace(/-/gu, '')}`,
     sha256(seedsBytes).slice(0, VERSION_HASH_LENGTH),
     sha256(manifestBytes).slice(0, VERSION_HASH_LENGTH),
@@ -172,6 +176,7 @@ export function createExtractSuite(options: ExtractSuiteOptions = {}): ExtractSu
     name: SUITE_NAME,
     version,
     fixturesDir,
+    fieldVariant,
     fields: FIELD_NAMES,
     cases: () => cases,
     run: async (testCase, ctx) => {
@@ -180,7 +185,7 @@ export function createExtractSuite(options: ExtractSuiteOptions = {}): ExtractSu
         sent = request
       })
       const reply = await llmExtract.execute(
-        { file: testCase.file, fields: FIELD_DECLARATIONS.map((field) => ({ ...field })) },
+        { file: testCase.file, fields: FIELD_VARIANTS[fieldVariant].map((field) => ({ ...field })) },
         nodeContext(testCase, fixturesDir, llm),
       )
       if (!Value.Check(outputSchema, reply)) throw new Error('llm.extract returned an unexpected output shape')

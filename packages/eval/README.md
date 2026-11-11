@@ -169,3 +169,18 @@ This rewrites the text, PDF and PNG files for all seeds from `src/suites/extract
 ## Tests
 
 `pnpm test` runs everything. No test calls an LLM API: they use fakes, fake `fetch` with real `Response` objects, and local HTTP servers on 127.0.0.1 through `ANTHROPIC_BASE_URL`.
+
+## Field description variants
+
+`--fields default|strict` picks the descriptions that are sent with `amount`, `date` and `vendor`. The strict variant adds "null if the document is not a receipt or invoice".
+
+Measured on 2026-11-12 with `claude-haiku-5-5` at effort low over the 108 inputs:
+
+| Variant | Case pass | What failed |
+| --- | --- | --- |
+| default | 99.1% (321/324, 3 reps) | the Korean neighbour letter: it returns the letter's date as the purchase date |
+| strict | 97.2% (105/108, 1 rep) | the unpaid invoice: it returns the amount due as `amount` ("or invoice" reads as a signal to extract it) |
+
+The wording moved the error instead of removing it, so the default does not change and both variants stay. Do not tune the wording further on this set: the letter and the invoice are already known, so a fix would fit the test set. A wording claim needs new boundary documents that were not seen before (quotes, unpaid order confirmations, delivery notes, transfer confirmations).
+
+The robust answer for non-receipts is in the workflow, not in the wording: extract an explicit boolean such as `is_receipt` next to the fields and branch on it with a `condition` node.

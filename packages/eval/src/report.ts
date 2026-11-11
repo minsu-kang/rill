@@ -10,6 +10,7 @@ export interface ReportMeta {
   reps: number
   seed: number
   effort: string | undefined
+  fields?: string
   priceTableAsOf: string
   fallback: false
   baselines: readonly string[]
@@ -139,6 +140,7 @@ function headerSection(input: ReportInput, scoredGroups: number): string[] {
     `- Reps per case: ${meta.reps}`,
     `- Schedule seed: ${meta.seed}`,
     `- Effort: ${effort}`,
+    `- Field declarations: ${meta.fields ?? 'default'} (the descriptions the node sends with each field)`,
     `- Comparison: each model as the node ships it, at that effort. This is not a model-only comparison.`,
     `- Refusal fallback: ${meta.fallback ? 'on' : 'off'} for every model.`,
     '- Data: synthetic clean receipts only. The results say nothing about photos, scans or real receipts.',

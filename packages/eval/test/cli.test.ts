@@ -461,6 +461,7 @@ describe('parseCli', () => {
       only: undefined,
       pilot: false,
       effort: undefined,
+      fields: 'default',
       budgetUsd: undefined,
       maxOutputTokens: 16_000,
       maxCallSeconds: 60,
