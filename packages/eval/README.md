@@ -30,7 +30,7 @@ All commands run from the repository root. The root script `pnpm eval` forwards 
 
    The pilot defaults to `--max-output-tokens 4000` (replies that hit it are recorded as truncated), so the worst case of one Opus call is about $0.09 and four calls in flight reserve about $0.36. With the node's own 16000 the worst case of one Opus call would be about $0.33, so a pilot would need a budget of at least about $1.50. The suggested budget is the larger of 2 x the estimate and the estimate plus the reserve for the calls in flight, so the printed command always runs.
 
-   Read the traces of the pilot before anything bigger. Re-estimate cost and rep agreement from the measured usage in `results.jsonl`.
+   Read the pilot before anything bigger, then replace the assumptions of the estimate with what it measured. See "After the pilot".
 
 4. Full run. 36 seeds, three kinds each (108 cases), 3 reps, 3 models: 972 calls.
 
@@ -38,7 +38,7 @@ All commands run from the repository root. The root script `pnpm eval` forwards 
    pnpm eval extract --yes --budget-usd 10.49
    ```
 
-   `--budget-usd` is required with `--yes`. Take the suggested value from the plan, or better, derive it from the output tokens the pilot measured.
+   `--budget-usd` is required with `--yes`. Take the suggested value from the plan, or better, from `--reestimate` on the pilot (see "After the pilot"), which prices the output tokens the pilot measured.
 
 Results go to `packages/eval/results/extract-<timestamp>/`, which is git-ignored. The directory must be empty or absent, and the command checks that before it spends anything. While the run goes, every finished task is appended to `tasks.partial.jsonl` in that directory (compact lines: case, model, rep, status, outcomes, output values, usage and cost; no documents and no key), so a crash keeps what was paid for. The final write replaces it with the files below and removes it.
 
@@ -61,6 +61,7 @@ Results go to `packages/eval/results/extract-<timestamp>/`, which is git-ignored
 | `--seed n` | 1 | Seeds the shuffled schedule and the bootstrap, 0 to 4294967295. |
 | `--out dir` | `packages/eval/results/extract-<timestamp>` | Results directory. |
 | `--allow-base-url` | off | Allow an `ANTHROPIC_BASE_URL` other than `https://api.anthropic.com`, or a set `ANTHROPIC_CUSTOM_HEADERS`. The key is sent to that host. |
+| `--reestimate dir` | off | Re-estimate the full run from the results directory of a pilot. Takes only `--models`, `--reps`, `--kinds`, `--only`, `--max-output-tokens` and `--concurrency`; any other option is a usage error. No key, no network, nothing written. See "After the pilot". |
 | `--baselines` | off | Only the baselines. Cannot be combined with `--yes`, `--models`, `--reps`, `--effort`, `--budget-usd`, `--max-output-tokens` or `--allow-base-url`. |
 | `--yes` | off | Really call the API. Needs `--budget-usd`. |
 
@@ -76,9 +77,38 @@ Exit codes:
 | 3 | Partial run: the budget ran out. The report starts with a PARTIAL RUN notice. |
 | 130 | Interrupted by SIGINT or SIGTERM. The results and the report are written as a partial run. |
 
+## After the pilot
+
+The pilot measures what the estimate only assumed: 200 output tokens per call, 3.5 characters per token for text, 2400 input tokens for a PDF and 2000 for a PNG. Go through it in this order.
+
+1. Read the pilot report (`report.md` in the results directory, printed as `report:` at the end of the run). Check five things.
+   - Output tokens per call: the "Mean output tokens" column of the latency, tokens and cost table. Thinking is billed as output, so this is usually well above the 200 the estimate assumed, and it moves the cost more than anything else.
+   - Truncated rows: the "Truncated rows" section. A reply that reached `--max-output-tokens` was cut off. The pilot caps replies at 4000 tokens, so a truncated row is a call that wanted more. The report leaves truncated rows out of its means; `--reestimate` counts them, because they are billed.
+   - Refusals and invalid replies: the "Errors" section and the No answer column. They count as no answer, never as a correct null.
+   - Errors: rate limits, timeouts and connection drops, also listed in `errors.jsonl` of each model folder. They are retried and billed, and they stay out of the means. Many of them suggest a lower `--concurrency` for the full run.
+   - Rep agreement: the "Rep agreement" section. It shows n/a for a pilot, which has one rep. To see it before the full run, repeat the three pilot seeds with `--reps 2`, which costs about twice the pilot.
+
+2. Re-estimate the full run from the measured usage. The command never calls the API, needs no key and writes nothing into the results directory.
+
+   ```
+   pnpm eval extract --reestimate packages/eval/results/extract-<timestamp>
+   ```
+
+   Use the directory the pilot printed as `results:`. A relative path is resolved from the directory where you started pnpm. The plan flags are the ones of the plan mode (`--models`, `--reps`, `--kinds`, `--only`, `--max-output-tokens`, `--concurrency`) and default to the full run, so change them only to price another plan. A pilot that crashed before its final write still has `tasks.partial.jsonl`; the command reads that when there is no `run.json`.
+
+   It prints, for each model and kind: the calls of the plan, the pilot calls behind the numbers (n), the mean and the 90th percentile of the input and output tokens, the measured cost per call, and the projected cost at the mean and at the 90th percentile. The 90th percentile column prices the p90 input tokens and the p90 output tokens together, so it is a pessimistic bound, not a forecast. Below each table it shows the output tokens per call the pilot saw against the 200 assumed, and how many pilot calls were truncated or refused.
+
+   Then it prints the totals, the SUGGESTED BUDGET, the break-even output tokens per call at that budget, the warnings and the exact command for the full run. The budget is the larger of 1.3 x the p90 total and the mean total plus the guard's reserve for the calls in flight, rounded up to the cent.
+
+   Read the warnings. The pilot saw only three calls per model and kind from three seeds that were not drawn at random, so the projection is rough. A kind with fewer than two pilot calls uses the pilot mean of that model across kinds, and a model with no pilot row falls back to the original assumption; the table marks both FALLBACK. Truncated pilot rows make the projection a minimum when the full run allows more output tokens than the pilot did; the command then prints the total at the mean if every such call used the whole cap, and says when the suggested budget is below it. If the default `--max-output-tokens 16000` makes the guard's reserve a large share of the cost, the command also prints the budget at a lower cap (2000, 4000 or 8000, the smallest that leaves twice the largest pilot reply) and its command. The consequence of a lower cap is that a call needing more output tokens is cut off and recorded as truncated, which counts as no answer.
+
+   The command repeats the effort the pilot ran with, because token counts measured at one effort do not carry over to another. It warns when the pilot ran another suite version than this checkout.
+
+3. Run the command it printed. That is the full run.
+
 ## What it costs
 
-These are estimates. Nothing has been measured yet, because no run has used a real key. The prices come from `src/pricing.ts` (as of the date in the report header). The estimate assumes 200 output tokens per call, input tokens of chars / 3.5 + 400 for text, 2400 for a PDF and 2000 for a PNG, no retries and no caching. These models think before they answer, and thinking tokens are billed as output tokens, so 200 is likely low; the plan prints the break-even average output per call at the chosen budget so you can see how much room there is.
+These are estimates. Nothing has been measured yet, because no run has used a real key. The prices come from `src/pricing.ts` (as of the date in the report header). The estimate assumes 200 output tokens per call, input tokens of chars / 3.5 + 400 for text, 2400 for a PDF and 2000 for a PNG, no retries and no caching. These models think before they answer, and thinking tokens are billed as output tokens, so 200 is likely low; the plan prints the break-even average output per call at the chosen budget so you can see how much room there is. After the pilot, `--reestimate` replaces these assumptions with measured token counts.
 
 | Run | Calls | Estimate |
 | --- | --- | --- |
