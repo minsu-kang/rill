@@ -1,24 +1,6 @@
-export type EngineEvent =
-  | { type: 'run.started'; at: number; runId: string; workflowId: string; dryRun: boolean }
-  | { type: 'step.started'; at: number; runId: string; nodeId: string; attempt: number }
-  | { type: 'step.succeeded'; at: number; runId: string; nodeId: string; attempt: number }
-  | {
-      type: 'step.failed'
-      at: number
-      runId: string
-      nodeId: string
-      attempt: number
-      error: string
-      willRetry: boolean
-    }
-  | { type: 'step.skipped'; at: number; runId: string; nodeId: string }
-  | { type: 'step.continued'; at: number; runId: string; nodeId: string; attempt: number; error: string }
-  | { type: 'run.finished'; at: number; runId: string; status: 'succeeded' | 'failed'; error: string | null }
-  | { type: 'trigger.fired'; at: number; workflowId: string; runId: string }
-  | { type: 'trigger.skipped'; at: number; workflowId: string; reason: string }
-  | { type: 'trigger.error'; at: number; workflowId: string; error: string }
-  | { type: 'workflow.activated'; at: number; workflowId: string }
-  | { type: 'workflow.deactivated'; at: number; workflowId: string }
+import type { EngineEvent } from '@rill/protocol'
+
+export type { EngineEvent }
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 
