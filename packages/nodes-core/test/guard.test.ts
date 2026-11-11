@@ -125,6 +125,11 @@ describe('assertPathAllowed', () => {
       expect(() => assertPathAllowed('ledger/out.csv', [root])).toThrow('path must be absolute or start with ~/: ledger/out.csv')
     })
 
+    it('names the missing absolute path, not the parent segment, when a relative path also climbs up', () => {
+      expect(() => assertPathAllowed('../outside/x.csv', [root])).toThrow('path must be absolute or start with ~/: ../outside/x.csv')
+      expect(() => assertPathAllowed(`${root}/../outside/x.csv`, [root])).toThrow("path must not contain '..'")
+    })
+
     it('rejects a relative path before the empty-roots check as well', () => {
       expect(() => assertPathAllowed('x.csv', [])).toThrow('path must be absolute')
     })
