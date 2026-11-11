@@ -8,6 +8,8 @@ import {
   PlanError,
   createAttachmentModule,
   createPlanner,
+  encodeGeneration,
+  type PatchOp,
   type PlanResult,
   type PlanTurn,
 } from '../../src/index'
@@ -371,6 +373,49 @@ describe('injection end to end: real attachment module, in-memory store, scripte
         const [message] = repairUserMessages(provider, 1)
         expect(JSON.parse(message!).issues[0]).toMatchObject({ code: 'unknown_output_field', message: 'node <hidden>: n1.output has no field nope', hint: 'available: amount, date' })
         expect(message).not.toContain('mailbox')
+      })
+
+      it('keeps a word that the user wrote or that the existing workflow holds, in the issue and in the config shown to a targeted repair', async () => {
+        const fixed = { file: `${ROOT}/ledger.csv`, row: ['{{n1.output.amount}}'] }
+        const flawed = () => workflowData(invalidFirst((workflow) => void (workflow.nodes[2]!.config = { ...fixed, spoolmaster: 1 })))
+        const viaUser = new FakeProvider([{ data: flawed() }, { data: fixed }])
+        await plan(viaUser, `${INVOICE_REQUEST}, and tell the spoolmaster`)
+        expect(viaUser.calls[1]!.request.messages[0]!.content).toContain('"spoolmaster":1')
+        const known = receipts()
+        known.nodes[2]!.config = { file: `${ROOT}/spoolmaster.csv`, row: ['x'] }
+        const withExisting = (provider: FakeProvider) =>
+          createPlanner({ provider, registry, attachmentStore: countingStore({ inv: enc(WORD_TEXT) }) }).plan(
+            request({ text: INVOICE_REQUEST, attachments: [attachmentRef('inv', 'text/plain')], context: { ...request().context, existingWorkflow: known } }),
+          )
+        const targeted = new FakeProvider([{ data: flawed() }, { data: fixed }])
+        await withExisting(targeted)
+        expect(targeted.calls[1]!.request.messages[0]!.content).toContain('"spoolmaster":1')
+        const full = new FakeProvider([{ data: workflowData(withRow('{{spoolmaster.output.amount}}')) }, { data: workflowData(receipts()) }])
+        await withExisting(full)
+        expect(JSON.parse(repairUserMessages(full, 1)[0]!).issues[0]).toMatchObject({ message: 'n2: reference to unknown node spoolmaster' })
+      })
+
+      it('hides a node id that only a patch holds, in the round and in the repair request', async () => {
+        const unknownNode: PatchOp[] = [{ op: 'remove_node', nodeId: 'spoolmaster' }]
+        const patchData = (ops: PatchOp[]) => encodeGeneration({ kind: 'workflow', workflow: receipts(), summary: 'Changed', patch: ops, flags: [], needsConfirmation: false })
+        const provider = new FakeProvider([
+          { data: patchData(unknownNode) },
+          { data: patchData([{ op: 'set_config', nodeId: 'n2', config: { file: `${ROOT}/ledger.csv`, row: ['{{n1.output.amount}}'] } }]) },
+        ])
+        const result = await createPlanner({ provider, registry, attachmentStore: countingStore({ inv: enc(WORD_TEXT) }) }).plan(
+          request({
+            text: INVOICE_REQUEST,
+            selection: { nodeId: 'n2' },
+            attachments: [attachmentRef('inv', 'text/plain')],
+            context: { ...request().context, existingWorkflow: receipts() },
+          }),
+        )
+        expect(result.kind).toBe('workflow')
+        expect(result.rounds[0]!.issues[0]).toMatchObject({ code: 'patch_unknown_node', message: 'no node with id <hidden> in the workflow' })
+        const [message] = repairUserMessages(provider, 1)
+        expect(message).toContain('patch_unknown_node')
+        expect(message).not.toContain('spoolmaster')
+        expect(JSON.stringify(result.rounds)).not.toContain('spoolmaster')
       })
 
       it('hides an unknown property in a targeted repair: out of the issue, the pointer and the config shown', async () => {

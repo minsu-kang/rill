@@ -512,6 +512,27 @@ describe('redactIssues: plain words that the model took from an attachment', () 
     expect(run([original], named, { attachmentTexts: ['the café is open'] })[0]).toEqual({ stage: 3, pointer: '/nodes/2/config/row/0', code: 'config_anyOf', message: 'config_anyOf at /nodes/2/config/row/0' })
   })
 
+  it('keeps the list of available fields as it is although a listed field is a hidden word', () => {
+    const declared: Workflow = {
+      ...extracting,
+      nodes: [
+        extracting.nodes[0]!,
+        { ...extracting.nodes[1]!, config: { file: '{{t1.output.file}}', fields: [{ name: 'spoolmaster', type: 'string' }, { name: 'date', type: 'date' }] } },
+        { ...extracting.nodes[2]!, config: { file: '~/Out/ledger.csv', row: ['{{n1.output.spoolmaster}}', '{{n1.output.dat}}'] } },
+      ],
+    }
+    const original = issue('/nodes/2/config/row/1', 'unknown_output_field', 'node n2: n1.output has no field dat', 'available: spoolmaster, date')
+    expect(run([original], declared)[0]).toEqual(original)
+  })
+
+  it('hides a pointer segment that is a hidden word or a literal of the attachment, although the message holds nothing of it', () => {
+    const keyed = withConfig({ file: '~/Out/ledger.csv', row: ['x'], spoolmaster: 1 })
+    const byName = issue('/nodes/2/config/spoolmaster', 'config_type', 'node n2: invalid config: must be number')
+    expect(run([byName], keyed)[0]).toEqual({ stage: 3, pointer: '/nodes/2/config/<hidden>', code: 'config_type', message: 'node n2: invalid config: must be number' })
+    const byLiteral = issue('/nodes/4/config/values/evil-hook-99', 'config_type', 'node n4: invalid config: must be string')
+    expect(redact([byLiteral], { attachmentTexts: ['connect through evil-hook-99 now'] })[0]).toEqual({ stage: 3, pointer: '/nodes/4/config/values/<hidden>', code: 'config_type', message: 'node n4: invalid config: must be string' })
+  })
+
   it('shows a name that belongs to the catalog even when the attachment has it', () => {
     const wide = 'the file and the amount and the row and the url'
     for (const name of ['file', 'row', 'url', 'date']) {

@@ -1,4 +1,5 @@
-import { createCoreRegistry } from '@rill/nodes-core'
+import { createCoreRegistry, defineAction } from '@rill/nodes-core'
+import Type from 'typebox'
 import { describe, expect, it } from 'vitest'
 import { chosenNames, createNameGuard } from '../../src/attachments/names'
 import type { PatchOp } from '../../src/types'
@@ -39,6 +40,28 @@ describe('createNameGuard', () => {
     for (const name of ['file', 'date', 'csv', 'append', 'row', 'url', 'method', 'post', 'fields', 'name']) expect(everything.hides(name), name).toBe(false)
   })
 
+  it('shows names that only an output schema, a nested property or a branch label has', () => {
+    const attachmentTexts = ['written waitedMs dryRun status description scheme true false']
+    const everything = guard({ attachmentTexts })
+    for (const name of ['written', 'waitedMs', 'dryRun', 'status', 'description', 'scheme', 'true', 'false']) expect(everything.hides(name), name).toBe(false)
+  })
+
+  it('shows a word of an enum in a config schema', () => {
+    const custom = createCoreRegistry().register(
+      defineAction({
+        type: 'test.pick@1',
+        title: 'Pick',
+        description: 'Picks one',
+        sideEffect: 'none',
+        configSchema: Type.Object({ mode: Type.Unsafe<string>({ type: 'string', enum: ['spoolchoice'] }) }, { additionalProperties: false }),
+        outputSchema: Type.Object({}),
+        execute: async () => ({}),
+      }),
+    )
+    expect(createNameGuard({ attachmentTexts: ['spoolchoice'], registry: custom }).hides('spoolchoice')).toBe(false)
+    expect(createNameGuard({ attachmentTexts: ['spoolchoice'], registry }).hides('spoolchoice')).toBe(true)
+  })
+
   it('shows a field that the existing workflow declares for an extraction', () => {
     const existingWorkflow = receipts()
     existingWorkflow.nodes[1]!.config = { file: '{{t1.output.file}}', fields: [{ name: 'spoolmaster', type: 'string' }] }
@@ -71,6 +94,20 @@ describe('chosenNames', () => {
     workflow.edges.push({ from: 'n2', to: 'n1', when: 'yes' })
     const names = chosenNames(workflow, undefined)
     for (const name of ['t1', 'n1', 'n2', 'file', 'row', 'extra', 'deep', 'inner', 'list', 'k', 'invoice', 'total', 'zz', 'q', 'yes']) expect(names.has(name), name).toBe(true)
+  })
+
+  it('collects the id of a node that no edge and no reference mentions', () => {
+    const workflow = receipts()
+    workflow.nodes.push({ id: 'lonelyid', type: 'delay@1', config: { ms: 5 } })
+    expect(chosenNames(workflow, undefined).has('lonelyid')).toBe(true)
+  })
+
+  it('does not take the position of an array item for a name', () => {
+    const workflow = receipts()
+    workflow.nodes[2]!.config = { file: '/x.csv', row: Array.from({ length: 101 }, () => 'a') }
+    const names = chosenNames(workflow, undefined)
+    expect(names.has('row')).toBe(true)
+    expect(names.has('100')).toBe(false)
   })
 
   it('collects the ids and keys of patch operations', () => {

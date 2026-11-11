@@ -1,4 +1,5 @@
-import { createCoreRegistry } from '@rill/nodes-core'
+import { createCoreRegistry, defineAction } from '@rill/nodes-core'
+import Type from 'typebox'
 import { describe, expect, it } from 'vitest'
 import { createNameGuard } from '../src/attachments/names'
 import { MASK, maskConfig, unmaskConfig, type MaskInput } from '../src/mask'
@@ -54,6 +55,20 @@ describe('maskConfig: keys that only the attachment contains', () => {
   it('keeps an unknown property that the attachment does not contain, so the issue about it stays readable', () => {
     const { shown } = maskConfig({ file: '/r/ledger.csv', row: ['a'], unrelated: 1 }, input('csv.append@1'))
     expect(shown).toHaveProperty('unrelated', 1)
+  })
+
+  it('keeps an unknown property of an object that is not closed', () => {
+    const def = defineAction({
+      type: 'test.open@1',
+      title: 'Open',
+      description: 'Has an open object',
+      sideEffect: 'none',
+      configSchema: Type.Object({ file: Type.String(), note: Type.Object({ keep: Type.String() }) }, { additionalProperties: false }),
+      outputSchema: Type.Object({}),
+      execute: async () => ({}),
+    })
+    const { shown } = maskConfig({ file: '/r/a.csv', note: { keep: 'a', spoolmaster: 1 }, spoolmaster: 2 }, { ...input('csv.append@1'), def })
+    expect(shown).toEqual({ file: '/r/a.csv', note: { keep: 'a', spoolmaster: 1 } })
   })
 
   it('keeps a property that the user wrote', () => {
