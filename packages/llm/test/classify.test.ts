@@ -173,8 +173,16 @@ describe('classifyError for streamed replies', () => {
     expect(classifyError(new Anthropic.AnthropicError('something else', { cause: 'terminated' }))).toMatchObject({ kind: 'unknown' })
   })
 
+  it('finds the network code further down the cause chain', () => {
+    const twoDeep = new TypeError('fetch failed', { cause: new Error('socket', { cause: socketError() }) })
+    expect(classifyError(wrapped(twoDeep))).toMatchObject({ kind: 'connection', retryable: true })
+    expect(classifyError(wrapped(new TypeError('fetch failed', { cause: socketError() })))).toMatchObject({ kind: 'connection' })
+  })
+
   it('does not call a plain error a dropped stream, and keeps the missing-credentials hint for SDK errors', () => {
     expect(classifyError(new Error('terminated'))).toMatchObject({ kind: 'unknown' })
+    expect(classifyError(new Error('failed', { cause: new TypeError('terminated') }))).toMatchObject({ kind: 'unknown' })
+    expect(classifyError(new Error('stream ended without producing a Message with role=assistant'))).toMatchObject({ kind: 'unknown' })
     expect(classifyError(new Anthropic.AnthropicError('Could not resolve authentication method. Expected apiKey.'))).toMatchObject({
       kind: 'auth',
     })

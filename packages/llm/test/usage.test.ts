@@ -83,9 +83,9 @@ describe('usage under a fallback', () => {
 
   it('skips iterations without a model and reads missing cache counters as zero', async () => {
     const anonymous = iteration({ type: 'message', model: null, input: 10, output: 10 })
-    const sparse = { type: 'fallback_message', model: OPUS_4, input_tokens: 4, output_tokens: 6 }
+    const sparse = { type: 'fallback_message', model: SONNET, input_tokens: 4, output_tokens: 6 }
     const result = await run(reply([anonymous, sparse]))
-    expect(result.servedModels).toEqual([OPUS_4])
+    expect(result.servedModels).toEqual([SONNET])
     expect(result.usage).toEqual({ inputTokens: 14, outputTokens: 16, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
     const nulls = iteration({ type: 'fallback_message', model: OPUS_4, input: 4, output: 6, read: null, created: null })
     expect((await run(reply([nulls]))).usage).toEqual({ inputTokens: 4, outputTokens: 6, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
