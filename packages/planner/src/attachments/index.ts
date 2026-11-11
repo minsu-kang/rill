@@ -7,13 +7,18 @@ import { ATTACHMENT_RULES } from './rules'
 export interface AttachmentModuleOptions {
   randomHex?: RandomHex
   untrustedSourceTypes?: ReadonlySet<string>
+  resolutionBudget?: number
 }
 
 export function createAttachmentModule(options: AttachmentModuleOptions = {}): AttachmentModule {
   const randomHex = options.randomHex ?? defaultRandomHex
   return {
     prepare: (input) => prepareAttachments({ ...input, randomHex }),
-    provenance: (input) => computeProvenance(input, { untrustedSourceTypes: options.untrustedSourceTypes }),
+    provenance: (input) =>
+      computeProvenance(input, {
+        ...(options.untrustedSourceTypes === undefined ? {} : { untrustedSourceTypes: options.untrustedSourceTypes }),
+        ...(options.resolutionBudget === undefined ? {} : { resolutionBudget: options.resolutionBudget }),
+      }),
     redactIssues,
   }
 }

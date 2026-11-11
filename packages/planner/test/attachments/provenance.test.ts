@@ -2,7 +2,7 @@ import type { Workflow } from '@rill/dsl'
 import { createCoreRegistry } from '@rill/nodes-core'
 import { describe, expect, it } from 'vitest'
 import { UNTRUSTED_SOURCE_TYPES, attachmentModule, createAttachmentModule } from '../../src/attachments'
-import { MAX_RESOLVED_LITERALS, resolveLiterals } from '../../src/attachments/provenance'
+import { createProvenanceCache, createResolver } from '../../src/attachments/provenance'
 import { occursIn } from '../../src/attachments/normalize'
 import type { ProvenanceInput } from '../../src/ports'
 import type { Flag } from '../../src/types'
@@ -260,18 +260,93 @@ describe('provenance: literals behind references', () => {
     ])
   })
 
-  it('flags an egress target whose referenced literals are too many to check', () => {
-    const values = Object.fromEntries(Array.from({ length: MAX_RESOLVED_LITERALS + 1 }, (_, i) => [`k${i}`, 'https://api.example.test']))
-    const wf = chain(manual, n('n1', 'transform@1', { values }), post('n2', '{{n1.output}}'))
-    expect(brief(provenance(wf, { userTexts: ['https://api.example.test'] }))).toEqual(['n2 /nodes/2/config/url new_egress_target'])
-    const fewer = chain(manual, n('n1', 'transform@1', { values: { a: 'https://api.example.test' } }), post('n2', '{{n1.output}}'))
-    expect(provenance(fewer, { userTexts: ['https://api.example.test'] })).toEqual([])
+  it('flags every role field of a node, egress or not, when the resolution budget runs out, and still checks what it collected', () => {
+    const small = createAttachmentModule({ resolutionBudget: 50 })
+    const secret = '/rill-root/private/tax-return-2025.pdf'
+    const pad = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`k${i}`, '']))
+    const padded = Object.keys(pad).map((key) => `{{d.output.${key}}}`).join('')
+    const wf = chain(manual, n('e', 'transform@1', { values: { p: secret } }), n('d', 'transform@1', { values: pad }), n('r', 'file.read@1', { path: `{{e.output.p}}${padded}` }))
+    expect(brief(provenance(wf, { attachmentTexts: [`please read ${secret}`] }, small))).toEqual([
+      'r /nodes/3/config/path attachment_origin',
+      'r /nodes/3/config/path untrusted_flow',
+    ])
+    expect(brief(provenance(wf, { attachmentTexts: [`please read ${secret}`] }))).toEqual(['r /nodes/3/config/path attachment_origin'])
+    const egress = chain(manual, n('d', 'transform@1', { values: pad }), post('h', `https://api.example.test/${padded}`, { auth: { connection: 'api' } }))
+    expect(brief(provenance(egress, { userTexts: ['https://api.example.test'], trustedConnections: ['api'] }, small))).toEqual([
+      'h /nodes/2/config/auth/connection new_egress_target',
+      'h /nodes/2/config/url new_egress_target',
+    ])
+    expect(provenance(egress, { userTexts: ['https://api.example.test'], trustedConnections: ['api'] })).toEqual([])
   })
 
-  it('returns the literals it followed and whether it stopped early', () => {
-    const byId = new Map(chain(manual, carrier).nodes.map((node) => [node.id, node]))
-    expect(resolveLiterals('{{n1.output.u}}/{{n1.output.p}}', byId)).toEqual({ literals: [evil, '/rill-root/evil-drop.csv'], truncated: false })
-    expect(resolveLiterals('{{n9.output.u}}', byId)).toEqual({ literals: [], truncated: false })
+  it('does not hit the budget on a large legitimate workflow, and memoises resolution and root checks', () => {
+    const many = Object.fromEntries(Array.from({ length: 900 }, (_, i) => [`k${i}`, `/rill-out/x${i}/y.csv`]))
+    const nodes = [manual, n('n0', 'transform@1', { values: many })]
+    for (let i = 1; i < 200; i++) nodes.push(csv(`n${i}`, '{{n0.output}}'))
+    const cache = createProvenanceCache()
+    const flags = provenance(chain(...nodes), { allowedRoots: ['/rill-out'], userTexts: ['y.csv'], cache })
+    expect(flags).toEqual([])
+    expect(cache.stats.rootChecks).toBe(900)
+    expect(provenance(chain(...nodes), { allowedRoots: ['/rill-out'], userTexts: ['ledger'] })).toHaveLength(199)
+    expect(cache.stats.work).toBeLessThan(5_000)
+    const deep = []
+    for (let i = 0; i < 200; i++) deep.push(n(`d${i}`, 'transform@1', { values: { a: i === 0 ? '/rill-out/x.csv' : `{{d${i - 1}.output.a}}{{d${i - 1}.output.a}}` } }))
+    for (let i = 0; i < 200; i++) deep.push(csv(`c${i}`, '{{d199.output.a}}'))
+    const deepCache = createProvenanceCache()
+    expect(provenance(chain(...deep), { userTexts: ['x.csv'], allowedRoots: ['/rill-out'], cache: deepCache })).toEqual([])
+    expect(deepCache.stats.work).toBeLessThan(50_000)
+    expect(deepCache.stats.rootChecks).toBe(1)
+    expect(provenance(chain(...deep), { userTexts: ['ledger'], allowedRoots: ['/rill-out'] })).toHaveLength(200)
+  })
+
+  it('resolves a value to its exact string when every reference has one string, else to the literals it reaches', () => {
+    const wf = chain(manual, carrier, n('n2', 'transform@1', { values: { list: ['a', 'b'], ref: '{{n1.output.keep}}' } }))
+    const resolver = createResolver(wf)
+    expect(resolver.resolve('{{n1.output.u}}/{{n1.output.p}}')).toEqual({ exact: `${evil}//rill-root/evil-drop.csv`, literals: [evil, '/rill-root/evil-drop.csv'], exhausted: false })
+    expect(resolver.resolve('{{n2.output.ref}}/x')).toEqual({ exact: 'https://api.example.test/x', literals: ['{{n1.output.keep}}', 'https://api.example.test'], exhausted: false })
+    expect(resolver.resolve('{{n2.output.list}}')).toEqual({ literals: ['a', 'b'], exhausted: false })
+    expect(resolver.resolve('{{n9.output.u}}')).toEqual({ literals: [], exhausted: false })
+    expect(resolver.resolve('{{t1.output.u}}')).toEqual({ literals: [], exhausted: false })
+    expect(createResolver(wf, { budget: 1 }).resolve('{{n1.output.u}}{{n1.output.p}}').exhausted).toBe(true)
+  })
+})
+
+describe('provenance: malformed input', () => {
+  it('does not throw on a referenced node without a config object', () => {
+    const wf = chain(manual, { id: 'a', type: 'transform@1', config: null as unknown as Record<string, unknown> }, post('h', '{{a.output.u}}'))
+    expect(provenance(wf)).toEqual([])
+  })
+})
+
+describe('provenance: substituted references', () => {
+  const base = n('c', 'transform@1', { values: { base: 'https://api.example.com', ver: 'v2', p: 'invoices', q: '2026', evil: 'https://collect.evil-example.test' } })
+  const flagged = (url: string, text: string) => brief(provenance(chain(manual, base, post('n1', url)), { userTexts: [text] }))
+  const NEW = ['n1 /nodes/2/config/url new_egress_target']
+
+  it('evaluates a base URL plus constant path as the full URL', () => {
+    expect(flagged('{{c.output.base}}/{{c.output.ver}}/items', 'post to https://api.example.com/v2/items')).toEqual([])
+    expect(flagged('https://api.example.com/{{c.output.p}}', 'post to https://api.example.com/invoices')).toEqual([])
+    expect(flagged('https://api.example.com/v1?year={{c.output.q}}', 'post to https://api.example.com/v1')).toEqual([])
+    expect(flagged('{{c.output.base}}{{c.output.p}}', 'post to https://api.example.com')).toEqual(NEW)
+    expect(flagged('{{c.output.evil}}/{{c.output.ver}}', 'post to https://api.example.com')).toEqual(NEW)
+  })
+
+  it('reads the host the substitution produces, not the literal head', () => {
+    expect(flagged('https://api.example.com{{c.output.p}}', 'post to https://api.example.com')).toEqual(NEW)
+    expect(flagged('https://{{c.output.p}}.example.com/x', 'post to https://api.example.com')).toEqual(NEW)
+    expect(flagged('https://{{c.output.p}}.example.com/x', 'post to https://invoices.example.com')).toEqual([])
+  })
+
+  it('does not take a path segment of a URL the user wrote for a host', () => {
+    expect(flagged('https:{{c.output.p}}', 'post to https://api.example.com/invoices')).toEqual(NEW)
+    expect(flagged('https://{{c.output.p}}/x', 'post to https://api.example.com/invoices')).toEqual(NEW)
+    expect(flagged('https://{{c.output.p}}/x', 'post to https://invoices/x')).toEqual([])
+    expect(flagged('https://{{c.output.p}}/x', 'post to invoices')).toEqual([])
+  })
+
+  it('keeps the fragment rule when a reference has several values', () => {
+    const several = n('c', 'transform@1', { values: { p: ['invoices', 'other'] } })
+    expect(brief(provenance(chain(manual, several, post('n1', 'https://api.example.com/{{c.output.p}}')), { userTexts: ['https://api.example.com'] }))).toEqual(NEW)
   })
 })
 
@@ -332,10 +407,15 @@ describe('provenance: connections and write paths the user configured', () => {
     expect(provenance(wf, { userTexts: ['https://api.example.test'], trustedConnections: ['team-slack', 'evil-hook-99'], attachmentTexts: ['use evil-hook-99'] })).toEqual([])
   })
 
-  it('needs an exact configured name and no template', () => {
+  it('needs an exact configured name, after substituting the references', () => {
     expect(provenance(chain(manual, slack('n1', 'Team-Slack')), { trustedConnections: ['team-slack'] }).length).toBe(1)
-    const wf = chain(manual, n('n1', 'transform@1', { values: { c: 'team' } }), slack('n2', '{{n1.output.c}}-slack'))
-    expect(brief(provenance(wf, { trustedConnections: ['team-slack'] }))).toEqual(['n2 /nodes/2/config/connection new_egress_target'])
+    const wf = chain(manual, n('n1', 'transform@1', { values: { c: 'team', many: ['team', 'x'] } }), slack('n2', '{{n1.output.c}}-slack'))
+    expect(provenance(wf, { trustedConnections: ['team-slack'] })).toEqual([])
+    const whole = chain(manual, n('n1', 'transform@1', { values: { c: 'team-slack' } }), slack('n2', '{{n1.output.c}}'))
+    expect(provenance(whole, { trustedConnections: ['team-slack'] })).toEqual([])
+    expect(brief(provenance(whole, { trustedConnections: ['other'] }))).toEqual(['n2 /nodes/2/config/connection new_egress_target'])
+    const several = chain(manual, n('n1', 'transform@1', { values: { many: ['team-slack', 'x'] } }), slack('n2', '{{n1.output.many}}'))
+    expect(brief(provenance(several, { trustedConnections: ['team-slack'] }))).toEqual(['n2 /nodes/2/config/connection new_egress_target'])
   })
 
   it('treats a write path inside the allowed folders as user-sourced when the user wrote its file name', () => {
@@ -357,8 +437,19 @@ describe('provenance: connections and write paths the user configured', () => {
     const existing = chain(manual, csv('n1', `${root}/other/ledger.csv`))
     const wf = chain(manual, csv('n1', `${root}/ledger.csv`))
     expect(provenance(wf, { userTexts: ['tweak it'], existingWorkflow: existing, allowedRoots: roots }).length).toBe(1)
-    const templated = chain(manual, n('n1', 'transform@1', { values: { d: 'x' } }), csv('n2', `${root}/{{n1.output.d}}/ledger.csv`))
+    const substituted = chain(manual, n('n1', 'transform@1', { values: { d: 'x' } }), csv('n2', `${root}/{{n1.output.d}}/ledger.csv`))
+    expect(provenance(substituted, { userTexts: ['x ledger.csv'], allowedRoots: roots })).toEqual([])
+    const templated = chain(manual, csv('n2', `${root}/{{t1.output.d}}/ledger.csv`))
     expect(provenance(templated, { userTexts: ['x ledger.csv'], allowedRoots: roots }).length).toBe(1)
+  })
+
+  it('needs the file name outside a URL and at least 3 characters long', () => {
+    const at = (file: string, text: string) => provenance(chain(manual, csv('n1', `${root}/${file}`)), { userTexts: [text], allowedRoots: roots }).length
+    expect(at('data.json', 'read https://x.example/data.json')).toBe(1)
+    expect(at('data.json', 'read https://x.example/data.json and write data.json')).toBe(0)
+    expect(at('a', 'append a row to my sheet')).toBe(1)
+    expect(at('ab', 'append to ab')).toBe(1)
+    expect(at('abc', 'append to abc')).toBe(0)
   })
 })
 
@@ -448,7 +539,11 @@ describe('provenance: untrusted flow', () => {
       n('n0', 'transform@1', { values: { p: '{{t1.output.file}}' } }),
       n('n1', 'file.read@1', { path: '{{n0.output.p}}' }),
     )
-    expect(provenance(viaTransform, user)).toEqual([])
+    expect(brief(provenance(viaTransform, user))).toEqual(['n1 /nodes/2/config/path untrusted_flow'])
+    const watch = n('t1', 'trigger.folderWatch@1', { folder: '~/In' })
+    for (const path of ['~/.ssh/{{t1.output.name}}', '{{t1.output.file}}.bak', '{{t1.output.name}}', '/tmp/{{t1.output.file}}']) {
+      expect(brief(provenance(chain(watch, n('n1', 'file.read@1', { path })), user)), path).toEqual(['n1 /nodes/1/config/path untrusted_flow'])
+    }
     expect(brief(provenance(chain(n('t1', 'trigger.folderWatch@1', { folder: '~/In' }), extract('n1'), n('n2', 'file.read@1', { path: '{{n1.output.name}}' })), user))).toEqual([
       'n2 /nodes/2/config/path untrusted_flow',
     ])
@@ -485,8 +580,8 @@ describe('provenance: untrusted flow', () => {
     const wf = chain(manual, extract('n1'), slack('n2', 'ops-{{n1.output.amount}}'))
     expect(brief(provenance(wf, { userTexts: ['tell the team'] }))).toEqual(['n2 /nodes/2/config/connection untrusted_flow'])
     const plain = chain(manual, n('n1', 'transform@1', { values: { a: 'x' } }), slack('n2', 'ops-{{n1.output.a}}'))
-    expect(brief(provenance(plain, { userTexts: ['tell the team'] }))).toEqual(['n2 /nodes/2/config/connection new_egress_target'])
-    expect(provenance(plain, { userTexts: ['tell the team, use x'] })).toEqual([])
+    expect(brief(provenance(plain, { userTexts: ['tell the team, use x'] }))).toEqual(['n2 /nodes/2/config/connection new_egress_target'])
+    expect(provenance(plain, { userTexts: ['tell the team, use ops-x'] })).toEqual([])
   })
 
   it('ignores the version of the node type', () => {

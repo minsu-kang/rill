@@ -1,6 +1,7 @@
 import type { PlanIssue, Workflow } from '@rill/dsl'
 import type { JsonSchema, LlmPart, LlmProvider } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
+import type { ProvenanceCache } from './attachments/provenance'
 import type { AttachmentRef, Flag, PlanRequest, PlanResult, PlanResultBody } from './types'
 
 export const MAX_ATTACHMENTS_PER_MESSAGE = 5
@@ -23,6 +24,7 @@ export interface ProvenanceInput {
   attachmentTexts: string[]
   trustedConnections?: readonly string[]
   allowedRoots?: readonly string[]
+  cache?: ProvenanceCache
 }
 
 export interface RedactInput {

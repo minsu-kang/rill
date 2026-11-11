@@ -40,7 +40,8 @@ export function occursIn(haystack: string, needle: string, kind: LiteralKind): b
     const before = at === 0 ? '' : haystack.charAt(at - 1)
     const after = haystack.charAt(at + needle.length)
     const next = haystack.charAt(at + needle.length + 1)
-    const touchesBefore = BEFORE[kind].test(before)
+    const inPath = kind === 'host' && before === '/' && haystack.charAt(at - 2) !== '/'
+    const touchesBefore = BEFORE[kind].test(before) || inPath
     const touchesAfter = WORD.test(after) || (after === '.' && WORD.test(next))
     if (!touchesBefore && !touchesAfter) return true
     from = at + 1
