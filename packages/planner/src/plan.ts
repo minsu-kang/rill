@@ -2,9 +2,8 @@ import { capIssues, isWarningIssue, type PlanIssue, type Workflow } from '@rill/
 import { LlmError, costUsd, type LlmMessage, type LlmPart, type LlmRequest, type LlmResult, type LlmUsage } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
 import { ATTACHMENT_RULES, attachmentModule } from './attachments'
-import { fold, occursIn } from './attachments/normalize'
-import { userSourcedTest } from './attachments/provenance'
-import { literalsIn } from './attachments/redact'
+import { fold } from './attachments/normalize'
+import { createProvenanceCache, userSourcedTest } from './attachments/provenance'
 import { maskConfig, unmaskConfig } from './mask'
 import { convertSchema, restoreConverted } from './convert'
 import { decodeGeneration, type DecodeContext, type Decoded } from './decode'
@@ -23,7 +22,7 @@ import {
   type CurrentTurnInput,
 } from './prompt'
 import { MAX_QUESTION_TURNS, gapLanguage, gapQuestions, gapSummary, isGapIssue, isNoticeIssue, questionTurnsSinceLastWorkflow } from './questions'
-import { PlanError, type Flag, type PlanRequest, type PlanResult, type PlanResultBody, type PlanRound, type PlanTurn } from './types'
+import { PlanError, type Flag, type PlanRequest, type PlanResult, type PlanQuestion, type PlanResultBody, type PlanRound, type PlanTurn } from './types'
 
 export const DEFAULT_MAX_REPAIR_ROUNDS = 3
 export const MAX_TARGETED_NODES = 2
@@ -82,23 +81,40 @@ function classify(issues: readonly PlanIssue[], request: PlanRequest, workflow: 
   return { errors, gaps }
 }
 
-const LITERAL_KINDS = ['name', 'path', 'host'] as const
+const MIN_CONTAINED_OPTION = 3
 
-export function answerFromAttachment(answer: string, attachmentTexts: readonly string[]): boolean {
-  const haystacks = attachmentTexts.map(fold)
-  const needles = [answer.trim(), ...literalsIn(answer)].map(fold).filter((needle) => needle !== '')
-  return needles.some((needle) => haystacks.some((haystack) => LITERAL_KINDS.some((kind) => occursIn(haystack, needle, kind))))
+function questionsBefore(turns: readonly PlanTurn[], index: number): PlanQuestion[] {
+  for (let i = index - 1; i >= 0; i--) {
+    const turn = turns[i]!
+    if (turn.role === 'assistant') return turn.result?.kind === 'questions' ? turn.result.questions : []
+  }
+  return []
 }
 
-export function userTexts(request: PlanRequest, attachmentTexts: readonly string[] = []): string[] {
+/** An answer that is, or contains, an option the model offered comes from the model, not from the user. */
+export function answerFromOptions(answer: string, options: readonly string[]): boolean {
+  const value = fold(answer.trim())
+  return options
+    .map((option) => fold(option.trim()))
+    .some((option) => option !== '' && (value === option || (option.length >= MIN_CONTAINED_OPTION && value.includes(option))))
+}
+
+/** The texts the user wrote: the turn texts, free-text answers and the current request; never a chosen option. */
+export function userTexts(request: PlanRequest): string[] {
   const texts: string[] = []
-  for (const turn of request.turns) {
-    if (turn.role !== 'user') continue
-    const answers = Object.values(turn.answers ?? {}).filter((answer) => !answerFromAttachment(answer, attachmentTexts))
+  request.turns.forEach((turn, index) => {
+    if (turn.role !== 'user') return
+    const asked = questionsBefore(request.turns, index)
+    const answers = Object.entries(turn.answers ?? {})
+      .filter(([id, answer]) => {
+        const question = asked.find((candidate) => candidate.id === id)
+        return !answerFromOptions(answer, question === undefined ? asked.flatMap((candidate) => candidate.options) : question.options)
+      })
+      .map(([, answer]) => answer)
     texts.push(turn.text, ...answers)
-  }
+  })
   texts.push(request.text)
-  return texts.filter((text) => text !== '')
+  return texts.filter((text) => text.trim() !== '')
 }
 
 class Run {
@@ -109,6 +125,7 @@ class Run {
   private readonly allowQuestions: boolean
   private readonly ctx: DecodeContext
   private attachmentTexts: string[] = []
+  private readonly provenanceCache = createProvenanceCache()
   private totalUsage: LlmUsage = ZERO
   private cost: number | null = 0
   private lastModel = ''
@@ -247,7 +264,8 @@ class Run {
     const existing = this.request.context.existingWorkflow
     return {
       registry: this.registry,
-      userTexts: userTexts(this.request, this.attachmentTexts),
+      userTexts: userTexts(this.request),
+      cache: this.provenanceCache,
       ...(existing === undefined ? {} : { existingWorkflow: existing }),
       attachmentTexts: this.attachmentTexts,
       trustedConnections: this.request.context.connections.map((connection) => connection.name),
@@ -301,7 +319,7 @@ class Run {
       const hidden = hiddenValues(def, node.config)
       const own = Object.fromEntries(Object.entries(node.config).filter(([key]) => !Object.hasOwn(hidden, key)))
       const { shown, masked } = maskConfig(own, { def, nodePointer: pointer, flags, userSourced, attachmentTexts: this.attachmentTexts })
-      const text = targetedText(this.request, node, shown, redacted)
+      const text = targetedText(this.request, userTexts(this.request), node, shown, redacted)
       const result = await this.call(this.baseRequest([{ role: 'user', content: text }], convertSchema(visible).schema))
       if (result instanceof LlmError) {
         issues.push({ stage: 1, pointer, code: 'invalid_output', message: `targeted repair of node ${node.id}: ${result.message}` })
@@ -396,7 +414,7 @@ class Run {
   }
 
   private complete(body: PlanResultBody, gaps: PlanIssue[], workflow: Workflow | undefined, flags: Flag[]): PlanResultBody {
-    const language = gapLanguage(this.request.text)
+    const language = gapLanguage([this.request.text, ...this.request.turns.filter((turn) => turn.role === 'user').map((turn) => turn.text)].join('\n'))
     if (gaps.length > 0 && this.allowQuestions) {
       const asked = gapQuestions(gaps, workflow, language)
       return { kind: 'questions', questions: asked.questions, summary: asked.summary }

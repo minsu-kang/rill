@@ -155,6 +155,17 @@ describe('deterministic gaps', () => {
     })
   })
 
+  it('keeps Korean for the gap questions after a turn that only carries answers', async () => {
+    const turns: PlanTurn[] = [
+      { role: 'user', text: '슬랙으로 알려줘' },
+      { role: 'assistant', text: 'q', result: { kind: 'questions', questions: [question('x')], summary: 'q' } },
+      { role: 'user', text: '', answers: { x: 'a' } },
+    ]
+    const provider = new FakeProvider([{ data: workflowData(slackWorkflow()) }])
+    const result = await createPlanner({ provider, registry }).plan(request({ text: '', turns, context: { ...request().context, connections: [] } }))
+    expect(result).toMatchObject({ kind: 'questions', summary: '계획하기 전에 먼저 설정해야 할 것이 있습니다.', questions: [{ options: ['먼저 연결 설정하기', '대신 CSV 파일에 기록하기'] }] })
+  })
+
   it('writes the gap questions in English when the request has no Hangul', async () => {
     const provider = new FakeProvider([{ data: workflowData(slackWorkflow()) }])
     const result = await createPlanner({ provider, registry }).plan(request({ text: 'tell me on Slack, café', context: { ...request().context, connections: [] } }))

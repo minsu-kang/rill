@@ -1,7 +1,7 @@
 import { SCHEMA_VERSION, type Workflow } from '@rill/dsl'
 import { LlmError, type LlmPart } from '@rill/llm'
 import { describe, expect, it } from 'vitest'
-import { PlanError, convertSchema, createPlanner, targetNodes, withoutHiddenFields, type Flag } from '../src/index'
+import { PlanError, convertSchema, createPlanner, targetNodes, withoutHiddenFields, type Flag, type PlanTurn } from '../src/index'
 import { FakeProvider } from './fake-provider'
 import { ROOT, fakeAttachments, receipts, registry, request, workflowData } from './fixtures'
 
@@ -157,6 +157,21 @@ describe('repair loop', () => {
     expect(text).toContain('"code":"config_type"')
     expect(text).toContain('Current config of the node (JSON):\n{"ms":"soon"}')
     expect(targeted.system).toEqual(provider.calls[0]!.request.system)
+  })
+
+  it('sends the user texts of the whole conversation in a targeted request, but no chosen option', async () => {
+    const asked = { id: 'speed', text: 'How long to wait?', options: ['https://options.example.test/wait', 'one second'], default: 'one second' }
+    const turns: PlanTurn[] = [
+      { role: 'user', text: 'Put my receipts into a ledger and pause between them' },
+      { role: 'assistant', text: 'q', result: { kind: 'questions', questions: [asked], summary: 'q' } },
+      { role: 'user', text: '', answers: { speed: 'https://options.example.test/wait', note: 'keep it slow' } },
+    ]
+    const provider = new FakeProvider([{ data: workflowData(withDelay('soon')) }, { data: { ms: 1000 } }])
+    const result = await createPlanner({ provider, registry }).plan(request({ text: '', turns }))
+    expect(result.rounds.map((r) => r.targeted)).toEqual([[], ['n3']])
+    const text = provider.calls[1]!.request.messages[0]!.content as string
+    expect(text).toContain('Request:\nPut my receipts into a ledger and pause between them\nkeep it slow\n')
+    expect(text).not.toContain('options.example.test')
   })
 
   it('repairs two nodes with one call each and restores entries and JSON text', async () => {

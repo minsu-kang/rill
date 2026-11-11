@@ -101,12 +101,18 @@ export function currentTurnText(input: CurrentTurnInput): string {
   return `${contextText(input)}\n\nRequest:\n${input.request.text}`
 }
 
-export function targetedText(request: PlanRequest, node: { id: string; type: string }, config: Record<string, unknown>, issues: readonly PlanIssue[]): string {
+export function targetedText(
+  request: PlanRequest,
+  texts: readonly string[],
+  node: { id: string; type: string },
+  config: Record<string, unknown>,
+  issues: readonly PlanIssue[],
+): string {
   return [
     ...environmentLines(request),
     '',
     'Request:',
-    request.text,
+    ...texts,
     '',
     `Targeted repair: fix only the config of node ${node.id} (type ${node.type}). Answer with the config object itself, matching the output schema. Values described as JSON text are sent as JSON text; maps are sent as key/value entries. A value shown as "${MASK}" is kept as it is when you send "${MASK}" back.`,
     'Current config of the node (JSON):',
