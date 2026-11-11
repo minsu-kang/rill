@@ -475,6 +475,41 @@ describe('validateWorkflow with many templated fields', () => {
   })
 })
 
+describe('validateWorkflow through record outputs', () => {
+  const webhook = n('t1', 'trigger.webhook@1', { path: '/x' })
+
+  it('types a field read through a record against the record value schema', () => {
+    const wf = chain(webhook, n('d', 'delay@1', { ms: '{{t1.output.query.n}}' }))
+    expect(validateWorkflow(wf, env).map((i) => [i.code, i.pointer, i.message])).toEqual([
+      ['config_type', '/nodes/1/config/ms', 'node d: invalid config: /ms: must be integer, but the reference gives string'],
+    ])
+  })
+
+  it('types the record itself', () => {
+    const wf = chain(webhook, n('d', 'delay@1', { ms: '{{t1.output.headers}}' }))
+    expect(brief(validateWorkflow(wf, env))).toEqual(['config_type /nodes/1/config/ms'])
+  })
+
+  it('accepts a record field where a string is expected and reports a field below it', () => {
+    const ok = chain(webhook, n('a', 'transform@1', { values: { q: '{{t1.output.query.anything}}' } }))
+    expect(validateWorkflow(ok, env)).toEqual([])
+    const below = chain(webhook, n('a', 'transform@1', { values: { q: '{{t1.output.query.anything.deeper}}' } }))
+    expect(validateWorkflow(below, env).map((i) => [i.code, i.pointer, i.hint])).toEqual([
+      ['unknown_output_field', '/nodes/1/config/values/q', 't1.output.query.anything is not an object'],
+    ])
+  })
+
+  it('stays open for records with several patterns and for open values', () => {
+    const several = { type: 'object', patternProperties: { '^a$': { type: 'string' }, '^b$': { type: 'integer' } } }
+    expect(walkOutput(several, ['a'])).toEqual({ kind: 'open' })
+    const open = { type: 'object', patternProperties: { '^(.*)$': {} } }
+    expect(walkOutput(open, ['a'])).toEqual({ kind: 'open' })
+    const numeric = { type: 'object', patternProperties: { '^(0|[1-9][0-9]*)$': { type: 'integer' } } }
+    expect(walkOutput(numeric, ['7'])).toEqual({ kind: 'schema', schema: { type: 'integer' } })
+    expect(walkOutput(numeric, ['seven'])).toEqual({ kind: 'open' })
+  })
+})
+
 describe('validator helpers', () => {
   it('walkOutput resolves, opens and misses', () => {
     const schema = { type: 'object', properties: { a: { type: 'object', properties: { b: { type: 'string' } } }, r: { patternProperties: {} } } }

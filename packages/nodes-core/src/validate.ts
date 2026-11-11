@@ -60,7 +60,14 @@ function asJson(schema: Type.TSchema): Json {
 }
 
 function isOpenSchema(schema: Json): boolean {
-  return Object.keys(schema).length === 0 || schema.patternProperties !== undefined
+  return Object.keys(schema).length === 0
+}
+
+function recordValue(schema: Json, segment: string): Json | undefined {
+  const entries = Object.entries((schema.patternProperties ?? {}) as Record<string, Json>)
+  if (entries.length !== 1) return undefined
+  const [[pattern, value]] = entries as [[string, Json]]
+  return new RegExp(pattern).test(segment) ? value : undefined
 }
 
 function nonNullBranches(schema: Json): Json[] {
@@ -83,6 +90,12 @@ export function walkOutput(schema: Json, path: readonly string[]): Resolved {
       continue
     }
     const properties = current.properties as Record<string, Json> | undefined
+    if (current.patternProperties !== undefined && !(properties && Object.hasOwn(properties, segment))) {
+      const value = recordValue(current, segment)
+      if (value === undefined) return { kind: 'open' }
+      current = value
+      continue
+    }
     if (current.type !== 'object' || properties === undefined) return { kind: 'missing', segment, known: [], depth }
     if (!Object.hasOwn(properties, segment)) return { kind: 'missing', segment, known: Object.keys(properties), depth }
     current = properties[segment]!
