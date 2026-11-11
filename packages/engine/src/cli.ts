@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
+import { AnthropicProvider } from '@rill/llm'
 import { createCoreRegistry, type ConnectionResolver } from '@rill/nodes-core'
 import { PROTOCOL_VERSION } from '@rill/protocol'
 import { Db } from './db'
@@ -12,6 +13,8 @@ const USAGE = `usage:
   rill-engine watch <workflow.json> [--db <path>] [--allow <dir>]... [--connections <file.json>] [--port <n>]
   rill-engine serve [--db <path>] [--allow <dir>]... [--connections <file.json>] [--port <n>] [--webhook-port <n>] [--shutdown-timeout <ms>]
   rill-engine recover [--db <path>] [--allow <dir>]... [--connections <file.json>]
+
+Every command accepts --llm-model <id> (default claude-opus-5-5) and --llm-no-fallback for llm.extract steps, which call the Anthropic API with the credentials in ANTHROPIC_API_KEY.
 
 serve reads its access token from the RILL_TOKEN environment variable (16 or more characters from A-Z, a-z, 0-9 and !#$%&'*+-.^_\`|~) and prints a generated one when it is not set.`
 
@@ -49,6 +52,14 @@ function toMillis(name: string, value: string | undefined, fallback: number): nu
   return Number(value)
 }
 
+function toModel(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  if (!/^[a-z0-9][a-z0-9._-]{1,63}$/.test(value)) {
+    throw new UsageError('--llm-model must be a model id such as claude-opus-5-5')
+  }
+  return value
+}
+
 async function finishedWithin(work: Promise<unknown>, ms: number): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<boolean>((resolve) => {
@@ -74,6 +85,8 @@ async function main(argv: string[]): Promise<number> {
       port: { type: 'string' },
       'webhook-port': { type: 'string' },
       'shutdown-timeout': { type: 'string' },
+      'llm-model': { type: 'string' },
+      'llm-no-fallback': { type: 'boolean' },
     },
   })
   const [command, file] = positionals
@@ -83,6 +96,7 @@ async function main(argv: string[]): Promise<number> {
     const port = toPort('--port', values.port)
     const webhookPort = toPort('--webhook-port', values['webhook-port'])
     const shutdownTimeout = toMillis('--shutdown-timeout', values['shutdown-timeout'], 10_000)
+    const llmModel = toModel(values['llm-model'])
     db = Db.open(values.db ?? 'rill.db')
     engine = new Engine({
       db,
@@ -90,6 +104,10 @@ async function main(argv: string[]): Promise<number> {
       allowedRoots: values.allow,
       connections: loadConnections(values.connections),
       webhookPort: command === 'serve' ? webhookPort : port,
+      llm: new AnthropicProvider({
+        ...(llmModel === undefined ? {} : { model: llmModel }),
+        ...(values['llm-no-fallback'] ? { refusalFallback: false } : {}),
+      }),
     })
     if (command === 'run' && file) {
       const id = engine.deploy(JSON.parse(readFileSync(file, 'utf8')))

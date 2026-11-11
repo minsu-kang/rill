@@ -7,6 +7,7 @@
   "scripts": { "cli": "node --import tsx src/cli.ts" },
   "dependencies": {
     "@rill/dsl": "workspace:*",
+    "@rill/llm": "workspace:*",
     "@rill/nodes-core": "workspace:*",
     "@rill/protocol": "workspace:*",
     "typebox": "^1.4.6",

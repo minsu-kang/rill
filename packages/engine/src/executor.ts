@@ -5,6 +5,7 @@ import {
   type WorkflowEdge,
   type WorkflowNode,
 } from '@rill/dsl'
+import type { LlmProvider } from '@rill/llm'
 import { RetryableError, type ActionNodeDefinition, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
 import Value from 'typebox/value'
 import type { EngineEventInput } from './events'
@@ -45,6 +46,7 @@ export interface ExecutorDeps {
   random: () => number
   allowedRoots: string[] | undefined
   connections: ConnectionResolver
+  llm?: LlmProvider
   emit: (event: EngineEventInput) => void
 }
 
@@ -55,6 +57,7 @@ export class RunExecutor {
   private readonly random: () => number
   private readonly allowedRoots: string[] | undefined
   private readonly connections: ConnectionResolver
+  private readonly llm: LlmProvider | undefined
   private readonly emit: (event: EngineEventInput) => void
 
   constructor(deps: ExecutorDeps) {
@@ -64,6 +67,7 @@ export class RunExecutor {
     this.random = deps.random
     this.allowedRoots = deps.allowedRoots
     this.connections = deps.connections
+    this.llm = deps.llm
     this.emit = deps.emit
   }
 
@@ -179,6 +183,7 @@ export class RunExecutor {
             sleep: this.sleep,
             allowedRoots: this.allowedRoots,
             connections: this.connections,
+            llm: this.llm,
           })) ?? null
         this.store.finishAttempt(run.id, node.id, attempt, { status: 'succeeded', output })
         this.emit({ type: 'step.succeeded', runId: run.id, nodeId: node.id, attempt })

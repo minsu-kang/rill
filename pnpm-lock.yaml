@@ -41,6 +41,9 @@ importers:
       '@rill/dsl':
         specifier: workspace:*
         version: link:../dsl
+      '@rill/llm':
+        specifier: workspace:*
+        version: link:../llm
       '@rill/nodes-core':
         specifier: workspace:*
         version: link:../nodes-core

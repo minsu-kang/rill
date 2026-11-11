@@ -5,6 +5,7 @@ import {
   type NodeRegistry,
   type TriggerNodeDefinition,
 } from '@rill/nodes-core'
+import type { LlmProvider } from '@rill/llm'
 import type { NodeInfo, RunSummary, StepDetail, WorkflowSummary } from '@rill/protocol'
 import Value from 'typebox/value'
 import { systemClock, type Clock } from './clock'
@@ -29,6 +30,7 @@ export interface EngineOptions {
   connections?: ConnectionResolver
   maxConcurrentRuns?: number
   webhookPort?: number
+  llm?: LlmProvider
 }
 
 export class WorkflowValidationError extends Error {
@@ -65,6 +67,7 @@ export class Engine {
       random: options.random ?? Math.random,
       allowedRoots: options.allowedRoots,
       connections,
+      llm: options.llm,
       emit: (event) => this.bus.emit(event),
     })
     this.triggers = new TriggerManager({
@@ -242,6 +245,7 @@ export class Engine {
       if (!def) problems.push(`unknown node type: ${node.type}`)
       else if ((def.kind === 'trigger') !== isTrigger(node.type)) problems.push(`node type kind mismatch: ${node.type}`)
       else if (def.kind === 'trigger') problems.push(...this.triggerProblems(node.id, def, node.config))
+      else problems.push(...(def.validate?.(node.config) ?? []).map((message) => `node ${node.id}: ${message}`))
     }
     for (const edge of workflow.edges) {
       if (edge.when === undefined) continue
