@@ -64,6 +64,21 @@ export const MIGRATIONS: string[] = [
   DROP TABLE step_attempts;
   ALTER TABLE step_attempts_next RENAME TO step_attempts;
   `,
+  `
+  CREATE TABLE trigger_state (
+    workflow_id TEXT PRIMARY KEY REFERENCES workflows(id),
+    next_fire_at INTEGER,
+    last_fire_at INTEGER
+  );
+  CREATE TABLE seen_files (
+    workflow_id TEXT NOT NULL REFERENCES workflows(id),
+    fingerprint TEXT NOT NULL,
+    path TEXT NOT NULL,
+    seen_at INTEGER NOT NULL,
+    run_id TEXT,
+    PRIMARY KEY (workflow_id, fingerprint)
+  );
+  `,
 ]
 
 export function migrate(db: Db): void {

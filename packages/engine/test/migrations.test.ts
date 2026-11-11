@@ -32,7 +32,7 @@ describe('migration 2', () => {
 
     const db = Db.open(path)
     const versions = db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version')
-    expect(versions.map((r) => r.version)).toEqual([1, 2])
+    expect(versions.map((r) => r.version)).toEqual([1, 2, 3])
     const rows = db.all<{ id: number; node_id: string; status: string; output: string }>(
       'SELECT id, node_id, status, output FROM step_attempts',
     )

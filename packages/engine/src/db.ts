@@ -12,7 +12,7 @@ export class Db {
 
   static open(path: string): Db {
     const raw = new DatabaseSync(path)
-    raw.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;')
+    raw.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;')
     const db = new Db(raw)
     migrate(db)
     return db

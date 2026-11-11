@@ -26,6 +26,18 @@ export interface AttemptRow {
   idempotencyKey: string
 }
 
+export interface TriggerState {
+  nextFireAt: number | null
+  lastFireAt: number | null
+}
+
+export class DuplicateFileError extends Error {
+  constructor(path: string) {
+    super(`file already delivered: ${path}`)
+    this.name = 'DuplicateFileError'
+  }
+}
+
 interface RawRun {
   id: string
   workflow_id: string
@@ -86,12 +98,18 @@ export class Store {
   }
 
   saveWorkflow(workflow: Workflow): string {
+    const dsl = JSON.stringify(workflow)
+    const existing = this.db.get<{ id: string }>(
+      'SELECT id FROM workflows WHERE dsl = ? ORDER BY created_at, rowid LIMIT 1',
+      dsl,
+    )
+    if (existing) return existing.id
     const id = randomUUID()
     this.db.run(
       'INSERT INTO workflows (id, name, dsl, active, created_at) VALUES (?, ?, ?, 0, ?)',
       id,
       workflow.name,
-      JSON.stringify(workflow),
+      dsl,
       this.now(),
     )
     return id
@@ -241,6 +259,83 @@ export class Store {
         runId,
       )
       .map(toAttempt)
+  }
+
+  setWorkflowActive(id: string, active: boolean): void {
+    this.db.run('UPDATE workflows SET active = ? WHERE id = ?', active ? 1 : 0, id)
+  }
+
+  listActiveWorkflowIds(): string[] {
+    return this.db
+      .all<{ id: string }>('SELECT id FROM workflows WHERE active = 1 ORDER BY created_at, rowid')
+      .map((row) => row.id)
+  }
+
+  getTriggerState(workflowId: string): TriggerState | undefined {
+    const row = this.db.get<{ next_fire_at: number | null; last_fire_at: number | null }>(
+      'SELECT next_fire_at, last_fire_at FROM trigger_state WHERE workflow_id = ?',
+      workflowId,
+    )
+    return row ? { nextFireAt: row.next_fire_at, lastFireAt: row.last_fire_at } : undefined
+  }
+
+  saveTriggerState(workflowId: string, state: TriggerState): void {
+    this.db.run(
+      'INSERT INTO trigger_state (workflow_id, next_fire_at, last_fire_at) VALUES (?, ?, ?) ' +
+        'ON CONFLICT(workflow_id) DO UPDATE SET next_fire_at = excluded.next_fire_at, last_fire_at = excluded.last_fire_at',
+      workflowId,
+      state.nextFireAt,
+      state.lastFireAt,
+    )
+  }
+
+  clearNextFire(workflowId: string): void {
+    this.db.run('UPDATE trigger_state SET next_fire_at = NULL WHERE workflow_id = ?', workflowId)
+  }
+
+  hasSeenFile(workflowId: string, fingerprint: string): boolean {
+    const row = this.db.get<{ found: number }>(
+      'SELECT 1 AS found FROM seen_files WHERE workflow_id = ? AND fingerprint = ?',
+      workflowId,
+      fingerprint,
+    )
+    return row !== undefined
+  }
+
+  markFileSeen(workflowId: string, fingerprint: string, path: string, runId: string | null): boolean {
+    return (
+      this.db.run(
+        'INSERT OR IGNORE INTO seen_files (workflow_id, fingerprint, path, seen_at, run_id) VALUES (?, ?, ?, ?, ?)',
+        workflowId,
+        fingerprint,
+        path,
+        this.now(),
+        runId,
+      ) > 0
+    )
+  }
+
+  hasActiveRun(workflowId: string): boolean {
+    const row = this.db.get<{ found: number }>(
+      "SELECT 1 AS found FROM runs WHERE workflow_id = ? AND status IN ('queued', 'running') LIMIT 1",
+      workflowId,
+    )
+    return row !== undefined
+  }
+
+  createTriggeredRun(input: {
+    workflowId: string
+    payload: unknown
+    fingerprint?: { value: string; path: string }
+  }): RunRow {
+    return this.db.transaction(() => {
+      const run = this.createRun({ workflowId: input.workflowId, payload: input.payload, dryRun: false })
+      if (input.fingerprint) {
+        const added = this.markFileSeen(input.workflowId, input.fingerprint.value, input.fingerprint.path, run.id)
+        if (!added) throw new DuplicateFileError(input.fingerprint.path)
+      }
+      return run
+    })
   }
 
   journal(): Journal {
