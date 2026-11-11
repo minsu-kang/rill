@@ -11,6 +11,7 @@ import {
   EXIT_INTERRUPTED,
   EXIT_PARTIAL,
   DEFAULT_OUT_ROOT,
+  PILOT_MAX_OUTPUT_TOKENS,
   PILOT_SEEDS,
   USAGE,
   UsageError,
@@ -157,13 +158,15 @@ describe('eval extract: process level', () => {
     expect(result.stdout).toContain(`estimate (prices as of ${PRICE_TABLE_AS_OF}):`)
     for (const model of DEFAULT_MODELS) expect(result.stdout).toContain(`  ${model}: 3 calls, $`)
     expect(result.stdout).toContain('  total: $')
-    expect(result.stdout).toContain('suggested budget: $0.06 (2 x the estimate, rounded up to the next cent)')
+    const suggested = /suggested budget: \$(\d+\.\d+) \(the larger of 2 x the estimate and the estimate plus the guard's reserve for 4 calls in flight, rounded up to the next cent\)/u.exec(result.stdout)
+    expect(Number(suggested?.[1])).toBeGreaterThanOrEqual(1.3)
+    expect(result.stdout).not.toContain('note: this budget is below the worst case')
     expect(result.stdout).toContain('output: 200 tokens per call')
     expect(result.stdout).toMatch(/break-even: at this budget the run can afford an average of about \d+ output tokens per call/u)
     expect(result.stdout).toContain('thinking tokens are billed as output tokens')
     expect(result.stdout).toContain('max_tokens: 16000 per request')
     expect(result.stdout).toContain('Nothing was sent.')
-    expect(result.stdout).toContain(`pnpm eval extract --yes --only ${SEED} --reps 3 --kinds text --models ${DEFAULT_MODELS.join(',')} --out ${out} --budget-usd 0.06`)
+    expect(result.stdout).toContain(`pnpm eval extract --yes --only ${SEED} --reps 3 --kinds text --models ${DEFAULT_MODELS.join(',')} --out ${out} --budget-usd ${suggested?.[1]}`)
     expect(existsSync(out)).toBe(false)
     expect(result.stdout + result.stderr).not.toContain(KEY)
   })
@@ -558,6 +561,9 @@ describe('suggestedBudgetUsd, formatUsdPlain and commandLine', () => {
     expect(suggestedBudgetUsd(5.241)).toBe(10.49)
     expect(suggestedBudgetUsd(0.001)).toBe(0.002)
     expect(suggestedBudgetUsd(0.000154)).toBe(0.00031)
+    expect(suggestedBudgetUsd(0.1454, 1.3184)).toBe(1.47)
+    expect(suggestedBudgetUsd(5.24, 1.3)).toBe(10.48)
+    expect(suggestedBudgetUsd(0.1454, 0)).toBe(0.3)
     for (const estimate of [0.000154, 0.0012, 0.004, 0.0275, 5.241]) expect(suggestedBudgetUsd(estimate)).toBeGreaterThanOrEqual(estimate * 2)
   })
 
@@ -600,15 +606,34 @@ describe('main', () => {
     expect(out.join('')).toBe(USAGE)
   })
 
-  it('suggests twice the estimate in the plan, with exact digits below a cent and never 0.00', async () => {
+  it('suggests a budget that can always run: at least the worst case of the calls in flight, with exact digits below a cent and never 0.00', async () => {
     const { io, out } = quietIo()
     expect(await main(['extract', '--only', SEED, '--kinds', 'text', '--reps', '1', '--models', 'claude-haiku-5-5'], io)).toBe(0)
     const text = out.join('')
     expect(text).toMatch(/total: \$0\.0002/u)
-    expect(text).toContain('suggested budget: $0.00031 (2 x the estimate, rounded up; below a cent, so shown with more digits)')
-    expect(text).toContain('--budget-usd 0.00031')
+    const suggested = /suggested budget: \$(\d\.\d+) \(the larger of 2 x the estimate and the estimate plus the guard's reserve for 4 calls in flight, rounded up; below a cent, so shown with more digits\)/u.exec(text)
+    const worst = /worst case of one call: \$(\d\.\d+)/u.exec(text)
+    expect(Number(suggested?.[1])).toBeGreaterThanOrEqual(Number(worst?.[1]))
+    expect(Number(suggested?.[1])).toBeLessThan(0.01)
+    expect(text).toContain(`--budget-usd ${suggested?.[1]}`)
     expect(text).not.toContain('--budget-usd 0.00 ')
-    expect(text).toContain('note: this budget is below the worst case of one call')
+    expect(text).not.toContain('note: this budget is below the worst case of one call')
+  })
+
+  it('gives the pilot a 4000 token default and a budget that covers the guard reserve', async () => {
+    expect(parseCli(['extract', '--pilot']).maxOutputTokens).toBe(PILOT_MAX_OUTPUT_TOKENS)
+    expect(parseCli(['extract', '--pilot', '--max-output-tokens', '16000']).maxOutputTokens).toBe(16000)
+    const { io, out } = quietIo()
+    expect(await main(['extract', '--pilot'], io)).toBe(0)
+    const text = out.join('')
+    expect(text).toContain('max_tokens: 4000 per request')
+    expect(text).toContain('--max-output-tokens 4000')
+    expect(text).not.toContain('note: this budget is below')
+    const budget = /--budget-usd (\d+\.\d+)/u.exec(text)
+    const worst = /worst case of one call: \$(\d\.\d+)/u.exec(text)
+    expect(Number(budget?.[1])).toBeGreaterThanOrEqual(Number(worst?.[1]) * 4)
+    const breakEven = /about (\d+) output tokens per call/u.exec(text)
+    expect(Number(breakEven?.[1])).toBeGreaterThan(0)
   })
 
   it('uses --budget-usd as given and says so', async () => {

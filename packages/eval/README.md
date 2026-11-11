@@ -25,10 +25,10 @@ All commands run from the repository root. The root script `pnpm eval` forwards 
 
    ```
    export ANTHROPIC_API_KEY=...
-   pnpm eval extract --yes --pilot --max-output-tokens 4000 --budget-usd 1
+   pnpm eval extract --yes --pilot --max-output-tokens 4000 --budget-usd 0.51
    ```
 
-   With the default `--max-output-tokens 16000` the worst case of one Opus call is about $0.33, more than the suggested pilot budget of $0.30, so the guard would skip every call. Either lower `--max-output-tokens` for the pilot (replies that hit it are recorded as truncated) or give a budget of at least four worst cases (about $1.32).
+   The pilot defaults to `--max-output-tokens 4000` (replies that hit it are recorded as truncated), so the worst case of one Opus call is about $0.09 and four calls in flight reserve about $0.36. With the node's own 16000 the worst case of one Opus call would be about $0.33, so a pilot would need a budget of at least about $1.50. The suggested budget is the larger of 2 x the estimate and the estimate plus the reserve for the calls in flight, so the printed command always runs.
 
    Read the traces of the pilot before anything bigger. Re-estimate cost and rep agreement from the measured usage in `results.jsonl`.
 
@@ -51,9 +51,9 @@ Results go to `packages/eval/results/extract-<timestamp>/`, which is git-ignored
 | `--concurrency n` | 4 | Calls in flight at once. |
 | `--kinds text,pdf,png` | all | Fixture kinds to include. |
 | `--only x` | all seeds | A seed id substring, or a comma list of exact seed ids. |
-| `--pilot` | off | The three pilot seeds, all kinds, one rep. Cannot be combined with `--only`, `--kinds` or `--reps`. |
+| `--pilot` | off | The three pilot seeds, all kinds, one rep, with `--max-output-tokens` defaulting to 4000. Cannot be combined with `--only`, `--kinds` or `--reps`. |
 | `--effort low\|medium\|high` | the node's own (`low`) | Overrides the effort per request. The report says so in its header. |
-| `--budget-usd n` | none, required with `--yes` | Spending cap in dollars. The plan prints a suggested value: 2 x the estimate, rounded up to the next cent (with more digits below a cent). |
+| `--budget-usd n` | none, required with `--yes` | Spending cap in dollars. The plan prints a suggested value: the larger of 2 x the estimate and the estimate plus the guard's reserve for the calls in flight, rounded up to the next cent (with more digits below a cent). |
 | `--max-output-tokens n` | 16000 (what the node ships) | `max_tokens` of every request, 1 to 64000, and the output side of the budget guard's worst case per call. Thinking tokens count against it. |
 | `--max-call-seconds n` | 60 | Ceiling for one attempt, 1 to 600. The SDK timeout is set just above it. |
 | `--max-attempts n` | 3 | Attempts for transient failures (rate limit, overloaded, connection, timeout, bad response), 1 to 10. |

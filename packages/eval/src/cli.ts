@@ -33,6 +33,7 @@ export const DEFAULT_MAX_ATTEMPTS = 3
 export const DEFAULT_SEED = 1
 export const DEFAULT_MAX_OUTPUT = DEFAULT_MAX_OUTPUT_TOKENS
 export const SUGGESTED_BUDGET_FACTOR = 2
+export const PILOT_MAX_OUTPUT_TOKENS = 4000
 export const DEFAULT_OUT_ROOT = join(PACKAGE_ROOT, 'results')
 export const DEFAULT_BASE_URL = 'https://api.anthropic.com'
 export const EXIT_OK = 0
@@ -224,7 +225,7 @@ export function parseCli(argv: readonly string[]): CliConfig {
     pilot,
     effort,
     budgetUsd,
-    maxOutputTokens: integerOption('--max-output-tokens', values['max-output-tokens'], DEFAULT_MAX_OUTPUT_TOKENS, LIMITS.maxOutputTokens),
+    maxOutputTokens: integerOption('--max-output-tokens', values['max-output-tokens'], pilot ? PILOT_MAX_OUTPUT_TOKENS : DEFAULT_MAX_OUTPUT_TOKENS, LIMITS.maxOutputTokens),
     maxCallSeconds: integerOption('--max-call-seconds', values['max-call-seconds'], DEFAULT_MAX_CALL_SECONDS, LIMITS.maxCallSeconds),
     maxAttempts: integerOption('--max-attempts', values['max-attempts'], DEFAULT_MAX_ATTEMPTS, LIMITS.maxAttempts),
     seed: integerOption('--seed', values.seed, DEFAULT_SEED, LIMITS.seed),
@@ -259,8 +260,8 @@ function emptyConfig(): CliConfig {
   }
 }
 
-export function suggestedBudgetUsd(estimateUsd: number): number {
-  const raw = estimateUsd * SUGGESTED_BUDGET_FACTOR
+export function suggestedBudgetUsd(estimateUsd: number, reserveUsd = 0): number {
+  const raw = Math.max(estimateUsd * SUGGESTED_BUDGET_FACTOR, estimateUsd + reserveUsd)
   if (!(raw > 0)) return 0.01
   if (raw >= 0.01) return Math.ceil(raw * 100 - 1e-9) / 100
   const step = 10 ** (Math.floor(Math.log10(raw)) - 1)
@@ -285,9 +286,12 @@ function money(value: number | undefined): string {
   return `$${value.toFixed(value < 1 ? 4 : 2)}`
 }
 
-function budgetFor(config: CliConfig, estimate: RunEstimate): number | undefined {
+function budgetFor(config: CliConfig, estimate: RunEstimate, suite: ExtractSuite): number | undefined {
   if (config.budgetUsd !== undefined) return config.budgetUsd
-  return estimate.totalUsd === undefined ? undefined : suggestedBudgetUsd(estimate.totalUsd)
+  if (estimate.totalUsd === undefined) return undefined
+  const worst = worstCallUsd(config, suite)
+  const reserve = worst === undefined ? 0 : worst * Math.min(config.concurrency, estimate.calls)
+  return suggestedBudgetUsd(estimate.totalUsd, reserve)
 }
 
 export function commandLine(config: CliConfig, budgetUsd: number | undefined): string {
@@ -349,7 +353,7 @@ function planText(config: CliConfig, suite: ExtractSuite, estimate: RunEstimate,
   else {
     lines.push(
       config.budgetUsd === undefined
-        ? `suggested budget: $${formatUsdPlain(budgetUsd)} (${SUGGESTED_BUDGET_FACTOR} x the estimate, ${budgetUsd < 0.01 ? 'rounded up; below a cent, so shown with more digits' : 'rounded up to the next cent'})`
+        ? `suggested budget: $${formatUsdPlain(budgetUsd)} (the larger of ${SUGGESTED_BUDGET_FACTOR} x the estimate and the estimate plus the guard's reserve for ${plural(config.concurrency, 'call')} in flight, ${budgetUsd < 0.01 ? 'rounded up; below a cent, so shown with more digits' : 'rounded up to the next cent'})`
         : `budget: $${formatUsdPlain(budgetUsd)} (from --budget-usd)`,
     )
     const worst = worstCallUsd(config, suite)
@@ -671,7 +675,7 @@ export async function main(argv: readonly string[], io: CliIo): Promise<number> 
     }
     if (config.baselines) return await runBaselinesMode(config, suite, io)
     const estimate = estimateRun({ suite, models: config.models, reps: config.reps })
-    const budgetUsd = budgetFor(config, estimate)
+    const budgetUsd = budgetFor(config, estimate, suite)
     if (!config.yes) {
       io.stdout(planText(config, suite, estimate, budgetUsd))
       return EXIT_OK
