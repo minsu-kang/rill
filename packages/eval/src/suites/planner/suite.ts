@@ -11,6 +11,7 @@ import { ATTACHMENTS_DIR, ATTACHMENTS_MANIFEST_FILE, createMemoryStore, resolveA
 import { DEFAULT_MAX_REPAIR_ROUNDS, baseInputTokens, effortMaxTokens, firstCallInputTokens, isMeasurableEffort, plannerWorstCaseUsd, unmeasurableEffortMessage } from './budget'
 import { loadPlannerData, toPlannerCase, type PlannerCase, type PlannerData } from './cases'
 import { buildPlanRequest, withDemoHome } from './context'
+import { serializablePlanError } from './error-json'
 import { PLANNER_FIELDS, PLANNER_SCORER_VERSION, scorePlannerCase, type PlannerOutput } from './scoring'
 
 export const PLANNER_SUITE_NAME = 'planner'
@@ -155,7 +156,7 @@ export function createPlannerSuite(options: PlannerSuiteOptions = {}): PlannerSu
         output = await withDemoHome(() => planner.plan(request))
       } catch (error) {
         if (!(error instanceof PlanError) || error.kind !== 'invalid_after_repair') throw error
-        output = error
+        output = serializablePlanError(error)
       }
       if (first !== undefined) sentRequests.set(output, summarizeRequest(first))
       return output

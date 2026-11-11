@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Workflow } from '@rill/dsl'
@@ -776,6 +776,19 @@ describe('6. the command line: dry run', () => {
       expect(provider.seen).toHaveLength(4 * (1 + DEFAULT_MAX_REPAIR_ROUNDS))
       expect(run.report).toContain('invalid_after_repair')
       expect(run.stdout).toMatch(/claude-sonnet-5-5\s+0\.0% \(0\/4\)/u)
+    } finally {
+      run.cleanup()
+    }
+  })
+
+  it('writes the message of a plan error into the trace and the stored row, not just its kind', async () => {
+    const provider = scripted(() => new LlmError('invalid_output', 'not JSON'))
+    const run = await yesRun(provider, ['--group', 'patch'])
+    try {
+      const files = readdirSync(join(run.out, 'run'), { recursive: true, encoding: 'utf8' }).filter((name) => name.endsWith('.json') || name.endsWith('.jsonl'))
+      const text = files.map((name) => readFileSync(join(run.out, 'run', name), 'utf8')).join('\n')
+      expect(text).toContain('no valid answer after 3 repair rounds')
+      expect(text).toContain('\\"kind\\": \\"invalid_after_repair\\"')
     } finally {
       run.cleanup()
     }

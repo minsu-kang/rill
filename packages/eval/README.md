@@ -250,7 +250,7 @@ All commands run from the repository root.
    pnpm eval planner --yes --budget-usd <suggested>
    ```
 
-Results go to `packages/eval/results/planner-<timestamp>/` (git-ignored; the directory must be empty or absent), with the same layout as the extract suite: `report.md`, `run.json`, `results.jsonl` and one trace per case. Traces hold the first request as sent (system text and user text; attachments are not embedded) and the grader's verdict.
+Results go to `packages/eval/results/planner-<timestamp>/` (git-ignored; the directory must be empty or absent), with the same layout as the extract suite: `report.md`, `run.json`, `results.jsonl` and one trace per case. Traces hold the first request as sent (system text and user text; attachments are not embedded) and the grader's verdict. A plan that stayed invalid is stored with its kind, its message, the message of its cause (never the cause's other fields), every round and the last issues.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
