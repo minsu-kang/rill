@@ -9,6 +9,7 @@ import type { EvalCase } from './suite'
 
 export interface ResultCase extends EvalCase {
   file?: string
+  prompt?: string
   expected?: unknown
 }
 
@@ -199,7 +200,7 @@ function rowOf<O>(task: TaskResult<O>, testCase: ResultCase | undefined, meta: R
   return {
     prompt_id: id,
     rep: task.rep,
-    prompt: attachments.length === 0 ? '' : `[${task.kind}: ${attachments[0]?.ref}]`,
+    prompt: attachments.length === 0 ? (testCase?.prompt ?? '') : `[${task.kind}: ${attachments[0]?.ref}]`,
     tags: [...new Set(tags)],
     status: task.status === 'truncated' ? 'truncated' : 'ok',
     ...(served?.stopReason === undefined || served.stopReason === null ? {} : { stop_reason: served.stopReason }),

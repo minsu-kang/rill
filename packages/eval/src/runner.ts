@@ -255,6 +255,7 @@ function inputEstimateOf<C extends EvalCase, O>(suite: Suite<C, O>, testCase: C)
 }
 
 export function worstCaseCallUsd<C extends EvalCase, O>(suite: Suite<C, O>, testCase: C, model: string, maxOutputTokens: number): number | undefined {
+  if (suite.worstCaseUsd !== undefined) return suite.worstCaseUsd(testCase, model, maxOutputTokens)
   return estimateCallUsd(model, inputEstimateOf(suite, testCase), maxOutputTokens)
 }
 
@@ -302,7 +303,7 @@ async function executeTask<C extends EvalCase, O>(entry: ScheduleEntry<C>, setti
   let attempts = 0
   let lastFailure: FailureClass = 'harness'
   const inputTokens = inputEstimateOf(suite, entry.testCase)
-  const worstUsd = estimateCallUsd(entry.model, inputTokens, maxOutputTokens) ?? 0
+  const worstUsd = worstCaseCallUsd(suite, entry.testCase, entry.model, maxOutputTokens) ?? 0
   const inputUsd = estimateCallUsd(entry.model, inputTokens, 0) ?? 0
 
   const finish = (fields: Partial<TaskResult<O>> & Pick<TaskResult<O>, 'status'>): TaskResult<O> => ({

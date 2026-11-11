@@ -130,9 +130,16 @@ export {
   INDICATIVE_BELOW,
   MIN_SEEDS_FOR_VERDICT,
   SHIPPED_EFFORT,
+  errorSection as reportErrorSection,
   injectCounts,
   noiseFloorPoints,
+  num as reportNum,
+  partialNotice as reportPartialNotice,
+  pct as reportPct,
   renderReport,
+  table as reportTable,
+  tasksOf as reportTasksOf,
+  usd as reportUsd,
   type ReportInput,
   type ReportMeta,
 } from './report'
@@ -269,3 +276,89 @@ export {
   type ExtractSuite,
   type ExtractSuiteOptions,
 } from './suites/extract/suite'
+export {
+  EXIT_ERROR,
+  EXIT_INTERRUPTED,
+  EXIT_OK,
+  EXIT_PARTIAL,
+  EXIT_USAGE,
+  UsageError,
+  effectiveEndpoint,
+  suggestedBudgetUsd,
+  type CliIo,
+  type PlannerCliHooks,
+} from './cli-shared'
+export {
+  PLANNER_DEFAULT_MODELS,
+  PLANNER_LIMITS,
+  PLANNER_USAGE,
+  parsePlannerCli,
+  plannerCommandLine,
+  plannerMain,
+  plannerPlanText,
+  type PlannerCliConfig,
+} from './suites/planner/cli'
+export {
+  ASSERTION_NAMES as PLANNER_ASSERTION_NAMES,
+  CATALOG_TYPES as PLANNER_CATALOG_TYPES,
+  HOME_DIR as PLANNER_HOME_DIR,
+  blocksOf as plannerBlocksOf,
+  evaluateAssertions as plannerEvaluateAssertions,
+  evaluateExpectation as plannerEvaluateExpectation,
+  matchValue as plannerMatchValue,
+  type AssertionResult as PlannerAssertionResult,
+  type Produced as PlannerProduced,
+  type Verdict as PlannerVerdict,
+} from './suites/planner/assertions'
+export {
+  ATTACHMENTS_DIR as PLANNER_ATTACHMENTS_DIR,
+  createMemoryStore as plannerMemoryStore,
+  generateAttachments as generatePlannerAttachments,
+  injectedAttachments as plannerInjectedAttachments,
+  resolveAttachments as resolvePlannerAttachments,
+  verifyAttachments as verifyPlannerAttachments,
+  type ResolvedAttachment as PlannerResolvedAttachment,
+} from './suites/planner/attachments'
+export {
+  BASE_INPUT_TOKENS as PLANNER_BASE_INPUT_TOKENS,
+  DEFAULT_MAX_REPAIR_ROUNDS as PLANNER_DEFAULT_MAX_REPAIR_ROUNDS,
+  HISTORY_TOKENS_PER_REPAIR_ROUND as PLANNER_HISTORY_TOKENS_PER_REPAIR_ROUND,
+  TARGETED_EXTRA_CALLS as PLANNER_TARGETED_EXTRA_CALLS,
+  TYPICAL_OUTPUT_TOKENS as PLANNER_TYPICAL_OUTPUT_TOKENS,
+  firstCallInputTokens as plannerFirstCallInputTokens,
+  plannerWorstCaseUsd,
+  worstCallInputTokens as plannerWorstCallInputTokens,
+  worstCaseCalls as plannerWorstCaseCalls,
+} from './suites/planner/budget'
+export { goldNodeTypes as plannerGoldNodeTypes, loadPlannerData, toPlannerCase, type PlannerCase, type PlannerData } from './suites/planner/cases'
+export { checkConsistency as checkPlannerConsistency, type ConsistencyInput as PlannerConsistencyInput, type ConsistencyResult as PlannerConsistencyResult } from './suites/planner/consistency'
+export { CONNECTION_KINDS as PLANNER_CONNECTION_KINDS, buildPlanRequest, withDemoHome } from './suites/planner/context'
+export {
+  alwaysAsksPlanner,
+  copyingPlanner,
+  goldBody as plannerGoldBody,
+  invalidAfterRepairPlanner,
+  neverAsksPlanner,
+  nullPlanner,
+  oraclePlanner,
+  perturb as perturbPlannerWorkflow,
+  perturbedPlanner,
+  throwingPlanner,
+  withRounds,
+} from './suites/planner/fakes'
+export { ERROR_ISSUE, WARNING_ISSUE, fakeResult, fakeRound, fakeUsage, questionsBody, unsupportedBody, workflowBody } from './suites/planner/fake-results'
+export { caseNeedles, injectionNeedles, judgeInjection, nodesWithNeedle, quarantine } from './suites/planner/injection'
+export { plannerMetrics, taskPassed as plannerTaskPassed, type PlannerMetrics, type Rate as PlannerRate } from './suites/planner/metrics'
+export { renderPlannerReport, type PlannerReportInput, type PlannerReportMeta } from './suites/planner/report'
+export { HIDDEN_FIELD_CODE as PLANNER_HIDDEN_FIELD_CODE, PLANNER_FIELDS, classify as classifyPlannerOutput, scorePlannerCase, type PlannerOutput } from './suites/planner/scoring'
+export {
+  PLANNER_SUITE_NAME,
+  PLANNER_SUITE_NUMBER,
+  createPlannerSuite,
+  plannerSentRequestOf,
+  plannerVersions,
+  type PlannerFactory,
+  type PlannerFactoryInput,
+  type PlannerSuite,
+  type PlannerSuiteOptions,
+} from './suites/planner/suite'
