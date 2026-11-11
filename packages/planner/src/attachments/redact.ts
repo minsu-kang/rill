@@ -1,4 +1,4 @@
-import type { PlanIssue } from '@rill/dsl'
+import type { PlanIssue, Workflow } from '@rill/dsl'
 import { fieldRoles } from '@rill/nodes-core'
 import type { RedactInput } from '../ports'
 import { fold } from './normalize'
@@ -40,6 +40,46 @@ export function containsAttachmentLiteral(text: string, attachmentTexts: readonl
   return [text, ...literalsIn(text)].some((literal) => literal.length >= MIN_LITERAL && haystacks.some((haystack) => haystack.includes(fold(literal))))
 }
 
+const FIELD_HINT = /^available: ([^\n]+)$/
+
+function collectKeys(schema: unknown, into: Set<string>): void {
+  if (Array.isArray(schema)) {
+    for (const item of schema) collectKeys(item, into)
+    return
+  }
+  if (schema === null || typeof schema !== 'object') return
+  const node = schema as Record<string, unknown>
+  const properties = node.properties
+  if (properties !== null && typeof properties === 'object') for (const key of Object.keys(properties)) into.add(key)
+  for (const value of Object.values(node)) collectKeys(value, into)
+}
+
+function outputFieldNames(workflow: Workflow, registry: RedactInput['registry']): Set<string> {
+  const names = new Set<string>()
+  for (const node of workflow.nodes) {
+    const def = registry.get(node.type)
+    if (def === undefined) continue
+    let schema: unknown = def.outputSchema
+    if (def.kind === 'action' && def.outputSchemaFor !== undefined) {
+      try {
+        schema = def.outputSchemaFor(node.config)
+      } catch {
+        schema = def.outputSchema
+      }
+    }
+    collectKeys(schema, names)
+  }
+  return names
+}
+
+function isFieldHint(issue: PlanIssue, workflow: Workflow | undefined, registry: RedactInput['registry']): boolean {
+  if (issue.code !== 'unknown_output_field' || issue.hint === undefined || workflow === undefined || looksExtracted(issue.hint)) return false
+  const match = FIELD_HINT.exec(issue.hint)
+  if (match === null) return false
+  const names = outputFieldNames(workflow, registry)
+  return (match[1] as string).split(', ').every((name) => name !== '' && names.has(name))
+}
+
 function looksExtracted(text: string): boolean {
   return URL_LIKE.test(text) || EMAIL_LIKE.test(text)
 }
@@ -63,13 +103,11 @@ export function redactIssues(issues: PlanIssue[], input: RedactInput): PlanIssue
     return fieldRoles(def).some((field) => isWithin(inside, field.pointer))
   }
   return issues.map((issue) => {
-    const isFlagged = flagged(issue.pointer)
-    if (isFlagged || roleField(issue.pointer)) {
-      const trusted = TRUSTED_HINTS[issue.code]
-      const keep = !isFlagged && issue.hint !== undefined && trusted?.some((format) => format.test(issue.hint as string)) === true
-      return keep ? { ...generic(issue), hint: issue.hint as string } : generic(issue)
-    }
-    if (sensitive(issue.message) || (issue.hint !== undefined && sensitive(issue.hint))) return generic(issue)
+    const trusted = issue.hint !== undefined && TRUSTED_HINTS[issue.code]?.some((format) => format.test(issue.hint as string)) === true
+    if (flagged(issue.pointer) || roleField(issue.pointer)) return trusted ? { ...generic(issue), hint: issue.hint as string } : generic(issue)
+    const fieldHint = isFieldHint(issue, input.workflow, input.registry)
+    const hintSensitive = issue.hint !== undefined && !fieldHint && sensitive(issue.hint)
+    if (sensitive(issue.message) || hintSensitive) return fieldHint ? { ...generic(issue), hint: issue.hint as string } : generic(issue)
     return { ...issue }
   })
 }

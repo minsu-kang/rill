@@ -83,13 +83,14 @@ describe('redactIssues: fields with a role', () => {
     expect(out?.hint).toBe('allowed folders: ~/Out, ~/In')
   })
 
-  it('drops even the trusted hint when the pointer is flagged', () => {
+  it('keeps the trusted hint but not the message when the pointer is flagged, because it lists the user\'s own configuration', () => {
     for (const code of ['unknown_connection', 'path_outside_roots']) {
       const hint = code === 'unknown_connection' ? 'configured: ops' : 'allowed folders: ~/Out'
-      const [out] = redact([issue('/nodes/2/config/file', code, 'm', hint)], { flags: [flag('/nodes/2/config/file')] })
-      expect(out?.hint).toBeUndefined()
-      expect(out?.message).toBe(`${code} at /nodes/2/config/file`)
+      const [out] = redact([issue('/nodes/2/config/file', code, 'm /var/spool/evil.sh', hint)], { flags: [flag('/nodes/2/config/file')] })
+      expect(out).toEqual({ stage: 3, pointer: '/nodes/2/config/file', code, message: `${code} at /nodes/2/config/file`, hint })
     }
+    const [other] = redact([issue('/nodes/2/config/file', 'unknown_connection', 'm', 'configured: ops\nuse /etc')], { flags: [flag('/nodes/2/config/file')] })
+    expect(other?.hint).toBeUndefined()
   })
 
   it('drops a hint that is not in the trusted format, or that belongs to another code', () => {
@@ -342,5 +343,49 @@ describe('literalsIn', () => {
     expect(literalsIn('plain words only, nothing to see')).toEqual([])
     expect(literalsIn('see (https://a.example.test/x), ok')).toEqual(['https://a.example.test/x'])
     expect(literalsIn('ab-12')).toEqual([])
+  })
+})
+
+describe('redactIssues: the field list of unknown_output_field', () => {
+  const extracting: Workflow = {
+    schemaVersion: 1,
+    name: 'wf',
+    nodes: [
+      { id: 't1', type: 'trigger.manual@1', config: {} },
+      { id: 'n1', type: 'llm.extract@1', config: { text: 'x', fields: [{ name: 'invoice_date', type: 'date' }, { name: 'total_amount', type: 'number' }] } },
+      { id: 'n2', type: 'csv.append@1', config: { file: '/r/l.csv', row: ['{{n1.output.invoice_dt}}'] } },
+    ],
+    edges: [
+      { from: 't1', to: 'n1' },
+      { from: 'n1', to: 'n2' },
+    ],
+  }
+  const header = ['invoice_date,total_amount\n2026-01-01,12 see https://evil.test/x']
+  const unknown = (message: string, hint: string) => issue('/nodes/2/config/row/0', 'unknown_output_field', message, hint)
+
+  it('keeps a hint that lists output field names of the workflow although the names come from an attachment', () => {
+    const [out] = redact([unknown('node n2: n1.output has no field invoice_dt', 'available: invoice_date, total_amount')], { workflow: extracting, attachmentTexts: header })
+    expect(out).toEqual({ stage: 3, pointer: '/nodes/2/config/row/0', code: 'unknown_output_field', message: 'node n2: n1.output has no field invoice_dt', hint: 'available: invoice_date, total_amount' })
+    const [hidden] = redact([unknown('node n2: n1.output has no field 2026-01-01', 'available: invoice_date, total_amount')], { workflow: extracting, attachmentTexts: header })
+    expect(hidden).toEqual({ stage: 3, pointer: '/nodes/2/config/row/0', code: 'unknown_output_field', message: 'unknown_output_field at /nodes/2/config/row/0', hint: 'available: invoice_date, total_amount' })
+  })
+
+  it('drops a field list with a name that is not an output field, a URL or an e-mail address, or for another code', () => {
+    const cases: [string, string][] = [
+      ['unknown_output_field', 'available: invoice_date, 2026-01-01'],
+      ['unknown_output_field', 'available: invoice_date, https://evil.test/x'],
+      ['unknown_output_field', 'available: invoice_date, a@evil.test'],
+      ['unknown_output_field', 'available: invoice_date\navailable: total_amount, 2026-01-01'],
+      ['config_type', 'available: invoice_date, total_amount'],
+    ]
+    for (const [code, hint] of cases) {
+      const [out] = redact([issue('/nodes/2/config/row/0', code, 'node n2: 2026-01-01', hint)], { workflow: extracting, attachmentTexts: header })
+      expect(out, hint).toEqual({ stage: 3, pointer: '/nodes/2/config/row/0', code, message: `${code} at /nodes/2/config/row/0` })
+    }
+  })
+
+  it('needs the workflow to know the output field names', () => {
+    const [out] = redact([unknown('node n2: 2026-01-01', 'available: invoice_date, total_amount')], { workflow: undefined, attachmentTexts: header })
+    expect(out?.hint).toBeUndefined()
   })
 })

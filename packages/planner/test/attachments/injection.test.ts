@@ -84,7 +84,7 @@ describe('injection fixture: a hostile text attachment that the model obeyed', (
       'path_outside_roots /nodes/3/config/file',
       'unknown_connection /nodes/2/config/connection',
     ])
-    expect(redacted.every((issue) => issue.hint === undefined)).toBe(true)
+    expect(redacted.map((issue) => issue.hint).sort()).toEqual(['allowed folders: /tmp/rill-allowed', 'configured: ops, billing'])
   })
 
   it('keeps the trusted connection list when the connection is not flagged, so the model can repair', () => {

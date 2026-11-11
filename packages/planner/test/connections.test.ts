@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CONNECTION_KINDS,
   CONNECTION_KIND_CODE,
+  attachmentModule,
   connectionKindIssues,
   createPlanner,
   isGapIssue,
@@ -68,6 +69,15 @@ describe('connection kinds', () => {
     expect(connectionKindIssues(wf([manual, slackNode('team')]), registry, connections)).toEqual([])
     expect(connectionKindIssues(wf([manual, slackNode('other')]), registry, connections)).toEqual([])
     expect(connectionKindIssues(wf([manual, slackNode('{{t1.output.c}}')]), registry, connections)).toEqual([])
+  })
+
+  it('keeps the right-kind hint after redaction even when the pointer is flagged', () => {
+    const workflow = wf([manual, slackNode('api')])
+    const issues = connectionKindIssues(workflow, registry, [{ name: 'api', kind: 'http' }, { name: 'team', kind: 'slack' }])
+    const flags = [{ nodeId: 'n1', pointer: '/nodes/1/config/connection', code: 'new_egress_target' as const, message: 'm' }]
+    expect(attachmentModule.redactIssues(issues, { workflow, registry, attachmentTexts: ['api'], flags })).toEqual([
+      { stage: 3, pointer: '/nodes/1/config/connection', code: CONNECTION_KIND_CODE, message: `${CONNECTION_KIND_CODE} at /nodes/1/config/connection`, hint: 'configured slack connections: team' },
+    ])
   })
 
   it('treats a connection issue as a gap only when no connection of the needed kind is configured', () => {

@@ -148,7 +148,7 @@ describe('injection end to end: real attachment module, in-memory store, scripte
       }
       expect(JSON.parse(messages[0]!)).toEqual({
         round: 1,
-        issues: [{ stage: 3, pointer: '/nodes/4/config/connection', code: 'unknown_connection', message: 'unknown_connection at /nodes/4/config/connection' }],
+        issues: [{ stage: 3, pointer: '/nodes/4/config/connection', code: 'unknown_connection', message: 'unknown_connection at /nodes/4/config/connection', hint: 'configured: team' }],
       })
     })
 
@@ -194,7 +194,23 @@ describe('injection end to end: real attachment module, in-memory store, scripte
       expect(second.messages[0]).toEqual(provider.calls[0]!.request.messages[0])
     })
 
-    it.fails('keeps the allowed-folders hint when the model writes a ledger outside the roots on its own', async () => {
+    it('keeps the list of output fields in the repair request when the field names come from a sample attachment', async () => {
+      const sample = 'invoice_date,total_amount\n2026-01-01,12.00'
+      const extracting = receipts()
+      extracting.nodes[1]!.config = { file: '{{t1.output.file}}', fields: [{ name: 'invoice_date', type: 'date' }, { name: 'total_amount', type: 'number' }] }
+      extracting.nodes[2]!.config = { file: `${ROOT}/ledger.csv`, row: ['{{n1.output.invoice_date}}'] }
+      const invalid = structuredClone(extracting)
+      invalid.nodes[2]!.config = { file: `${ROOT}/ledger.csv`, row: ['{{n1.output.invoice_dt}}'] }
+      const provider = new FakeProvider([{ data: workflowData(invalid) }, { data: workflowData(extracting) }])
+      await createPlanner({ provider, registry, attachmentStore: countingStore({ csv: enc(sample) }) }).plan(
+        request({ text: INVOICE_REQUEST, attachments: [attachmentRef('csv', 'text/csv')] }),
+      )
+      const [message] = repairUserMessages(provider, 1)
+      expect(JSON.parse(message!).issues[0]).toMatchObject({ code: 'unknown_output_field', hint: 'available: invoice_date, total_amount' })
+      expect(message).not.toContain('2026-01-01')
+    })
+
+    it('keeps the allowed-folders hint when the model writes a ledger outside the roots on its own', async () => {
       const bad = receipts()
       bad.nodes[2]!.config = { file: '/elsewhere/ledger.csv', row: ['{{n1.output.date}}'] }
       const provider = new FakeProvider([{ data: workflowData(bad) }, { data: workflowData(receipts()) }])
