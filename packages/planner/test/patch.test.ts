@@ -234,10 +234,11 @@ describe('patch mode in the planner', () => {
   it('rejects a selection without an existing workflow before any call', async () => {
     const provider = new FakeProvider([])
     const error = await planError(createPlannerFor(provider).plan(request({ selection: { nodeId: 'n2' } })))
-    expect(error.kind).toBe('invalid_after_repair')
+    expect(error.kind).toBe('invalid_request')
     expect(error.rounds).toEqual([])
     expect(error.lastIssues.map((i) => [i.pointer, i.code])).toEqual([['/selection/nodeId', 'selection_without_workflow']])
     const unknown = await planError(createPlannerFor(provider).plan(patchRequest('zz')))
+    expect(unknown.kind).toBe('invalid_request')
     expect(unknown.lastIssues.map((i) => i.code)).toEqual(['selection_unknown_node'])
     expect(provider.calls).toHaveLength(0)
   })

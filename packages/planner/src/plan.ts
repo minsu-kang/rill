@@ -169,7 +169,7 @@ class Run {
           : { code: 'selection_unknown_node', message: `the selected node ${selection.nodeId} is not in the existing workflow` }
     if (problem === undefined) return
     this.lastIssues = [{ stage: 1, pointer: '/selection/nodeId', ...problem }]
-    throw this.fail('invalid_after_repair', problem.message)
+    throw this.fail('invalid_request', problem.message)
   }
 
   private checkAttachmentLimits(): void {

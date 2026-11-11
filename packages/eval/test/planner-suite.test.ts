@@ -4,6 +4,7 @@ import { createCoreRegistry, defineAction } from '@rill/nodes-core'
 import { ATTACHMENT_RULES, EFFORT_BUDGETS, PLANNER_RULES, PlanError, catalogText, createPlanner, generationSchema, type PlanRequest, type PlannerDeps } from '@rill/planner'
 import Type from 'typebox'
 import { describe, expect, it, vi } from 'vitest'
+import { classifyFailure } from '../src/runner'
 import type { RunContext } from '../src/suite'
 import { PDF_INPUT_TOKENS, PNG_INPUT_TOKENS, TEXT_CHARS_PER_TOKEN } from '../src/suites/extract/suite'
 import { BASE_INPUT_MARGIN, DEFAULT_MAX_REPAIR_ROUNDS, baseInputTokens, plannerWorstCaseUsd } from '../src/suites/planner/budget'
@@ -225,10 +226,14 @@ describe('createPlannerSuite: run', () => {
     expect(suite.score(caseIn(suite, 'easy-03-webhook-to-slack'), output).status).toBe('schema_failed')
   })
 
-  it.each(['provider', 'aborted', 'attachment'] as const)('rethrows a %s plan error so the runner classifies it', async (kind) => {
+  it.each(['provider', 'aborted', 'attachment', 'invalid_request'] as const)('rethrows a %s plan error so the runner classifies it', async (kind) => {
     const error = new PlanError(kind, 'x', [], [])
     const suite = createPlannerSuite({ makePlanner: () => ({ plan: () => Promise.reject(error) }) })
     await expect(suite.run(caseIn(suite, 'easy-03-webhook-to-slack'), ctxOf())).rejects.toBe(error)
+  })
+
+  it('does not score an invalid_request: the model was never called, so the runner reports a harness failure', () => {
+    expect(classifyFailure(new PlanError('invalid_request', 'x', [], []))).toEqual({ class: 'harness', retryable: false })
   })
 
   it('rethrows any other error and does not leak the demo home', async () => {
