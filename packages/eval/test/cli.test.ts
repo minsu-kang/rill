@@ -213,6 +213,20 @@ describe('eval extract: process level', () => {
     expect(readJsonl(join(out, 'baseline', 'results.jsonl'))).toHaveLength(1)
   })
 
+  it('refuses --yes into a directory that already has files before any request', async () => {
+    const baseURL = await mockApi()
+    const out = join(dir, 'out')
+    const first = await runCli(['extract', '--baselines', '--only', SEED, '--kinds', 'text', '--out', out], {})
+    expect(first.code).toBe(0)
+    const result = await runCli(['extract', '--yes', '--models', 'claude-haiku-5-5', '--only', SEED, '--kinds', 'text', '--reps', '1', '--out', out], {
+      ANTHROPIC_API_KEY: KEY,
+      ANTHROPIC_BASE_URL: baseURL,
+    })
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('output directory is not empty')
+    expect(seen).toHaveLength(0)
+  })
+
   it('refuses a model without a price before any request', async () => {
     const baseURL = await mockApi()
     const result = await runCli(['extract', '--yes', '--models', 'claude-mystery-9', '--only', SEED, '--kinds', 'text', '--reps', '1', '--out', join(dir, 'out')], {

@@ -173,6 +173,11 @@ describe('renderReport: numbers', () => {
     expect(sonnet).toBe(`| ${SONNET} | 2.75 | 3.40 | 2000 | 300 | $0.16 | $1.00 |`)
   })
 
+  it('calls a delta whose interval touches zero not distinguishable', () => {
+    const line = row(report, 'Paired deltas on case pass', SONNET)
+    expect(line).toBe(`| ${SONNET} | +37.5 points | +0.0 to +75.0 | not distinguishable | 4 seeds, 16 pairs |`)
+  })
+
   it('shows the budget line', () => {
     expect(report).toContain('Budget: $1.00, spent $0.10.')
   })
