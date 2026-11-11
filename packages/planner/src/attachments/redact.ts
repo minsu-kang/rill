@@ -2,7 +2,7 @@ import type { PlanIssue, Workflow } from '@rill/dsl'
 import { fieldRoles, subschemaAt, type NodeDefinition } from '@rill/nodes-core'
 import { HIDDEN_FIELDS } from '../hidden'
 import type { RedactInput } from '../ports'
-import { chosenNames, createNameGuard, outputFieldNames, wordsIn } from './names'
+import { chosenNames, createNameGuard, outputFieldNames, replaceWords, wordsIn } from './names'
 import { fold } from './normalize'
 import { isGateFlag } from './provenance'
 
@@ -101,6 +101,10 @@ export function redactIssues(issues: PlanIssue[], input: RedactInput): PlanIssue
   const chosen = new Set([...chosenNames(input.workflow, input.patch), ...unknownKeys].map(fold))
   const echoedName = (word: string): boolean => chosen.has(fold(word)) && guard.hides(word)
   const echoes = (text: string): boolean => wordsIn(text).some(echoedName)
+  const scrub = (text: string): string | undefined => {
+    const replaced = replaceWords(text, (word) => (echoedName(word) ? HIDDEN_SEGMENT : word))
+    return echoes(replaced) ? undefined : replaced
+  }
   const hiddenSegment = (segment: string): boolean => sensitive(segment) || echoedName(segment)
   const hidePointer = (pointer: string): string =>
     pointer
@@ -124,11 +128,9 @@ export function redactIssues(issues: PlanIssue[], input: RedactInput): PlanIssue
     const fieldHint = isFieldHint(issue, input.workflow, input.registry)
     const hintSensitive = issue.hint !== undefined && !fieldHint && sensitive(issue.hint)
     if (sensitive(issue.message) || hintSensitive) return withHint(generic(issue, pointer), fieldHint ? issue.hint : undefined)
-    if (pointer !== issue.pointer || echoes(issue.message) || (issue.hint !== undefined && !fieldHint && echoes(issue.hint))) {
-      const hint = issue.hint
-      const clean = hint !== undefined && (fieldHint || !echoes(hint))
-      return withHint(generic(issue, pointer), clean ? hint : undefined)
-    }
-    return { ...issue }
+    const message = scrub(issue.message)
+    const hint = issue.hint === undefined || fieldHint ? issue.hint : scrub(issue.hint)
+    if (message === issue.message && hint === issue.hint && pointer === issue.pointer) return { ...issue }
+    return withHint(message === undefined ? generic(issue, pointer) : { stage: issue.stage, pointer, code: issue.code, message }, hint)
   })
 }

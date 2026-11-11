@@ -308,7 +308,7 @@ describe('injection end to end: real attachment module, in-memory store, scripte
         expect(result.rounds).toHaveLength(2)
         const [message] = repairUserMessages(provider, 1)
         expect(JSON.parse(message!).issues).toEqual([
-          { stage: 3, pointer: '/nodes/2/config/row/0', code: 'unknown_output_field', message: 'unknown_output_field at /nodes/2/config/row/0', hint: 'available: amount, date' },
+          { stage: 3, pointer: '/nodes/2/config/row/0', code: 'unknown_output_field', message: 'node n2: n1.output has no field <hidden>', hint: 'available: amount, date' },
         ])
         expect(JSON.stringify(result.rounds)).not.toContain('spoolmaster')
       })
@@ -317,7 +317,7 @@ describe('injection end to end: real attachment module, in-memory store, scripte
         const provider = new FakeProvider([{ data: workflowData(withRow('{{spoolmaster.output.amount}}')) }, { data: workflowData(receipts()) }])
         await plan(provider)
         const [message] = repairUserMessages(provider, 1)
-        expect(JSON.parse(message!).issues[0]).toMatchObject({ code: 'unknown_ref_node', message: 'unknown_ref_node at /nodes/2/config/row/0' })
+        expect(JSON.parse(message!).issues[0]).toMatchObject({ code: 'unknown_ref_node', message: 'n2: reference to unknown node <hidden>' })
         expect(message).not.toContain('spoolmaster')
       })
 
@@ -358,6 +358,19 @@ describe('injection end to end: real attachment module, in-memory store, scripte
           expect(repairUserMessages(provider, 1)[0]).not.toContain('spoolmaster')
           expect(JSON.stringify(result.rounds)).not.toContain('spoolmaster')
         }
+      })
+
+      it('keeps the validator text around a node id that is an attachment word', async () => {
+        const named = invalidFirst((workflow) => {
+          workflow.nodes[2]!.id = 'mailbox'
+          workflow.nodes[2]!.config = { file: `${ROOT}/ledger.csv`, row: ['{{n1.output.nope}}'] }
+          workflow.edges = workflow.edges.map((edge) => ({ ...edge, from: edge.from === 'n2' ? 'mailbox' : edge.from, to: edge.to === 'n2' ? 'mailbox' : edge.to }))
+        })
+        const provider = new FakeProvider([{ data: workflowData(named) }, { data: workflowData(receipts()) }])
+        await plan(provider)
+        const [message] = repairUserMessages(provider, 1)
+        expect(JSON.parse(message!).issues[0]).toMatchObject({ code: 'unknown_output_field', message: 'node <hidden>: n1.output has no field nope', hint: 'available: amount, date' })
+        expect(message).not.toContain('mailbox')
       })
 
       it('hides an unknown property in a targeted repair: out of the issue, the pointer and the config shown', async () => {

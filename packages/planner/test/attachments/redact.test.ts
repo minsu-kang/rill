@@ -414,13 +414,13 @@ describe('redactIssues: plain words that the model took from an attachment', () 
 
   it('hides an unknown output field that only the attachment contains and keeps the list of real fields', () => {
     const [out] = run([missing('spoolmaster')], rowOf('spoolmaster'))
-    expect(out).toEqual({ stage: 3, pointer: '/nodes/2/config/row/0', code: 'unknown_output_field', message: 'unknown_output_field at /nodes/2/config/row/0', hint: 'available: amount, date' })
+    expect(out).toEqual({ stage: 3, pointer: '/nodes/2/config/row/0', code: 'unknown_output_field', message: 'node n2: n1.output has no field <hidden>', hint: 'available: amount, date' })
   })
 
   it('hides it in a nested path too and in any letter case', () => {
     const nested = issue('/nodes/2/config/row/0', 'unknown_output_field', 'node n2: n1.output.amount has no field SpoolMaster', 'n1.output.amount is not an object')
     const [out] = run([nested], rowOf('amount.SpoolMaster'), { userTexts: [...userTexts, 'Keep the amount'] })
-    expect(out?.message).toBe('unknown_output_field at /nodes/2/config/row/0')
+    expect(out?.message).toBe('node n2: n1.output.amount has no field <hidden>')
     expect(out?.hint).toBe('n1.output.amount is not an object')
   })
 
@@ -429,7 +429,7 @@ describe('redactIssues: plain words that the model took from an attachment', () 
     const edge = issue('/edges/2/to', 'edge_unknown_node', 'edge references unknown node: spoolmaster')
     const crooked = { ...rowOf('amount'), edges: [...extracting.edges, { from: 'n2', to: 'spoolmaster' }] }
     const withRef = { ...crooked, nodes: [...crooked.nodes.slice(0, 2), { ...crooked.nodes[2]!, config: { file: '~/Out/ledger.csv', row: ['{{spoolmaster.output.amount}}'] } }] }
-    expect(run([ref, edge], withRef).map((out) => out.message)).toEqual(['unknown_ref_node at /nodes/2/config/row/0', 'edge_unknown_node at /edges/2/to'])
+    expect(run([ref, edge], withRef).map((out) => out.message)).toEqual(['n2: reference to unknown node <hidden>', 'edge references unknown node: <hidden>'])
   })
 
   it('hides an unknown property in the message and in the pointer and lists the allowed properties', () => {
@@ -439,7 +439,7 @@ describe('redactIssues: plain words that the model took from an attachment', () 
       stage: 3,
       pointer: '/nodes/2/config/<hidden>',
       code: 'config_additionalProperties',
-      message: 'config_additionalProperties at /nodes/2/config/<hidden>',
+      message: 'node n2: invalid config: /<hidden>: <hidden> is not allowed',
       hint: 'allowed properties: file, row',
     })
   })
@@ -489,6 +489,29 @@ describe('redactIssues: plain words that the model took from an attachment', () 
     expect(redact([unknownKey('spoolmaster', 'shape_type')], none)[0]).toEqual(unknownKey('spoolmaster', 'shape_type'))
   })
 
+  it('blanks only the hidden word and keeps the rest of the validator text', () => {
+    const named: Workflow = {
+      ...extracting,
+      nodes: [extracting.nodes[0]!, extracting.nodes[1]!, { ...extracting.nodes[2]!, id: 'mailbox', config: { file: '~/Out/ledger.csv', row: [{ a: 1 }] } }],
+      edges: [extracting.edges[0]!, { from: 'n1', to: 'mailbox' }],
+    }
+    const original = issue('/nodes/2/config/row/0', 'config_anyOf', 'node mailbox: invalid config: /row/0: must be string or number or boolean or null', 'check mailbox and /row/0')
+    expect(run([original], named)[0]).toEqual({
+      stage: 3,
+      pointer: '/nodes/2/config/row/0',
+      code: 'config_anyOf',
+      message: 'node <hidden>: invalid config: /row/0: must be string or number or boolean or null',
+      hint: 'check <hidden> and /row/0',
+    })
+  })
+
+  it('falls back to the generic text when a hidden word survives the replacement', () => {
+    const named: Workflow = { ...extracting, nodes: [extracting.nodes[0]!, extracting.nodes[1]!, { ...extracting.nodes[2]!, id: 'café' }], edges: [extracting.edges[0]!, { from: 'n1', to: 'café' }] }
+    const decomposed = 'cafe\u0301'
+    const original = issue('/nodes/2/config/row/0', 'config_anyOf', `node ${decomposed}: invalid`, `see ${decomposed}`)
+    expect(run([original], named, { attachmentTexts: ['the café is open'] })[0]).toEqual({ stage: 3, pointer: '/nodes/2/config/row/0', code: 'config_anyOf', message: 'config_anyOf at /nodes/2/config/row/0' })
+  })
+
   it('shows a name that belongs to the catalog even when the attachment has it', () => {
     const wide = 'the file and the amount and the row and the url'
     for (const name of ['file', 'row', 'url', 'date']) {
@@ -528,13 +551,13 @@ describe('redactIssues: plain words that the model took from an attachment', () 
     const unknownNode: PlanIssue = { ...issue('/patch/0/nodeId', 'patch_unknown_node', 'no node with id spoolmaster in the workflow', 'existing ids: t1, n1, n2'), stage: 2 }
     const patch: PatchOp[] = [{ op: 'remove_node', nodeId: 'spoolmaster' }]
     const [out] = run([unknownNode], extracting, { patch })
-    expect(out).toEqual({ stage: 2, pointer: '/patch/0/nodeId', code: 'patch_unknown_node', message: 'patch_unknown_node at /patch/0/nodeId', hint: 'existing ids: t1, n1, n2' })
+    expect(out).toEqual({ stage: 2, pointer: '/patch/0/nodeId', code: 'patch_unknown_node', message: 'no node with id <hidden> in the workflow', hint: 'existing ids: t1, n1, n2' })
     expect(run([unknownNode], extracting)[0]).toEqual(unknownNode)
   })
 
-  it('drops a hint that holds a hidden name', () => {
+  it('blanks a hidden name in the hint as well', () => {
     const original = issue('/nodes/2/config/row/0', 'unknown_ref_node', 'n2: reference to unknown node spoolmaster', 'did you mean spoolmaster2 or spoolmaster?')
-    expect(run([original], rowOf('amount.spoolmaster'))[0]?.hint).toBeUndefined()
+    expect(run([original], rowOf('amount.spoolmaster'))[0]?.hint).toBe('did you mean spoolmaster2 or <hidden>?')
   })
 
   it('does not change the issue it was given', () => {

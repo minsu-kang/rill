@@ -163,3 +163,7 @@ export function chosenNames(workflow: Workflow | undefined, patch: readonly Patc
 export function wordsIn(text: string): string[] {
   return wordsOf(text)
 }
+
+export function replaceWords(text: string, replace: (word: string) => string): string {
+  return text.replace(WORDS, replace)
+}
