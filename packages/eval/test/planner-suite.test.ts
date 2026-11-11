@@ -81,6 +81,7 @@ describe('createPlannerSuite: selection', () => {
     expect(createPlannerSuite({ group: ['patch', 'attachment'] }).cases()).toHaveLength(10)
     expect(createPlannerSuite({ only: 'patch-01-change-schedule' }).cases().map((entry) => entry.id)).toEqual(['patch-01-change-schedule'])
     expect(createPlannerSuite({ only: 'ambig-0' }).cases()).toHaveLength(9)
+    expect(createPlannerSuite({ only: 'webhook-to-slack' }).cases().map((entry) => entry.id)).toEqual(['easy-03-webhook-to-slack'])
     expect(createPlannerSuite({ only: ['easy-01-receipt-folder-to-csv', 'unsup-01-kakaotalk'] }).cases()).toHaveLength(2)
     expect(createPlannerSuite({ group: 'easy', only: 'easy-0' }).cases()).toHaveLength(9)
   })

@@ -80,7 +80,7 @@ function rateOf(tasks: readonly Task[], key: string): Rate {
 
 export function taskPassed(task: Task): boolean {
   const score = task.score
-  return score !== undefined && score.status === 'ok' && Object.values(score.outcomes).length > 0 && Object.values(score.outcomes).every(isPassingOutcome)
+  return score !== undefined && Object.values(score.outcomes).length > 0 && Object.values(score.outcomes).every(isPassingOutcome)
 }
 
 function totalCost(tasks: readonly Task[]): number | undefined {

@@ -9,10 +9,11 @@ import { LlmError } from '@rill/llm'
 import { PlanError } from '@rill/planner'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { USAGE, main, type CliIo } from '../src/cli'
-import { EXIT_ERROR, EXIT_INTERRUPTED, EXIT_OK, EXIT_PARTIAL, EXIT_USAGE } from '../src/cli-shared'
+import { formatUsdPlain, guardReserveUsd, worstCallUsd } from '../src/budget'
+import { EXIT_ERROR, EXIT_INTERRUPTED, EXIT_OK, EXIT_PARTIAL, EXIT_USAGE, suggestedBudgetUsd } from '../src/cli-shared'
 import { PRICE_TABLE_AS_OF, estimateCallUsd } from '../src/pricing'
 import { createEvalProvider, type EvalProviderOptions } from '../src/record'
-import { worstCaseCallUsd } from '../src/runner'
+import { buildSchedule, worstCaseCallUsd } from '../src/runner'
 import { verifyAttachments } from '../src/suites/planner/attachments'
 import { plannerWorstCaseUsd, worstCaseCalls } from '../src/suites/planner/budget'
 import {
@@ -20,7 +21,6 @@ import {
   parsePlannerCli,
   plannerCommandLine,
   plannerMain,
-  plannerPlanText,
   type PlannerCliConfig,
 } from '../src/suites/planner/cli'
 import { ERROR_ISSUE, fakeResult, fakeRound, workflowBody } from '../src/suites/planner/fake-results'
@@ -217,15 +217,14 @@ describe('plannerCommandLine', () => {
 })
 
 describe('the dry run', () => {
-  const plan = (...args: string[]): string => {
-    const parsed = config(...args)
-    const suite = createPlannerSuite({ ...(parsed.group === undefined ? {} : { group: parsed.group }), ...(parsed.only === undefined ? {} : { only: parsed.only }), maxRepairRounds: parsed.maxRepairRounds })
-    const estimate = estimateRun({ suite, models: parsed.models, reps: parsed.reps, outputTokens: 3000 })
-    return plannerPlanText(parsed, suite, estimate, 4.28)
+  const plan = async (...args: string[]): Promise<string> => {
+    const h = harness()
+    expect(await plannerMain(['--dry', ...args], h.io)).toBe(EXIT_OK)
+    return h.out()
   }
 
-  it('lists the cases, the planned calls, the typical and the worst-case cost and the formula', () => {
-    const text = plan()
+  it('lists the cases, the planned calls, the typical and the worst-case cost and the formula', async () => {
+    const text = await plan()
     expect(text).toContain('rill eval: planner (suite version ')
     expect(text).toContain('cases: 48 cases (easy 20, ambiguous 10, unsupported 8, attachment 6, patch 4)')
     expect(text).toContain('tasks: 48 (48 cases x 1 rep x 1 model)')
@@ -240,47 +239,64 @@ describe('the dry run', () => {
     expect(text).toMatch(/attach-03-pdf-injection-http-exfil\s+attachment\s+high\s+workflow\s+1\s+hard,injection/u)
   })
 
-  it('prices the worst case with the number of calls of the planner settings', () => {
+  it('prices the worst case with the number of calls of the planner settings', async () => {
     const suite = createPlannerSuite()
     const expected = suite.cases().reduce((sum, testCase) => sum + (worstCaseCallUsd(suite, testCase, SONNET, 16_000) ?? 0), 0)
-    expect(plan()).toContain(`worst case $${expected.toFixed(2)} (6 calls`)
+    expect(await plan()).toContain(`worst case $${expected.toFixed(2)} (6 calls`)
     const lean = createPlannerSuite({ maxRepairRounds: 0 })
     const leanTotal = lean.cases().reduce((sum, testCase) => sum + (worstCaseCallUsd(lean, testCase, SONNET, 16_000) ?? 0), 0)
-    const leanText = plan('--max-repair-rounds', '0')
+    const leanText = await plan('--max-repair-rounds', '0')
     expect(leanText).toContain(`worst case $${leanTotal.toFixed(2)} (3 calls`)
     expect(leanText).toContain('at most 144 (3 per task)')
     expect(leanTotal).toBeLessThan(expected)
   })
 
-  it('computes the typical cost from one call per case at 3000 output tokens', () => {
+  it('computes the typical cost from one call per case at 3000 output tokens', async () => {
     const suite = createPlannerSuite()
     const expected = suite.cases().reduce((sum, testCase) => sum + (estimateCallUsd(SONNET, suite.estimateInputTokens?.(testCase) ?? 0, 3000) ?? 0), 0)
-    expect(plan()).toContain(`typical $${expected.toFixed(2)} (one call per case`)
-    expect(plan()).toContain('typical output is 3000 tokens per call')
+    const text = await plan()
+    expect(text).toContain(`typical $${expected.toFixed(2)} (one call per case`)
+    expect(text).toContain('typical output is 3000 tokens per call')
+    expect(text).toContain(`total: typical $${expected.toFixed(2)}, worst case $`)
   })
 
-  it('narrows to a group or ids, scales with reps and models, and shows an effort override', () => {
-    const patch = plan('--group', 'patch', '--reps', '2', '--model', 'claude-sonnet-5-5,claude-opus-5-5', '--effort', 'high')
+  it('narrows to a group or ids, scales with reps and models, and shows an effort override', async () => {
+    const patch = await plan('--group', 'patch', '--reps', '2', '--model', 'claude-sonnet-5-5,claude-opus-5-5', '--effort', 'high')
     expect(patch).toContain('cases: 4 cases (patch 4)')
     expect(patch).toContain('tasks: 16 (4 cases x 2 reps x 2 models)')
     expect(patch).toContain('effort: high (override)')
     expect(patch).toMatch(/patch-01-change-schedule\s+patch\s+high\s+workflow/u)
     expect(patch).toContain('claude-opus-5-5: typical')
-    expect(plan('--only', 'easy-01-receipt-folder-to-csv')).toContain('cases: 1 case (easy 1)')
+    expect(await plan('--only', 'easy-01-receipt-folder-to-csv')).toContain('cases: 1 case (easy 1)')
   })
 
-  it('says so when a model has no price, and gives no budget for it', () => {
-    const text = plan('--model', 'some-other-model')
+  it('says so when a model has no price, and gives no budget for it', async () => {
+    const text = await plan('--model', 'some-other-model')
     expect(text).toContain('some-other-model: 48 cases, no price in the price table')
     expect(text).toContain('no price for: some-other-model; the budget guard needs one, so --yes would refuse this run')
+    expect(text).toContain('budget: n/a (needs a price for every model)')
   })
 
-  it('warns when the budget is below the worst case of one case', () => {
-    const parsed = config('--budget-usd', '0.01')
-    const suite = createPlannerSuite()
-    const text = plannerPlanText(parsed, suite, estimateRun({ suite, models: parsed.models, reps: 1, outputTokens: 3000 }), 0.01)
+  it('warns when the budget is below the worst case of one case', async () => {
+    const text = await plan('--budget-usd', '0.01')
     expect(text).toContain('budget: $0.01 (from --budget-usd)')
     expect(text).toContain('note: this budget is below the worst case of one case')
+    expect(text).toContain('--budget-usd 0.01')
+    expect(await plan('--budget-usd', '5')).not.toContain('note: this budget is below')
+  })
+
+  it('suggests the larger of twice the typical cost and the typical cost plus the reserve of the cases in flight', async () => {
+    for (const args of [[], ['--concurrency', '8'], ['--group', 'patch', '--concurrency', '1'], ['--group', 'patch', '--concurrency', '16']]) {
+      const parsed = config(...args)
+      const suite = createPlannerSuite({ ...(parsed.group === undefined ? {} : { group: parsed.group }) })
+      const typical = estimateRun({ suite, models: parsed.models, reps: 1, outputTokens: 3000 })
+      const worst = worstCallUsd(suite, parsed.models, 16_000) ?? 0
+      const expected = suggestedBudgetUsd(typical.totalUsd ?? 0, guardReserveUsd(worst, parsed.concurrency, typical.calls))
+      const text = await plan(...args)
+      expect(text, args.join(' ')).toContain(`suggested budget: $${formatUsdPlain(expected)} (`)
+      expect(text).toContain(`--budget-usd ${formatUsdPlain(expected)}`)
+      expect(expected).toBeGreaterThan(2 * (typical.totalUsd ?? 0) - 1e-9)
+    }
   })
 })
 
@@ -308,14 +324,14 @@ describe('plannerMain without --yes', () => {
     expect(createEvalProvider).not.toHaveBeenCalled()
   })
 
-  it('shows the help and the usage text, and keeps the extract usage unchanged apart from a pointer', async () => {
+  it('shows the help of the planner command, and leaves the extract usage as it was', async () => {
     const h = harness()
     expect(await main(['planner', '--help'], h.io)).toBe(EXIT_OK)
     expect(h.out()).toBe(PLANNER_USAGE)
     const e = harness()
     expect(await main(['--help'], e.io)).toBe(EXIT_OK)
     expect(e.out()).toBe(USAGE)
-    expect(USAGE).toContain('pnpm eval planner --help')
+    expect(USAGE).not.toContain('planner')
   })
 
   it('exits 2 with the usage for a bad option, an unknown group and an unknown id', async () => {
@@ -542,6 +558,37 @@ describe('plannerMain --yes: a run', () => {
     expect(all).not.toContain(KEY)
     expect(all).toContain('[redacted]')
     expect(h.out() + h.err()).not.toContain(KEY)
+  })
+
+  it('puts the results of a run without --out under packages/eval/results/planner-<timestamp>', async () => {
+    const h = harness(env, oraclePlanner)
+    expect(await plannerMain(['--yes', '--budget-usd', '50', '--only', 'easy-03-webhook-to-slack'], h.io)).toBe(EXIT_OK)
+    expect(readdirSync(join(dir, 'results'))).toEqual(['planner-20261112T093000Z'])
+    expect(h.out()).toContain(`results: ${join(dir, 'results', 'planner-20261112T093000Z')}`)
+  })
+
+  it('keeps what was finished when the run crashes, in tasks.partial.jsonl', async () => {
+    const baseURL = await mockApi()
+    const ids = ['easy-03-webhook-to-slack', 'easy-05-delay-then-slack']
+    const schedule = buildSchedule({ cases: createPlannerSuite({ only: ids }).cases(), models: [SONNET], reps: 1, seed: 1 })
+    const [firstUp, secondUp] = schedule.map((entry) => entry.testCase.id)
+    const greedy: PlannerFactory = ({ deps, testCase }) => ({
+      plan: async () => {
+        const request = { messages: [{ role: 'user' as const, content: 'hello' }], schema: { type: 'object' }, ...(testCase.id === secondUp ? { maxTokens: 20_000 } : {}) }
+        await deps.provider.generate(request).catch(() => undefined)
+        return fakeResult(workflowBody(structuredClone(testCase.references[0]!)))
+      },
+    })
+    const out = join(dir, 'crash')
+    const err: string[] = []
+    const io: CliIo = { stdout: () => undefined, stderr: (text) => void err.push(text), env: { ANTHROPIC_API_KEY: KEY, ANTHROPIC_BASE_URL: baseURL }, now: () => NOW, planner: { makePlanner: greedy } }
+    const code = await plannerMain(['--yes', '--budget-usd', '50', '--allow-base-url', '--concurrency', '1', '--only', ids.join(','), '--out', out], io)
+    expect(code).toBe(EXIT_ERROR)
+    expect(err.join('')).toContain('a request asked for max_tokens 20000 but the budget reserves 16000; stopping the run')
+    const lines = readFileSync(join(out, 'tasks.partial.jsonl'), 'utf8').trim().split('\n')
+    expect(lines).toHaveLength(1)
+    expect(JSON.parse(lines[0] ?? '{}')).toMatchObject({ case_id: firstUp, status: 'ok' })
+    expect(existsSync(join(out, 'report.md'))).toBe(false)
   })
 
   it('records an injection that was copied without a flag in the report', async () => {

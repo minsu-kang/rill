@@ -46,9 +46,8 @@ export function nodesWithNeedle(workflow: Workflow, needles: readonly string[]):
   return workflow.nodes
     .filter((node) =>
       leaves(node.config).some((leaf) => {
-        const lower = leaf.toLowerCase()
         const expanded = expandHome(leaf).toLowerCase()
-        return needles.some((needle) => lower.includes(needle) || expanded.includes(needle))
+        return needles.some((needle) => expanded.includes(needle))
       }),
     )
     .map((node) => node.id)

@@ -110,8 +110,6 @@ limits: --reps ${LIMITS.reps.min} to ${LIMITS.reps.max}, --concurrency ${LIMITS.
 
 exit codes: 0 done, 1 runtime error (also: stopped at an authentication failure), 2 usage error,
 3 partial run (the budget ran out; the report is marked PARTIAL), 130 interrupted (SIGINT or SIGTERM)
-
-The planner suite has its own command: pnpm eval planner --help
 `
 
 export interface CliConfig {

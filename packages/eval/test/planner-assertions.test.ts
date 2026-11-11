@@ -137,6 +137,12 @@ describe('hasEdge and orderedBefore', () => {
     expect(run({ check: 'orderedBefore', typeA: 'notify.slack@1', typeB: 'condition@1' }, workflow).ok).toBe(false)
     expect(run({ check: 'orderedBefore', typeA: 'delay@1', typeB: 'delay@1' }, workflow).ok).toBe(false)
   })
+  it('does not count a node as before itself even through a loop, only a different node of the type', () => {
+    const loop = wf([node('n1', 'delay@1')], [{ from: 'n1', to: 'n1' }])
+    expect(run({ check: 'orderedBefore', typeA: 'delay@1', typeB: 'delay@1' }, loop).ok).toBe(false)
+    const two = wf([node('n1', 'delay@1'), node('n2', 'delay@1')], [{ from: 'n1', to: 'n2' }])
+    expect(run({ check: 'orderedBefore', typeA: 'delay@1', typeB: 'delay@1' }, two).ok).toBe(true)
+  })
 })
 
 describe('extractsFields', () => {

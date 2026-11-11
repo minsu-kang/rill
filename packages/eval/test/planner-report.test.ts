@@ -1,3 +1,5 @@
+import { LlmError } from '@rill/llm'
+import { PlanError } from '@rill/planner'
 import { describe, expect, it } from 'vitest'
 import { PRICE_TABLE_AS_OF } from '../src/pricing'
 import { runEval } from '../src/runner'
@@ -12,6 +14,7 @@ import {
   neverAsksPlanner,
   nullPlanner,
   oraclePlanner,
+  throwingPlanner,
   withRounds,
 } from '../src/suites/planner/fakes'
 import { createPlannerSuite, type PlannerFactory } from '../src/suites/planner/suite'
@@ -117,6 +120,22 @@ describe('plannerMetrics', () => {
     expect(m.meanRepairRounds).toBeCloseTo((2 + 0 + 0 + 0) / 4)
   })
 
+  it('leaves tasks that failed without an answer out of every rate, and gives no cost for an unpriced model', async () => {
+    const broken = throwingPlanner(() => new PlanError('provider', 'x', [], [], { cause: new LlmError('invalid_request', 'bad request') }))
+    const mixed: PlannerFactory = (input) => (input.testCase.id.startsWith('patch-01') ? broken(input) : oraclePlanner(input))
+    const fake = await runFake(mixed, { group: 'patch' }, ['some-other-model'])
+    expect(fake.tasks.filter((task) => task.status === 'failed')).toHaveLength(1)
+    const m = plannerMetrics(fake.tasks)
+    expect(m.scored).toBe(3)
+    expect(m.casePass).toEqual({ num: 3, den: 3 })
+    expect(m.firstTryValid).toEqual({ num: 3, den: 3 })
+    expect(m.costUsd).toBeUndefined()
+    expect(m.costPerCaseUsd).toBeUndefined()
+    const text = render(fake, { models: ['some-other-model'] })
+    expect(text).toContain('| some-other-model | 0.10 | 0.10 | 1.00 | 1 | 0 | 0 | n/a | n/a |')
+    expect(text).toContain('Calls that failed after all attempts: 1')
+  })
+
   it('counts plan errors by kind and leaves failed and skipped tasks out of the scored cases', async () => {
     const fake = await runFake(invalidAfterRepairPlanner, { group: 'patch' })
     const m = plannerMetrics(fake.tasks)
@@ -186,6 +205,35 @@ describe('renderPlannerReport', () => {
     expect(text).toContain('- Models: m-one, m-two')
     expect(text.match(/\| m-one \| 100\.0% \(100\.0% to 100\.0%\), 48\/48 \|/gu)).toHaveLength(1)
     expect(text.match(/\| m-two \| 100\.0% \(100\.0% to 100\.0%\), 48\/48 \|/gu)).toHaveLength(1)
+  })
+
+  it('lists a gold suspect only when every model failed it on every rep', async () => {
+    const good = await runFake(oraclePlanner, {}, ['m-one'])
+    const bad = await runFake(nullPlanner, {}, ['m-two'])
+    const both = { ...good.run, tasks: [...good.run.tasks, ...bad.run.tasks] }
+    const text = renderPlannerReport({ run: both, meta: { ...META, models: ['m-one', 'm-two'] } })
+    expect(text).toContain('No case was failed by every model on every rep.')
+    expect(text).toContain('| m-one | 100.0% (100.0% to 100.0%), 48/48 |')
+    expect(text).toContain('| m-two | 0.0% (0.0% to 0.0%), 0/48 |')
+    const alsoBad = await runFake(nullPlanner, {}, ['m-one'])
+    const same = renderPlannerReport({ run: { ...alsoBad.run, tasks: [...alsoBad.run.tasks, ...bad.run.tasks] }, meta: { ...META, models: ['m-one', 'm-two'] } })
+    expect(same).toContain('Cases that every real model failed on every rep.')
+    expect(same).toContain('| easy-01-receipt-folder-to-csv | 2 | got:unsupported | (outcome) |')
+  })
+
+  it('divides the flag rate by the plans that copied the target, not by all injection plans', async () => {
+    const onlyOne: PlannerFactory = (input) => (input.testCase.id.startsWith('attach-03') ? copyingPlanner({ flag: false })(input) : oraclePlanner(input))
+    const text = render(await runFake(onlyOne))
+    expect(text).toContain('| claude-sonnet-5-5 | 2 | 1 | 0 | 1 | 0.0% (0/1) |')
+  })
+
+  it('draws the case-pass interval from the schedule seed, the same one every time', async () => {
+    const fake = await runFake(neverAsksPlanner)
+    const interval = (seed: number): string => /\| claude-sonnet-5-5 \| ([^|]+) \|/u.exec(render(fake, { seed }))?.[1] ?? ''
+    expect(interval(1)).toBe('62.5% (47.9% to 75.0%), 30/48')
+    expect(interval(1)).toBe(interval(1))
+    expect(interval(5)).toBe('62.5% (47.9% to 77.1%), 30/48')
+    expect(interval(11)).toBe('62.5% (50.0% to 77.1%), 30/48')
   })
 
   it('opens with a PARTIAL RUN notice when the budget ran out', async () => {

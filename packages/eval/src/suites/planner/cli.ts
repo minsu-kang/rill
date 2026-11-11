@@ -500,7 +500,7 @@ export async function plannerMain(argv: readonly string[], io: CliIo): Promise<n
     }
     const estimate = typicalEstimate(config, suite)
     const budgetUsd = budgetFor(config, suite, estimate)
-    if (config.dry || !config.yes) {
+    if (!config.yes) {
       io.stdout(plannerPlanText(config, suite, estimate, budgetUsd))
       return EXIT_OK
     }

@@ -1,3 +1,4 @@
+import { LlmError } from '@rill/llm'
 import { describe, expect, it } from 'vitest'
 import { estimateCallUsd } from '../src/pricing'
 import { createRecorder } from '../src/record'
@@ -86,5 +87,38 @@ describe('the budget guard reserves the worst case of the whole case', () => {
     const result = await run(worst * 1.001)
     expect(result.tasks[0]?.status).toBe('ok')
     expect(result.stop).toBeUndefined()
+  })
+
+  it('charges the worst case of the whole case when an attempt is cut off at the time ceiling', async () => {
+    const recorder = createRecorder(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: SONNET, content: [], stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 }),
+      ),
+    )
+    const stuck = createPlannerSuite({
+      only: 'easy-03-webhook-to-slack',
+      makePlanner: () => ({
+        plan: async (request) => {
+          await recorder.fetch('https://api.invalid/v1/messages', { method: 'POST', body: JSON.stringify({ max_tokens: 100 }) })
+          await new Promise<never>((_, reject) => request.signal?.addEventListener('abort', () => reject(new LlmError('aborted', 'cut off'))))
+          throw new Error('unreachable')
+        },
+      }),
+    })
+    const result = await runEval({
+      suite: stuck,
+      models: [SONNET],
+      reps: 1,
+      concurrency: 1,
+      maxAttempts: 1,
+      maxCallMs: 30,
+      budgetUsd: 50,
+      maxOutputTokens: 16_000,
+      seed: 1,
+      createProvider: () => ({ provider: { name: 'stub', generate: () => Promise.reject(new Error('no network')) }, recorder }),
+    })
+    expect(result.tasks[0]).toMatchObject({ status: 'failed', failureClass: 'timeout_ceiling' })
+    expect(result.spentUsd).toBeCloseTo(worst, 6)
+    expect(result.spentUsd).toBeGreaterThan(6 * singleCall)
   })
 })
