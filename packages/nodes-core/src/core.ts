@@ -4,6 +4,7 @@ import { csvAppend } from './nodes/csv-append'
 import { delay } from './nodes/delay'
 import { fileRead } from './nodes/file-read'
 import { httpRequest } from './nodes/http-request'
+import { llmExtract } from './nodes/llm-extract'
 import { notifySlack } from './nodes/notify-slack'
 import { transform } from './nodes/transform'
 import { triggerCron } from './nodes/trigger-cron'
@@ -22,6 +23,7 @@ export function createCoreRegistry(): NodeRegistry {
     .register(condition)
     .register(delay)
     .register(fileRead)
+    .register(llmExtract)
     .register(httpRequest)
     .register(notifySlack)
 }

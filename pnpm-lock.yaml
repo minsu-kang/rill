@@ -66,6 +66,9 @@ importers:
 
   packages/nodes-core:
     dependencies:
+      '@rill/llm':
+        specifier: workspace:*
+        version: link:../llm
       typebox:
         specifier: ^1.4.6
         version: 1.4.6

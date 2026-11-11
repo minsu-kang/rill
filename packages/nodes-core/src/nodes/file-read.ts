@@ -1,25 +1,9 @@
 import { readFileSync, statSync } from 'node:fs'
 import { basename, extname } from 'node:path'
 import Type from 'typebox'
+import { BINARY_TYPES, TEXT_TYPES } from '../filetypes'
 import { assertPathAllowed } from '../guard'
 import { defineAction } from '../types'
-
-const TEXT_TYPES: Record<string, string> = {
-  '.txt': 'text/plain',
-  '.md': 'text/markdown',
-  '.csv': 'text/csv',
-  '.json': 'application/json',
-  '.log': 'text/plain',
-}
-
-const BINARY_TYPES: Record<string, string> = {
-  '.pdf': 'application/pdf',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-}
 
 const DEFAULT_MAX_BYTES = 1_048_576
 

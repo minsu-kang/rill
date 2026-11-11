@@ -1,3 +1,4 @@
+import type { LlmProvider } from '@rill/llm'
 import type Type from 'typebox'
 
 export type SideEffect = 'none' | 'idempotent' | 'external'
@@ -26,6 +27,7 @@ export interface NodeContext {
   sleep(ms: number): Promise<void>
   allowedRoots: string[] | undefined
   connections: ConnectionResolver
+  llm?: LlmProvider
 }
 
 interface NodeBase {
@@ -46,6 +48,8 @@ export interface ActionNodeDefinition extends NodeBase {
   sideEffect: SideEffect
   configSchema: Type.TSchema
   lenientRefs?: boolean
+  outputSchemaFor?(config: unknown): Type.TSchema
+  validate?(config: unknown): string[]
   execute(config: unknown, ctx: NodeContext): Promise<unknown>
 }
 
@@ -70,7 +74,14 @@ export function defineAction<C extends Type.TSchema, O extends Type.TSchema>(def
   configSchema: C
   lenientRefs?: boolean
   outputSchema: O
+  outputSchemaFor?: (config: Type.Static<C>) => Type.TSchema
+  validate?: (config: unknown) => string[]
   execute: (config: Type.Static<C>, ctx: NodeContext) => Promise<Type.Static<O>>
 }): ActionNodeDefinition {
-  return { kind: 'action', ...def, execute: def.execute as ActionNodeDefinition['execute'] }
+  return {
+    kind: 'action',
+    ...def,
+    outputSchemaFor: def.outputSchemaFor as ActionNodeDefinition['outputSchemaFor'],
+    execute: def.execute as ActionNodeDefinition['execute'],
+  }
 }
