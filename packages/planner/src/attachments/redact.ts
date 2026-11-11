@@ -4,6 +4,7 @@ import { HIDDEN_FIELDS } from '../hidden'
 import type { RedactInput } from '../ports'
 import { chosenNames, createNameGuard, outputFieldNames, wordsIn } from './names'
 import { fold } from './normalize'
+import { isGateFlag } from './provenance'
 
 const MIN_LITERAL = 6
 
@@ -106,7 +107,8 @@ export function redactIssues(issues: PlanIssue[], input: RedactInput): PlanIssue
       .split('/')
       .map((segment, index) => (index > 0 && hiddenSegment(decodeSegment(segment)) ? HIDDEN_SEGMENT : segment))
       .join('/')
-  const flagged = (pointer: string): boolean => input.flags.some((flag) => isWithin(pointer, flag.pointer))
+  const valueFlags = input.flags.filter((flag) => !isGateFlag(flag, input.workflow?.nodes.find((node) => node.id === flag.nodeId)?.type))
+  const flagged = (pointer: string): boolean => valueFlags.some((flag) => isWithin(pointer, flag.pointer))
   const roleField = (pointer: string): boolean => {
     const site = configSite(pointer, input)
     return site !== undefined && fieldRoles(site.def).some((field) => isWithin(site.inside, field.pointer))

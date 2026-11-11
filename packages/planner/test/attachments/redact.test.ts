@@ -509,3 +509,34 @@ describe('redactIssues: plain words that the model took from an attachment', () 
     expect(original.message).toBe('node n2: n1.output has no field spoolmaster')
   })
 })
+
+describe('redactIssues: a flag on a condition', () => {
+  const gated: Workflow = {
+    schemaVersion: 1,
+    name: 'wf',
+    nodes: [
+      { id: 't1', type: 'trigger.manual@1', config: {} },
+      { id: 'n1', type: 'llm.extract@1', config: { text: 'x', fields: [{ name: 'amount', type: 'number' }] } },
+      { id: 'c1', type: 'condition@1', config: { left: '{{n1.output.total}}', operator: 'gt', right: 1 } },
+      { id: 's1', type: 'notify.slack@1', config: { connection: 'ops', text: 'hi' } },
+    ],
+    edges: [],
+  }
+  const gate: Flag = { nodeId: 'c1', pointer: '/nodes/2/config/left', code: 'untrusted_flow', message: 'm' }
+  const missing = issue('/nodes/2/config/left', 'unknown_output_field', 'node c1: n1.output has no field total', 'available: amount')
+
+  it('leaves an issue at the operand as it is, because the flag says who decides and not what the value holds', () => {
+    expect(redact([missing], { workflow: gated, flags: [gate] })).toEqual([missing])
+  })
+
+  it('still redacts an untrusted_flow flag on a node that sends', () => {
+    const url: Flag = { nodeId: 's1', pointer: '/nodes/3/config/text', code: 'untrusted_flow', message: 'm' }
+    const other = issue('/nodes/3/config/text', 'config_maxLength', 'node s1: too long', 'cut it')
+    expect(redact([other], { workflow: gated, flags: [url] })[0]?.message).toBe('config_maxLength at /nodes/3/config/text')
+  })
+
+  it('still redacts a text of the attachment inside the operand', () => {
+    const echo = issue('/nodes/2/config/left', 'config_type', 'node c1: bad prod-hook-77')
+    expect(redact([echo], { workflow: gated, flags: [gate], attachmentTexts: ['use prod-hook-77'] })[0]?.message).toBe('config_type at /nodes/2/config/left')
+  })
+})

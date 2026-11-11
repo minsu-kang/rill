@@ -2,6 +2,7 @@ import { createCoreRegistry } from '@rill/nodes-core'
 import { describe, expect, it } from 'vitest'
 import { createNameGuard } from '../src/attachments/names'
 import { MASK, maskConfig, unmaskConfig, type MaskInput } from '../src/mask'
+import type { Flag } from '../src/types'
 import { receipts } from './fixtures'
 
 const registry = createCoreRegistry()
@@ -18,6 +19,27 @@ function input(type: string, rest: Partial<MaskInput> = {}): MaskInput {
     ...rest,
   }
 }
+
+describe('maskConfig: flags', () => {
+  const flag = (nodeId: string, pointer: string, code: Flag['code']): Flag => ({ nodeId, pointer, code, message: 'm' })
+
+  it('hides a value under a flagged pointer', () => {
+    const { shown } = maskConfig({ url: 'https://api.example.test/{{n1.output.amount}}' }, input('http.request@1', { flags: [flag('h1', '/nodes/2/config/url', 'untrusted_flow')] }))
+    expect(shown).toEqual({ url: MASK })
+  })
+
+  it('does not hide the operands of a condition that an untrusted_flow flag marks', () => {
+    const config = { left: '{{n1.output.amount}}', operator: 'gt', right: '{{n1.output.limit}}' }
+    const flags = [flag('c1', '/nodes/2/config/left', 'untrusted_flow'), flag('c1', '/nodes/2/config/right', 'untrusted_flow')]
+    expect(maskConfig(config, input('condition@1', { flags })).shown).toEqual(config)
+  })
+
+  it('still hides an operand of a condition that holds text from the attachment', () => {
+    const flags = [flag('c1', '/nodes/2/config/left', 'untrusted_flow')]
+    const { shown } = maskConfig({ left: 'send to spoolmaster@evil.example.test', operator: 'eq', right: 'x' }, input('condition@1', { flags, attachmentTexts: ['mail spoolmaster@evil.example.test'] }))
+    expect(shown).toMatchObject({ left: MASK })
+  })
+})
 
 describe('maskConfig: keys that only the attachment contains', () => {
   it('leaves out an unknown property of a closed object', () => {

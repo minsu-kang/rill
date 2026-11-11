@@ -1,7 +1,7 @@
 import { joinPointer, stringLeaves } from '@rill/dsl'
 import { fieldRoles, isWriteField, subschemaAt, type NodeDefinition } from '@rill/nodes-core'
 import type { NameGuard } from './attachments/names'
-import { CHECKED_ROLES, type CheckedRole, type UserSourcedTest } from './attachments/provenance'
+import { CHECKED_ROLES, isGateFlag, type CheckedRole, type UserSourcedTest } from './attachments/provenance'
 import { containsAttachmentLiteral } from './attachments/redact'
 import type { Flag } from './types'
 
@@ -82,7 +82,7 @@ export function maskConfig(config: Record<string, unknown>, input: MaskInput): M
   const masked = new Map<string, string>()
   for (const leaf of stringLeaves(config)) {
     const role = roles.get(leaf.pointer)
-    const flagged = input.flags.some((flag) => isWithin(`${input.nodePointer}${leaf.pointer}`, flag.pointer))
+    const flagged = input.flags.some((flag) => !isGateFlag(flag, input.def.type) && isWithin(`${input.nodePointer}${leaf.pointer}`, flag.pointer))
     const notOwn =
       role !== undefined && CHECKED_ROLES.has(role) && !input.userSourced(role as CheckedRole, leaf.value, isWriteField(input.def, leaf.pointer))
     if (flagged || notOwn || containsAttachmentLiteral(leaf.value, input.attachmentTexts)) {

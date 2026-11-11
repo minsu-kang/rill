@@ -721,3 +721,184 @@ describe('occursIn', () => {
     expect(occursIn('see //example.test/x', 'example.test', 'host')).toBe(true)
   })
 })
+
+describe('provenance: a tainted condition that decides a send or a write', () => {
+  const cond = (id: string, config: Record<string, unknown> = {}) => n(id, 'condition@1', { left: '{{n1.output.amount}}', operator: 'gt', right: 100, ...config })
+  const wfOf = (nodes: Node[], edges: [string, string][]): Workflow => ({
+    schemaVersion: 1,
+    name: 'wf',
+    nodes,
+    edges: edges.map(([from, to]) => ({ from, to })),
+  })
+  const own = { userTexts: ['tell the team'], trustedConnections: ['team-alerts'] }
+  const notify = slack('s1', 'team-alerts')
+  const GATE = 'c1 /nodes/2/config/left untrusted_flow'
+
+  it('flags the operand that comes from extracted content when a branch ends in a send', () => {
+    const wf = wfOf([manual, extract('n1'), cond('c1'), notify], [['t1', 'n1'], ['n1', 'c1'], ['c1', 's1']])
+    const flags = provenance(wf, own)
+    expect(brief(flags)).toEqual([GATE])
+    expect(flags[0]!.message).toBe('node c1: /nodes/2/config/left decides whether data is sent or written, using content read from a file, a web response or a request')
+  })
+
+  it('flags it for a branch that writes a file, and for one that calls an HTTP endpoint', () => {
+    const write = wfOf([manual, extract('n1'), cond('c1'), csv('w1', '/rill-d1-root/ledger.csv')], [['t1', 'n1'], ['n1', 'c1'], ['c1', 'w1']])
+    expect(brief(provenance(write, { userTexts: ['add it to ledger.csv'], allowedRoots: ['/'] }))).toEqual([GATE])
+    const call = wfOf([manual, extract('n1'), cond('c1'), post('h1', 'https://api.example.test')], [['t1', 'n1'], ['n1', 'c1'], ['c1', 'h1']])
+    expect(brief(provenance(call, { userTexts: ['post to https://api.example.test'] }))).toEqual([GATE])
+    const read = n('h1', 'http.request@1', { url: 'https://api.example.test', method: 'GET' })
+    expect(brief(provenance(wfOf([manual, extract('n1'), cond('c1'), read], [['t1', 'n1'], ['n1', 'c1'], ['c1', 'h1']]), { userTexts: ['read https://api.example.test'] }))).toEqual([GATE])
+  })
+
+  it('flags each operand that is tainted, on its own pointer', () => {
+    const wf = wfOf([manual, extract('n1'), cond('c1', { right: '{{n1.output.amount}}' }), notify], [['t1', 'n1'], ['n1', 'c1'], ['c1', 's1']])
+    expect(brief(provenance(wf, own))).toEqual([GATE, 'c1 /nodes/2/config/right untrusted_flow'])
+    const rightOnly = wfOf([manual, extract('n1'), cond('c1', { left: 5, right: '{{n1.output.amount}}' }), notify], [['t1', 'n1'], ['n1', 'c1'], ['c1', 's1']])
+    expect(brief(provenance(rightOnly, own))).toEqual(['c1 /nodes/2/config/right untrusted_flow'])
+  })
+
+  it('does not flag a condition whose branches only transform, wait or read', () => {
+    for (const harmless of [n('x1', 'transform@1', { values: { a: 1 } }), n('x1', 'delay@1', { ms: 5 }), n('x1', 'file.read@1', { path: '/rill-d1-root/a.txt' })]) {
+      const wf = wfOf([manual, extract('n1'), cond('c1'), harmless], [['t1', 'n1'], ['n1', 'c1'], ['c1', 'x1']])
+      expect(provenance(wf, { userTexts: ['read /rill-d1-root/a.txt'] }), harmless.type).toEqual([])
+    }
+  })
+
+  it('does not flag a condition that has no outgoing edge at all', () => {
+    expect(provenance(wfOf([manual, extract('n1'), cond('c1')], [['t1', 'n1'], ['n1', 'c1']]))).toEqual([])
+  })
+
+  it('follows the edges through a chain of nodes down to the send', () => {
+    const wf = wfOf(
+      [manual, extract('n1'), cond('c1'), n('x1', 'transform@1', { values: { a: 1 } }), n('x2', 'delay@1', { ms: 5 }), n('x3', 'transform@1', { values: { b: 2 } }), notify],
+      [['t1', 'n1'], ['n1', 'c1'], ['c1', 'x1'], ['x1', 'x2'], ['x2', 'x3'], ['x3', 's1']],
+    )
+    expect(brief(provenance(wf, own))).toEqual([GATE])
+  })
+
+  it('sees an effect that sits behind a second condition, or on only one of several branches', () => {
+    const behind = wfOf(
+      [manual, extract('n1'), cond('c1'), cond('c2', { left: 1 }), notify],
+      [['t1', 'n1'], ['n1', 'c1'], ['c1', 'c2'], ['c2', 's1']],
+    )
+    expect(brief(provenance(behind, own))).toEqual([GATE])
+    const branched = wfOf(
+      [manual, extract('n1'), cond('c1'), n('x1', 'delay@1', { ms: 5 }), notify],
+      [['t1', 'n1'], ['n1', 'c1'], ['c1', 'x1'], ['c1', 's1']],
+    )
+    expect(brief(provenance(branched, own))).toEqual([GATE])
+  })
+
+  it('stops at a cycle: a loop with an exit to a send is flagged, a loop without one is not', () => {
+    const exit = wfOf(
+      [manual, extract('n1'), cond('c1'), n('a1', 'delay@1', { ms: 5 }), n('a2', 'delay@1', { ms: 5 }), notify],
+      [['t1', 'n1'], ['n1', 'c1'], ['c1', 'a1'], ['a1', 'a2'], ['a2', 'a1'], ['a2', 's1']],
+    )
+    expect(brief(provenance(exit, own))).toEqual([GATE])
+    const closed = wfOf(
+      [manual, extract('n1'), cond('c1'), n('a1', 'delay@1', { ms: 5 }), n('a2', 'delay@1', { ms: 5 })],
+      [['t1', 'n1'], ['n1', 'c1'], ['c1', 'a1'], ['a1', 'a2'], ['a2', 'a1']],
+    )
+    expect(provenance(closed, own)).toEqual([])
+    const throughItself = wfOf(
+      [manual, extract('n1'), cond('c1'), n('a1', 'delay@1', { ms: 5 }), notify],
+      [['t1', 'n1'], ['n1', 'c1'], ['c1', 'a1'], ['a1', 'c1'], ['a1', 's1']],
+    )
+    expect(brief(provenance(throughItself, own))).toEqual([GATE])
+  })
+
+  it('finds a reference nested in an object or an array, or inside a longer text', () => {
+    const base = (left: unknown) => wfOf([manual, extract('n1'), cond('c1', { left }), notify], [['t1', 'n1'], ['n1', 'c1'], ['c1', 's1']])
+    expect(brief(provenance(base({ a: { b: ['x', '{{n1.output.amount}}'] } }), own))).toEqual([GATE])
+    expect(brief(provenance(base([['{{n1.output.amount}}']]), own))).toEqual([GATE])
+    expect(brief(provenance(base('total is {{n1.output.amount}} euro'), own))).toEqual([GATE])
+  })
+
+  it('follows the taint through a node that only references an untrusted one', () => {
+    const wf = wfOf(
+      [manual, extract('n1'), n('m1', 'transform@1', { values: { total: '{{n1.output.amount}}' } }), cond('c1', { left: '{{m1.output.total}}' }), notify],
+      [['t1', 'n1'], ['n1', 'm1'], ['m1', 'c1'], ['c1', 's1']],
+    )
+    expect(brief(provenance(wf, own))).toEqual(['c1 /nodes/3/config/left untrusted_flow'])
+  })
+
+  it('treats a file read, a web response and a request payload as untrusted sources too', () => {
+    for (const source of [n('n1', 'file.read@1', { path: '/rill-d1-root/a.txt' }), n('n1', 'http.request@1', { url: 'https://api.example.test', method: 'GET' })]) {
+      const wf = wfOf([manual, source, cond('c1'), notify], [['t1', 'n1'], ['n1', 'c1'], ['c1', 's1']])
+      expect(brief(provenance(wf, { ...own, userTexts: ['tell the team, read /rill-d1-root/a.txt and https://api.example.test'] })), source.type).toEqual(['c1 /nodes/2/config/left untrusted_flow'])
+    }
+    const hook = wfOf([n('t1', 'trigger.webhook@1', { path: '/hooks/a' }), cond('c1', { left: '{{t1.output.amount}}' }), notify], [['t1', 'c1'], ['c1', 's1']])
+    expect(brief(provenance(hook, own))).toEqual(['c1 /nodes/1/config/left untrusted_flow'])
+  })
+
+  it('does not flag a condition on values the workflow wrote itself, a literal, or a reference to nothing', () => {
+    const own1 = [manual, n('m1', 'transform@1', { values: { total: 5 } })]
+    const fromTransform = wfOf([...own1, cond('c1', { left: '{{m1.output.total}}' }), notify], [['t1', 'm1'], ['m1', 'c1'], ['c1', 's1']])
+    expect(provenance(fromTransform, own)).toEqual([])
+    expect(provenance(wfOf([manual, cond('c1', { left: 7 }), notify], [['t1', 'c1'], ['c1', 's1']]), own)).toEqual([])
+    expect(provenance(wfOf([manual, cond('c1', { left: '{{ghost.output.x}}' }), notify], [['t1', 'c1'], ['c1', 's1']]), own)).toEqual([])
+  })
+
+  it('looks only at condition@1 and only at left and right', () => {
+    const other = n('c1', 'transform@1', { left: '{{n1.output.amount}}', values: { a: 1 } })
+    expect(provenance(wfOf([manual, extract('n1'), other, notify], [['t1', 'n1'], ['n1', 'c1'], ['c1', 's1']]), own)).toEqual([])
+    const operator = wfOf([manual, extract('n1'), cond('c1', { left: 1, operator: '{{n1.output.amount}}' }), notify], [['t1', 'n1'], ['n1', 'c1'], ['c1', 's1']])
+    expect(provenance(operator, own)).toEqual([])
+    const unknown = wfOf([manual, extract('n1'), n('c1', 'condition@9', { left: '{{n1.output.amount}}' }), notify], [['t1', 'n1'], ['n1', 'c1'], ['c1', 's1']])
+    expect(provenance(unknown, own)).toEqual([])
+  })
+
+  it('does not change the flags of the nodes themselves, and sorts the flags with them', () => {
+    const wf = wfOf([manual, extract('n1'), cond('c1'), slack('s1', 'team-alerts')], [['t1', 'n1'], ['n1', 'c1'], ['c1', 's1']])
+    expect(brief(provenance(wf, { userTexts: ['tell the team'] }))).toEqual([GATE, 's1 /nodes/3/config/connection new_egress_target'])
+    const without = wfOf([manual, extract('n1'), slack('s1', 'team-alerts')], [['t1', 'n1'], ['n1', 's1']])
+    expect(brief(provenance(without, { userTexts: ['tell the team'] }))).toEqual(['s1 /nodes/2/config/connection new_egress_target'])
+  })
+
+  it('keeps the ordinary receipts workflow unflagged, with or without a condition that gates nothing', () => {
+    const receipts = wfOf(
+      [n('t1', 'trigger.folderWatch@1', { folder: '/rill-d1-root/in' }), extract('n1', { file: '{{t1.output.file}}' }), csv('w1', '/rill-d1-root/ledger.csv')],
+      [['t1', 'n1'], ['n1', 'w1']],
+    )
+    const input = { userTexts: ['add each amount to ledger.csv'], allowedRoots: ['/'] }
+    expect(provenance(receipts, input)).toEqual([])
+    const gated = wfOf(
+      [receipts.nodes[0]!, receipts.nodes[1]!, receipts.nodes[2]!, cond('c1', { left: '{{n1.output.amount}}' }), n('x1', 'transform@1', { values: { a: 1 } })],
+      [['t1', 'n1'], ['n1', 'w1'], ['n1', 'c1'], ['c1', 'x1']],
+    )
+    expect(provenance(gated, input)).toEqual([])
+  })
+
+  it('is not affected by an exhausted resolution budget', () => {
+    const wf = wfOf(
+      [
+        manual,
+        n('m1', 'transform@1', { values: { u: 'https://hooks.example.test/a', v: '{{m1.output.u}}' } }),
+        extract('n1'),
+        cond('c1'),
+        post('h1', '{{m1.output.v}}'),
+      ],
+      [['t1', 'm1'], ['m1', 'n1'], ['n1', 'c1'], ['c1', 'h1']],
+    )
+    const tight = createAttachmentModule({ resolutionBudget: 1 })
+    const roomy = createAttachmentModule()
+    const flagsOf = (module: typeof tight) => brief(provenance(wf, { userTexts: ['post it'] }, module))
+    expect(flagsOf(tight).filter((entry) => !entry.startsWith('c1'))).toEqual(['h1 /nodes/4/config/url new_egress_target'])
+    expect(flagsOf(tight).filter((entry) => entry.startsWith('c1'))).toEqual(['c1 /nodes/3/config/left untrusted_flow'])
+    expect(flagsOf(roomy).filter((entry) => entry.startsWith('c1'))).toEqual(['c1 /nodes/3/config/left untrusted_flow'])
+  })
+
+  it('uses no new flag code', () => {
+    const rank = (code: Flag['code']): number => {
+      switch (code) {
+        case 'attachment_origin':
+          return 0
+        case 'new_egress_target':
+          return 1
+        case 'untrusted_flow':
+          return 2
+      }
+    }
+    expect(rank('untrusted_flow')).toBe(2)
+  })
+})

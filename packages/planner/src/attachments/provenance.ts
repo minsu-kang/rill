@@ -1,5 +1,5 @@
 import { extractRefs, matchWholeRef, replaceRefs, stringLeaves, type TemplateRef, type Workflow, type WorkflowNode } from '@rill/dsl'
-import { assertPathAllowed, fieldRoles, isEgressField, isWriteField, valueAtPointer } from '@rill/nodes-core'
+import { assertPathAllowed, fieldRoles, isEgressField, isWriteField, valueAtPointer, type NodeDefinition } from '@rill/nodes-core'
 import type { ProvenanceInput } from '../ports'
 import type { Flag } from '../types'
 import { fold, literalOf, occursIn, occursInAny } from './normalize'
@@ -35,7 +35,17 @@ const MESSAGES: Record<Flag['code'], string> = {
   untrusted_flow: 'is built from content read from a file, a web response or a request',
 }
 
+const GATE_MESSAGE = 'decides whether data is sent or written, using content read from a file, a web response or a request'
+
 const CODE_ORDER: Flag['code'][] = ['attachment_origin', 'new_egress_target', 'untrusted_flow']
+
+export const CONDITION_TYPE = 'condition@1'
+const CONDITION_FIELDS = ['left', 'right'] as const
+
+/** An untrusted_flow flag on a condition says who decides, not what a value holds; its operands are not hidden from the model. */
+export function isGateFlag(flag: Flag, nodeType: string | undefined): boolean {
+  return flag.code === 'untrusted_flow' && nodeType === CONDITION_TYPE
+}
 
 function baseType(type: string): string {
   return type.replace(/@\d+$/, '')
@@ -300,6 +310,32 @@ export function userSourcedTest(input: Omit<ProvenanceInput, 'workflow' | 'attac
   }
 }
 
+function hasEffect(def: NodeDefinition): boolean {
+  if (def.kind === 'action' && def.sideEffect === 'external') return true
+  return fieldRoles(def).some(({ pointer }) => isEgressField(def, pointer) || isWriteField(def, pointer))
+}
+
+function effectReach(workflow: Workflow, registry: ProvenanceInput['registry']): (id: string) => boolean {
+  const effectful = new Set<string>()
+  const next = new Map<string, string[]>()
+  for (const node of workflow.nodes) {
+    const def = registry.get(node.type)
+    if (def !== undefined && hasEffect(def)) effectful.add(node.id)
+  }
+  for (const edge of workflow.edges) next.set(edge.from, [...(next.get(edge.from) ?? []), edge.to])
+  return (start) => {
+    const seen = new Set<string>([start])
+    const queue = [...(next.get(start) ?? [])]
+    for (let id = queue.pop(); id !== undefined; id = queue.pop()) {
+      if (seen.has(id)) continue
+      if (effectful.has(id)) return true
+      seen.add(id)
+      queue.push(...(next.get(id) ?? []))
+    }
+    return false
+  }
+}
+
 function isWatchedFile(value: string, byId: ReadonlyMap<string, WorkflowNode>): boolean {
   const whole = matchWholeRef(value)
   if (whole === null || whole.path.length !== 1 || whole.path[0] !== 'file') return false
@@ -360,6 +396,16 @@ export function computeProvenance(input: ProvenanceInput, options: ProvenanceOpt
   for (const [pointer, { index, nodeId, codes }] of codesAt) {
     for (const code of codes) found.push({ index, flag: { nodeId, pointer, code, message: `node ${nodeId}: ${pointer} ${MESSAGES[code]}` } })
   }
+  const reaches = effectReach(workflow, registry)
+  workflow.nodes.forEach((node, index) => {
+    if (node.type !== CONDITION_TYPE || !isObject(node.config)) return
+    const fields = CONDITION_FIELDS.filter((field) => extractRefs(node.config[field]).some((ref) => tainted(ref.nodeId)))
+    if (fields.length === 0 || !reaches(node.id)) return
+    for (const field of fields) {
+      const pointer = `/nodes/${index}/config/${field}`
+      found.push({ index, flag: { nodeId: node.id, pointer, code: 'untrusted_flow', message: `node ${node.id}: ${pointer} ${GATE_MESSAGE}` } })
+    }
+  })
   return found
     .sort(
       (a, b) =>

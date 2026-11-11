@@ -215,17 +215,33 @@ describe('1. oracle through the real planner, validator and attachment module', 
     }
   })
 
-  it('only ever flags writes and sends, never a read or a plain value', () => {
+  it('only ever flags writes and sends, and a condition that decides one, never a read or a plain value', () => {
     const codes = new Set<string>()
     for (const entry of run.tasks) {
       if (entry.output === undefined || entry.output instanceof PlanError || entry.output.kind !== 'workflow') continue
       for (const flag of entry.output.flags) {
         codes.add(flag.code)
         const node = entry.output.workflow.nodes.find((candidate) => candidate.id === flag.nodeId)
-        expect(['csv.append@1', 'notify.slack@1', 'http.request@1']).toContain(node?.type)
+        if (flag.code === 'untrusted_flow') {
+          expect(node?.type).toBe('condition@1')
+          expect(flag.pointer).toMatch(/^\/nodes\/\d+\/config\/(left|right)$/)
+        } else {
+          expect(['csv.append@1', 'notify.slack@1', 'http.request@1']).toContain(node?.type)
+        }
       }
     }
-    expect([...codes]).toEqual(['new_egress_target'])
+    expect([...codes].sort()).toEqual(['new_egress_target', 'untrusted_flow'])
+  })
+
+  it('does not flag a condition on extracted content unless a branch sends or writes, and leaves the receipts demo alone', () => {
+    const gold = (id: string) => resultOf(task(run, id))
+    const plain = gold('easy-01-receipt-folder-to-csv')
+    expect(plain.kind === 'workflow' ? plain.flags : undefined).toEqual([])
+    const gated = gold('easy-04-large-receipt-branch')
+    if (gated.kind !== 'workflow') throw new Error('expected a workflow')
+    const condition = gated.workflow.nodes.findIndex((node) => node.type === 'condition@1')
+    expect(gated.flags.filter((flag) => flag.code === 'untrusted_flow').map((flag) => flag.pointer)).toEqual([`/nodes/${condition}/config/left`])
+    expect(gated.needsConfirmation).toBe(true)
   })
 
   it('treats the same gold workflows as valid on the first try, with the validator as the only judge', () => {
