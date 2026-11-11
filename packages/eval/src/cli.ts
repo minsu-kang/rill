@@ -3,11 +3,12 @@ import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { LlmEffort } from '@rill/llm'
+import { formatUsdPlain, guardReserveUsd, money, plural, roundUpBudget, worstCallUsd } from './budget'
 import { PRICE_TABLE_AS_OF, priceFor } from './pricing'
 import { DEFAULT_MAX_OUTPUT_TOKENS, createEvalProvider } from './record'
 import { renderReport } from './report'
 import { PACKAGE_ROOT, appendPartial, assertWritableDir, writeResults } from './results'
-import { breakEvenOutputTokens, estimateRun, runEval, worstCaseCallUsd, type RunEstimate, type RunResult, type TaskResult } from './runner'
+import { breakEvenOutputTokens, estimateRun, runEval, type RunEstimate, type RunResult, type TaskResult } from './runner'
 import { aggregate, type ScoredRow } from './score'
 import { BASELINE_KINDS, BASELINE_NAMES, BASELINE_NOTES, baselineEvalProviders } from './suites/extract/baselines'
 import { FIXTURE_KINDS, type FixtureKind } from './suites/extract/fixtures'
@@ -272,37 +273,16 @@ function emptyConfig(): CliConfig {
 }
 
 export function suggestedBudgetUsd(estimateUsd: number, reserveUsd = 0): number {
-  const raw = Math.max(estimateUsd * SUGGESTED_BUDGET_FACTOR, estimateUsd + reserveUsd)
-  if (!(raw > 0)) return 0.01
-  if (raw >= 0.01) return Math.ceil(raw * 100 - 1e-9) / 100
-  const step = 10 ** (Math.floor(Math.log10(raw)) - 1)
-  return Number((Math.ceil(raw / step - 1e-9) * step).toPrecision(2))
+  return roundUpBudget(Math.max(estimateUsd * SUGGESTED_BUDGET_FACTOR, estimateUsd + reserveUsd))
 }
 
-export function formatUsdPlain(value: number): string {
-  const cents = value * 100
-  if (value >= 0.01 && Math.abs(cents - Math.round(cents)) < 1e-9) return value.toFixed(2)
-  const text = String(value)
-  if (!text.includes('e')) return text
-  return value.toFixed(20).replace(/0+$/u, '').replace(/\.$/u, '')
-}
-
-function plural(count: number, word: string): string {
-  return `${count} ${word}${count === 1 ? '' : 's'}`
-}
-
-function money(value: number | undefined): string {
-  if (value === undefined) return 'n/a'
-  if (value > 0 && value < 0.0001) return `$${formatUsdPlain(value)}`
-  return `$${value.toFixed(value < 1 ? 4 : 2)}`
-}
+export { formatUsdPlain }
 
 function budgetFor(config: CliConfig, estimate: RunEstimate, suite: ExtractSuite): number | undefined {
   if (config.budgetUsd !== undefined) return config.budgetUsd
   if (estimate.totalUsd === undefined) return undefined
-  const worst = worstCallUsd(config, suite)
-  const reserve = worst === undefined ? 0 : worst * Math.min(config.concurrency, estimate.calls)
-  return suggestedBudgetUsd(estimate.totalUsd, reserve)
+  const worst = worstCallUsd(suite, config.models, config.maxOutputTokens)
+  return suggestedBudgetUsd(estimate.totalUsd, guardReserveUsd(worst, config.concurrency, estimate.calls))
 }
 
 export function commandLine(config: CliConfig, budgetUsd: number | undefined): string {
@@ -325,17 +305,6 @@ export function commandLine(config: CliConfig, budgetUsd: number | undefined): s
   if (config.allowBaseUrl) parts.push('--allow-base-url')
   if (budgetUsd !== undefined) parts.push('--budget-usd', formatUsdPlain(budgetUsd))
   return parts.join(' ')
-}
-
-function worstCallUsd(config: CliConfig, suite: ExtractSuite): number | undefined {
-  let worst: number | undefined = 0
-  for (const model of config.models) {
-    for (const testCase of suite.cases()) {
-      const call = worstCaseCallUsd(suite, testCase, model, config.maxOutputTokens)
-      worst = worst === undefined || call === undefined ? undefined : Math.max(worst, call)
-    }
-  }
-  return worst
 }
 
 function planText(config: CliConfig, suite: ExtractSuite, estimate: RunEstimate, budgetUsd: number | undefined): string {
@@ -369,8 +338,8 @@ function planText(config: CliConfig, suite: ExtractSuite, estimate: RunEstimate,
         ? `suggested budget: $${formatUsdPlain(budgetUsd)} (the larger of ${SUGGESTED_BUDGET_FACTOR} x the estimate and the estimate plus the guard's reserve for ${plural(config.concurrency, 'call')} in flight, ${budgetUsd < 0.01 ? 'rounded up; below a cent, so shown with more digits' : 'rounded up to the next cent'})`
         : `budget: $${formatUsdPlain(budgetUsd)} (from --budget-usd)`,
     )
-    const worst = worstCallUsd(config, suite)
-    const reserve = worst === undefined ? 0 : worst * Math.min(config.concurrency, estimate.calls)
+    const worst = worstCallUsd(suite, config.models, config.maxOutputTokens)
+    const reserve = guardReserveUsd(worst, config.concurrency, estimate.calls)
     const breakEven = breakEvenOutputTokens(estimate, budgetUsd, reserve)
     if (breakEven !== undefined) {
       lines.push(

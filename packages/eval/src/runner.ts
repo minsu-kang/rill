@@ -591,7 +591,7 @@ export function estimateRun<C extends EvalCase, O>(input: {
   }
 }
 
-export function breakEvenOutputTokens(estimate: RunEstimate, budgetUsd: number, reserveUsd = 0): number | undefined {
+export function breakEvenOutputTokens(estimate: Pick<RunEstimate, 'calls' | 'inputUsd' | 'usdPerOutputToken'>, budgetUsd: number, reserveUsd = 0): number | undefined {
   if (estimate.inputUsd === undefined || estimate.usdPerOutputToken === undefined || estimate.usdPerOutputToken <= 0 || estimate.calls === 0) return undefined
   return Math.max(0, (budgetUsd - reserveUsd - estimate.inputUsd) / estimate.usdPerOutputToken)
 }
