@@ -99,10 +99,10 @@ export class Engine {
   enqueueRun(
     workflowId: string,
     payload: unknown = {},
-    options: { dryRun?: boolean } = {},
+    options: { dryRun?: boolean; deferStart?: boolean } = {},
   ): { runId: string; done: Promise<RunResult> } {
     const run = this.store.createRun({ workflowId, payload, dryRun: options.dryRun ?? false })
-    return { runId: run.id, done: this.track(run) }
+    return { runId: run.id, done: this.track(run, options.deferStart ?? false) }
   }
 
   async startRun(workflowId: string, payload: unknown = {}, options: { dryRun?: boolean } = {}): Promise<RunResult> {
@@ -198,10 +198,14 @@ export class Engine {
     await this.queue.idle()
   }
 
-  private track(run: RunRow): Promise<RunResult> {
+  private track(run: RunRow, deferStart = false): Promise<RunResult> {
     this.owned.add(run.id)
     return this.queue
-      .run(() => this.executor.execute(run))
+      .run(() =>
+        deferStart
+          ? new Promise<void>((resolve) => setImmediate(resolve)).then(() => this.executor.execute(run))
+          : this.executor.execute(run),
+      )
       .finally(() => {
         this.owned.delete(run.id)
       })

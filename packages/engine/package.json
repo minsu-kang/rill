@@ -9,6 +9,10 @@
     "@rill/dsl": "workspace:*",
     "@rill/nodes-core": "workspace:*",
     "@rill/protocol": "workspace:*",
-    "typebox": "^1.4.6"
+    "typebox": "^1.4.6",
+    "ws": "^8.22.2"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
   }
 }
