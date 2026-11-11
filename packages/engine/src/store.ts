@@ -31,10 +31,84 @@ export interface TriggerState {
   lastFireAt: number | null
 }
 
+export class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NotFoundError'
+  }
+}
+
+export interface StoredWorkflow {
+  id: string
+  name: string
+  active: boolean
+  createdAt: number
+  workflow: Workflow
+}
+
+export interface RunSummaryRow {
+  id: string
+  workflowId: string
+  status: RunStatus
+  dryRun: boolean
+  error: string | null
+  createdAt: number
+  startedAt: number | null
+  finishedAt: number | null
+}
+
+export interface StepDetailRow {
+  nodeId: string
+  attempt: number
+  status: AttemptStatus
+  input: unknown
+  output: unknown
+  error: string | null
+  startedAt: number
+  finishedAt: number | null
+}
+
 export class DuplicateFileError extends Error {
   constructor(path: string) {
     super(`file already delivered: ${path}`)
     this.name = 'DuplicateFileError'
+  }
+}
+
+interface RawRunSummary {
+  id: string
+  workflow_id: string
+  status: RunStatus
+  dry_run: number
+  error: string | null
+  created_at: number
+  started_at: number | null
+  finished_at: number | null
+}
+
+interface RawStepDetail {
+  node_id: string
+  attempt: number
+  status: AttemptStatus
+  input: string | null
+  output: string | null
+  error: string | null
+  started_at: number
+  finished_at: number | null
+}
+
+const SUMMARY_COLUMNS = 'id, workflow_id, status, dry_run, error, created_at, started_at, finished_at'
+
+function toRunSummary(row: RawRunSummary): RunSummaryRow {
+  return {
+    id: row.id,
+    workflowId: row.workflow_id,
+    status: row.status,
+    dryRun: row.dry_run === 1,
+    error: row.error,
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
   }
 }
 
@@ -117,7 +191,7 @@ export class Store {
 
   getWorkflow(id: string): Workflow {
     const row = this.db.get<{ dsl: string }>('SELECT dsl FROM workflows WHERE id = ?', id)
-    if (!row) throw new Error(`workflow not found: ${id}`)
+    if (!row) throw new NotFoundError(`workflow not found: ${id}`)
     return JSON.parse(row.dsl) as Workflow
   }
 
@@ -137,7 +211,7 @@ export class Store {
 
   getRun(id: string): RunRow {
     const row = this.db.get<RawRun>(`SELECT ${RUN_COLUMNS} FROM runs WHERE id = ?`, id)
-    if (!row) throw new Error(`run not found: ${id}`)
+    if (!row) throw new NotFoundError(`run not found: ${id}`)
     return toRun(row)
   }
 
@@ -336,6 +410,55 @@ export class Store {
       }
       return run
     })
+  }
+
+  listStoredWorkflows(): StoredWorkflow[] {
+    return this.db
+      .all<{ id: string; name: string; dsl: string; active: number; created_at: number }>(
+        'SELECT id, name, dsl, active, created_at FROM workflows ORDER BY created_at, rowid',
+      )
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        active: row.active === 1,
+        createdAt: row.created_at,
+        workflow: JSON.parse(row.dsl) as Workflow,
+      }))
+  }
+
+  listRunSummaries(options: { workflowId?: string; limit: number }): RunSummaryRow[] {
+    const where = options.workflowId === undefined ? '' : 'WHERE workflow_id = ?'
+    const params = options.workflowId === undefined ? [options.limit] : [options.workflowId, options.limit]
+    return this.db
+      .all<RawRunSummary>(
+        `SELECT ${SUMMARY_COLUMNS} FROM runs ${where} ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+        ...params,
+      )
+      .map(toRunSummary)
+  }
+
+  getRunSummary(id: string): RunSummaryRow {
+    const row = this.db.get<RawRunSummary>(`SELECT ${SUMMARY_COLUMNS} FROM runs WHERE id = ?`, id)
+    if (!row) throw new NotFoundError(`run not found: ${id}`)
+    return toRunSummary(row)
+  }
+
+  listStepDetails(runId: string): StepDetailRow[] {
+    return this.db
+      .all<RawStepDetail>(
+        'SELECT node_id, attempt, status, input, output, error, started_at, finished_at FROM step_attempts WHERE run_id = ? ORDER BY id',
+        runId,
+      )
+      .map((row) => ({
+        nodeId: row.node_id,
+        attempt: row.attempt,
+        status: row.status,
+        input: parseJson(row.input),
+        output: parseJson(row.output),
+        error: row.error,
+        startedAt: row.started_at,
+        finishedAt: row.finished_at,
+      }))
   }
 
   journal(): Journal {

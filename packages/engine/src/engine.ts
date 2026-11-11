@@ -5,6 +5,7 @@ import {
   type NodeRegistry,
   type TriggerNodeDefinition,
 } from '@rill/nodes-core'
+import type { NodeInfo, RunSummary, StepDetail, WorkflowSummary } from '@rill/protocol'
 import Value from 'typebox/value'
 import { systemClock, type Clock } from './clock'
 import type { Db } from './db'
@@ -122,6 +123,53 @@ export class Engine {
       }
     }
     return results
+  }
+
+  listWorkflows(): WorkflowSummary[] {
+    return this.store.listStoredWorkflows().map((stored) => ({
+      id: stored.id,
+      name: stored.name,
+      active: stored.active,
+      triggerType: stored.workflow.nodes.find((node) => isTrigger(node.type))?.type ?? 'unknown',
+      createdAt: stored.createdAt,
+    }))
+  }
+
+  getWorkflow(workflowId: string): Workflow {
+    return this.store.getWorkflow(workflowId)
+  }
+
+  listRuns(options: { workflowId?: string; limit?: number } = {}): RunSummary[] {
+    const requested = Number.isFinite(options.limit) ? Math.trunc(options.limit as number) : 50
+    const limit = Math.min(Math.max(requested, 1), 200)
+    return this.store.listRunSummaries({ workflowId: options.workflowId, limit })
+  }
+
+  getRunDetail(runId: string): { run: RunSummary; steps: StepDetail[] } {
+    return { run: this.store.getRunSummary(runId), steps: this.store.listStepDetails(runId) }
+  }
+
+  nodeCatalog(): NodeInfo[] {
+    return this.registry.list().map((def) =>
+      def.kind === 'trigger'
+        ? {
+            type: def.type,
+            kind: 'trigger' as const,
+            title: def.title,
+            description: def.description,
+            configSchema: def.configSchema,
+            outputSchema: def.outputSchema,
+          }
+        : {
+            type: def.type,
+            kind: 'action' as const,
+            title: def.title,
+            description: def.description,
+            sideEffect: def.sideEffect,
+            configSchema: def.configSchema,
+            outputSchema: def.outputSchema,
+          },
+    )
   }
 
   async activate(workflowId: string): Promise<void> {
