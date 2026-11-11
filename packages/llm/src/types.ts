@@ -3,9 +3,9 @@ export type LlmEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 export type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
 
 export type LlmPart =
-  | { type: 'text'; text: string }
-  | { type: 'document'; mediaType: 'application/pdf'; data: string }
-  | { type: 'image'; mediaType: ImageMediaType; data: string }
+  | { type: 'text'; text: string; cache?: boolean }
+  | { type: 'document'; mediaType: 'application/pdf'; data: string; cache?: boolean }
+  | { type: 'image'; mediaType: ImageMediaType; data: string; cache?: boolean }
 
 export interface LlmMessage {
   role: 'user' | 'assistant'
@@ -14,8 +14,13 @@ export interface LlmMessage {
 
 export type JsonSchema = Record<string, unknown>
 
+export interface LlmSystemBlock {
+  text: string
+  cache?: boolean
+}
+
 export interface LlmRequest {
-  system?: string
+  system?: string | LlmSystemBlock[]
   messages: LlmMessage[]
   schema: JsonSchema
   maxTokens?: number

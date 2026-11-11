@@ -9,10 +9,12 @@ import {
   type LlmProvider,
   type LlmRequest,
   type LlmResult,
+  type LlmSystemBlock,
 } from './types'
 
 export const DEFAULT_MODEL = 'claude-opus-5-5'
 export const DEFAULT_TIMEOUT_MS = 120_000
+export const MAX_CACHE_BREAKPOINTS = 4
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 
 export interface AnthropicProviderOptions {
@@ -49,15 +51,48 @@ function isReply(value: unknown): value is Reply {
   return typeof usage?.input_tokens === 'number' && typeof usage.output_tokens === 'number'
 }
 
+function cacheControl(cache: boolean | undefined) {
+  return cache === true ? { cache_control: { type: 'ephemeral' as const } } : {}
+}
+
 function toBlock(part: LlmPart): Anthropic.ContentBlockParam {
   switch (part.type) {
     case 'text':
-      return { type: 'text', text: part.text }
+      return { type: 'text', text: part.text, ...cacheControl(part.cache) }
     case 'document':
-      return { type: 'document', source: { type: 'base64', media_type: part.mediaType, data: part.data } }
+      return {
+        type: 'document',
+        source: { type: 'base64', media_type: part.mediaType, data: part.data },
+        ...cacheControl(part.cache),
+      }
     case 'image':
-      return { type: 'image', source: { type: 'base64', media_type: part.mediaType, data: part.data } }
+      return {
+        type: 'image',
+        source: { type: 'base64', media_type: part.mediaType, data: part.data },
+        ...cacheControl(part.cache),
+      }
   }
+}
+
+function toSystemBlock(block: LlmSystemBlock): Anthropic.TextBlockParam {
+  return { type: 'text', text: block.text, ...cacheControl(block.cache) }
+}
+
+function systemParam(system: LlmRequest['system']): { system?: string | Anthropic.TextBlockParam[] } {
+  if (system === undefined) return {}
+  if (typeof system === 'string') return { system }
+  return system.length === 0 ? {} : { system: system.map(toSystemBlock) }
+}
+
+function countBreakpoints(request: LlmRequest): number {
+  let count = request.cache === true ? 1 : 0
+  if (request.system !== undefined && typeof request.system !== 'string') {
+    count += request.system.filter((block) => block.cache === true).length
+  }
+  for (const message of request.messages) {
+    if (typeof message.content !== 'string') count += message.content.filter((part) => part.cache === true).length
+  }
+  return count
 }
 
 function toMessage(message: LlmMessage): Anthropic.MessageParam {
@@ -139,6 +174,13 @@ export class AnthropicProvider implements LlmProvider {
     if (request.messages.at(-1)?.role !== 'user') {
       throw new LlmError('invalid_request', 'the last message must come from the user (assistant prefill is not supported)')
     }
+    const breakpoints = countBreakpoints(request)
+    if (breakpoints > MAX_CACHE_BREAKPOINTS) {
+      throw new LlmError(
+        'invalid_request',
+        `a request can carry at most ${MAX_CACHE_BREAKPOINTS} cache breakpoints (system blocks, content parts and the cache flag together), got ${breakpoints}`,
+      )
+    }
     const base = {
       model: this.modelId,
       max_tokens: request.maxTokens ?? this.maxTokens,
@@ -147,8 +189,8 @@ export class AnthropicProvider implements LlmProvider {
         effort: request.effort ?? this.effort,
         format: { type: 'json_schema' as const, schema: request.schema },
       },
-      ...(request.system === undefined ? {} : { system: request.system }),
-      ...(request.cache === true ? { cache_control: { type: 'ephemeral' as const } } : {}),
+      ...systemParam(request.system),
+      ...cacheControl(request.cache),
     }
     const requestOptions = { signal: callOptions.signal }
     const startedAt = Date.now()
