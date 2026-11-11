@@ -5,6 +5,7 @@ import {
   LlmError,
   type LlmCallOptions,
   type LlmEffort,
+  type LlmErrorOptions,
   type LlmMessage,
   type LlmPart,
   type LlmProvider,
@@ -120,6 +121,18 @@ function usageOf(reply: Reply): { usage: LlmUsage; servedModels: string[] } {
   }
 }
 
+type Billed = Pick<LlmErrorOptions, 'usage' | 'model' | 'servedModels'>
+
+function looseBilledFields(reply: unknown): Billed {
+  if (typeof reply !== 'object' || reply === null) return {}
+  const { model, usage } = reply as { model?: unknown; usage?: unknown }
+  if (typeof model !== 'string' || typeof usage !== 'object' || usage === null) return {}
+  const counts = usage as Reply['usage']
+  if (!isCount(counts.input_tokens) || !isCount(counts.output_tokens)) return {}
+  const { usage: used, servedModels } = usageOf({ model, stop_reason: null, content: [], usage: counts })
+  return { usage: used, model, servedModels }
+}
+
 function toBlock(part: LlmPart): Anthropic.ContentBlockParam {
   switch (part.type) {
     case 'text':
@@ -169,14 +182,16 @@ function toMessage(message: LlmMessage): Anthropic.MessageParam {
 
 function toResult(reply: unknown, requestedModel: string, startedAt: number): LlmResult {
   if (!isReply(reply)) {
-    throw new LlmError('invalid_output', 'the model provider returned an unexpected response')
+    throw new LlmError('invalid_output', 'the model provider returned an unexpected response', looseBilledFields(reply))
   }
+  const { usage, servedModels } = usageOf(reply)
+  const billed: Billed = { usage, model: reply.model, servedModels }
   if (reply.stop_reason === 'refusal') {
     const category = reply.stop_details?.category ?? undefined
-    throw new LlmError('refusal', `the model declined this request${category ? ` (${category})` : ''}`, { category })
+    throw new LlmError('refusal', `the model declined this request${category ? ` (${category})` : ''}`, { category, ...billed })
   }
   if (reply.stop_reason === 'max_tokens' || reply.stop_reason === 'model_context_window_exceeded') {
-    throw new LlmError('truncated', 'the model reply was cut off before it finished; raise maxTokens or shorten the input')
+    throw new LlmError('truncated', 'the model reply was cut off before it finished; raise maxTokens or shorten the input', billed)
   }
   const lastFallback = reply.content.map((block) => block.type).lastIndexOf('fallback')
   const text = reply.content
@@ -184,14 +199,13 @@ function toResult(reply: unknown, requestedModel: string, startedAt: number): Ll
     .filter((block) => block.type === 'text')
     .map((block) => block.text ?? '')
     .join('')
-  if (text === '') throw new LlmError('invalid_output', 'the model reply had no text')
+  if (text === '') throw new LlmError('invalid_output', 'the model reply had no text', billed)
   let data: unknown
   try {
     data = JSON.parse(text)
   } catch (error) {
-    throw new LlmError('invalid_output', 'the model reply was not valid JSON', { cause: error })
+    throw new LlmError('invalid_output', 'the model reply was not valid JSON', { cause: error, ...billed })
   }
-  const { usage, servedModels } = usageOf(reply)
   return {
     data,
     model: reply.model,

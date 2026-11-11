@@ -81,8 +81,9 @@ export type PlanResult = PlanResultBody & {
   usage: LlmUsage
   /**
    * Upper bound in USD: each call's usage priced at the most expensive of the models that served it
-   * (the final model and any fallback models). Null when one of them has no price. Calls that failed
-   * with unreadable output report no usage and are not counted.
+   * (the final model and any fallback models), including calls whose reply was unreadable and that
+   * reported their usage on the error. Null when one of those models has no price, or when an
+   * unreadable reply reported no usage at all: the total is then not a known upper bound.
    */
   costUsd: number | null
   model: string

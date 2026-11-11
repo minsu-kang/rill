@@ -203,6 +203,74 @@ describe('AnthropicProvider result', () => {
   })
 })
 
+describe('AnthropicProvider billed failures', () => {
+  const billed = {
+    model: 'claude-opus-5-5',
+    usage: { inputTokens: 12, outputTokens: 7, cacheReadInputTokens: 3, cacheCreationInputTokens: 2 },
+    servedModels: ['claude-opus-5-5'],
+  }
+  const failure = async (body: unknown): Promise<LlmError> => {
+    const { baseURL } = await mock(() => ({ body }))
+    const error = await provider(baseURL).generate(request).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(LlmError)
+    return error as LlmError
+  }
+
+  it.each([
+    ['text that is not JSON', message('not json at all'), 'invalid_output'],
+    ['a reply without text', message('', { content: [] }), 'invalid_output'],
+    ['a refusal', message('', { content: [], stop_reason: 'refusal' }), 'refusal'],
+    ['a reply cut off at max_tokens', message('{"a":', { stop_reason: 'max_tokens' }), 'truncated'],
+  ] as const)('carries the usage and model of %s', async (_name, body, kind) => {
+    const error = await failure(body)
+    expect(error.kind).toBe(kind)
+    expect(error.usage).toEqual(billed.usage)
+    expect(error.model).toBe(billed.model)
+    expect(error.servedModels).toEqual(billed.servedModels)
+  })
+
+  it('reads the usage of a fallback reply from its iterations', async () => {
+    const error = await failure(
+      message('not json', {
+        model: 'claude-sonnet-5-5',
+        usage: {
+          input_tokens: 10,
+          output_tokens: 6,
+          iterations: [
+            { type: 'message', model: 'claude-opus-5-5', input_tokens: 10, output_tokens: 2 },
+            { type: 'fallback_message', model: 'claude-sonnet-5-5', input_tokens: 10, output_tokens: 4 },
+          ],
+        },
+      }),
+    )
+    expect(error.usage).toEqual({ inputTokens: 20, outputTokens: 6, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
+    expect(error.model).toBe('claude-sonnet-5-5')
+    expect(error.servedModels).toEqual(['claude-sonnet-5-5', 'claude-opus-5-5'])
+  })
+
+  it('carries the usage of an unexpected shape when the reply still reports it', async () => {
+    const error = await failure({ ...message('{"a":1}'), content: 'text' })
+    expect(error).toMatchObject({ kind: 'invalid_output', model: billed.model, usage: billed.usage })
+  })
+
+  it('carries nothing when the reply reports no usable usage', async () => {
+    for (const body of [{}, [], { ...message('{"a":1}'), usage: undefined }, { ...message('{"a":1}'), usage: { input_tokens: 'x', output_tokens: 1 } }, { usage: { input_tokens: 1, output_tokens: 1 } }]) {
+      const error = await failure(body)
+      expect(error.kind).toBe('invalid_output')
+      expect(error.usage).toBeUndefined()
+      expect(error.model).toBeUndefined()
+    }
+  })
+
+  it('leaves usage unset on errors that never had a reply', async () => {
+    const { baseURL } = await mock(() => ({ status: 500, body: errorBody('api_error', 'down') }))
+    const error = (await provider(baseURL, { maxRetries: 0 }).generate(request).catch((e: unknown) => e)) as LlmError
+    expect(error.usage).toBeUndefined()
+    expect(error.model).toBeUndefined()
+    expect(new LlmError('unknown', 'x').usage).toBeUndefined()
+  })
+})
+
 describe('AnthropicProvider errors', () => {
   it.each([
     [401, 'authentication_error', 'auth', false],

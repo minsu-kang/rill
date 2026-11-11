@@ -76,6 +76,9 @@ export interface LlmErrorOptions extends ErrorOptions {
   requestId?: string
   retryAfterMs?: number
   category?: string
+  usage?: LlmUsage
+  model?: string
+  servedModels?: string[]
 }
 
 export class LlmError extends Error {
@@ -85,9 +88,13 @@ export class LlmError extends Error {
   readonly requestId: string | undefined
   readonly retryAfterMs: number | undefined
   readonly category: string | undefined
+  /** Set when a reply arrived and was billed but could not be used: its token counts, and the models that served it. */
+  readonly usage: LlmUsage | undefined
+  readonly model: string | undefined
+  readonly servedModels: string[] | undefined
 
   constructor(kind: LlmErrorKind, message: string, options: LlmErrorOptions = {}) {
-    const { status, requestId, retryAfterMs, category, ...errorOptions } = options
+    const { status, requestId, retryAfterMs, category, usage, model, servedModels, ...errorOptions } = options
     super(message, errorOptions)
     this.name = 'LlmError'
     this.kind = kind
@@ -96,5 +103,8 @@ export class LlmError extends Error {
     this.requestId = requestId
     this.retryAfterMs = retryAfterMs
     this.category = category
+    this.usage = usage
+    this.model = model
+    this.servedModels = servedModels
   }
 }

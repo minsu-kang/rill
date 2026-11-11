@@ -200,6 +200,14 @@ describe('round metrics', () => {
   })
 })
 
+describe('scorePlannerCase and the planner cost', () => {
+  it('does not read the cost of the result: the run budget comes from the recorded exchanges, and a null cost is only unknown', () => {
+    const known = worked(EASY)
+    const unknown: PlanResult = { ...known, costUsd: null }
+    expect(scorePlannerCase(caseOf(EASY), unknown)).toEqual(scorePlannerCase(caseOf(EASY), known))
+  })
+})
+
 describe('scorePlannerCase on a plan error', () => {
   const error = new PlanError('invalid_after_repair', 'x', [fakeRound(0, [ERROR_ISSUE]), fakeRound(1, [ERROR_ISSUE])], [ERROR_ISSUE])
   it('is a schema failure with no answer on both fields and keeps the round metrics', () => {

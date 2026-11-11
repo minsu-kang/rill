@@ -234,7 +234,10 @@ class Run {
     } catch (error) {
       if (error instanceof LlmError) {
         if (error.kind === 'aborted') throw this.fail('aborted', 'planning was aborted', error)
-        if (error.kind === 'invalid_output') return error
+        if (error.kind === 'invalid_output') {
+          this.recordUnreadable(error)
+          return error
+        }
         throw this.fail('provider', `the model provider failed: ${error.message}`, error)
       }
       if (this.request.signal?.aborted === true) throw this.fail('aborted', 'planning was aborted', error)
@@ -248,6 +251,17 @@ class Run {
     this.cost = this.cost === null || price === undefined ? null : this.cost + price
     this.lastModel = result.model
     this.fallbackUsed ||= result.fallbackUsed
+  }
+
+  private recordUnreadable(error: LlmError): void {
+    const { usage, model, servedModels } = error
+    if (usage === undefined) {
+      this.cost = null
+      return
+    }
+    this.totalUsage = addUsage(this.totalUsage, usage)
+    const price = model === undefined ? undefined : upperBoundCost({ model, usage, ...(servedModels === undefined ? {} : { servedModels }) })
+    this.cost = this.cost === null || price === undefined ? null : this.cost + price
   }
 
   private baseRequest(messages: LlmMessage[], schema: Record<string, unknown>): LlmRequest {
@@ -322,6 +336,7 @@ class Run {
       const text = targetedText(this.request, userTexts(this.request), node, shown, redacted)
       const result = await this.call(this.baseRequest([{ role: 'user', content: text }], convertSchema(visible).schema))
       if (result instanceof LlmError) {
+        this.roundUsage = addUsage(this.roundUsage, result.usage ?? ZERO)
         issues.push({ stage: 1, pointer, code: 'invalid_output', message: `targeted repair of node ${node.id}: ${result.message}` })
         continue
       }
@@ -366,6 +381,7 @@ class Run {
         const schema = this.schema()
         const result = await this.call(this.baseRequest(messages, schema))
         if (result instanceof LlmError) {
+          this.roundUsage = result.usage ?? ZERO
           previous = undefined
           decoded = { issues: [{ stage: 1, pointer: '', code: 'invalid_output', message: `the answer could not be read: ${result.message}`, hint: 'answer with one JSON object that matches the output schema' }] }
         } else {
