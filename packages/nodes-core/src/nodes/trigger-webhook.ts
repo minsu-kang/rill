@@ -18,6 +18,7 @@ export const triggerWebhook = defineTrigger({
   description:
     'Starts the workflow when a request reaches a path on the local webhook server (127.0.0.1 only). With secretConnection the request must send the secret in the x-rill-secret header.',
   configSchema: webhookConfigSchema,
+  roles: { '/secretConnection': 'connection' },
   outputSchema: Type.Object({
     method: Type.String(),
     path: Type.String(),

@@ -211,6 +211,7 @@ export const llmExtract = defineAction({
   description:
     'Reads a PDF, an image, a text file or inline text and extracts the fields you declare with a language model. The content is sent to the model provider, and a dry run also calls the model. A field the document does not state comes back as null. The model returns only the declared fields and does not choose which steps run, but the values come from the document: treat them as untrusted input when they feed file paths, URLs or conditions.',
   sideEffect: 'none',
+  roles: { '/file': 'path' },
   configSchema,
   outputSchema: Type.Record(Type.String(), Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()])),
   outputSchemaFor: (config) => llmExtractOutputSchema(config),

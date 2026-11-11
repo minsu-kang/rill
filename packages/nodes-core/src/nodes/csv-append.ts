@@ -73,6 +73,7 @@ export const csvAppend = defineAction({
   title: 'Append CSV row',
   description: 'Appends one row to a CSV file, exactly once even if the run is retried or resumed.',
   sideEffect: 'idempotent',
+  roles: { '/file': 'path' },
   configSchema: Type.Object(
     { file: Type.String({ minLength: 1 }), row: Type.Array(CellSchema, { minItems: 1 }) },
     { additionalProperties: false },

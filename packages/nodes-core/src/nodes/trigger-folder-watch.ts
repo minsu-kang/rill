@@ -20,6 +20,7 @@ export const triggerFolderWatch = defineTrigger({
   description:
     'Starts the workflow for each new file in a folder once the file has stopped changing. Polls the folder; files already present when the workflow is first activated are skipped unless includeExisting is true.',
   configSchema: folderWatchConfigSchema,
+  roles: { '/folder': 'path' },
   outputSchema: Type.Object({
     file: Type.String(),
     name: Type.String(),

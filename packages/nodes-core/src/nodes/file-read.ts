@@ -12,6 +12,7 @@ export const fileRead = defineAction({
   title: 'Read file',
   description: 'Reads a file. Text files return their text; other files return metadata so a later node can use the path.',
   sideEffect: 'none',
+  roles: { '/path': 'path' },
   configSchema: Type.Object(
     {
       path: Type.String({ minLength: 1 }),

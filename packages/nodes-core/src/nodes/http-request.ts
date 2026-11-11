@@ -8,6 +8,7 @@ export const httpRequest = defineAction({
   description:
     'Calls an HTTP endpoint with JSON. Network errors, timeouts, 429 and 5xx are retried; redirects and other non-2xx responses fail the node. Non-GET calls send an Idempotency-Key header. Credentials come from a connection, never from the workflow.',
   sideEffect: 'external',
+  roles: { '/url': 'url', '/auth/connection': 'connection' },
   configSchema: Type.Object(
     {
       url: Type.String({ pattern: '^https?://' }),

@@ -8,6 +8,7 @@ export const notifySlack = defineAction({
   description:
     'Posts a message through a Slack incoming webhook connection. A crash right after sending can make a resumed run send it twice.',
   sideEffect: 'external',
+  roles: { '/connection': 'connection', '/text': 'message' },
   configSchema: Type.Object(
     {
       connection: Type.String({ minLength: 1 }),

@@ -30,11 +30,18 @@ export interface NodeContext {
   llm?: LlmProvider
 }
 
+export const FIELD_ROLES = ['path', 'url', 'connection', 'recipient', 'message'] as const
+
+export type FieldRole = (typeof FIELD_ROLES)[number]
+
+export type FieldRoles = Readonly<Record<string, FieldRole>>
+
 interface NodeBase {
   type: string
   title: string
   description: string
   outputSchema: Type.TSchema
+  roles?: FieldRoles
 }
 
 export interface TriggerNodeDefinition extends NodeBase {
@@ -73,6 +80,7 @@ export function defineAction<C extends Type.TSchema, O extends Type.TSchema>(def
   sideEffect: SideEffect
   configSchema: C
   lenientRefs?: boolean
+  roles?: FieldRoles
   outputSchema: O
   outputSchemaFor?: (config: Type.Static<C>) => Type.TSchema
   validate?: (config: unknown) => string[]

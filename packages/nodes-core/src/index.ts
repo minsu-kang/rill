@@ -12,6 +12,7 @@ export { llmExtract, llmExtractOutputSchema, type LlmExtractConfig } from './nod
 export { httpRequest } from './nodes/http-request'
 export { notifySlack } from './nodes/notify-slack'
 export * from './branches'
+export * from './roles'
 export { csvAppend, encodeRow } from './nodes/csv-append'
 export * from './guard'
 export * from './cron'
