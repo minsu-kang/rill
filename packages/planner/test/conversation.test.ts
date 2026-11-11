@@ -170,9 +170,10 @@ describe('deterministic gaps', () => {
     expect(result.needsConfirmation).toBe(true)
     expect(result.rounds[0]!.issues.map((issue) => issue.code)).toEqual(['unknown_connection'])
     const folder = await createPlanner({ provider: new FakeProvider([{ data: workflowData(receipts(), '') }]), registry }).plan(
-      request({ text: '장부에 넣어줘', turns: questionTurns(2), context: { ...request().context, allowedRoots: [] } }),
+      request({ text: `${ROOT}/Receipts 영수증을 ${ROOT}/ledger.csv 장부에 넣어줘`, turns: questionTurns(2), context: { ...request().context, allowedRoots: [] } }),
     )
     if (folder.kind !== 'workflow') throw new Error('expected a workflow')
+    expect(folder.flags).toEqual([])
     expect(folder.summary).toBe('아직 없는 설정: 허용 폴더 (n2, t1에서 사용). 기본값으로 계획했습니다. 워크플로를 활성화하기 전에 설정에서 추가해 주세요.')
     expect(folder.needsConfirmation).toBe(true)
   })
