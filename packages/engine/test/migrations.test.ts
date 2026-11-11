@@ -16,6 +16,59 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+describe('migration 4', () => {
+  it('upgrades a v3 database in place and leaves its rows alone', () => {
+    const path = join(dir, 'v3.db')
+    const raw = new DatabaseSync(path)
+    raw.exec('CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY)')
+    for (const [index, sql] of MIGRATIONS.slice(0, 3).entries()) {
+      raw.exec(sql)
+      raw.exec(`INSERT INTO schema_migrations (version) VALUES (${index + 1})`)
+    }
+    raw.exec("INSERT INTO workflows (id, name, dsl, active, created_at) VALUES ('w', 'wf', '{}', 1, 5)")
+    raw.exec("INSERT INTO runs (id, workflow_id, status, trigger_payload, created_at) VALUES ('r', 'w', 'succeeded', '{\"a\":1}', 6)")
+    raw.exec("INSERT INTO seen_files (workflow_id, fingerprint, path, seen_at, run_id) VALUES ('w', 'f', '/p', 7, 'r')")
+    raw.close()
+
+    const db = Db.open(path)
+    expect(db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version').map((r) => r.version)).toEqual([1, 2, 3, 4])
+    expect(db.get('SELECT id, name, dsl, active, created_at FROM workflows')).toEqual({ id: 'w', name: 'wf', dsl: '{}', active: 1, created_at: 5 })
+    expect(db.get<{ trigger_payload: string }>('SELECT trigger_payload FROM runs')?.trigger_payload).toBe('{"a":1}')
+    expect(db.all('SELECT * FROM seen_files')).toHaveLength(1)
+    expect(db.all('SELECT * FROM plans')).toEqual([])
+    db.close()
+  })
+
+  it('creates the plans table with its checks, defaults, foreign key and indexes', () => {
+    const db = Db.open(':memory:')
+    const insert = (status: string) =>
+      db.run(
+        "INSERT INTO plans (id, created_at, status, effort, request_text, attachments) VALUES ('p' || ?, 1, ?, 'medium', 'text', '[]')",
+        status,
+        status,
+      )
+    expect(insert('planned')).toBe(1)
+    expect(insert('failed')).toBe(1)
+    expect(insert('cancelled')).toBe(1)
+    expect(() => insert('running')).toThrow()
+    expect(db.get('SELECT flag_keys, result, meta, error, workflow_hash, workflow_id, confirmed, model FROM plans WHERE id = ?', 'pplanned')).toEqual({
+      flag_keys: '[]',
+      result: null,
+      meta: null,
+      error: null,
+      workflow_hash: null,
+      workflow_id: null,
+      confirmed: null,
+      model: null,
+    })
+    expect(() => db.run("UPDATE plans SET workflow_id = 'missing' WHERE id = 'pplanned'")).toThrow()
+    expect(() => db.run("INSERT INTO plans (id, created_at, status, effort, request_text, attachments) VALUES ('pplanned', 1, 'planned', 'low', 't', '[]')")).toThrow()
+    const indexes = db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'plans'").map((r) => r.name)
+    expect(indexes).toEqual(expect.arrayContaining(['plans_workflow_hash', 'plans_created']))
+    db.close()
+  })
+})
+
 describe('migration 2', () => {
   it('upgrades a v1 database in place and keeps its data', () => {
     const path = join(dir, 'v1.db')
@@ -32,7 +85,7 @@ describe('migration 2', () => {
 
     const db = Db.open(path)
     const versions = db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version')
-    expect(versions.map((r) => r.version)).toEqual([1, 2, 3])
+    expect(versions.map((r) => r.version)).toEqual([1, 2, 3, 4])
     const rows = db.all<{ id: number; node_id: string; status: string; output: string }>(
       'SELECT id, node_id, status, output FROM step_attempts',
     )

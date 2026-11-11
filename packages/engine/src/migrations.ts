@@ -79,6 +79,26 @@ export const MIGRATIONS: string[] = [
     PRIMARY KEY (workflow_id, fingerprint)
   );
   `,
+  `
+  CREATE TABLE plans (
+    id TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('planned','failed','cancelled')),
+    effort TEXT NOT NULL,
+    model TEXT,
+    request_text TEXT NOT NULL,
+    attachments TEXT NOT NULL,
+    result TEXT,
+    meta TEXT,
+    error TEXT,
+    workflow_hash TEXT,
+    flag_keys TEXT NOT NULL DEFAULT '[]',
+    workflow_id TEXT REFERENCES workflows(id),
+    confirmed TEXT
+  );
+  CREATE INDEX plans_workflow_hash ON plans(workflow_hash);
+  CREATE INDEX plans_created ON plans(created_at);
+  `,
 ]
 
 export function migrate(db: Db): void {

@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { Workflow } from '@rill/dsl'
 import type { Journal, JournalEntry } from '@rill/nodes-core'
+import type { AttachmentRef, PlanMeta, PlanResultBody, PlanSummary } from '@rill/protocol'
 import type { Db } from './db'
+import { PlanDeployedError, PlanExistsError, PlanNotFoundError, type StoredPlan } from './plans'
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 export type AttemptStatus = 'running' | 'succeeded' | 'failed' | 'abandoned' | 'skipped' | 'continued'
@@ -147,6 +149,45 @@ function toRun(raw: RawRun): RunRow {
 
 function parseJson(text: string | null): unknown {
   return text === null ? null : JSON.parse(text)
+}
+
+interface RawPlan {
+  id: string
+  created_at: number
+  status: StoredPlan['status']
+  effort: StoredPlan['effort']
+  model: string | null
+  request_text: string
+  attachments: string
+  result: string | null
+  meta: string | null
+  error: string | null
+  workflow_hash: string | null
+  flag_keys: string
+  workflow_id: string | null
+  confirmed: string | null
+}
+
+const PLAN_COLUMNS =
+  'id, created_at, status, effort, model, request_text, attachments, result, meta, error, workflow_hash, flag_keys, workflow_id, confirmed'
+
+function toStoredPlan(row: RawPlan): StoredPlan {
+  return {
+    planId: row.id,
+    createdAt: row.created_at,
+    status: row.status,
+    effort: row.effort,
+    model: row.model,
+    requestText: row.request_text,
+    attachments: JSON.parse(row.attachments) as AttachmentRef[],
+    result: parseJson(row.result) as PlanResultBody | null,
+    meta: parseJson(row.meta) as PlanMeta | null,
+    error: row.error,
+    flagKeys: JSON.parse(row.flag_keys) as string[],
+    workflowId: row.workflow_id,
+    confirmed: parseJson(row.confirmed) as string[] | null,
+    workflowHash: row.workflow_hash,
+  }
 }
 
 function toAttempt(raw: RawAttempt): AttemptRow {
@@ -459,6 +500,84 @@ export class Store {
         startedAt: row.started_at,
         finishedAt: row.finished_at,
       }))
+  }
+
+  savePlan(record: StoredPlan): void {
+    const refs = record.attachments.map(({ id, mediaType, name, bytes }) => ({ id, mediaType, name, bytes }))
+    const added = this.db.run(
+      `INSERT INTO plans (${PLAN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+      record.planId,
+      record.createdAt,
+      record.status,
+      record.effort,
+      record.model,
+      record.requestText,
+      JSON.stringify(refs),
+      record.result === null ? null : JSON.stringify(record.result),
+      record.meta === null ? null : JSON.stringify(record.meta),
+      record.error,
+      record.workflowHash,
+      JSON.stringify(record.flagKeys),
+      record.workflowId,
+      record.confirmed === null ? null : JSON.stringify(record.confirmed),
+    )
+    if (added === 0) throw new PlanExistsError(record.planId)
+  }
+
+  getPlan(id: string): StoredPlan {
+    const row = this.db.get<RawPlan>(`SELECT ${PLAN_COLUMNS} FROM plans WHERE id = ?`, id)
+    if (!row) throw new PlanNotFoundError(id)
+    return toStoredPlan(row)
+  }
+
+  hasPlan(id: string): boolean {
+    return this.db.get<{ found: number }>('SELECT 1 AS found FROM plans WHERE id = ?', id) !== undefined
+  }
+
+  listPlanSummaries(limit: number): PlanSummary[] {
+    return this.db
+      .all<{
+        id: string
+        created_at: number
+        status: PlanSummary['status']
+        kind: PlanSummary['kind']
+        summary: string | null
+        flag_count: number
+        workflow_id: string | null
+      }>(
+        "SELECT id, created_at, status, json_extract(result, '$.kind') AS kind, json_extract(result, '$.summary') AS summary, " +
+          'json_array_length(flag_keys) AS flag_count, workflow_id ' +
+          'FROM plans ORDER BY created_at DESC, rowid DESC LIMIT ?',
+        limit,
+      )
+      .map((row) => ({
+        planId: row.id,
+        createdAt: row.created_at,
+        status: row.status,
+        kind: row.kind,
+        summary: row.summary,
+        flagCount: row.flag_count,
+        workflowId: row.workflow_id,
+      }))
+  }
+
+  markPlanDeployed(id: string, workflowId: string, confirmed: string[]): void {
+    const changed = this.db.run(
+      'UPDATE plans SET workflow_id = ?, confirmed = ? WHERE id = ? AND workflow_id IS NULL',
+      workflowId,
+      JSON.stringify(confirmed),
+      id,
+    )
+    if (changed > 0) return
+    if (!this.hasPlan(id)) throw new PlanNotFoundError(id)
+    throw new PlanDeployedError(id)
+  }
+
+  findOpenPlanByHash(hash: string): { id: string } | undefined {
+    return this.db.get<{ id: string }>(
+      "SELECT id FROM plans WHERE workflow_hash = ? AND flag_keys != '[]' AND workflow_id IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1",
+      hash,
+    )
   }
 
   journal(): Journal {

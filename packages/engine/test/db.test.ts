@@ -31,7 +31,7 @@ describe('Db', () => {
     Db.open(path).close()
     const db = Db.open(path)
     const versions = db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version')
-    expect(versions.map((r) => r.version)).toEqual([1, 2, 3])
+    expect(versions.map((r) => r.version)).toEqual([1, 2, 3, 4])
     db.close()
   })
 
