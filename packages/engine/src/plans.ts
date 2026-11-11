@@ -75,10 +75,40 @@ function canonical(value: unknown): string {
   return JSON.stringify(value)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+const DEFAULT_BASE_DELAY_MS = 500
+
+function normalizedRetry(retry: unknown): unknown {
+  if (!isRecord(retry)) return retry
+  if (retry.maxAttempts === 1) return undefined
+  return { ...retry, baseDelayMs: retry.baseDelayMs ?? DEFAULT_BASE_DELAY_MS }
+}
+
+function normalizedNode(node: unknown): unknown {
+  if (!isRecord(node)) return node
+  const { onError, retry, ...rest } = node
+  return { ...rest, onError: onError === 'fail' ? undefined : onError, retry: normalizedRetry(retry) }
+}
+
+function unordered(items: unknown): unknown {
+  if (!Array.isArray(items)) return items
+  return items
+    .map((item) => [canonical(item), item] as const)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, item]) => item)
+}
+
 export function workflowHash(workflow: unknown): string {
-  const source = typeof workflow === 'object' && workflow !== null ? (workflow as Record<string, unknown>) : {}
-  const content = JSON.parse(JSON.stringify({ schemaVersion: source.schemaVersion, nodes: source.nodes, edges: source.edges }))
-  return createHash('sha256').update(canonical(content)).digest('hex')
+  const source = isRecord(workflow) ? workflow : {}
+  const plain = JSON.parse(JSON.stringify({ schemaVersion: source.schemaVersion, nodes: source.nodes, edges: source.edges })) as Record<string, unknown>
+  const nodes = Array.isArray(plain.nodes) ? plain.nodes.map(normalizedNode) : plain.nodes
+  const content = JSON.parse(JSON.stringify({ schemaVersion: plain.schemaVersion, nodes, edges: plain.edges })) as Record<string, unknown>
+  return createHash('sha256')
+    .update(canonical({ schemaVersion: content.schemaVersion, nodes: unordered(content.nodes), edges: unordered(content.edges) }))
+    .digest('hex')
 }
 
 export function toPlanRecord(stored: StoredPlan): PlanRecord {

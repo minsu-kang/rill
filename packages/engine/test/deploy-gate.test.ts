@@ -68,6 +68,28 @@ describe('Engine.deploy gate', () => {
     expect(engine.listWorkflows()).toEqual([])
   })
 
+  it('refuses the content of a flagged plan with its nodes in another order or with defaults spelled out', async () => {
+    const engine = setup([{ data: workflowReply(flaggedWorkflow()) }])
+    await plannedFlagged(engine)
+    const wf = flaggedWorkflow()
+    const variants = [
+      { ...wf, nodes: [wf.nodes[1]!, wf.nodes[0]!] },
+      { ...wf, nodes: [wf.nodes[0]!, { ...wf.nodes[1]!, onError: 'fail' }] },
+      { ...wf, nodes: [wf.nodes[0]!, { ...wf.nodes[1]!, retry: { maxAttempts: 1 } }] },
+      { ...wf, nodes: [{ ...wf.nodes[0]!, onError: 'fail' }, wf.nodes[1]!] },
+    ]
+    for (const content of variants) expect(await rejection(() => engine.deploy(content))).toBeInstanceOf(PlanNotConfirmedError)
+    expect(engine.listWorkflows()).toEqual([])
+  })
+
+  it('does not block content that really differs in its error handling or retries', async () => {
+    const engine = setup([{ data: workflowReply(flaggedWorkflow()) }])
+    await plannedFlagged(engine)
+    const wf = flaggedWorkflow()
+    expect(() => engine.deploy({ ...wf, nodes: [wf.nodes[0]!, { ...wf.nodes[1]!, onError: 'continue' }] })).not.toThrow()
+    expect(() => engine.deploy({ ...wf, nodes: [wf.nodes[0]!, { ...wf.nodes[1]!, retry: { maxAttempts: 3 } }] })).not.toThrow()
+  })
+
   it('lets the same content through once the plan is deployed with its keys', async () => {
     const engine = setup([{ data: workflowReply(flaggedWorkflow()) }])
     const plan = await plannedFlagged(engine)

@@ -343,11 +343,63 @@ describe('workflowHash', () => {
     expect(new Set([base, noEdge, withWhen, otherWhen]).size).toBe(4)
   })
 
-  it('keeps the order of arrays', () => {
-    const swapped = { ...workflow, nodes: [workflow.nodes[1]!, workflow.nodes[0]!] }
-    expect(workflowHash(swapped)).not.toBe(workflowHash(workflow))
+  it('ignores the order of the nodes and of the edges', () => {
+    const three: Workflow = {
+      ...workflow,
+      nodes: [...workflow.nodes, { id: 'n2', type: 'delay@1', config: { ms: 1 } }],
+      edges: [
+        { from: 't1', to: 'n1' },
+        { from: 'n1', to: 'n2', when: 'yes' },
+        { from: 'n1', to: 'n2', when: 'no' },
+      ],
+    }
+    const shuffled = { ...three, nodes: [three.nodes[2]!, three.nodes[0]!, three.nodes[1]!], edges: [three.edges[2]!, three.edges[0]!, three.edges[1]!] }
+    expect(workflowHash(shuffled)).toBe(workflowHash(three))
+    expect(workflowHash({ ...three, nodes: [three.nodes[1]!, three.nodes[0]!, three.nodes[2]!] })).toBe(workflowHash(three))
+  })
+
+  it('orders the nodes by what they hold, not by properties that are undefined', () => {
+    const node = (id: string, config: Record<string, unknown>) => ({ id, type: 'x@1', config })
+    const withUndefined = { ...workflow, nodes: [node('a', { p: undefined }), node('b', { q: 1 })], edges: [] }
+    const without = { ...workflow, nodes: [node('a', {}), node('b', { q: 1 })], edges: [] }
+    expect(workflowHash(withUndefined)).toBe(workflowHash(without))
+  })
+
+  it('keeps nodes and edges apart that differ in anything but order', () => {
+    const base = { ...workflow, nodes: [...workflow.nodes, { id: 'n2', type: 'delay@1', config: { ms: 1 } }], edges: [{ from: 't1', to: 'n1' }, { from: 'n1', to: 'n2' }] }
+    const sameNodesOtherEdges = { ...base, edges: [{ from: 't1', to: 'n1' }, { from: 't1', to: 'n2' }] }
+    const oneEdgeTwice = { ...base, edges: [{ from: 't1', to: 'n1' }, { from: 't1', to: 'n1' }] }
+    const fewerNodes = { ...base, nodes: base.nodes.slice(0, 2), edges: [{ from: 't1', to: 'n1' }] }
+    expect(new Set([base, sameNodesOtherEdges, oneEdgeTwice, fewerNodes].map(workflowHash)).size).toBe(4)
+  })
+
+  it('keeps the order of the arrays inside a config', () => {
     const rows = (row: unknown[]) => workflowHash({ ...workflow, nodes: [workflow.nodes[0]!, { id: 'n1', type: 'csv.append@1', config: { row } }] })
     expect(rows(['a', 'b'])).not.toBe(rows(['b', 'a']))
+  })
+
+  it('treats the defaults of onError and retry like absent settings', () => {
+    const base = workflowHash(workflow)
+    const withNode = (extra: Record<string, unknown>) => workflowHash({ ...workflow, nodes: [workflow.nodes[0]!, { ...workflow.nodes[1]!, ...extra }] })
+    expect(withNode({ onError: 'fail' })).toBe(base)
+    expect(withNode({ retry: { maxAttempts: 1 } })).toBe(base)
+    expect(withNode({ retry: { maxAttempts: 1, baseDelayMs: 9000 } })).toBe(base)
+    expect(withNode({ onError: 'fail', retry: { maxAttempts: 1 } })).toBe(base)
+    expect(withNode({ retry: { maxAttempts: 3 } })).toBe(withNode({ retry: { maxAttempts: 3, baseDelayMs: 500 } }))
+  })
+
+  it('keeps a retry or an onError that changes what the node does', () => {
+    const withNode = (extra: Record<string, unknown>) => workflowHash({ ...workflow, nodes: [workflow.nodes[0]!, { ...workflow.nodes[1]!, ...extra }] })
+    const variants = [
+      withNode({}),
+      withNode({ onError: 'continue' }),
+      withNode({ retry: { maxAttempts: 2 } }),
+      withNode({ retry: { maxAttempts: 3 } }),
+      withNode({ retry: { maxAttempts: 3, baseDelayMs: 100 } }),
+      withNode({ retry: { maxAttempts: 3, baseDelayMs: 0 } }),
+      withNode({ onError: 'continue', retry: { maxAttempts: 3 } }),
+    ]
+    expect(new Set(variants).size).toBe(variants.length)
   })
 
   it('does not confuse values that serialise alike', () => {
@@ -362,5 +414,7 @@ describe('workflowHash', () => {
     expect(workflowHash(null)).toMatch(hex)
     expect(workflowHash('text')).toMatch(hex)
     expect(workflowHash({})).toBe(workflowHash(null))
+    expect(workflowHash({ nodes: 'x', edges: 5 })).toMatch(hex)
+    expect(workflowHash({ nodes: [null, 'x', 3, { retry: 'x', onError: 7 }], edges: [null] })).toMatch(hex)
   })
 })
