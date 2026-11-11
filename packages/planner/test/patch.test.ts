@@ -135,7 +135,12 @@ describe('patch helpers', () => {
       { op: 'remove_node', nodeId: 'n9' },
     ]
     expect(touchedOutsideSelection(ops, existing(), 'n2')).toEqual(['n1', 't1'])
-    expect(touchedOutsideSelection(ops.slice(0, 1), existing(), 'n2')).toEqual([])
+    const direct: PatchOp[] = [
+      { op: 'set_config', nodeId: 'n2', config: {} },
+      { op: 'disconnect', from: 'n1', to: 'n2' },
+      { op: 'connect', edge: { from: 'n1', to: 'n2' } },
+    ]
+    expect(touchedOutsideSelection(direct, existing(), 'n2')).toEqual([])
   })
 
   it('names the node or edge in issues on the patched workflow', () => {
@@ -169,6 +174,15 @@ describe('patch helpers', () => {
     expect(body.patch).toEqual(ops)
     expect(body.workflow).toEqual(applyPatch(existing(), ops, registry).workflow)
     expect(decodeGeneration(encodeGeneration(body), { registry, context: patchRequest().context, mode: 'patch', selection: 'n2' }).body).toEqual(body)
+  })
+
+  it('adds the also-changed line once when a patch body is decoded again', () => {
+    const ops: PatchOp[] = [{ op: 'set_config', nodeId: 't1', config: { folder: `${ROOT}/New` } }]
+    const ctx = { registry, context: patchRequest().context, mode: 'patch' as const, selection: 'n2' }
+    const body = decodeGeneration(patchData(ops, 'Moved'), ctx).body!
+    expect(body.summary).toBe('Moved\nAlso changed: t1.')
+    expect(decodeGeneration(encodeGeneration(body), ctx).body!.summary).toBe('Moved\nAlso changed: t1.')
+    expect(decodeGeneration(patchData(ops, ''), ctx).body!.summary).toBe('Also changed: t1.')
   })
 
   it('reports a patch without an existing workflow', () => {

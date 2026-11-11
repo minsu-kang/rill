@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { NodeRegistry, createCoreRegistry } from '@rill/nodes-core'
+import { NodeRegistry, createCoreRegistry, defineTrigger } from '@rill/nodes-core'
+import Type from 'typebox'
 import { describe, expect, it } from 'vitest'
 import { HIDDEN_FIELDS, buildCatalog, catalogText } from '../src/index'
 
@@ -46,6 +47,19 @@ describe('buildCatalog', () => {
     const core = createCoreRegistry()
     buildCatalog(core)
     expect(Object.keys((core.get('file.read@1')!.configSchema as unknown as { properties: object }).properties)).toContain('maxBytes')
+  })
+
+  it('removes a hidden field from the required list too', () => {
+    const custom = new NodeRegistry().register(
+      defineTrigger({
+        type: 'trigger.custom@1',
+        title: 'Custom',
+        description: 'Test only.',
+        configSchema: Type.Object({ name: Type.String(), pollMs: Type.Integer() }),
+        outputSchema: Type.Object({}),
+      }),
+    )
+    expect(buildCatalog(custom)[0]!.config).toMatchObject({ required: ['name'], properties: { name: { type: 'string' } } })
   })
 
   it('explains that llm.extract output fields are the names in config.fields', () => {

@@ -114,6 +114,13 @@ describe('createPlanner', () => {
     expect(result.fallbackUsed).toBe(true)
   })
 
+  it('keeps fallbackUsed when an earlier round fell back', async () => {
+    const bad = receipts()
+    bad.nodes[2]!.config = { file: '/elsewhere/x.csv', row: ['a'] }
+    const provider = new FakeProvider([{ data: workflowData(bad), fallbackUsed: true }, { data: workflowData(receipts()) }])
+    expect((await createPlanner({ provider, registry }).plan(request())).fallbackUsed).toBe(true)
+  })
+
   it('maps provider errors to PlanError provider without retrying', async () => {
     for (const kind of ['rate_limit', 'auth', 'refusal', 'truncated', 'overloaded'] as const) {
       const provider = new FakeProvider([{ error: new LlmError(kind, `boom ${kind}`) }, { data: workflowData(receipts()) }])
