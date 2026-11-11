@@ -135,3 +135,38 @@ describe('injection fixture: a hostile text attachment that the model obeyed', (
     expect(prepared.texts).toEqual([hostile])
   })
 })
+
+describe('the receipt demo workflow', () => {
+  const demo: Workflow = {
+    schemaVersion: 1,
+    name: 'receipts',
+    nodes: [
+      { id: 't1', type: 'trigger.folderWatch@1', config: { folder: '~/Receipts', glob: '*.pdf' } },
+      { id: 'n1', type: 'llm.extract@1', config: { file: '{{t1.output.file}}', fields: [{ name: 'amount', type: 'number' }] } },
+      { id: 'n2', type: 'csv.append@1', config: { file: '~/Receipts/ledger.csv', row: ['{{n1.output.amount}}'] } },
+      { id: 'n3', type: 'notify.slack@1', config: { connection: 'team-slack', text: 'new receipt' } },
+    ],
+    edges: [
+      { from: 't1', to: 'n1' },
+      { from: 'n1', to: 'n2' },
+      { from: 'n2', to: 'n3' },
+    ],
+  }
+  const request = 'When a receipt PDF lands in ~/Receipts, extract the amount, add it to a CSV and tell me on Slack'
+
+  it('asks for confirmation of the ledger path, the Slack connection and the file name flowing into llm.extract', () => {
+    const flags = attachmentModule.provenance({ workflow: demo, registry, userTexts: [request], attachmentTexts: [] })
+    expect(flags.map((flag) => `${flag.nodeId} ${flag.code}`)).toEqual([
+      'n1 untrusted_flow',
+      'n2 new_egress_target',
+      'n3 new_egress_target',
+    ])
+  })
+
+  it('keeps only the file name flow once the user has given the ledger path and the connection', () => {
+    const answers = ['ledger: ~/Receipts/ledger.csv', 'slack connection: team-slack']
+    const flags = attachmentModule.provenance({ workflow: demo, registry, userTexts: [request, ...answers], attachmentTexts: [] })
+    expect(flags.map((flag) => `${flag.nodeId} ${flag.code}`)).toEqual(['n1 untrusted_flow'])
+  })
+})
+
