@@ -9,6 +9,7 @@
     "@rill/dsl": "workspace:*",
     "@rill/llm": "workspace:*",
     "@rill/nodes-core": "workspace:*",
+    "@rill/planner": "workspace:*",
     "@rill/protocol": "workspace:*",
     "typebox": "^1.4.6",
     "ws": "^8.22.2"

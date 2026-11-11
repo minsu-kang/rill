@@ -1,6 +1,7 @@
 import { closeSync, constants, fstatSync, openSync, readSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { MAX_DOCUMENT_BYTES } from '@rill/nodes-core'
+import type { AttachmentStore } from '@rill/planner'
 
 const ID = /^[A-Za-z0-9_-]{8,64}$/
 const EXTENSION = /^[a-z0-9]{1,8}$/
@@ -29,11 +30,7 @@ function readRegularFile(path: string): Uint8Array | undefined {
   }
 }
 
-export interface FsAttachmentStore {
-  read(id: string): Promise<Uint8Array | undefined>
-}
-
-export function createFsAttachmentStore(root: string): FsAttachmentStore {
+export function createFsAttachmentStore(root: string): AttachmentStore {
   return {
     read: async (id) => {
       if (typeof id !== 'string' || !ID.test(id)) return undefined

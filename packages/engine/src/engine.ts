@@ -1,11 +1,35 @@
 import { isTrigger, isWarningIssue, type PlanIssue, type Workflow } from '@rill/dsl'
-import { validateWorkflow, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
+import { assertPathAllowed, validateWorkflow, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
 import type { LlmProvider } from '@rill/llm'
-import type { NodeInfo, RunSummary, StepDetail, WorkflowSummary } from '@rill/protocol'
+import { createPlanner, type AttachmentStore, type PlanConnection } from '@rill/planner'
+import type {
+  AttachmentRef,
+  NodeInfo,
+  PlanEffort,
+  PlanRecord,
+  PlanSummary,
+  PlanTurn,
+  RunSummary,
+  StepDetail,
+  WorkflowSummary,
+} from '@rill/protocol'
+import { createFsAttachmentStore } from './attachments'
 import { systemClock, type Clock } from './clock'
 import type { Db } from './db'
 import { EventBus, type EngineListener } from './events'
 import { RunExecutor, type RunResult } from './executor'
+import {
+  LlmUnavailableError,
+  PlanBusyError,
+  PlanDeployedError,
+  PlanExistsError,
+  PlanNotConfirmedError,
+  confirmationProblem,
+  failedRecord,
+  plannedRecord,
+  toPlanRecord,
+  type PlanOutcome,
+} from './plans'
 import { RunQueue } from './queue'
 import { Store, type RunRow } from './store'
 import { TriggerManager } from './triggers/manager'
@@ -25,6 +49,25 @@ export interface EngineOptions {
   maxConcurrentRuns?: number
   webhookPort?: number
   llm?: LlmProvider
+  attachmentsRoot?: string
+  planConnections?: PlanConnection[]
+  maxConcurrentPlans?: number
+  maxRepairRounds?: number
+}
+
+export interface EnginePlanInput {
+  planId: string
+  text: string
+  turns: PlanTurn[]
+  attachments: AttachmentRef[]
+  effort: PlanEffort
+  workflowId?: string
+  selection?: { nodeId: string }
+}
+
+interface PendingPlan {
+  controller: AbortController
+  done: Promise<void>
 }
 
 export class WorkflowValidationError extends Error {
@@ -48,14 +91,38 @@ export class Engine {
   private readonly queue: RunQueue
   private readonly triggers: TriggerManager
   private readonly owned = new Set<string>()
+  private readonly db: Db
+  private readonly now: () => number
+  private readonly llm: LlmProvider | undefined
+  private readonly attachmentsRoot: string | undefined
+  private readonly attachmentStore: AttachmentStore | undefined
+  private readonly planConnections: PlanConnection[]
+  private readonly maxConcurrentPlans: number
+  private readonly maxRepairRounds: number | undefined
+  private readonly pendingPlans = new Map<string, PendingPlan>()
 
   constructor(options: EngineOptions) {
+    if (options.attachmentsRoot !== undefined && options.allowedRoots !== undefined) {
+      try {
+        assertPathAllowed(options.attachmentsRoot, options.allowedRoots)
+      } catch {
+        throw new Error(`the attachments folder must be inside an allowed folder: ${options.attachmentsRoot}`)
+      }
+    }
     const clock = options.clock ?? systemClock
     const now = options.now ?? (() => clock.now())
     const connections = options.connections ?? { get: () => undefined }
     this.store = new Store(options.db, now)
+    this.db = options.db
+    this.now = now
     this.registry = options.registry
     this.allowedRoots = options.allowedRoots
+    this.llm = options.llm
+    this.attachmentsRoot = options.attachmentsRoot
+    this.attachmentStore = options.attachmentsRoot === undefined ? undefined : createFsAttachmentStore(options.attachmentsRoot)
+    this.planConnections = options.planConnections ?? []
+    this.maxConcurrentPlans = options.maxConcurrentPlans ?? 2
+    this.maxRepairRounds = options.maxRepairRounds
     this.bus = new EventBus(now)
     this.queue = new RunQueue(options.maxConcurrentRuns ?? 4)
     this.executor = new RunExecutor({
@@ -86,10 +153,104 @@ export class Engine {
   }
 
   deploy(input: unknown): string {
+    return this.store.saveWorkflow(this.validated(input))
+  }
+
+  private validated(input: unknown): Workflow {
     const issues = validateWorkflow(input, { registry: this.registry, allowedRoots: this.allowedRoots })
     const errors = issues.filter((issue) => !isWarningIssue(issue))
     if (errors.length > 0) throw new WorkflowValidationError(errors.map((issue) => issue.message), errors)
-    return this.store.saveWorkflow(input as Workflow)
+    return input as Workflow
+  }
+
+  async plan(input: EnginePlanInput): Promise<PlanOutcome> {
+    const llm = this.llm
+    if (llm === undefined) throw new LlmUnavailableError()
+    if (this.pendingPlans.has(input.planId) || this.store.hasPlan(input.planId)) throw new PlanExistsError(input.planId)
+    if (this.pendingPlans.size >= this.maxConcurrentPlans) throw new PlanBusyError(this.maxConcurrentPlans)
+    const existingWorkflow = input.workflowId === undefined ? undefined : this.store.getWorkflow(input.workflowId)
+    const controller = new AbortController()
+    const pending: PendingPlan = { controller, done: Promise.resolve() }
+    this.pendingPlans.set(input.planId, pending)
+    const run = this.runPlan(llm, input, existingWorkflow, controller.signal)
+    pending.done = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
+  private async runPlan(
+    llm: LlmProvider,
+    input: EnginePlanInput,
+    existingWorkflow: Workflow | undefined,
+    signal: AbortSignal,
+  ): Promise<PlanOutcome> {
+    try {
+      const planner = createPlanner({
+        provider: llm,
+        registry: this.registry,
+        ...(this.attachmentStore === undefined ? {} : { attachmentStore: this.attachmentStore }),
+        ...(this.maxRepairRounds === undefined ? {} : { maxRepairRounds: this.maxRepairRounds }),
+      })
+      let planned
+      try {
+        planned = await planner.plan({
+          text: input.text,
+          turns: input.turns,
+          attachments: input.attachments,
+          effort: input.effort,
+          ...(input.selection === undefined ? {} : { selection: input.selection }),
+          context: {
+            connections: this.planConnections,
+            allowedRoots: this.allowedRoots ?? [],
+            attachmentsRoot: this.attachmentsRoot ?? '',
+            ...(existingWorkflow === undefined ? {} : { existingWorkflow }),
+          },
+          signal,
+        })
+      } catch (error) {
+        this.store.savePlan(failedRecord(input, error, this.now()))
+        throw error
+      }
+      const { record, outcome } = plannedRecord(input, planned, this.now())
+      this.store.savePlan(record)
+      return outcome
+    } finally {
+      this.pendingPlans.delete(input.planId)
+    }
+  }
+
+  cancelPlan(planId: string): boolean {
+    const pending = this.pendingPlans.get(planId)
+    if (pending === undefined) return false
+    pending.controller.abort()
+    return true
+  }
+
+  getPlan(planId: string): PlanRecord {
+    return toPlanRecord(this.store.getPlan(planId))
+  }
+
+  listPlans(options: { limit?: number } = {}): PlanSummary[] {
+    const requested = Number.isFinite(options.limit) ? Math.trunc(options.limit as number) : 50
+    return this.store.listPlanSummaries(Math.min(Math.max(requested, 1), 200))
+  }
+
+  deployPlan(planId: string, confirmed: string[]): string {
+    const plan = this.store.getPlan(planId)
+    if (plan.status !== 'planned' || plan.result?.kind !== 'workflow') {
+      throw new PlanDeployedError(planId, 'only a planned workflow can be deployed')
+    }
+    if (plan.workflowId !== null) throw new PlanDeployedError(planId)
+    const problem = confirmationProblem(plan.flagKeys, confirmed)
+    if (problem !== undefined) throw new PlanNotConfirmedError(problem)
+    const workflow = this.validated(plan.result.workflow)
+    return this.db.transaction(() => {
+      const workflowId = this.store.saveWorkflow(workflow)
+      this.store.markPlanDeployed(planId, workflowId, [...new Set(confirmed)])
+      return workflowId
+    })
   }
 
   enqueueRun(
@@ -190,6 +351,9 @@ export class Engine {
   }
 
   async shutdown(): Promise<void> {
+    const pending = [...this.pendingPlans.values()]
+    for (const plan of pending) plan.controller.abort()
+    await Promise.all(pending.map((plan) => plan.done))
     await this.triggers.shutdown()
     await this.queue.idle()
   }

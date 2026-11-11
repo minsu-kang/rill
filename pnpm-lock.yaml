@@ -47,6 +47,9 @@ importers:
       '@rill/nodes-core':
         specifier: workspace:*
         version: link:../nodes-core
+      '@rill/planner':
+        specifier: workspace:*
+        version: link:../planner
       '@rill/protocol':
         specifier: workspace:*
         version: link:../protocol
