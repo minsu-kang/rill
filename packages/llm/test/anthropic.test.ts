@@ -254,12 +254,34 @@ describe('AnthropicProvider billed failures', () => {
   })
 
   it('carries nothing when the reply reports no usable usage', async () => {
-    for (const body of [{}, [], { ...message('{"a":1}'), usage: undefined }, { ...message('{"a":1}'), usage: { input_tokens: 'x', output_tokens: 1 } }, { usage: { input_tokens: 1, output_tokens: 1 } }]) {
+    const unusable = [
+      {},
+      [],
+      null,
+      'text',
+      { ...message('{"a":1}'), usage: undefined },
+      { ...message('{"a":1}'), usage: null },
+      { ...message('{"a":1}'), usage: { input_tokens: 'x', output_tokens: 1 } },
+      { ...message('{"a":1}'), usage: { input_tokens: 1, output_tokens: 'x' } },
+      { ...message('{"a":1}'), usage: { input_tokens: 1 } },
+      { ...message('{"a":1}'), usage: { output_tokens: 1 } },
+      { usage: { input_tokens: 1, output_tokens: 1 } },
+    ]
+    for (const body of unusable) {
       const error = await failure(body)
       expect(error.kind).toBe('invalid_output')
       expect(error.usage).toBeUndefined()
       expect(error.model).toBeUndefined()
     }
+  })
+
+  it('carries nothing when the reply has no body at all', async () => {
+    const { baseURL } = await mock(() => ({ status: 204, body: undefined }))
+    const error = await provider(baseURL, { maxRetries: 0 }).generate(request).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(LlmError)
+    expect((error as LlmError).kind).toBe('invalid_output')
+    expect((error as LlmError).usage).toBeUndefined()
+    expect((error as LlmError).model).toBeUndefined()
   })
 
   it('leaves usage unset on errors that never had a reply', async () => {

@@ -53,6 +53,13 @@ describe('the cost of an unreadable answer', () => {
     expect(result.rounds[0]!.usage).toEqual({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
   })
 
+  it('keeps the cost null when a later unreadable answer can be priced', async () => {
+    const provider = new FakeProvider([unreadable(), unreadable({ usage: lost, model: SONNET }), { data: workflowData(receipts()) }])
+    const result = await plan(provider)
+    expect(result.costUsd).toBeNull()
+    expect(result.usage.inputTokens).toBe(1000 + 400 + 0)
+  })
+
   it('reports a null cost when the usage of an unreadable answer has no model to price it', async () => {
     const result = await plan(new FakeProvider([unreadable({ usage: lost }), { data: workflowData(receipts()) }]))
     expect(result.costUsd).toBeNull()
