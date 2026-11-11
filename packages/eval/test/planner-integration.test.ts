@@ -24,7 +24,7 @@ import { createEvalProvider } from '../src/record'
 import { PRICE_TABLE, estimateCallUsd, priceFor } from '../src/pricing'
 import { runEval, type RunResult } from '../src/runner'
 import { isPassingOutcome } from '../src/score'
-import { BASE_INPUT_TOKENS, DEFAULT_MAX_REPAIR_ROUNDS, TARGETED_CALLS_PER_ROUND, firstCallInputTokens, historyTokensPerRepairRound, plannerWorstCaseUsd, worstCaseCalls } from '../src/suites/planner/budget'
+import { DEFAULT_MAX_REPAIR_ROUNDS, baseInputTokens, TARGETED_CALLS_PER_ROUND, firstCallInputTokens, historyTokensPerRepairRound, plannerWorstCaseUsd, worstCaseCalls } from '../src/suites/planner/budget'
 import { loadPlannerData, type PlannerData } from '../src/suites/planner/cases'
 import { parsePlannerCli, plannerMain } from '../src/suites/planner/cli'
 import { resolveAttachments } from '../src/suites/planner/attachments'
@@ -630,7 +630,7 @@ describe('5. budget guard and the real request sizes', () => {
     const testCase = suite.cases()[0]!
     const { prompt, context } = testCase.spec
     const chars = prompt.length + context.connections.join(', ').length + context.allowedFolders.join(', ').length
-    const firstCall = 4500 + Math.ceil(chars / 3.5)
+    const firstCall = baseInputTokens(createCoreRegistry()) + Math.ceil(chars / 3.5)
     const inputTokens = firstCall + 3 * (8000 + 3000)
     const perCallUsd = (inputTokens * 2 + 8000 * 10) / 1_000_000
     expect(testCase.spec.effort).toBe('low')
@@ -654,7 +654,8 @@ describe('5. budget guard and the real request sizes', () => {
   it('assumes at least as many input tokens as the real system prompt, catalog and schema occupy', () => {
     const registry = createCoreRegistry()
     const measured = (PLANNER_RULES.length + ATTACHMENT_RULES.length + catalogText(registry).length + JSON.stringify(generationSchema(registry)).length) / TEXT_CHARS_PER_TOKEN
-    expect(BASE_INPUT_TOKENS).toBeGreaterThanOrEqual(measured)
+    expect(baseInputTokens(registry)).toBeGreaterThanOrEqual(measured)
+    expect(createPlannerSuite().baseInputTokens).toBeGreaterThanOrEqual(measured)
   })
 
   it('never asks for more max_tokens than the harness reserves, for the efforts a case can have', () => {

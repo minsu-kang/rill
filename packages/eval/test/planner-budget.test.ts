@@ -1,15 +1,16 @@
 import { capIssues } from '@rill/dsl'
 import { LlmError } from '@rill/llm'
+import { createCoreRegistry } from '@rill/nodes-core'
 import { repairMessage } from '@rill/planner'
 import { describe, expect, it } from 'vitest'
 import { estimateCallUsd } from '../src/pricing'
 import { createRecorder } from '../src/record'
 import { runEval, worstCaseCallUsd } from '../src/runner'
 import {
-  BASE_INPUT_TOKENS,
   REPAIR_MESSAGE_TOKENS,
   TARGETED_CALLS_PER_ROUND,
   effortMaxTokens,
+  baseInputTokens,
   firstCallInputTokens,
   historyTokensPerRepairRound,
   plannerWorstCaseUsd,
@@ -63,7 +64,7 @@ describe('worst-case cost of one case', () => {
     expect(worstCallInputTokens(first, 0, 16_000)).toBe(first)
     expect(worstCallInputTokens(first, 3, 16_000)).toBe(first + 3 * historyTokensPerRepairRound(16_000))
     expect(worstCallInputTokens(first, 3, 8000)).toBe(first + 3 * (8000 + REPAIR_MESSAGE_TOKENS))
-    expect(first).toBeGreaterThan(BASE_INPUT_TOKENS)
+    expect(first).toBeGreaterThan(baseInputTokens(createCoreRegistry()))
   })
   it('is the number of calls times the cost of one call with the full output allowance', () => {
     const one = estimateCallUsd(SONNET, first + 3 * historyTokensPerRepairRound(16_000), 16_000) ?? 0

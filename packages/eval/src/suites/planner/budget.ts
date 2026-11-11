@@ -1,5 +1,6 @@
 import { STREAMING_ABOVE_MAX_TOKENS } from '@rill/llm'
-import { EFFORT_BUDGETS, MAX_TARGETED_NODES, type PlanEffort } from '@rill/planner'
+import { createCoreRegistry, type NodeRegistry } from '@rill/nodes-core'
+import { ATTACHMENT_RULES, EFFORT_BUDGETS, MAX_TARGETED_NODES, PLANNER_RULES, catalogText, generationSchema, type PlanEffort } from '@rill/planner'
 import { estimateCallUsd } from '../../pricing'
 import { PDF_INPUT_TOKENS, PNG_INPUT_TOKENS, TEXT_CHARS_PER_TOKEN, TEXT_OVERHEAD_TOKENS } from '../extract/suite'
 import type { ResolvedAttachment } from './attachments'
@@ -7,7 +8,7 @@ import type { CaseSpec } from './schema'
 
 export const DEFAULT_MAX_REPAIR_ROUNDS = 3
 export const TARGETED_CALLS_PER_ROUND = MAX_TARGETED_NODES
-export const BASE_INPUT_TOKENS = 4500
+export const BASE_INPUT_MARGIN = 1.15
 export const REPAIR_MESSAGE_TOKENS = 3000
 export const TYPICAL_OUTPUT_TOKENS = 3000
 export const PLANNER_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const satisfies readonly PlanEffort[]
@@ -43,6 +44,21 @@ export function historyTokensPerRepairRound(maxOutputTokens: number): number {
   return maxOutputTokens + REPAIR_MESSAGE_TOKENS
 }
 
+export function baseInputTokens(registry: NodeRegistry): number {
+  const schemaChars = Math.max(
+    ...(['create', 'patch'] as const).map((mode) => JSON.stringify(generationSchema(registry, { mode, allowQuestions: true })).length),
+  )
+  const chars = PLANNER_RULES.length + ATTACHMENT_RULES.length + catalogText(registry).length + schemaChars
+  return Math.ceil((chars / TEXT_CHARS_PER_TOKEN) * BASE_INPUT_MARGIN)
+}
+
+let coreBaseInputTokens: number | undefined
+
+function defaultBaseInputTokens(): number {
+  coreBaseInputTokens ??= baseInputTokens(createCoreRegistry())
+  return coreBaseInputTokens
+}
+
 function contextChars(spec: CaseSpec): number {
   const { context } = spec
   const workflow = context.existingWorkflow === undefined ? 0 : JSON.stringify(context.existingWorkflow).length
@@ -55,9 +71,9 @@ function attachmentTokens(file: ResolvedAttachment): number {
   return Math.ceil(new TextDecoder().decode(file.bytes).length / TEXT_CHARS_PER_TOKEN) + TEXT_OVERHEAD_TOKENS
 }
 
-export function firstCallInputTokens(spec: CaseSpec, attachments: readonly ResolvedAttachment[]): number {
+export function firstCallInputTokens(spec: CaseSpec, attachments: readonly ResolvedAttachment[], base: number = defaultBaseInputTokens()): number {
   const text = Math.ceil(contextChars(spec) / TEXT_CHARS_PER_TOKEN)
-  return BASE_INPUT_TOKENS + text + attachments.reduce((total, file) => total + attachmentTokens(file), 0)
+  return base + text + attachments.reduce((total, file) => total + attachmentTokens(file), 0)
 }
 
 export function worstCallInputTokens(firstCall: number, maxRepairRounds: number, maxOutputTokens: number): number {

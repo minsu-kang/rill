@@ -238,11 +238,11 @@ All commands run from the repository root.
 
    ```
    export ANTHROPIC_API_KEY=...
-   pnpm eval planner --yes --concurrency 1 --budget-usd 1.35 \
+   pnpm eval planner --yes --concurrency 1 --budget-usd 2.19 \
      --only easy-01-receipt-folder-to-csv,ambig-01-which-folder,unsup-01-kakaotalk,attach-03-pdf-injection-http-exfil
    ```
 
-   The typical estimate for these four is about $0.16 and the budget of $1.35 is what the plan suggests: one worst-case case ($1.19) plus margin. The guard needs a budget of at least the worst case of one case to start any.
+   The typical estimate for these four is about $0.17 and the budget of $2.19 is what the plan suggests: one worst-case case ($2.02) plus the typical estimate. The guard needs a budget of at least the worst case of one case to start any.
 
 3. Full run. 48 cases, one rep, Sonnet at the effort each case sets (`pnpm eval planner --dry` prints the budget to pass).
 
@@ -284,7 +284,7 @@ input   = first-call estimate + maxRepairRounds x (max_tokens of the effort + 30
 reserve = calls x price(model, input tokens, max_tokens of the effort of the case)
 ```
 
-The first-call estimate is 4500 tokens of rules and node catalog plus the case text (chars / 3.5), plus 2400 for a PDF, 2000 for a PNG, or chars / 3.5 + 400 for a text attachment. The history of a repair round is the previous answer, which can fill the whole `max_tokens` of the effort, and the issue list (at most 20 issues, 3000 tokens). Every call is priced at that largest input, so the reserve is an upper bound. The reserve is held for every case in flight and added to the spend; at the first case that would cross the cap the runner stops dispatching and the run ends PARTIAL. Actual usage is charged as it arrives, across all calls of the case. With the defaults on Sonnet the reserve of one case is about $1.19 and the worst case of the whole set about $55.75; the typical estimate (one call per case at 3000 output tokens, thinking included, no repair) is about $1.90. All three are estimates from the price table, not measurements.
+The first-call estimate is the size of the rules, the node catalog and the output schema as the planner sends them (measured from the code at chars / 3.5, plus 15%: about 5100 tokens today, and it grows by itself when a node is added) plus the case text (chars / 3.5), plus 2400 for a PDF, 2000 for a PNG, or chars / 3.5 + 400 for a text attachment. The history of a repair round is the previous answer, which can fill the whole `max_tokens` of the effort, and the issue list (at most 20 issues, 3000 tokens). Every call is priced at that largest input, so the reserve is an upper bound. The reserve is held for every case in flight and added to the spend; at the first case that would cross the cap the runner stops dispatching and the run ends PARTIAL. Actual usage is charged as it arrives, across all calls of the case. With the defaults on Sonnet the reserve of one case is about $2.02 and the worst case of the whole set about $71.51; the typical estimate (one call per case at 3000 output tokens, thinking included, no repair) is about $1.96. All three are estimates from the price table, not measurements.
 
 ### What it measures
 
