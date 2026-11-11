@@ -3,6 +3,9 @@ import type { JsonSchema, LlmPart, LlmProvider } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
 import type { AttachmentRef, Flag, PlanRequest, PlanResult, PlanResultBody } from './types'
 
+export const MAX_ATTACHMENTS_PER_MESSAGE = 5
+export const MAX_ATTACHMENTS_PER_CONVERSATION = 10
+
 export interface AttachmentStore {
   read(id: string): Promise<Uint8Array | undefined>
 }

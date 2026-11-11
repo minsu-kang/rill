@@ -85,7 +85,7 @@ export type PlanResult = PlanResultBody & {
   fallbackUsed: boolean
 }
 
-export type PlanErrorKind = 'invalid_after_repair' | 'provider' | 'aborted'
+export type PlanErrorKind = 'invalid_after_repair' | 'provider' | 'aborted' | 'attachment'
 
 export class PlanError extends Error {
   readonly kind: PlanErrorKind
