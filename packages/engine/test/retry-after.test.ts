@@ -76,6 +76,22 @@ describe('retryDelay', () => {
     expect(retryDelay(1, 500, full, chain)).toBe(500)
   })
 
+  it('reads four causes down and no further', () => {
+    const nested = (causes: number): unknown => {
+      let error: unknown = new LlmError('rate_limit', 'x', { retryAfterMs: 9000 })
+      for (let level = 0; level < causes; level++) error = new Error(`level ${level}`, { cause: error })
+      return error
+    }
+    expect(retryDelay(1, 500, full, nested(4))).toBe(9000)
+    expect(retryDelay(1, 500, full, nested(5))).toBe(500)
+  })
+
+  it('ends the search at a cause that is null or missing', () => {
+    expect(retryDelay(1, 500, full, new Error('x', { cause: null }))).toBe(500)
+    expect(retryDelay(1, 500, full, new Error('x', { cause: new Error('y', { cause: undefined }) }))).toBe(500)
+    expect(retryDelay(1, 500, full, null)).toBe(500)
+  })
+
   it('does not read the random source more than the backoff does', () => {
     let calls = 0
     retryDelay(1, 500, () => (calls++, 1), withRetryAfter(4000))

@@ -347,6 +347,15 @@ describe('provenance: malformed input', () => {
   })
 })
 
+describe('provenance: a condition without a config object', () => {
+  it('does not throw and flags nothing', () => {
+    for (const config of [null, 'x', 5]) {
+      const wf = chain(manual, extract('e1'), { id: 'c1', type: 'condition@1', config: config as unknown as Record<string, unknown> }, csv('w1', '/r/ledger.csv'))
+      expect(provenance(wf, { userTexts: ['write to /r/ledger.csv'] }), String(config)).toEqual([])
+    }
+  })
+})
+
 describe('provenance: substituted references', () => {
   const base = n('c', 'transform@1', { values: { base: 'https://api.example.com', ver: 'v2', p: 'invoices', q: '2026', evil: 'https://collect.evil-example.test' } })
   const flagged = (url: string, text: string) => brief(provenance(chain(manual, base, post('n1', url)), { userTexts: [text] }))

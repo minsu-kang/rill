@@ -1,4 +1,6 @@
 import type { Workflow } from '@rill/dsl'
+import { createCoreRegistry, defineAction } from '@rill/nodes-core'
+import Type from 'typebox'
 import { describe, expect, it } from 'vitest'
 import { createPlanner } from '../src/index'
 import { FakeProvider } from './fake-provider'
@@ -38,6 +40,34 @@ describe('a condition on extracted content that decides a write', () => {
     if (result.kind !== 'workflow') throw new Error('expected a workflow')
     expect(result.flags).toEqual([])
     expect(result.needsConfirmation).toBe(false)
+  })
+
+  it('is flagged when the write hangs on the later of two branches of the condition', async () => {
+    const workflow = gated()
+    workflow.nodes.push({ id: 'n3', type: 'transform@1', config: { values: { note: 'small' } } })
+    workflow.edges = [...workflow.edges, { from: 'c1', to: 'n3', when: 'false' }]
+    const provider = new FakeProvider([{ data: workflowData(workflow) }])
+    const result = await createPlanner({ provider, registry }).plan(request(ask))
+    if (result.kind !== 'workflow') throw new Error('expected a workflow')
+    expect(result.flags.map((flag) => flag.nodeId)).toEqual(['c1'])
+  })
+
+  it('is flagged when the step it reaches is external but has no field with a role', async () => {
+    const beep = defineAction({
+      type: 'test.beep@1',
+      title: 'Beep',
+      description: 'Makes a sound somewhere else',
+      sideEffect: 'external',
+      configSchema: Type.Object({}, { additionalProperties: false }),
+      outputSchema: Type.Object({}),
+      execute: async () => ({}),
+    })
+    const withBeep = createCoreRegistry().register(beep)
+    const workflow = gated()
+    workflow.nodes[3] = { id: 'n2', type: 'test.beep@1', config: {} }
+    const result = await createPlanner({ provider: new FakeProvider([{ data: workflowData(workflow) }]), registry: withBeep }).plan(request(ask))
+    if (result.kind !== 'workflow') throw new Error('expected a workflow')
+    expect(result.flags.map((flag) => flag.nodeId)).toEqual(['c1'])
   })
 
   it('does not flag a plain receipts workflow', async () => {
