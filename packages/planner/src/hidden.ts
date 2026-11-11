@@ -1,4 +1,5 @@
-import { joinPointer, type PlanIssue } from '@rill/dsl'
+import { isDeepStrictEqual } from 'node:util'
+import { joinPointer, type PlanIssue, type Workflow } from '@rill/dsl'
 import type { NodeDefinition, NodeRegistry } from '@rill/nodes-core'
 
 export const HIDDEN_FIELDS = ['pollMs', 'stableMs', 'timeoutMs', 'maxBytes', 'overlap'] as const
@@ -32,11 +33,22 @@ export function hiddenValues(def: NodeDefinition | undefined, config: Record<str
   return Object.fromEntries(hiddenFieldsOf(def).filter((name) => Object.hasOwn(config, name)).map((name) => [name, config[name]]))
 }
 
+export function withoutHiddenValues(workflow: Workflow): Workflow {
+  return {
+    ...workflow,
+    nodes: workflow.nodes.map((node) => ({
+      ...node,
+      config: Object.fromEntries(Object.entries(node.config).filter(([key]) => !(HIDDEN_FIELDS as readonly string[]).includes(key))),
+    })),
+  }
+}
+
 export interface ConfigSite {
   type: string
   config: unknown
   pointer: string
   nodeId?: string
+  existing?: Record<string, unknown>
 }
 
 export function hiddenFieldIssues(sites: readonly ConfigSite[], registry: NodeRegistry): PlanIssue[] {
@@ -46,6 +58,8 @@ export function hiddenFieldIssues(sites: readonly ConfigSite[], registry: NodeRe
     if (def === undefined || site.config === null || typeof site.config !== 'object') continue
     for (const name of hiddenFieldsOf(def)) {
       if (!Object.hasOwn(site.config, name)) continue
+      const value = (site.config as Record<string, unknown>)[name]
+      if (site.existing !== undefined && Object.hasOwn(site.existing, name) && isDeepStrictEqual(site.existing[name], value)) continue
       const label = site.nodeId === undefined ? '' : `node ${site.nodeId}: `
       issues.push({
         stage: 3,

@@ -3,7 +3,7 @@ import type { LlmMessage, LlmPart, LlmSystemBlock } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
 import { catalogText } from './catalog'
 import { encodeGeneration } from './generation'
-import { HIDDEN_FIELDS } from './hidden'
+import { HIDDEN_FIELDS, withoutHiddenValues } from './hidden'
 import { MASK } from './mask'
 import { MAX_QUESTION_TURNS, MAX_QUESTIONS } from './questions'
 import type { PlanEffort, PlanRequest, PlanTurn } from './types'
@@ -88,7 +88,7 @@ export function contextText(input: CurrentTurnInput): string {
       '',
       `Patch mode: change the existing workflow below for the selected node ${request.selection!.nodeId}. Answer kind "workflow" with "patch" operations, not a whole workflow.`,
       'Existing workflow (JSON):',
-      JSON.stringify(request.context.existingWorkflow),
+      JSON.stringify(withoutHiddenValues(request.context.existingWorkflow!)),
     )
   }
   if (questionTurns >= MAX_QUESTION_TURNS) {

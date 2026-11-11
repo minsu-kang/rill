@@ -7,6 +7,7 @@ import {
   decodeGeneration,
   decodePatchOps,
   encodeGeneration,
+  HIDDEN_FIELD_CODE,
   generationSchema,
   labelIssuesForPatch,
   touchedOutsideSelection,
@@ -211,12 +212,37 @@ describe('patch mode in the planner', () => {
     expect(sent.schema).toEqual(generationSchema(registry, { mode: 'patch' }))
     const text = sent.messages[0]!.content as string
     expect(text).toContain('Patch mode: change the existing workflow below for the selected node n2.')
-    expect(text).toContain(JSON.stringify(existing()))
+    expect(text).toContain(JSON.stringify(receipts()))
+    expect(text).not.toContain('pollMs')
+    expect(text).not.toContain('stableMs')
     if (result.kind !== 'workflow') throw new Error('expected a workflow')
     expect(result.patch).toEqual(ops)
     expect(result.workflow.nodes[2]!.config).toEqual(ops[0]!.op === 'set_config' ? ops[0]!.config : {})
     expect(result.workflow.nodes[0]!.config).toEqual(existing().nodes[0]!.config)
     expect(result.summary).toBe('Changed')
+  })
+
+  it('accepts a set_config that repeats an unchanged hidden value and keeps it, without a repair round', async () => {
+    const ops: PatchOp[] = [{ op: 'set_config', nodeId: 't1', config: { folder: `${ROOT}/Receipts`, glob: '*.txt', pollMs: 500 } }]
+    const provider = new FakeProvider([{ data: patchData(ops) }])
+    const result = await createPlannerFor(provider).plan(patchRequest('t1'))
+    if (result.kind !== 'workflow') throw new Error('expected a workflow')
+    expect(provider.calls).toHaveLength(1)
+    expect(result.rounds[0]!.issues).toEqual([])
+    expect(result.workflow.nodes[0]!.config).toEqual({ folder: `${ROOT}/Receipts`, glob: '*.txt', pollMs: 500, stableMs: 2000 })
+  })
+
+  it('rejects a set_config that changes a hidden value or adds one the node does not have', async () => {
+    const unchanged = { folder: `${ROOT}/Receipts`, glob: '*.txt' }
+    for (const config of [{ ...unchanged, pollMs: 900 }, { ...unchanged, pollMs: 500, stableMs: 1 }, { ...unchanged, pollMs: '500' }]) {
+      const ops: PatchOp[] = [{ op: 'set_config', nodeId: 't1', config }]
+      const decoded = decodeGeneration(patchData(ops), { registry, context: patchRequest('t1').context, mode: 'patch', selection: 't1' })
+      expect(decoded.issues.filter((issue) => issue.code === HIDDEN_FIELD_CODE)).toHaveLength(1)
+    }
+    const fresh = receipts()
+    const ops: PatchOp[] = [{ op: 'set_config', nodeId: 't1', config: { ...unchanged, pollMs: 500 } }]
+    const decoded = decodeGeneration(patchData(ops), { registry, context: { ...patchRequest('t1').context, existingWorkflow: fresh }, mode: 'patch', selection: 't1' })
+    expect(decoded.issues.map((issue) => issue.code)).toContain(HIDDEN_FIELD_CODE)
   })
 
   it('lists other changed nodes in the summary', async () => {

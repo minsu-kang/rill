@@ -53,8 +53,8 @@ function patchSites(ops: readonly PatchOp[], existing: Workflow): ConfigSite[] {
     const pointer = joinPointer('/patch', index, 'config')
     if (op.op === 'add_node') sites.push({ type: op.node.type, config: op.node.config, pointer, nodeId: op.node.id })
     if (op.op === 'set_config') {
-      const type = existing.nodes.find((node) => node.id === op.nodeId)?.type
-      if (type !== undefined) sites.push({ type, config: op.config, pointer, nodeId: op.nodeId })
+      const node = existing.nodes.find((candidate) => candidate.id === op.nodeId)
+      if (node !== undefined) sites.push({ type: node.type, config: op.config, pointer, nodeId: op.nodeId, existing: node.config })
     }
   })
   return sites
