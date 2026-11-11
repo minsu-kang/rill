@@ -3,7 +3,28 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { LlmEffort } from '@rill/llm'
-import { formatUsdPlain, guardReserveUsd, money, plural, roundUpBudget, worstCallUsd } from './budget'
+import { formatUsdPlain, guardReserveUsd, money, plural, worstCallUsd } from './budget'
+import {
+  DEFAULT_BASE_URL,
+  EXIT_ERROR,
+  EXIT_INTERRUPTED,
+  EXIT_OK,
+  EXIT_PARTIAL,
+  EXIT_USAGE,
+  SDK_TIMEOUT_MARGIN_MS,
+  SUGGESTED_BUDGET_FACTOR,
+  UsageError,
+  effectiveEndpoint,
+  endpointCheck,
+  integerOption,
+  interruptControls,
+  listOption,
+  suggestedBudgetUsd,
+  timestamp,
+  type CliIo,
+  type PlannerCliHooks,
+  type SignalSubscriber,
+} from './cli-shared'
 import { PilotDirError, readPilot } from './pilot'
 import { PRICE_TABLE_AS_OF, priceFor } from './pricing'
 import { DEFAULT_MAX_OUTPUT_TOKENS, createEvalProvider } from './record'
@@ -28,6 +49,7 @@ import {
   type ExtractSuite,
 } from './suites/extract/suite'
 import { FIELD_VARIANT_NAMES, type FieldVariant } from './suites/extract/fields'
+import { plannerMain } from './suites/planner/cli'
 
 export const DEFAULT_MODELS = ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'] as const
 export const PILOT_SEEDS = ['easy-ko-cafe-yeonnam', 'tricky-en-card-approval-vs-total', 'adv-en-ignore-instructions'] as const
@@ -37,15 +59,8 @@ export const DEFAULT_MAX_CALL_SECONDS = 60
 export const DEFAULT_MAX_ATTEMPTS = 3
 export const DEFAULT_SEED = 1
 export const DEFAULT_MAX_OUTPUT = DEFAULT_MAX_OUTPUT_TOKENS
-export const SUGGESTED_BUDGET_FACTOR = 2
 export const PILOT_MAX_OUTPUT_TOKENS = 4000
 export const DEFAULT_OUT_ROOT = join(PACKAGE_ROOT, 'results')
-export const DEFAULT_BASE_URL = 'https://api.anthropic.com'
-export const EXIT_OK = 0
-export const EXIT_ERROR = 1
-export const EXIT_USAGE = 2
-export const EXIT_PARTIAL = 3
-export const EXIT_INTERRUPTED = 130
 
 export const LIMITS = {
   reps: { min: 1, max: 20 },
@@ -60,7 +75,6 @@ const EFFORTS = ['low', 'medium', 'high'] as const
 const MODEL_ID = /^[a-z0-9][a-z0-9._-]*$/u
 const PROGRESS_EVERY = 10
 const COMMAND = 'pnpm eval extract'
-const SDK_TIMEOUT_MARGIN_MS = 5000
 
 export const USAGE = `usage: ${COMMAND} [options]
 
@@ -96,14 +110,9 @@ limits: --reps ${LIMITS.reps.min} to ${LIMITS.reps.max}, --concurrency ${LIMITS.
 
 exit codes: 0 done, 1 runtime error (also: stopped at an authentication failure), 2 usage error,
 3 partial run (the budget ran out; the report is marked PARTIAL), 130 interrupted (SIGINT or SIGTERM)
-`
 
-export class UsageError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'UsageError'
-  }
-}
+The planner suite has its own command: pnpm eval planner --help
+`
 
 export interface CliConfig {
   models: string[]
@@ -125,34 +134,6 @@ export interface CliConfig {
   reestimate: string | undefined
   yes: boolean
   help: boolean
-}
-
-export type SignalSubscriber = (handler: (signal: string) => void) => () => void
-
-export interface CliIo {
-  stdout: (text: string) => void
-  stderr: (text: string) => void
-  env: Readonly<Record<string, string | undefined>>
-  now: () => number
-  fixturesDir?: string
-  outRoot?: string
-  onSignal?: SignalSubscriber
-}
-
-function integerOption(name: string, raw: string | undefined, fallback: number, limits: { min: number; max: number }): number {
-  if (raw === undefined) return fallback
-  const value = Number(raw)
-  if (!/^\d+$/u.test(raw) || !Number.isSafeInteger(value) || value < limits.min || value > limits.max) {
-    throw new UsageError(`${name} must be an integer from ${limits.min} to ${limits.max}`)
-  }
-  return value
-}
-
-function listOption(name: string, raw: string): string[] {
-  const items = raw.split(',').map((item) => item.trim())
-  if (items.some((item) => item === '')) throw new UsageError(`${name} must be a comma separated list without empty entries`)
-  if (new Set(items).size !== items.length) throw new UsageError(`${name} lists an entry twice`)
-  return items
 }
 
 const OPTIONS = {
@@ -289,11 +270,22 @@ function emptyConfig(): CliConfig {
   }
 }
 
-export function suggestedBudgetUsd(estimateUsd: number, reserveUsd = 0): number {
-  return roundUpBudget(Math.max(estimateUsd * SUGGESTED_BUDGET_FACTOR, estimateUsd + reserveUsd))
+export {
+  DEFAULT_BASE_URL,
+  EXIT_ERROR,
+  EXIT_INTERRUPTED,
+  EXIT_OK,
+  EXIT_PARTIAL,
+  EXIT_USAGE,
+  SUGGESTED_BUDGET_FACTOR,
+  UsageError,
+  effectiveEndpoint,
+  formatUsdPlain,
+  suggestedBudgetUsd,
+  type CliIo,
+  type PlannerCliHooks,
+  type SignalSubscriber,
 }
-
-export { formatUsdPlain }
 
 function budgetFor(config: CliConfig, estimate: RunEstimate, suite: ExtractSuite): number | undefined {
   if (config.budgetUsd !== undefined) return config.budgetUsd
@@ -406,10 +398,6 @@ function summaryTable(tasksOf: (name: string) => TaskResult<ExtractOutput>[], na
   const widths = header.map((title, column) => Math.max(title.length, ...rows.map((row) => (row[column] ?? '').length)))
   const line = (cells: readonly string[]): string => cells.map((cell, column) => cell.padEnd(widths[column] ?? 0)).join('  ').trimEnd()
   return [line(header), ...rows.map(line)].join('\n')
-}
-
-function timestamp(now: number): string {
-  return new Date(now).toISOString().replace(/[-:]/gu, '').replace(/\.\d+Z$/u, 'Z')
 }
 
 function outDirFor(config: CliConfig, io: CliIo): string {
@@ -527,64 +515,6 @@ async function runBaselinesMode(config: CliConfig, suite: ExtractSuite, io: CliI
   return 0
 }
 
-interface Endpoint {
-  baseURL: string
-  host: string
-  isDefault: boolean
-}
-
-export function effectiveEndpoint(env: Readonly<Record<string, string | undefined>>): Endpoint {
-  const raw = env['ANTHROPIC_BASE_URL']?.trim() ?? ''
-  const baseURL = raw === '' ? DEFAULT_BASE_URL : raw
-  let host: string
-  try {
-    const url = new URL(baseURL)
-    host = url.host === '' ? baseURL : url.host
-  } catch {
-    throw new Error(`ANTHROPIC_BASE_URL is not a valid URL: ${baseURL}`)
-  }
-  return { baseURL, host, isDefault: baseURL.replace(/\/+$/u, '') === DEFAULT_BASE_URL }
-}
-
-function endpointCheck(config: CliConfig, io: CliIo, endpoint: Endpoint): boolean {
-  io.stdout(`API host: ${endpoint.host}${endpoint.isDefault ? '' : ` (from ANTHROPIC_BASE_URL: ${endpoint.baseURL})`}\n`)
-  const customHeaders = (io.env['ANTHROPIC_CUSTOM_HEADERS'] ?? '').trim() !== ''
-  if (customHeaders) io.stderr('warning: ANTHROPIC_CUSTOM_HEADERS is set; the SDK adds those headers to every request\n')
-  if (!config.allowBaseUrl) {
-    if (!endpoint.isDefault) {
-      io.stderr(
-        `error: ANTHROPIC_BASE_URL points to ${endpoint.host}, not ${DEFAULT_BASE_URL}; your API key would be sent there. Unset it, or pass --allow-base-url if you mean it\n`,
-      )
-      return false
-    }
-    if (customHeaders) {
-      io.stderr('error: ANTHROPIC_CUSTOM_HEADERS is set; unset it, or pass --allow-base-url to send those headers along with your key\n')
-      return false
-    }
-  } else if (!endpoint.isDefault) {
-    io.stdout(`WARNING: --allow-base-url is set: your API key will be sent to ${endpoint.host}, which is not ${DEFAULT_BASE_URL}\n`)
-  }
-  return true
-}
-
-function interruptControls(io: CliIo, maxCallSeconds: number): { stop: AbortController; abort: AbortController; dispose: () => void } {
-  const stop = new AbortController()
-  const abort = new AbortController()
-  const dispose =
-    io.onSignal?.((signal) => {
-      if (!stop.signal.aborted) {
-        stop.abort()
-        io.stderr(`\n${signal}: no new calls; waiting up to ${maxCallSeconds} s for the calls in flight, then writing a partial report. Send it again to abort them now.\n`)
-        return
-      }
-      if (!abort.signal.aborted) {
-        abort.abort()
-        io.stderr(`\n${signal}: aborting the calls in flight.\n`)
-      }
-    }) ?? (() => undefined)
-  return { stop, abort, dispose }
-}
-
 function loadPilot(dir: string): PilotData {
   try {
     return readPilot(dir)
@@ -639,7 +569,7 @@ async function runYesMode(config: CliConfig, suite: ExtractSuite, io: CliIo, est
     return EXIT_ERROR
   }
   const endpoint = effectiveEndpoint(io.env)
-  if (!endpointCheck(config, io, endpoint)) return EXIT_ERROR
+  if (!endpointCheck(config.allowBaseUrl, io, endpoint)) return EXIT_ERROR
   const out = outDirFor(config, io)
   assertWritableDir(out)
   const secrets = [key]
@@ -703,6 +633,7 @@ async function runYesMode(config: CliConfig, suite: ExtractSuite, io: CliIo, est
 }
 
 export async function main(argv: readonly string[], io: CliIo): Promise<number> {
+  if (argv[0] === 'planner') return plannerMain(argv.slice(1), io)
   let secret: string | undefined
   try {
     const config = parseCli(argv)

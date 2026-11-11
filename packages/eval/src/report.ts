@@ -40,15 +40,15 @@ export function noiseFloorPoints(seeds: number, reps: number): { conservative: n
   return { conservative: scale / Math.sqrt(seeds), optimistic: scale / Math.sqrt(seeds * reps) }
 }
 
-function pct(value: number | null | undefined, digits = 1): string {
+export function pct(value: number | null | undefined, digits = 1): string {
   return value === null || value === undefined ? 'n/a' : `${(value * 100).toFixed(digits)}%`
 }
 
-function num(value: number | null | undefined, digits = 2): string {
+export function num(value: number | null | undefined, digits = 2): string {
   return value === null || value === undefined ? 'n/a' : value.toFixed(digits)
 }
 
-function usd(value: number | undefined | null): string {
+export function usd(value: number | undefined | null): string {
   return value === undefined || value === null ? 'n/a' : `$${value.toFixed(value < 0.1 ? 4 : 2)}`
 }
 
@@ -56,7 +56,7 @@ function signed(points: number): string {
   return `${points >= 0 ? '+' : ''}${points.toFixed(1)}`
 }
 
-function table(header: readonly string[], rows: readonly (readonly string[])[]): string[] {
+export function table(header: readonly string[], rows: readonly (readonly string[])[]): string[] {
   const line = (cells: readonly string[]): string => `| ${cells.join(' | ')} |`
   return [line(header), line(header.map(() => '---')), ...rows.map(line), '']
 }
@@ -77,7 +77,7 @@ function toRow(task: ScoredTask): ScoredRow {
   }
 }
 
-function tasksOf(run: RunResult<unknown>, model: string): Task[] {
+export function tasksOf(run: RunResult<unknown>, model: string): Task[] {
   return run.tasks.filter((task) => task.model === model)
 }
 
@@ -97,7 +97,7 @@ function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? '' : 's'}`
 }
 
-function partialNotice(input: ReportInput): string[] {
+export function partialNotice(input: ReportInput): string[] {
   const { run, meta } = input
   const skipped = run.tasks.filter((task) => task.status === 'skipped')
   if (run.partial !== true && run.stop === undefined && skipped.length === 0) return []
@@ -394,7 +394,7 @@ const SKIP_REASONS = ['budget', 'auth', 'interrupted'] as const
 
 const GRADED_CLASSES = new Set(['refusal', 'truncated', 'invalid_output', 'unexpected_shape'])
 
-function errorSection(run: RunResult<unknown>, models: readonly string[]): string[] {
+export function errorSection(run: RunResult<unknown>, models: readonly string[]): string[] {
   const counts = new Map<string, Map<string, number>>()
   const bump = (failureClass: string, model: string): void => {
     const perModel = counts.get(failureClass) ?? new Map<string, number>()

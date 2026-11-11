@@ -64,3 +64,29 @@ describe('toPlannerCase', () => {
     expect(goldNodeTypes(toPlannerCase(byId('ambig-01-which-folder'), data.references)).size).toBe(0)
   })
 })
+
+describe('the package index', () => {
+  it('exports the planner suite, its CLI, the fakes and the report next to the extract suite', async () => {
+    const index = (await import('../src/index')) as Record<string, unknown>
+    for (const name of [
+      'createPlannerSuite',
+      'plannerMain',
+      'parsePlannerCli',
+      'renderPlannerReport',
+      'plannerMetrics',
+      'scorePlannerCase',
+      'oraclePlanner',
+      'nullPlanner',
+      'perturbedPlanner',
+      'copyingPlanner',
+      'checkPlannerConsistency',
+      'plannerEvaluateExpectation',
+      'generatePlannerAttachments',
+      'plannerWorstCaseCalls',
+      'createExtractSuite',
+    ]) {
+      expect(typeof index[name], name).toBe('function')
+    }
+    expect(index['PLANNER_FIELDS']).toEqual(['outcome', 'checks'])
+  })
+})

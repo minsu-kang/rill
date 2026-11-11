@@ -10,6 +10,7 @@ export const REFERENCES_PATH = `${DATA_DIR}references.json`
 export const VOCABULARY_PATH = `${DATA_DIR}vocabulary.json`
 
 export interface PlannerCase extends EvalCase {
+  prompt: string
   spec: CaseSpec
   expected: CaseSpec['expect']
   references: Workflow[]
@@ -40,6 +41,7 @@ export function toPlannerCase(spec: CaseSpec, references: References): PlannerCa
     category: spec.category,
     tags: [...(spec.tags ?? []), spec.language],
     kind: spec.expect.outcome,
+    prompt: spec.prompt,
     spec,
     expected: spec.expect,
     references: Object.entries(references)

@@ -5,7 +5,7 @@ import type { CaseScore } from '../src/suite'
 import type { PlannerOutput } from '../src/suites/planner/scoring'
 import { createPlannerSuite, type PlannerFactory, type PlannerSuite, type PlannerSuiteOptions } from '../src/suites/planner/suite'
 
-export const FAKE_MODEL = 'fake-model'
+export const FAKE_MODEL = 'claude-sonnet-5-5'
 
 export function offlineProvider(): EvalProvider {
   const refuse = (): Promise<never> => Promise.reject(new Error('no network in this test'))
