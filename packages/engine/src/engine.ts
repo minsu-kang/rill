@@ -28,6 +28,7 @@ import {
   failedRecord,
   plannedRecord,
   toPlanRecord,
+  workflowHash,
   type PlanOutcome,
 } from './plans'
 import { RunQueue } from './queue'
@@ -153,7 +154,12 @@ export class Engine {
   }
 
   deploy(input: unknown): string {
-    return this.store.saveWorkflow(this.validated(input))
+    const workflow = this.validated(input)
+    const open = this.store.findOpenPlanByHash(workflowHash(workflow))
+    if (open !== undefined) {
+      throw new PlanNotConfirmedError(`this workflow has flags that plan ${open.id} has not confirmed; deploy it through deployPlan`)
+    }
+    return this.store.saveWorkflow(workflow)
   }
 
   private validated(input: unknown): Workflow {
