@@ -444,6 +444,29 @@ describe('3. repair and the eval scoring', () => {
     expect(provider.seen.map((entry2) => entry2.request.effort)).toEqual(['low', 'low', 'low'])
   })
 
+  it('scores first-try validity true when the real planner turns a missing connection into a question in one call', async () => {
+    const id = 'ambig-09-pasted-slack-webhook-no-connection'
+    expect(caseData(id).context.connections).toEqual([])
+    const wf: Workflow = {
+      schemaVersion: 1,
+      name: 'slack',
+      nodes: [
+        { id: 't1', type: 'trigger.manual@1', config: {} },
+        { id: 'n1', type: 'notify.slack@1', config: { connection: 'slack-ops', text: 'hi' } },
+      ],
+      edges: [{ from: 't1', to: 'n1' }],
+    }
+    const provider = scripted(() => envelopeOf(wf))
+    const run = await runSuite(createPlannerSuite({ only: id }), provider)
+    const entry = task(run, id)
+    const result = resultOf(entry)
+    expect(result.kind).toBe('questions')
+    expect(result.rounds.map((round) => round.issues.map((issue) => issue.code))).toEqual([['unknown_connection']])
+    expect(provider.seen).toHaveLength(1)
+    expect(entry.score!.extra).toMatchObject({ first_try_valid: 1, valid_after_repair: 1, repair_rounds: 0, calls: 1, asked: 1 })
+    expect(plannerMetrics(run.tasks).firstTryValid).toEqual({ num: 1, den: 1 })
+  })
+
   it.each([0, 1, 3])('makes 1 + 2 x %i calls when every repair round is a targeted round that stays wrong', async (rounds) => {
     const broken = goldWorkflow(ID)
     broken.nodes[1]!.config = { file: '{{t1.output.file}}', fields: 'amount' }

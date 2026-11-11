@@ -1,4 +1,4 @@
-import type { Workflow } from '@rill/dsl'
+import type { PlanIssue, Workflow } from '@rill/dsl'
 import { PlanError, type PlanResult } from '@rill/planner'
 import { describe, expect, it } from 'vitest'
 import { isPassingOutcome } from '../src/score'
@@ -156,6 +156,35 @@ describe('round metrics', () => {
     expect(warned.extra).toMatchObject({ first_try_valid: 1, repair_rounds: 0 })
     const repaired = scorePlannerCase(caseOf(EASY), worked(EASY, [fakeRound(0, [ERROR_ISSUE]), fakeRound(1, [WARNING_ISSUE]), fakeRound(2)]))
     expect(repaired.extra).toMatchObject({ first_try_valid: 0, valid_after_repair: 1, repair_rounds: 2, calls: 3, plan_ms: 300 })
+  })
+  describe('first-try validity when the first round holds a gap or a notice', () => {
+    const NO_CONNECTIONS = 'ambig-09-pasted-slack-webhook-no-connection'
+    const NO_FOLDERS = 'easy-03-webhook-to-slack'
+    const gap = (code: string): PlanIssue => ({ stage: 3, pointer: '/nodes/1/config/x', code, message: 'x' })
+    const notice = (code: string): PlanIssue => ({ stage: 4, pointer: '/questions', code, message: 'x' })
+    const asked = (id: string, issues: PlanIssue[]) => scorePlannerCase(caseOf(id), fakeResult(questionsBody(['q?']), [fakeRound(0, issues)])).extra
+
+    it('counts a planner that finished in one call as valid when the round only held a gap that became a question', () => {
+      expect(asked(NO_CONNECTIONS, [gap('unknown_connection')])).toMatchObject({ first_try_valid: 1, valid_after_repair: 1, repair_rounds: 0, calls: 1, asked: 1 })
+      expect(asked(NO_FOLDERS, [gap('path_outside_roots')])).toMatchObject({ first_try_valid: 1, repair_rounds: 0 })
+    })
+
+    it.each(['questions_truncated', 'question_options_truncated', 'question_default_replaced'])('does not count the notice %s as an error', (code) => {
+      expect(asked(NO_CONNECTIONS, [notice(code)])).toMatchObject({ first_try_valid: 1, repair_rounds: 0 })
+    })
+
+    it('still counts a gap code as an error where it is not a gap', () => {
+      expect(asked(EASY, [gap('path_outside_roots')])).toMatchObject({ first_try_valid: 0 })
+      expect(asked('easy-07-daily-post-with-connection', [gap('unknown_connection')])).toMatchObject({ first_try_valid: 0 })
+      expect(asked(NO_CONNECTIONS, [gap('path_outside_roots')])).toMatchObject({ first_try_valid: 0 })
+      expect(asked(NO_FOLDERS, [gap('unknown_connection')])).toMatchObject({ first_try_valid: 0 })
+    })
+
+    it('still counts a real validation error next to a gap or a notice', () => {
+      expect(asked(NO_CONNECTIONS, [gap('unknown_connection'), ERROR_ISSUE])).toMatchObject({ first_try_valid: 0 })
+      expect(asked(NO_CONNECTIONS, [notice('questions_truncated'), ERROR_ISSUE])).toMatchObject({ first_try_valid: 0 })
+      expect(asked(NO_CONNECTIONS, [notice('question_options'), notice('questions_empty')])).toMatchObject({ first_try_valid: 0 })
+    })
   })
   it('counts one call per targeted node and at least one per round', () => {
     const rounds = [fakeRound(0, [ERROR_ISSUE]), fakeRound(1, [], ['n1', 'n2'], 50)]

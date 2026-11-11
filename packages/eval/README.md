@@ -293,7 +293,7 @@ Per case the suite classifies the answer as `workflow`, `questions`, `unsupporte
 | Metric | Meaning |
 | --- | --- |
 | Case pass | The planner gave what the case expects, with a 95% case-cluster bootstrap interval. |
-| First-try valid | Round 0 had no error-level issue (warnings such as `nullable_into_required` do not count). |
+| First-try valid | Round 0 had no error-level issue, which is what makes the planner finish in one call. Warnings such as `nullable_into_required`, the question notices (`questions_truncated`, `question_options_truncated`, `question_default_replaced`) and a gap that became a question do not count: `unknown_connection` on a case with no connection and `path_outside_roots` on a case with no allowed folder (16 and 15 of the 48 cases). |
 | Valid after repair | The planner delivered an answer within the repair rounds. |
 | Mean repair rounds | Rounds used after the first. |
 | Assertion pass | Structural assertions passed over all assertions of the 30 workflow cases (257 of them); a case that did not return a workflow counts as all failed. |
