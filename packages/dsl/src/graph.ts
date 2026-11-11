@@ -1,3 +1,4 @@
+import type { IssueCode, PlanIssue } from './issues'
 import type { Workflow, WorkflowEdge } from './schema'
 
 export function isTrigger(type: string): boolean {
@@ -53,32 +54,41 @@ function reachableFrom(wf: Workflow, start: string): Set<string> {
   return seen
 }
 
-export function validateGraph(wf: Workflow): string[] {
-  const errors: string[] = []
+export function graphIssues(wf: Workflow): PlanIssue[] {
+  const issues: PlanIssue[] = []
+  const add = (pointer: string, code: IssueCode, message: string, hint?: string) =>
+    issues.push({ stage: 2, pointer, code, message, ...(hint === undefined ? {} : { hint }) })
   const ids = new Set<string>()
-  for (const n of wf.nodes) {
-    if (ids.has(n.id)) errors.push(`duplicate node id: ${n.id}`)
+  wf.nodes.forEach((n, i) => {
+    if (ids.has(n.id)) add(`/nodes/${i}/id`, 'duplicate_id', `duplicate node id: ${n.id}`, 'give every node a unique id')
     ids.add(n.id)
-  }
+  })
   const triggers = wf.nodes.filter((n) => isTrigger(n.type))
-  if (triggers.length !== 1) errors.push(`expected exactly 1 trigger node, found ${triggers.length}`)
-  for (const e of wf.edges) {
-    for (const id of [e.from, e.to]) {
-      if (!ids.has(id)) errors.push(`edge references unknown node: ${id}`)
-    }
+  if (triggers.length !== 1) {
+    add('/nodes', 'trigger_count', `expected exactly 1 trigger node, found ${triggers.length}`, 'use exactly one trigger.* node')
   }
+  wf.edges.forEach((e, i) => {
+    for (const side of ['from', 'to'] as const) {
+      if (!ids.has(e[side])) add(`/edges/${i}/${side}`, 'edge_unknown_node', `edge references unknown node: ${e[side]}`)
+    }
+  })
   const trigger = triggers[0]
-  if (errors.length > 0 || !trigger) return errors
-  if (wf.edges.some((e) => e.to === trigger.id)) errors.push(`trigger must not have incoming edges: ${trigger.id}`)
-  for (const e of wf.edges) {
+  if (issues.length > 0 || !trigger) return issues
+  const incoming = wf.edges.findIndex((e) => e.to === trigger.id)
+  if (incoming >= 0) add(`/edges/${incoming}`, 'trigger_incoming', `trigger must not have incoming edges: ${trigger.id}`)
+  wf.edges.forEach((e, i) => {
     if (e.when !== undefined && e.from === trigger.id) {
-      errors.push(`edge from the trigger cannot have a when condition: ${e.from} -> ${e.to}`)
+      add(`/edges/${i}/when`, 'trigger_edge_when', `edge from the trigger cannot have a when condition: ${e.from} -> ${e.to}`)
     }
-  }
-  if (topologicalOrder(wf) === null) errors.push('graph contains a cycle')
+  })
+  if (topologicalOrder(wf) === null) add('/edges', 'cycle', 'graph contains a cycle')
   const reachable = reachableFrom(wf, trigger.id)
-  for (const n of wf.nodes) {
-    if (!reachable.has(n.id)) errors.push(`node not reachable from trigger: ${n.id}`)
-  }
-  return errors
+  wf.nodes.forEach((n, i) => {
+    if (!reachable.has(n.id)) add(`/nodes/${i}`, 'unreachable', `node not reachable from trigger: ${n.id}`)
+  })
+  return issues
+}
+
+export function validateGraph(wf: Workflow): string[] {
+  return graphIssues(wf).map((issue) => issue.message)
 }

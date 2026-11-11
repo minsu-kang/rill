@@ -1,5 +1,6 @@
 import Type from 'typebox'
 import Value from 'typebox/value'
+import { schemaIssues, type PlanIssue } from './issues'
 import { SCHEMA_VERSION } from './version'
 
 const NODE_ID = '^[a-z][a-z0-9_]{0,31}$'
@@ -53,4 +54,14 @@ export function parseWorkflowShape(input: unknown): ParseResult {
   if (Value.Check(WorkflowSchema, input)) return { ok: true, workflow: input }
   const errors = [...Value.Errors(WorkflowSchema, input)].map((e) => `${e.instancePath || '/'}: ${e.message}`)
   return { ok: false, errors }
+}
+
+export function shapeIssues(input: unknown): PlanIssue[] {
+  if (Value.Check(WorkflowSchema, input)) return []
+  return schemaIssues([...Value.Errors(WorkflowSchema, input)], {
+    stage: 1,
+    prefix: 'shape',
+    base: '',
+    describe: (pointer, message) => `${pointer || '/'}: ${message}`,
+  })
 }
