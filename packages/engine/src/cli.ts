@@ -2,8 +2,9 @@ import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { AnthropicProvider } from '@rill/llm'
-import { createCoreRegistry, type ConnectionResolver } from '@rill/nodes-core'
+import { createCoreRegistry } from '@rill/nodes-core'
 import { PROTOCOL_VERSION } from '@rill/protocol'
+import { UsageError, loadConnections, prepareAttachmentsDir } from './cli-config'
 import { Db } from './db'
 import { Engine, WorkflowValidationError } from './engine'
 import { RillServer } from './server/server'
@@ -11,19 +12,16 @@ import { RillServer } from './server/server'
 const USAGE = `usage:
   rill-engine run <workflow.json> [--db <path>] [--payload <json>] [--dry-run] [--allow <dir>]... [--connections <file.json>]
   rill-engine watch <workflow.json> [--db <path>] [--allow <dir>]... [--connections <file.json>] [--port <n>]
-  rill-engine serve [--db <path>] [--allow <dir>]... [--connections <file.json>] [--port <n>] [--webhook-port <n>] [--shutdown-timeout <ms>]
+  rill-engine serve [--db <path>] [--allow <dir>]... [--connections <file.json>] [--attachments-dir <dir>] [--port <n>] [--webhook-port <n>] [--shutdown-timeout <ms>]
   rill-engine recover [--db <path>] [--allow <dir>]... [--connections <file.json>]
 
 Every command accepts --llm-model <id> (default claude-opus-5-5) and --llm-no-fallback for llm.extract steps, which call the Anthropic API with the credentials in ANTHROPIC_API_KEY.
 
-serve reads its access token from the RILL_TOKEN environment variable (16 or more characters from A-Z, a-z, 0-9 and !#$%&'*+-.^_\`|~) and prints a generated one when it is not set.`
+serve reads its access token from the RILL_TOKEN environment variable (16 or more characters from A-Z, a-z, 0-9 and !#$%&'*+-.^_\`|~) and prints a generated one when it is not set.
 
-class UsageError extends Error {}
+Connections file: a JSON object that maps a connection name to either a secret string or {"secret": "...", "kind": "slack" | "http" | "webhookSecret"}. Nodes can use both forms. Only the second form is offered to the planner, by name and kind and never with the secret.
 
-function loadConnections(file: string | undefined): ConnectionResolver {
-  const table: Record<string, string> = file ? JSON.parse(readFileSync(file, 'utf8')) : {}
-  return { get: (id) => (Object.hasOwn(table, id) ? table[id] : undefined) }
-}
+Planning: serve answers the planner methods (plan, cancelPlan, getPlan, listPlans, deployPlan). The planner calls the Anthropic API with the credentials in ANTHROPIC_API_KEY. It can only propose file paths inside the --allow folders, so without --allow it cannot propose reading or writing files. Plan attachments are read from --attachments-dir (created with mode 0700 when missing, and inside an --allow folder when any is given). A client puts each file there as <id>.<ext> and sends only the id over the protocol.`
 
 function waitForStopSignal(): Promise<void> {
   return new Promise((resolve) => {
@@ -87,6 +85,7 @@ async function main(argv: string[]): Promise<number> {
       'shutdown-timeout': { type: 'string' },
       'llm-model': { type: 'string' },
       'llm-no-fallback': { type: 'boolean' },
+      'attachments-dir': { type: 'string' },
     },
   })
   const [command, file] = positionals
@@ -97,12 +96,20 @@ async function main(argv: string[]): Promise<number> {
     const webhookPort = toPort('--webhook-port', values['webhook-port'])
     const shutdownTimeout = toMillis('--shutdown-timeout', values['shutdown-timeout'], 10_000)
     const llmModel = toModel(values['llm-model'])
+    const connections = loadConnections(values.connections)
+    if (values['attachments-dir'] !== undefined && command !== 'serve') {
+      throw new UsageError('--attachments-dir is only used by serve')
+    }
+    const attachmentsRoot =
+      values['attachments-dir'] === undefined ? undefined : prepareAttachmentsDir(values['attachments-dir'], values.allow)
     db = Db.open(values.db ?? 'rill.db')
     engine = new Engine({
       db,
       registry: createCoreRegistry(),
       allowedRoots: values.allow,
-      connections: loadConnections(values.connections),
+      connections: connections.resolver,
+      planConnections: connections.planConnections,
+      ...(attachmentsRoot === undefined ? {} : { attachmentsRoot }),
       webhookPort: command === 'serve' ? webhookPort : port,
       llm: new AnthropicProvider({
         ...(llmModel === undefined ? {} : { model: llmModel }),
