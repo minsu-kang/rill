@@ -276,15 +276,15 @@ Exit codes: 0 done, 1 runtime error (a refused base URL or header, a missing key
 
 ### The budget guard
 
-One case is not one call. A plan is a first call, up to `--max-repair-rounds` repair rounds, and targeted per-node repair calls (at most two extra). The guard reserves the worst case of the whole case before it starts it:
+One case is not one call. A plan is a first call and up to `--max-repair-rounds` repair rounds. A repair round is either one call that asks the whole question again, or a targeted round with one call for each broken node, at most two nodes. Targeted rounds can follow each other, so every repair round can cost two calls. The guard reserves the worst case of the whole case before it starts it:
 
 ```
-calls   = 1 + maxRepairRounds + 2
-input   = first-call estimate + maxRepairRounds x 4000
+calls   = 1 + 2 x maxRepairRounds
+input   = first-call estimate + maxRepairRounds x (max_tokens of the effort + 3000)
 reserve = calls x price(model, input tokens, max_tokens of the effort of the case)
 ```
 
-The first-call estimate is 4500 tokens of rules and node catalog plus the case text (chars / 3.5), plus 2400 for a PDF, 2000 for a PNG, or chars / 3.5 + 400 for a text attachment. The 4000 per repair round is the history a repair round sends again (the previous reply and the issue list). The reserve is held for every case in flight and added to the spend; at the first case that would cross the cap the runner stops dispatching and the run ends PARTIAL. Actual usage is charged as it arrives, across all calls of the case. With the defaults on Sonnet the reserve of one case is about $1.19 and the worst case of the whole set about $55.75; the typical estimate (one call per case at 3000 output tokens, thinking included, no repair) is about $1.90. All three are estimates from the price table, not measurements.
+The first-call estimate is 4500 tokens of rules and node catalog plus the case text (chars / 3.5), plus 2400 for a PDF, 2000 for a PNG, or chars / 3.5 + 400 for a text attachment. The history of a repair round is the previous answer, which can fill the whole `max_tokens` of the effort, and the issue list (at most 20 issues, 3000 tokens). Every call is priced at that largest input, so the reserve is an upper bound. The reserve is held for every case in flight and added to the spend; at the first case that would cross the cap the runner stops dispatching and the run ends PARTIAL. Actual usage is charged as it arrives, across all calls of the case. With the defaults on Sonnet the reserve of one case is about $1.19 and the worst case of the whole set about $55.75; the typical estimate (one call per case at 3000 output tokens, thinking included, no repair) is about $1.90. All three are estimates from the price table, not measurements.
 
 ### What it measures
 

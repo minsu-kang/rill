@@ -1,14 +1,14 @@
 import { STREAMING_ABOVE_MAX_TOKENS } from '@rill/llm'
-import { EFFORT_BUDGETS, type PlanEffort } from '@rill/planner'
+import { EFFORT_BUDGETS, MAX_TARGETED_NODES, type PlanEffort } from '@rill/planner'
 import { estimateCallUsd } from '../../pricing'
 import { PDF_INPUT_TOKENS, PNG_INPUT_TOKENS, TEXT_CHARS_PER_TOKEN, TEXT_OVERHEAD_TOKENS } from '../extract/suite'
 import type { ResolvedAttachment } from './attachments'
 import type { CaseSpec } from './schema'
 
 export const DEFAULT_MAX_REPAIR_ROUNDS = 3
-export const TARGETED_EXTRA_CALLS = 2
+export const TARGETED_CALLS_PER_ROUND = MAX_TARGETED_NODES
 export const BASE_INPUT_TOKENS = 4500
-export const HISTORY_TOKENS_PER_REPAIR_ROUND = 4000
+export const REPAIR_MESSAGE_TOKENS = 3000
 export const TYPICAL_OUTPUT_TOKENS = 3000
 export const PLANNER_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const satisfies readonly PlanEffort[]
 export const PLANNER_MAX_OUTPUT_TOKENS = STREAMING_ABOVE_MAX_TOKENS
@@ -36,7 +36,11 @@ export function unmeasurableEffortMessage(efforts: readonly string[]): string {
 }
 
 export function worstCaseCalls(maxRepairRounds: number): number {
-  return 1 + maxRepairRounds + TARGETED_EXTRA_CALLS
+  return 1 + maxRepairRounds * TARGETED_CALLS_PER_ROUND
+}
+
+export function historyTokensPerRepairRound(maxOutputTokens: number): number {
+  return maxOutputTokens + REPAIR_MESSAGE_TOKENS
 }
 
 function contextChars(spec: CaseSpec): number {
@@ -56,11 +60,11 @@ export function firstCallInputTokens(spec: CaseSpec, attachments: readonly Resol
   return BASE_INPUT_TOKENS + text + attachments.reduce((total, file) => total + attachmentTokens(file), 0)
 }
 
-export function worstCallInputTokens(firstCall: number, maxRepairRounds: number): number {
-  return firstCall + maxRepairRounds * HISTORY_TOKENS_PER_REPAIR_ROUND
+export function worstCallInputTokens(firstCall: number, maxRepairRounds: number, maxOutputTokens: number): number {
+  return firstCall + maxRepairRounds * historyTokensPerRepairRound(maxOutputTokens)
 }
 
 export function plannerWorstCaseUsd(model: string, firstCall: number, maxRepairRounds: number, maxOutputTokens: number): number | undefined {
-  const call = estimateCallUsd(model, worstCallInputTokens(firstCall, maxRepairRounds), maxOutputTokens)
+  const call = estimateCallUsd(model, worstCallInputTokens(firstCall, maxRepairRounds, maxOutputTokens), maxOutputTokens)
   return call === undefined ? undefined : call * worstCaseCalls(maxRepairRounds)
 }

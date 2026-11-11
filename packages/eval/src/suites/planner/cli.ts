@@ -27,11 +27,11 @@ import { PACKAGE_ROOT, appendPartial, assertWritableDir, writeResults } from '..
 import { breakEvenOutputTokens, estimateRun, runEval, worstCaseCallUsd, type RunEstimate, type RunResult, type TaskResult } from '../../runner'
 import {
   DEFAULT_MAX_REPAIR_ROUNDS,
-  HISTORY_TOKENS_PER_REPAIR_ROUND,
+  REPAIR_MESSAGE_TOKENS,
   BASE_INPUT_TOKENS,
   PLANNER_EFFORTS,
   PLANNER_MAX_OUTPUT_TOKENS,
-  TARGETED_EXTRA_CALLS,
+  TARGETED_CALLS_PER_ROUND,
   TYPICAL_OUTPUT_TOKENS,
   effortTable,
   isMeasurableEffort,
@@ -305,7 +305,7 @@ export function plannerPlanText(config: PlannerCliConfig, suite: PlannerSuite, e
     `tasks: ${tasks} (${plural(cases.length, 'case')} x ${plural(config.reps, 'rep')} x ${plural(config.models.length, 'model')}), one planner call chain per task`,
     `provider calls: ${tasks} planned at one call per task if no plan needs repair; at most ${tasks * calls} (${calls} per task)`,
     `effort: ${config.effort === undefined ? `each case sets its own (${countBy(cases, (testCase) => testCase.spec.effort)})` : `${config.effort} (override)`}; the planner sets max_tokens from it: ${effortTable({ measurableOnly: true })}`,
-    `planner: up to ${plural(config.maxRepairRounds, 'repair round')}; worst case ${calls} calls per case = 1 first call + ${config.maxRepairRounds} repair rounds + ${TARGETED_EXTRA_CALLS} targeted calls`,
+    `planner: up to ${plural(config.maxRepairRounds, 'repair round')}; worst case ${plural(calls, 'call')} per case = 1 first call + ${config.maxRepairRounds} repair rounds x up to ${TARGETED_CALLS_PER_ROUND} calls (a repair round re-asks once, or repairs up to ${TARGETED_CALLS_PER_ROUND} nodes with one call each)`,
     `schedule seed ${config.seed}, concurrency ${config.concurrency}, at most ${config.maxAttempts} attempts per case, ${config.maxCallSeconds} s per attempt`,
     '',
     'cases:',
@@ -315,11 +315,11 @@ export function plannerPlanText(config: PlannerCliConfig, suite: PlannerSuite, e
     ...estimate.perModel.map((entry) => {
       if (priceFor(entry.model) === undefined) return `  ${entry.model}: ${plural(entry.calls, 'case')}, no price in the price table`
       const worst = worstTotalUsd(suite, entry.model, PLANNER_MAX_OUTPUT_TOKENS, config.reps)
-      return `  ${entry.model}: typical ${money(entry.usd)} (one call per case, no repair), worst case ${money(worst)} (${calls} calls per case, every call at the max_tokens of its effort)`
+      return `  ${entry.model}: typical ${money(entry.usd)} (one call per case, no repair), worst case ${money(worst)} (${plural(calls, 'call')} per case, every call at the max_tokens of its effort)`
     }),
     `  total: typical ${money(estimate.totalUsd)}, worst case ${money(config.models.reduce<number | undefined>((total, model) => (total === undefined ? undefined : addOrUndefined(total, worstTotalUsd(suite, model, PLANNER_MAX_OUTPUT_TOKENS, config.reps))), 0))}`,
     `assumptions: input of the first call is ${BASE_INPUT_TOKENS} tokens of rules and node catalog plus the case text, plus 2400 for a PDF, 2000 for a PNG or chars / 3.5 + 400 for a text attachment; typical output is ${estimate.assumptions.outputTokens} tokens per call (thinking included). These are estimates, not measurements, and need a live pilot.`,
-    `guard formula: the budget guard reserves, for every case in flight, ${calls} calls x (input + the max_tokens of the case's effort as output tokens) at the price of the model, where the input is the first-call estimate plus ${HISTORY_TOKENS_PER_REPAIR_ROUND} tokens for each of the ${config.maxRepairRounds} repair rounds (the history a repair round re-sends); ${calls} = 1 + ${config.maxRepairRounds} repair rounds + ${TARGETED_EXTRA_CALLS} targeted calls.`,
+    `guard formula: the budget guard reserves, for every case in flight, ${plural(calls, 'call')} x (input + the max_tokens of the case's effort as output tokens) at the price of the model, where the input is the first-call estimate plus, for each of the ${config.maxRepairRounds} repair rounds, the max_tokens of the case's effort for the previous answer and ${REPAIR_MESSAGE_TOKENS} tokens for the issue list (the history a repair round re-sends); ${calls} = 1 + ${config.maxRepairRounds} repair rounds x ${TARGETED_CALLS_PER_ROUND} calls. Every call is priced at that largest input, so the reserve is an upper bound.`,
   ]
   if (estimate.unpricedModels.length > 0) lines.push(`no price for: ${estimate.unpricedModels.join(', ')}; the budget guard needs one, so --yes would refuse this run`)
   if (budgetUsd === undefined) lines.push('budget: n/a (needs a price for every model)')
