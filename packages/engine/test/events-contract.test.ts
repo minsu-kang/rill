@@ -25,7 +25,7 @@ describe('every event the engine emits matches the protocol schema', () => {
       linearWorkflow([trigger, { id: 'a', type: 'test.echo@1', config: { value: 1 } }]),
       linearWorkflow([trigger, { id: 'a', type: 'test.flaky@1', config: { failTimes: 1 }, retry: { maxAttempts: 2 } }]),
       linearWorkflow([trigger, { id: 'a', type: 'test.fail@1' }]),
-      linearWorkflow([trigger, { id: 'a', type: 'test.echo@1', config: {} }]),
+      linearWorkflow([trigger, { id: 'a', type: 'test.flaky@1', config: { failTimes: '{{t1.output.n}}' } }]),
       {
         schemaVersion: 1,
         name: 'branches',

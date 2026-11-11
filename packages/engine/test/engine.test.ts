@@ -100,8 +100,8 @@ describe('Engine.startRun', () => {
   it('fails a node with an invalid config without running it', async () => {
     const calls: string[] = []
     const { engine } = createTestEngine({ calls })
-    const id = engine.deploy(linearWorkflow([trigger, { id: 'n1', type: 'test.echo@1', config: {} }]))
-    const result = await engine.startRun(id)
+    const id = engine.deploy(linearWorkflow([trigger, { id: 'n1', type: 'test.flaky@1', config: { failTimes: '{{t1.output.n}}' } }]))
+    const result = await engine.startRun(id, { n: 'many' })
     expect(result.status).toBe('failed')
     expect(result.error).toContain('invalid config')
     expect(calls).toEqual([])

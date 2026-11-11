@@ -290,7 +290,8 @@ describe('services', () => {
       expect(ok.status).toBe('succeeded')
       expect(readFileSync(join(allowed, 'ok.csv'), 'utf8')).toBe('a\n')
 
-      const denied = await engine.startRun(engine.deploy(workflow(join(other, 'no.csv'))))
+      expect(() => engine.deploy(workflow(join(other, 'no.csv')))).toThrow('outside the allowed folders')
+      const denied = await engine.startRun(engine.deploy(workflow('{{t1.output.file}}')), { file: join(other, 'no.csv') })
       expect(denied.status).toBe('failed')
       expect(denied.error).toContain('outside the allowed folders')
       expect(existsSync(join(other, 'no.csv'))).toBe(false)

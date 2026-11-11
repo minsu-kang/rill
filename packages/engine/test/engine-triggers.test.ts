@@ -294,8 +294,9 @@ describe('activation errors', () => {
       clock,
       allowedRoots: [allowed],
     })
-    const outside = engine.deploy(workflow('out', node('t1', 'trigger.folderWatch@1', { folder: dir })))
-    await expect(engine.activate(outside)).rejects.toThrow('outside the allowed folders')
+    expect(() => engine.deploy(workflow('out', node('t1', 'trigger.folderWatch@1', { folder: dir })))).toThrow(
+      'outside the allowed folders',
+    )
     const missing = engine.deploy(workflow('gone', node('t1', 'trigger.folderWatch@1', { folder: join(allowed, 'gone') })))
     await expect(engine.activate(missing)).rejects.toThrow('folder does not exist')
   })

@@ -70,8 +70,8 @@ describe('engine events', () => {
   it('reports a config error as a started and failed step', async () => {
     const { engine } = createTestEngine()
     const events = record(engine)
-    const id = engine.deploy(linearWorkflow([trigger, { id: 'a', type: 'test.echo@1', config: {} }]))
-    await engine.startRun(id)
+    const id = engine.deploy(linearWorkflow([trigger, { id: 'a', type: 'test.flaky@1', config: { failTimes: '{{t1.output.n}}' } }]))
+    await engine.startRun(id, { n: 'many' })
     expect(types(events)).toEqual(['run.started', 'step.started', 'step.failed', 'run.finished'])
     expect(events[2]).toMatchObject({ willRetry: false })
   })

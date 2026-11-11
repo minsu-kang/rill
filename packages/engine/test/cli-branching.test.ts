@@ -73,7 +73,8 @@ describe('rill-engine cli branching', () => {
     expect(inside.status).toBe(0)
     expect(existsSync(join(allowed, 'out.csv'))).toBe(true)
 
-    const outside = run('run', writeWorkflow('out.json', branching(join(other, 'out.csv'))), '--db', join(dir, 'd.db'), '--payload', '{"amount": 150}', '--allow', allowed)
+    const payload = JSON.stringify({ amount: 150, file: join(other, 'out.csv') })
+    const outside = run('run', writeWorkflow('out.json', branching('{{t1.output.file}}')), '--db', join(dir, 'd.db'), '--payload', payload, '--allow', allowed)
     expect(outside.status).toBe(1)
     expect(JSON.parse(outside.stdout).error).toContain('outside the allowed folders')
     expect(existsSync(join(other, 'out.csv'))).toBe(false)
