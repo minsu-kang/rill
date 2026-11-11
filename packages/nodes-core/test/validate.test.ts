@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ISSUE_CODES, isWarningIssue, type PlanIssue, type Workflow } from '@rill/dsl'
 import Type from 'typebox'
+import Value from 'typebox/value'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
   createCoreRegistry,
@@ -425,6 +426,52 @@ describe('validateWorkflow semantics', () => {
     const started = performance.now()
     expect(errorsOf(chain(...nodes))).toEqual([])
     expect(performance.now() - started).toBeLessThan(1500)
+  })
+})
+
+describe('validateWorkflow with many templated fields', () => {
+  const webhook = n('t1', 'trigger.webhook@1', { path: '/x' })
+  const templatedType = (name: string) => ({ name, type: '{{t1.output.method}}' })
+  const runtimeValid = (node: Node) => {
+    const def = registry.get(node.type)!
+    const fields = (node.config.fields as { name: string; type: unknown }[]).map((f) => ({ ...f, type: 'string' }))
+    return Value.Check(def.configSchema, { ...node.config, fields })
+  }
+
+  it('reports an error that follows more templated mismatches than TypeBox keeps', () => {
+    const node = n('ex', 'llm.extract@1', {
+      text: 'r',
+      fields: [templatedType('a'), templatedType('b')],
+      instructions: 'y'.repeat(1001),
+    })
+    expect(runtimeValid(node)).toBe(false)
+    expect(brief(validateWorkflow(chain(webhook, node), env))).toEqual(['config_maxLength /nodes/1/config/instructions'])
+  })
+
+  it('finds a hidden error inside the same property as the templated mismatches', () => {
+    const node = n('ex', 'llm.extract@1', {
+      text: 'r',
+      fields: [templatedType('a'), templatedType('b'), templatedType('c'), { name: 'd', type: 'string', description: 'y'.repeat(201) }],
+    })
+    expect(runtimeValid(node)).toBe(false)
+    expect(brief(validateWorkflow(chain(webhook, node), env))).toEqual(['config_maxLength /nodes/1/config/fields/3/description'])
+  })
+
+  it('finds a hidden error on the array that holds the templated mismatches', () => {
+    const fields = [templatedType('a'), templatedType('b'), ...Array.from({ length: 15 }, (_, i) => ({ name: `f${i}`, type: 'string' }))]
+    const node = n('ex', 'llm.extract@1', { text: 'r', fields })
+    expect(runtimeValid(node)).toBe(false)
+    expect(brief(validateWorkflow(chain(webhook, node), env))).toEqual(['config_maxItems /nodes/1/config/fields'])
+  })
+
+  it('accepts the same config without the hidden error', () => {
+    const node = n('ex', 'llm.extract@1', { text: 'r', fields: [templatedType('a'), templatedType('b')] })
+    expect(validateWorkflow(chain(webhook, node), env)).toEqual([])
+  })
+
+  it('does not add issues where nothing is hidden', () => {
+    const node = n('ex', 'llm.extract@1', { text: 'r', fields: Array.from({ length: 9 }, (_, i) => templatedType(`f${i}`)) })
+    expect(validateWorkflow(chain(webhook, node), env)).toEqual([])
   })
 })
 

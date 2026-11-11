@@ -21,6 +21,7 @@ import {
   type WorkflowNode,
 } from '@rill/dsl'
 import type Type from 'typebox'
+import { Settings } from 'typebox/system'
 import Value from 'typebox/value'
 import { declaredBranches } from './branches'
 import { assertPathAllowed } from './guard'
@@ -158,6 +159,74 @@ function isUnder(pointer: string, base: string): boolean {
   return pointer === base || pointer.startsWith(base + '/')
 }
 
+function shallow(schema: Json): Json {
+  const copy: Json = { ...schema }
+  for (const key of ['properties', 'patternProperties'] as const) {
+    const map = schema[key] as Record<string, Json> | undefined
+    if (map !== undefined) copy[key] = Object.fromEntries(Object.keys(map).map((name) => [name, {}]))
+  }
+  if (Array.isArray(schema.prefixItems)) copy.prefixItems = schema.prefixItems.map(() => ({}))
+  if (typeof schema.items === 'object') copy.items = {}
+  if (typeof schema.additionalProperties === 'object') copy.additionalProperties = {}
+  return copy
+}
+
+function childrenOf(schema: Json, value: unknown, pointer: string): [Json, unknown, string][] {
+  const entries: [string | number, unknown][] = Array.isArray(value)
+    ? value.map((item, index) => [index, item])
+    : value !== null && typeof value === 'object'
+      ? Object.entries(value)
+      : []
+  return entries.flatMap(([key, child]) => {
+    const target = subschemaAt(schema, joinPointer('', key))
+    return target === undefined ? [] : [[target, child, joinPointer(pointer, key)] as [Json, unknown, string]]
+  })
+}
+
+function errorKey(error: SchemaErrorLike): string {
+  return [error.instancePath, error.keyword, JSON.stringify(error.params)].join('|')
+}
+
+function schemaErrors(
+  schema: Json,
+  value: unknown,
+  pointer: string,
+  skipped: (pointer: string) => boolean,
+): SchemaErrorLike[] {
+  if (skipped(pointer)) return []
+  const collect = (target: Json): { kept: SchemaErrorLike[]; full: boolean } => {
+    const raw = [...Value.Errors(target as Type.TSchema, value)]
+    const kept: SchemaErrorLike[] = []
+    for (const found of raw) {
+      const error = { ...found, instancePath: pointer + found.instancePath }
+      if (skipped(error.instancePath)) continue
+      if (error.keyword === 'required') {
+        const names = ((error.params as { requiredProperties?: string[] }).requiredProperties ?? []).filter(
+          (name) => !skipped(joinPointer(error.instancePath, name)),
+        )
+        if (names.length > 0) kept.push({ ...error, params: { requiredProperties: names } })
+        continue
+      }
+      kept.push(error)
+    }
+    return { kept, full: raw.length >= Settings.Get().maxErrors }
+  }
+  const own = collect(schema)
+  if (!own.full) return own.kept
+  const found = [
+    ...own.kept,
+    ...collect(shallow(schema)).kept,
+    ...childrenOf(schema, value, pointer).flatMap(([child, item, at]) => schemaErrors(child, item, at, skipped)),
+  ]
+  const seen = new Set<string>()
+  return found.filter((error) => {
+    const key = errorKey(error)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 class NodeChecker {
   private readonly byId = new Map<string, WorkflowNode>()
   private readonly ancestorsOf: (id: string) => ReadonlySet<string>
@@ -262,19 +331,7 @@ class NodeChecker {
     const filled = this.fill(node)
     const skipped = (pointer: string) =>
       [...filled.open].some((p) => isUnder(pointer, p)) || [...filled.templated.keys()].some((p) => isUnder(pointer, p))
-    const errors: SchemaErrorLike[] = []
-    for (const error of Value.Errors(def.configSchema, filled.check)) {
-      if (skipped(error.instancePath)) continue
-      if (error.keyword === 'required') {
-        const names = ((error.params as { requiredProperties?: string[] }).requiredProperties ?? []).filter(
-          (name) => !skipped(joinPointer(error.instancePath, name)),
-        )
-        if (names.length === 0) continue
-        errors.push({ ...error, params: { requiredProperties: names } })
-        continue
-      }
-      errors.push(error)
-    }
+    const errors = schemaErrors(schema, filled.check, '', skipped)
     const describe = (pointer: string, message: string) => `${label}: invalid config: ${pointer || '/'}: ${message}`
     this.issues.push(...schemaIssues(errors, { stage: 3, prefix: 'config', base, describe }))
     let mismatches = 0
