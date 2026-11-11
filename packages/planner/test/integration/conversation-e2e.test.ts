@@ -167,7 +167,7 @@ describe('conversation end to end', () => {
       expect(result.flags.filter((flag) => flag.nodeId === 'n3')).toEqual([])
     })
 
-    it.fails('lets set_config change the retry policy of an existing node, as the patch schema offers', async () => {
+    it('lets set_config change the retry policy of an existing node, as the patch schema offers', async () => {
       const wire = { op: 'set_config', nodeId: 'n3', config: JSON.stringify({ url: 'https://api.example.com/x', method: 'POST' }), retry: { maxAttempts: 3 } }
       const provider = new FakeProvider([{ data: { kind: 'workflow', summary: 'retry', patch: [wire] } }])
       const result = await createPlanner({ provider, registry }).plan(patchRequest('n3'))

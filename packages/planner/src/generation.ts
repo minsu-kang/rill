@@ -75,18 +75,18 @@ function object(properties: Record<string, Json>, required: string[], descriptio
 
 const str = (description?: string): Json => ({ type: 'string', ...(description === undefined ? {} : { description }) })
 
-function retrySchema(): Json {
+function retrySchema(description = 'Retry policy; only for nodes that call the network.'): Json {
   return object(
     {
       maxAttempts: { type: 'integer', description: 'Attempts in total, 1 to 10.' },
       baseDelayMs: { type: 'integer', description: 'First backoff delay in ms, 0 to 60000.' },
     },
     ['maxAttempts'],
-    'Retry policy; only for nodes that call the network.',
+    description,
   )
 }
 
-const onErrorSchema = (): Json => ({ type: 'string', enum: ['fail', 'continue'] })
+const onErrorSchema = (description?: string): Json => ({ type: 'string', enum: ['fail', 'continue'], ...(description === undefined ? {} : { description }) })
 
 const CONFIG_TEXT = 'The node config as JSON text of one object, matching the config schema of this type in the catalog.'
 
@@ -121,8 +121,8 @@ function patchSchema(types: string[]): Json {
       from: str('connect, disconnect.'),
       to: str('connect, disconnect.'),
       when: str('connect only: branch label.'),
-      retry: retrySchema(),
-      onError: onErrorSchema(),
+      retry: retrySchema('add_node, set_config: retry policy; only for nodes that call the network. set_config without retry keeps the current one.'),
+      onError: onErrorSchema('add_node, set_config: what a failure does. set_config without onError keeps the current one.'),
     },
     ['op'],
   )
@@ -192,7 +192,7 @@ export function encodePatchOp(op: PatchOp): EnvelopePatchOp {
     case 'add_node':
       return { op: 'add_node', nodeId: op.node.id, type: op.node.type, config: JSON.stringify(op.node.config), ...encodeRetry(op.node) }
     case 'set_config':
-      return { op: 'set_config', nodeId: op.nodeId, config: JSON.stringify(op.config) }
+      return { op: 'set_config', nodeId: op.nodeId, config: JSON.stringify(op.config), ...encodeRetry(op) }
     case 'remove_node':
       return { op: 'remove_node', nodeId: op.nodeId }
     case 'connect':

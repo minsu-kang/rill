@@ -14,7 +14,7 @@ export interface AttachmentRef {
 
 export type PatchOp =
   | { op: 'add_node'; node: WorkflowNode }
-  | { op: 'set_config'; nodeId: string; config: Record<string, unknown> }
+  | { op: 'set_config'; nodeId: string; config: Record<string, unknown>; retry?: WorkflowNode['retry']; onError?: WorkflowNode['onError'] }
   | { op: 'remove_node'; nodeId: string }
   | { op: 'connect'; edge: WorkflowEdge }
   | { op: 'disconnect'; from: string; to: string }

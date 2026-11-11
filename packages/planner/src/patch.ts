@@ -45,7 +45,14 @@ export function decodePatchOps(source: readonly EnvelopePatchOp[]): { ops: Patch
       case 'set_config': {
         if (missing(['nodeId', 'config'])) return
         const parsed = config()
-        if (parsed !== undefined) ops.push({ op: 'set_config', nodeId: raw.nodeId as string, config: parsed })
+        if (parsed === undefined) return
+        ops.push({
+          op: 'set_config',
+          nodeId: raw.nodeId as string,
+          config: parsed,
+          ...(raw.retry === undefined ? {} : { retry: { ...raw.retry } }),
+          ...(raw.onError === undefined ? {} : { onError: raw.onError }),
+        })
         return
       }
       case 'remove_node':
@@ -83,6 +90,8 @@ export function applyPatch(existing: Workflow, ops: readonly PatchOp[], registry
         const node = workflow.nodes.find((n) => n.id === op.nodeId)
         if (node === undefined) return unknown(index, 'nodeId', op.nodeId)
         node.config = { ...structuredClone(op.config), ...hiddenValues(registry.get(node.type), node.config) }
+        if (op.retry !== undefined) node.retry = { ...op.retry }
+        if (op.onError !== undefined) node.onError = op.onError
         return
       }
       case 'remove_node':

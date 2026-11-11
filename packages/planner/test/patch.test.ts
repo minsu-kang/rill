@@ -41,6 +41,44 @@ async function planError(promise: Promise<unknown>): Promise<PlanError> {
   throw new Error('expected a PlanError')
 }
 
+describe('set_config with retry and onError', () => {
+  const withPolicy = (): Workflow => {
+    const workflow = receipts()
+    workflow.nodes[1] = { ...workflow.nodes[1]!, retry: { maxAttempts: 2, baseDelayMs: 100 }, onError: 'continue' }
+    return workflow
+  }
+
+  it('sets retry and onError when given and leaves them unchanged when absent', () => {
+    const config = { file: '{{t1.output.file}}', fields: [{ name: 'amount', type: 'number' }] }
+    const set = applyPatch(withPolicy(), [{ op: 'set_config', nodeId: 'n1', config, retry: { maxAttempts: 5 }, onError: 'fail' }], registry)
+    expect(set.issues).toEqual([])
+    expect(set.workflow.nodes[1]).toMatchObject({ config, retry: { maxAttempts: 5 }, onError: 'fail' })
+    const kept = applyPatch(withPolicy(), [{ op: 'set_config', nodeId: 'n1', config }], registry)
+    expect(kept.workflow.nodes[1]).toMatchObject({ config, retry: { maxAttempts: 2, baseDelayMs: 100 }, onError: 'continue' })
+    const onlyRetry = applyPatch(withPolicy(), [{ op: 'set_config', nodeId: 'n1', config, retry: { maxAttempts: 1 } }], registry)
+    expect(onlyRetry.workflow.nodes[1]).toMatchObject({ retry: { maxAttempts: 1 }, onError: 'continue' })
+  })
+
+  it('round-trips retry and onError of set_config through encode and decode', () => {
+    const ops: PatchOp[] = [
+      { op: 'set_config', nodeId: 'n1', config: { a: 1 }, retry: { maxAttempts: 3, baseDelayMs: 50 }, onError: 'continue' },
+      { op: 'set_config', nodeId: 'n2', config: { b: 2 } },
+    ]
+    const envelope = encodeGeneration({ kind: 'workflow', workflow: receipts(), summary: 's', patch: ops, flags: [], needsConfirmation: false })
+    expect(envelope.patch).toEqual([
+      { op: 'set_config', nodeId: 'n1', config: '{"a":1}', retry: { maxAttempts: 3, baseDelayMs: 50 }, onError: 'continue' },
+      { op: 'set_config', nodeId: 'n2', config: '{"b":2}' },
+    ])
+    expect(decodePatchOps(envelope.patch!)).toEqual({ ops, issues: [] })
+  })
+
+  it('offers retry and onError on set_config in the patch schema', () => {
+    const op = ((generationSchema(registry, { mode: 'patch' }).properties as Record<string, { items: { properties: Record<string, { description?: string }> } }>).patch!).items.properties
+    expect(op.retry!.description).toContain('set_config')
+    expect(op.onError!.description).toContain('set_config')
+  })
+})
+
 describe('applyPatch', () => {
   it('removes a node together with its edges', () => {
     const { workflow, issues } = applyPatch(existing(), [{ op: 'remove_node', nodeId: 'n1' }], registry)
