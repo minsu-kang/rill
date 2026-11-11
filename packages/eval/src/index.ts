@@ -1,3 +1,25 @@
+export { formatUsdPlain, guardReserveUsd, money, plural, roundUpBudget, worstCallUsd } from './budget'
+export { PilotDirError, readPilot } from './pilot'
+export {
+  BUDGET_P90_FACTOR,
+  LOWER_MAX_OUTPUT_MARGIN,
+  LOWER_MAX_OUTPUT_STEPS,
+  MIN_CELL_SAMPLES,
+  PESSIMISTIC_PERCENTILE,
+  RESERVE_SHARE_LIMIT,
+  reestimate,
+  type Basis as ReestimateBasis,
+  type CellProjection,
+  type LowerMaxOutput,
+  type ModelPilot,
+  type ModelProjection,
+  type PilotData,
+  type PilotSample,
+  type Reestimate,
+  type ReestimateInput,
+  type SampleOutcome,
+} from './reestimate'
+export { reestimateText, type ReestimateTextInput } from './reestimate-text'
 export { amountToCents, normalizeVendor, vendorKey, vendorsEqual } from './normalize'
 export {
   PRICE_TABLE,

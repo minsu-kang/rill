@@ -1,11 +1,14 @@
 import { realpathSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { LlmEffort } from '@rill/llm'
 import { formatUsdPlain, guardReserveUsd, money, plural, roundUpBudget, worstCallUsd } from './budget'
+import { PilotDirError, readPilot } from './pilot'
 import { PRICE_TABLE_AS_OF, priceFor } from './pricing'
 import { DEFAULT_MAX_OUTPUT_TOKENS, createEvalProvider } from './record'
+import { reestimate, type PilotData } from './reestimate'
+import { reestimateText } from './reestimate-text'
 import { renderReport } from './report'
 import { PACKAGE_ROOT, appendPartial, assertWritableDir, writeResults } from './results'
 import { breakEvenOutputTokens, estimateRun, runEval, type RunEstimate, type RunResult, type TaskResult } from './runner'
@@ -83,6 +86,9 @@ options:
   --allow-base-url        allow an ANTHROPIC_BASE_URL other than ${DEFAULT_BASE_URL}, or ANTHROPIC_CUSTOM_HEADERS
                           (the key is sent to that host)
   --baselines             run only the baselines (all-null, oracle, regex): no key, no network, no cost
+  --reestimate <dir>      re-estimate the full run from the results directory of a pilot: a projection from the measured usage,
+                          a suggested budget and the command to run it; no key, no network, writes nothing;
+                          takes --models, --reps, --kinds, --only, --max-output-tokens and --concurrency
   --yes                   really call the API; needs ANTHROPIC_API_KEY in the environment and --budget-usd
   -h, --help              show this text
 
@@ -116,6 +122,7 @@ export interface CliConfig {
   out: string | undefined
   allowBaseUrl: boolean
   baselines: boolean
+  reestimate: string | undefined
   yes: boolean
   help: boolean
 }
@@ -165,6 +172,7 @@ const OPTIONS = {
   out: { type: 'string' },
   'allow-base-url': { type: 'boolean' },
   baselines: { type: 'boolean' },
+  reestimate: { type: 'string' },
   yes: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 } as const
@@ -187,6 +195,13 @@ export function parseCli(argv: readonly string[]): CliConfig {
   const pilot = values.pilot === true
   const baselines = values.baselines === true
   const yes = values.yes === true
+  const reestimateDir = values.reestimate
+  if (reestimateDir !== undefined) {
+    if (reestimateDir.trim() === '') throw new UsageError('--reestimate needs the results directory of a pilot')
+    for (const name of ['pilot', 'baselines', 'yes', 'budget-usd', 'effort', 'max-call-seconds', 'max-attempts', 'seed', 'out', 'allow-base-url'] as const) {
+      if (values[name] !== undefined) throw new UsageError(`--reestimate cannot be combined with --${name}`)
+    }
+  }
   if (pilot && (values.only !== undefined || values.kinds !== undefined || values.reps !== undefined)) {
     throw new UsageError('--pilot cannot be combined with --only, --kinds or --reps')
   }
@@ -243,6 +258,7 @@ export function parseCli(argv: readonly string[]): CliConfig {
     out: values.out,
     allowBaseUrl: values['allow-base-url'] === true,
     baselines,
+    reestimate: reestimateDir,
     yes,
     help: false,
   }
@@ -267,6 +283,7 @@ function emptyConfig(): CliConfig {
     out: undefined,
     allowBaseUrl: false,
     baselines: false,
+    reestimate: undefined,
     yes: false,
     help: false,
   }
@@ -568,6 +585,49 @@ function interruptControls(io: CliIo, maxCallSeconds: number): { stop: AbortCont
   return { stop, abort, dispose }
 }
 
+function loadPilot(dir: string): PilotData {
+  try {
+    return readPilot(dir)
+  } catch (error) {
+    if (error instanceof PilotDirError) throw new UsageError(error.message)
+    throw error
+  }
+}
+
+function pilotEffort(pilot: PilotData): LlmEffort | undefined {
+  const effort = pilot.effort
+  return effort !== null && effort !== 'low' && (EFFORTS as readonly string[]).includes(effort) ? (effort as LlmEffort) : undefined
+}
+
+function reestimateMode(config: CliConfig, given: string, suite: ExtractSuite, io: CliIo): number {
+  const invokedFrom = io.env['INIT_CWD']?.trim() ?? ''
+  const dir = resolve(invokedFrom === '' ? process.cwd() : invokedFrom, given)
+  const pilot = loadPilot(dir)
+  const result = reestimate({ suite, pilot, models: config.models, reps: config.reps, concurrency: config.concurrency, maxOutputTokens: config.maxOutputTokens })
+  const plan: CliConfig = { ...config, effort: pilotEffort(pilot), reestimate: undefined }
+  const lower = result.lowerMaxOutput
+  io.stdout(
+    reestimateText({
+      dir,
+      suiteName: suite.name,
+      suiteVersion: suite.version,
+      pilot,
+      result,
+      plan: {
+        seeds: new Set(suite.cases().map((testCase) => testCase.group)).size,
+        kinds: config.kinds,
+        cases: suite.cases().length,
+        reps: config.reps,
+        concurrency: config.concurrency,
+        models: config.models,
+      },
+      command: result.suggestedBudgetUsd === undefined ? undefined : commandLine(plan, result.suggestedBudgetUsd),
+      lowerCommand: lower === undefined ? undefined : commandLine({ ...plan, maxOutputTokens: lower.maxOutputTokens }, lower.suggestedBudgetUsd),
+    }),
+  )
+  return EXIT_OK
+}
+
 async function runYesMode(config: CliConfig, suite: ExtractSuite, io: CliIo, estimate: RunEstimate, budgetUsd: number): Promise<number> {
   const key = io.env['ANTHROPIC_API_KEY']?.trim() ?? ''
   if (key === '') {
@@ -658,6 +718,7 @@ export async function main(argv: readonly string[], io: CliIo): Promise<number> 
       return 1
     }
     if (config.baselines) return await runBaselinesMode(config, suite, io)
+    if (config.reestimate !== undefined) return reestimateMode(config, config.reestimate, suite, io)
     const estimate = estimateRun({ suite, models: config.models, reps: config.reps })
     const budgetUsd = budgetFor(config, estimate, suite)
     if (!config.yes) {
