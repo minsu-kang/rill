@@ -1,6 +1,7 @@
 import { isTrigger, parseWorkflowShape, validateGraph, validateReferences, type Workflow } from '@rill/dsl'
 import { declaredBranches, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
 import type { Db } from './db'
+import { EventBus, type EngineListener } from './events'
 import { RunExecutor, type RunResult } from './executor'
 import { Store } from './store'
 
@@ -30,10 +31,13 @@ export class Engine {
   readonly store: Store
   private readonly registry: NodeRegistry
   private readonly executor: RunExecutor
+  private readonly bus: EventBus
 
   constructor(options: EngineOptions) {
-    this.store = new Store(options.db, options.now)
+    const now = options.now ?? (() => Date.now())
+    this.store = new Store(options.db, now)
     this.registry = options.registry
+    this.bus = new EventBus(now)
     this.executor = new RunExecutor({
       store: this.store,
       registry: options.registry,
@@ -41,7 +45,12 @@ export class Engine {
       random: options.random ?? Math.random,
       allowedRoots: options.allowedRoots,
       connections: options.connections ?? { get: () => undefined },
+      emit: (event) => this.bus.emit(event),
     })
+  }
+
+  on(listener: EngineListener): () => void {
+    return this.bus.on(listener)
   }
 
   deploy(input: unknown): string {

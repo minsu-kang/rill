@@ -7,6 +7,7 @@ import {
 } from '@rill/dsl'
 import { RetryableError, type ActionNodeDefinition, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
 import Value from 'typebox/value'
+import type { EngineEventInput } from './events'
 import type { RunRow, Store } from './store'
 
 export interface RunResult {
@@ -44,6 +45,7 @@ export interface ExecutorDeps {
   random: () => number
   allowedRoots: string[] | undefined
   connections: ConnectionResolver
+  emit: (event: EngineEventInput) => void
 }
 
 export class RunExecutor {
@@ -53,6 +55,7 @@ export class RunExecutor {
   private readonly random: () => number
   private readonly allowedRoots: string[] | undefined
   private readonly connections: ConnectionResolver
+  private readonly emit: (event: EngineEventInput) => void
 
   constructor(deps: ExecutorDeps) {
     this.store = deps.store
@@ -61,6 +64,7 @@ export class RunExecutor {
     this.random = deps.random
     this.allowedRoots = deps.allowedRoots
     this.connections = deps.connections
+    this.emit = deps.emit
   }
 
   async execute(run: RunRow): Promise<RunResult> {
@@ -72,6 +76,7 @@ export class RunExecutor {
     const settled = new Map<string, 'done' | 'skipped'>()
     this.store.abandonRunningAttempts(run.id)
     this.store.markRunRunning(run.id)
+    this.emit({ type: 'run.started', runId: run.id, workflowId: run.workflowId, dryRun: run.dryRun })
     for (const id of order) {
       const node = nodes.get(id)!
       const def = this.registry.get(node.type)
@@ -86,6 +91,7 @@ export class RunExecutor {
       )
       if (!active) {
         this.store.recordSkipped(run.id, id, `${run.id}:${id}`)
+        this.emit({ type: 'step.skipped', runId: run.id, nodeId: id })
         settled.set(id, 'skipped')
         continue
       }
@@ -106,6 +112,7 @@ export class RunExecutor {
         settled.set(id, 'done')
       } else if (node.onError === 'continue') {
         this.store.markContinued(run.id, id, outcome.attempt)
+        this.emit({ type: 'step.continued', runId: run.id, nodeId: id, attempt: outcome.attempt, error: outcome.error })
         outputs[id] = null
         settled.set(id, 'done')
       } else {
@@ -113,11 +120,13 @@ export class RunExecutor {
       }
     }
     this.store.finishRun(run.id, 'succeeded')
+    this.emit({ type: 'run.finished', runId: run.id, status: 'succeeded', error: null })
     return { runId: run.id, status: 'succeeded', error: null, outputs }
   }
 
   private failRun(runId: string, error: string, outputs: Record<string, unknown>): RunResult {
     this.store.finishRun(runId, 'failed', error)
+    this.emit({ type: 'run.finished', runId, status: 'failed', error })
     return { runId, status: 'failed', error, outputs }
   }
 
@@ -140,7 +149,16 @@ export class RunExecutor {
     } catch (error) {
       const attempt = this.store.startAttempt({ runId: run.id, nodeId: node.id, input: node.config, idempotencyKey })
       const message = errorMessage(error)
+      this.emit({ type: 'step.started', runId: run.id, nodeId: node.id, attempt })
       this.store.finishAttempt(run.id, node.id, attempt, { status: 'failed', error: message })
+      this.emit({
+        type: 'step.failed',
+        runId: run.id,
+        nodeId: node.id,
+        attempt,
+        error: message,
+        willRetry: false,
+      })
       return { ok: false, error: message, attempt }
     }
 
@@ -148,6 +166,7 @@ export class RunExecutor {
     let failures = 0
     for (;;) {
       const attempt = this.store.startAttempt({ runId: run.id, nodeId: node.id, input: config, idempotencyKey })
+      this.emit({ type: 'step.started', runId: run.id, nodeId: node.id, attempt })
       try {
         const output =
           (await def.execute(config, {
@@ -162,12 +181,15 @@ export class RunExecutor {
             connections: this.connections,
           })) ?? null
         this.store.finishAttempt(run.id, node.id, attempt, { status: 'succeeded', output })
+        this.emit({ type: 'step.succeeded', runId: run.id, nodeId: node.id, attempt })
         return { ok: true, output }
       } catch (error) {
         failures += 1
         const message = errorMessage(error)
         this.store.finishAttempt(run.id, node.id, attempt, { status: 'failed', error: message })
-        if (!(error instanceof RetryableError) || failures >= maxAttempts) return { ok: false, error: message, attempt }
+        const willRetry = error instanceof RetryableError && failures < maxAttempts
+        this.emit({ type: 'step.failed', runId: run.id, nodeId: node.id, attempt, error: message, willRetry })
+        if (!willRetry) return { ok: false, error: message, attempt }
         await this.sleep(computeBackoff(failures, node.retry?.baseDelayMs ?? 500, this.random))
       }
     }
