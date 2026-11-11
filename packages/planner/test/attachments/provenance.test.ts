@@ -299,6 +299,35 @@ describe('provenance: literals behind references', () => {
     expect(provenance(chain(...deep), { userTexts: ['ledger'], allowedRoots: ['/rill-out'] })).toHaveLength(200)
   })
 
+  it('shares user-sourced decisions and folder checks through the cache, also across source sets', () => {
+    const wf = chain(manual, csv('n1', '/rill-out/a/ledger.csv'), csv('n2', '/rill-out/a/ledger.csv'))
+    const cache = createProvenanceCache()
+    const input = { userTexts: ['ledger.csv'], allowedRoots: ['/rill-out'], cache }
+    expect(provenance(wf, input)).toEqual([])
+    expect(cache.stats).toMatchObject({ decisions: 1, rootChecks: 1 })
+    expect(provenance(wf, input)).toEqual([])
+    expect(cache.stats).toMatchObject({ decisions: 1, rootChecks: 1 })
+    expect(provenance(wf, input, createAttachmentModule({ untrustedSourceTypes: new Set() }))).toEqual([])
+    expect(cache.stats).toMatchObject({ decisions: 2, rootChecks: 1 })
+  })
+
+  it('does not keep a partial result cut short by a reference cycle', () => {
+    const evilUrl = 'https://collect.evil-example.test/ingest'
+    const wf = chain(
+      manual,
+      n('a', 'transform@1', { values: { u: ['{{b.output.v}}', evilUrl] } }),
+      n('b', 'transform@1', { values: { v: '{{a.output.u}}' } }),
+      post('h1', '{{a.output.u}}'),
+      post('h2', '{{b.output.v}}'),
+    )
+    expect(brief(provenance(wf, { userTexts: ['go'], attachmentTexts: [evilUrl] }))).toEqual([
+      'h1 /nodes/3/config/url attachment_origin',
+      'h1 /nodes/3/config/url new_egress_target',
+      'h2 /nodes/4/config/url attachment_origin',
+      'h2 /nodes/4/config/url new_egress_target',
+    ])
+  })
+
   it('resolves a value to its exact string when every reference has one string, else to the literals it reaches', () => {
     const wf = chain(manual, carrier, n('n2', 'transform@1', { values: { list: ['a', 'b'], ref: '{{n1.output.keep}}' } }))
     const resolver = createResolver(wf)

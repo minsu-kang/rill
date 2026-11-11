@@ -76,6 +76,7 @@ const URL_IN_TEXT = /[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]*/gi
 export interface ProvenanceStats {
   work: number
   rootChecks: number
+  decisions: number
 }
 
 /** Memo shared by the provenance calls and the masking of one planner run (same user texts and settings). */
@@ -86,7 +87,7 @@ export interface ProvenanceCache {
 }
 
 export function createProvenanceCache(): ProvenanceCache {
-  return { userSourced: new Map(), insideRoots: new Map(), stats: { work: 0, rootChecks: 0 } }
+  return { userSourced: new Map(), insideRoots: new Map(), stats: { work: 0, rootChecks: 0, decisions: 0 } }
 }
 
 export interface Resolution {
@@ -292,6 +293,7 @@ export function userSourcedTest(input: Omit<ProvenanceInput, 'workflow' | 'attac
     const key = `${scope}\u0000${role}\u0000${write ? 1 : 0}\u0000${text}`
     const known = cache.userSourced.get(key)
     if (known !== undefined) return known
+    cache.stats.decisions += 1
     const result = decide(role, text, write)
     cache.userSourced.set(key, result)
     return result

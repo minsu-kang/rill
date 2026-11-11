@@ -32,6 +32,20 @@ describe('provenance flags', () => {
     expect(result).toMatchObject({ kind: 'workflow', flags: [flag], needsConfirmation: true })
   })
 
+  it('passes one provenance cache to every call of a run, so rounds and masking share it', async () => {
+    const attachments = fakeAttachments()
+    const bad = receipts()
+    bad.nodes[2]!.config = { file: '/elsewhere/x.csv', row: ['a'] }
+    const provider = new FakeProvider([{ data: workflowData(bad) }, { data: workflowData(receipts()) }])
+    await createPlanner({ provider, registry, attachments }).plan(request())
+    expect(attachments.provenanceCalls).toHaveLength(2)
+    expect(attachments.provenanceCalls[0]!.cache).toBeDefined()
+    expect(attachments.provenanceCalls[1]!.cache).toBe(attachments.provenanceCalls[0]!.cache)
+    const other = fakeAttachments()
+    await createPlanner({ provider: new FakeProvider([{ data: workflowData(receipts()) }]), registry, attachments: other }).plan(request())
+    expect(other.provenanceCalls[0]!.cache).not.toBe(attachments.provenanceCalls[0]!.cache)
+  })
+
   it('does not turn flags into repair rounds', async () => {
     const attachments = fakeAttachments({ flags: [flag] })
     const provider = new FakeProvider([{ data: workflowData(receipts()) }])
