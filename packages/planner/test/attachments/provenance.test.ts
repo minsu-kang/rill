@@ -462,6 +462,14 @@ describe('provenance: connections and write paths the user configured', () => {
     expect(brief(provenance(chain(manual, csv('n1', `${root}/../etc/ledger.csv`)), { userTexts: ['add it to ledger.csv'], allowedRoots: roots }))).toEqual(NEW)
   })
 
+  it('does not take a relative write path as inside the allowed folders, wherever the process runs', () => {
+    const NEW = ['n1 /nodes/1/config/file new_egress_target']
+    expect(provenance(chain(manual, csv('n1', `${root}/ledger.csv`)), { userTexts: ['add it to ledger.csv'], allowedRoots: roots })).toEqual([])
+    for (const relative of ['./ledger.csv', 'Receipts/ledger.csv']) {
+      expect(brief(provenance(chain(manual, csv('n1', relative)), { userTexts: ['add it to ledger.csv'], allowedRoots: roots })), relative).toEqual(NEW)
+    }
+  })
+
   it('does not count a file name from the existing workflow or a templated path', () => {
     const existing = chain(manual, csv('n1', `${root}/other/ledger.csv`))
     const wf = chain(manual, csv('n1', `${root}/ledger.csv`))

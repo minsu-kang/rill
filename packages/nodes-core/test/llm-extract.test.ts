@@ -244,6 +244,12 @@ describe('llm.extract input checks', () => {
     expect(requests).toHaveLength(2)
   })
 
+  it('refuses a relative file path before any call', async () => {
+    const { llm, requests } = fakeLlm([reply])
+    await expect(run({ file: 'receipt.pdf', fields }, llm)).rejects.toThrow('path must be absolute')
+    expect(requests).toHaveLength(0)
+  })
+
   it('applies the path guard, including symlinks that leave the allowed folder', async () => {
     const outside = mkdtempSync(join(tmpdir(), 'rill-outside-'))
     try {

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PathNotAllowedError } from '../src/guard'
 import { csvAppend } from '../src/nodes/csv-append'
 import { makeCtx, memoryJournal } from './helpers'
@@ -19,6 +19,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   rmSync(base, { recursive: true, force: true })
 })
 
@@ -41,6 +42,12 @@ describe('csv.append@1 path confinement', () => {
     const file = join(outside, 'ledger.csv')
     const ctx = makeCtx({ allowedRoots: [root], dryRun: true })
     await expect(csvAppend.execute({ file, row: ['a'] }, ctx)).rejects.toThrow(PathNotAllowedError)
+  })
+
+  it('refuses a relative path, whichever folder the process runs in, and writes nothing', async () => {
+    vi.spyOn(process, 'cwd').mockReturnValue(root)
+    await expect(csvAppend.execute({ file: 'ledger.csv', row: ['a'] }, makeCtx({ allowedRoots: [root] }))).rejects.toThrow('path must be absolute')
+    expect(existsSync(join(root, 'ledger.csv'))).toBe(false)
   })
 
   it('refuses dot-dot escapes', async () => {

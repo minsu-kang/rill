@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { ISSUE_CODES, isWarningIssue, type PlanIssue, type Workflow } from '@rill/dsl'
 import Type from 'typebox'
 import Value from 'typebox/value'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import {
   createCoreRegistry,
   defineAction,
@@ -361,6 +361,39 @@ describe('validateWorkflow semantics', () => {
     expect(issues[1]!.message).toContain("must not contain '..'")
     expect(validateWorkflow(outside, env)).toEqual([])
     expect(validateWorkflow(outside, { registry, allowedRoots: [] })[0]!.hint).toBe('allowed folders: (none)')
+  })
+
+  it('rejects a relative literal path when roots are defined, on every path field, and ignores it without roots', () => {
+    const relative = chain(
+      n('t1', 'trigger.folderWatch@1', { folder: 'incoming' }),
+      n('a', 'csv.append@1', { file: 'out/x.csv', row: [1] }),
+      n('b', 'llm.extract@1', { file: './doc.pdf', fields: [{ name: 'a', type: 'string' }] }),
+      n('c', 'file.read@1', { path: 'notes.txt' }),
+    )
+    const issues = validateWorkflow(relative, { registry, allowedRoots: [dir] })
+    expect(brief(issues)).toEqual([
+      'path_outside_roots /nodes/0/config/folder',
+      'path_outside_roots /nodes/1/config/file',
+      'path_outside_roots /nodes/2/config/file',
+      'path_outside_roots /nodes/3/config/path',
+    ])
+    expect(issues[1]!.message).toContain('path must be absolute or start with ~/: out/x.csv')
+    expect(issues[1]!.hint).toBe(`allowed folders: ${dir}`)
+    expect(validateWorkflow(relative, { registry })).toEqual([])
+  })
+
+  it('does not depend on the folder the validator runs in', () => {
+    const relative = chain(manual, n('a', 'csv.append@1', { file: 'x.csv', row: [1] }))
+    try {
+      const verdicts = [dir, tmpdir()].map((cwd) => {
+        vi.spyOn(process, 'cwd').mockReturnValue(cwd)
+        return brief(validateWorkflow(relative, { registry, allowedRoots: [dir] }))
+      })
+      expect(verdicts[0]).toEqual(['path_outside_roots /nodes/1/config/file'])
+      expect(verdicts[1]).toEqual(verdicts[0])
+    } finally {
+      vi.restoreAllMocks()
+    }
   })
 
   it('checks literal connection names when connections are given', () => {

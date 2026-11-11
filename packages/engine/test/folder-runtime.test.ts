@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { PathNotAllowedError } from '@rill/nodes-core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DuplicateFileError } from '../src/store'
@@ -275,6 +275,12 @@ describe('FolderRuntime safety', () => {
       'folder does not exist',
     )
     expect(() => new FolderRuntime(h.workflowId, { folder }, h.host, [dir])).not.toThrow()
+  })
+
+  it('refuses a relative folder when roots are set and leaves it alone when they are not', () => {
+    const h = createHost(new ManualClock(0))
+    expect(() => new FolderRuntime(h.workflowId, { folder: 'incoming' }, h.host, [dir])).toThrow('path must be absolute')
+    expect(() => new FolderRuntime(h.workflowId, { folder: relative(process.cwd(), folder) }, h.host, undefined)).not.toThrow()
   })
 
   it('scans on the poll interval and delivers nothing after stop', () => {

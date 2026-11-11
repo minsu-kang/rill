@@ -168,6 +168,10 @@ const INVALID: [string, unknown][] = [
   ['cron_expression', wf([n('t1', 'trigger.cron@1', { expression: '0 0 31 2 *' })])],
   ['path_outside_roots', wf([manual, n('c', 'csv.append@1', { file: join(dir, 'other', 'x.csv'), row: [1] })])],
   ['path_outside_roots', wf([n('t1', 'trigger.folderWatch@1', { folder: dir })])],
+  ['path_outside_roots', wf([manual, n('c', 'csv.append@1', { file: 'out.csv', row: [1] })])],
+  ['path_outside_roots', wf([manual, n('c', 'csv.append@1', { file: './allowed/out.csv', row: [1] })])],
+  ['path_outside_roots', wf([manual, n('r', 'file.read@1', { path: 'a.txt' })])],
+  ['path_outside_roots', wf([n('t1', 'trigger.folderWatch@1', { folder: 'in' })])],
 ]
 
 const registry = createTestRegistry()

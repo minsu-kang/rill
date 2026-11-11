@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PathNotAllowedError, assertPathAllowed, expandHome } from '../src/guard'
 
 let base: string
@@ -106,5 +106,50 @@ describe('assertPathAllowed', () => {
   it('names the offending path in the message', () => {
     const path = join(outside, 'out.txt')
     expect(() => assertPathAllowed(path, [root])).toThrow(`outside the allowed folders: ${path}`)
+  })
+
+  describe('relative paths', () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('rejects a relative path when roots are defined, even when the working folder is inside a root', () => {
+      vi.spyOn(process, 'cwd').mockReturnValue(root)
+      for (const path of ['in.txt', './in.txt', 'a/b/new.csv', '', '~other/x.csv', '.']) {
+        expect(() => assertPathAllowed(path, [root]), path).toThrow(PathNotAllowedError)
+        expect(() => assertPathAllowed(path, [root]), path).toThrow('path must be absolute')
+      }
+    })
+
+    it('says which path it rejected and what is expected', () => {
+      expect(() => assertPathAllowed('ledger/out.csv', [root])).toThrow('path must be absolute or start with ~/: ledger/out.csv')
+    })
+
+    it('rejects a relative path before the empty-roots check as well', () => {
+      expect(() => assertPathAllowed('x.csv', [])).toThrow('path must be absolute')
+    })
+
+    it('judges the same path the same way wherever the process runs', () => {
+      const verdicts = [root, outside, base].map((cwd) => {
+        vi.spyOn(process, 'cwd').mockReturnValue(cwd)
+        try {
+          assertPathAllowed('in.txt', [root])
+          return 'allowed'
+        } catch (error) {
+          return (error as Error).message
+        }
+      })
+      expect(new Set(verdicts).size).toBe(1)
+    })
+
+    it('accepts a path that is absolute only after the home folder is expanded', () => {
+      expect(assertPathAllowed('~/rill-guard-test/x.csv', [homedir()])).toBe(join(homedir(), 'rill-guard-test/x.csv'))
+      expect(() => assertPathAllowed('~/x.csv', [root])).toThrow('outside the allowed folders')
+    })
+
+    it('leaves a relative path alone when there are no roots', () => {
+      expect(assertPathAllowed('relative/x.csv', undefined)).toBe('relative/x.csv')
+      expect(assertPathAllowed('', undefined)).toBe('')
+    })
   })
 })

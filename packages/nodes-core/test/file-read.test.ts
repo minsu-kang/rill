@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PathNotAllowedError, createCoreRegistry } from '../src/index'
 import { fileRead } from '../src/nodes/file-read'
 import { makeCtx } from './helpers'
@@ -13,6 +13,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -76,6 +77,12 @@ describe('file.read@1', () => {
     writeFileSync(outside, 'nope')
     const ctx = makeCtx({ allowedRoots: [inside] })
     await expect(fileRead.execute({ path: outside }, ctx)).rejects.toThrow(PathNotAllowedError)
+  })
+
+  it('refuses a relative path when roots are set, even if the process runs inside a root', async () => {
+    writeFileSync(join(dir, 'ok.txt'), 'fine')
+    vi.spyOn(process, 'cwd').mockReturnValue(dir)
+    await expect(fileRead.execute({ path: 'ok.txt' }, makeCtx({ allowedRoots: [dir] }))).rejects.toThrow(PathNotAllowedError)
   })
 
   it('reads inside the allowed roots', async () => {

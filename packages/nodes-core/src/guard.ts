@@ -51,6 +51,7 @@ function hasParentSegment(path: string): boolean {
 export function assertPathAllowed(path: string, roots: string[] | undefined): string {
   const expanded = expandHome(path)
   if (roots === undefined) return expanded
+  if (!isAbsolute(expanded)) throw new PathNotAllowedError(`path must be absolute or start with ~/: ${path}`)
   if (hasParentSegment(expanded)) throw new PathNotAllowedError(`path must not contain '..': ${path}`)
   const target = resolveReal(expanded)
   if (!roots.some((root) => isInside(resolveReal(expandHome(root)), target))) {
