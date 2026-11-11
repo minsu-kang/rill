@@ -44,7 +44,7 @@ export const FlagSchema = Type.Object(
 )
 
 export const PlanQuestionSchema = Type.Object(
-  { id: Type.String(), text: Type.String(), options: Type.Array(Type.String()), default: Type.String() },
+  { id: Type.String(), text: Type.String(), options: Type.Array(Type.String(), { maxItems: 10 }), default: Type.String() },
   closed,
 )
 
@@ -77,7 +77,10 @@ export const PlanResultBodySchema = Type.Union([
     },
     closed,
   ),
-  Type.Object({ kind: Type.Literal('questions'), questions: Type.Array(PlanQuestionSchema), summary: Type.String() }, closed),
+  Type.Object(
+    { kind: Type.Literal('questions'), questions: Type.Array(PlanQuestionSchema, { maxItems: 10 }), summary: Type.String() },
+    closed,
+  ),
   Type.Object(
     { kind: Type.Literal('unsupported'), reason: Type.String(), nearest: Type.String(), summary: Type.String() },
     closed,
@@ -90,7 +93,7 @@ export const PlanTurnSchema = Type.Object(
     text: Type.String({ maxLength: 8000 }),
     attachments: Type.Optional(Type.Array(AttachmentRefSchema, { maxItems: 5 })),
     result: Type.Optional(PlanResultBodySchema),
-    answers: Type.Optional(Type.Record(Type.String(), Type.String())),
+    answers: Type.Optional(Type.Record(Type.String(), Type.String({ maxLength: 8000 }), { maxProperties: 10 })),
   },
   closed,
 )

@@ -185,6 +185,31 @@ describe('plan params', () => {
     expect(ok('plan', turn({ extra: true }))).toBe(false)
   })
 
+  it('bounds the questions, the options and the answers of a turn', () => {
+    const asked = (questions: unknown) => ({ ...planParams, turns: [{ role: 'assistant', text: 'ask', result: { kind: 'questions', questions, summary: 's' } }] })
+    const answered = (answers: unknown) => ({ ...planParams, turns: [{ role: 'user', text: 'a', answers }] })
+    const options = (count: number) => Array.from({ length: count }, (_, index) => `o${index}`)
+    expect(ok('plan', asked(Array.from({ length: 10 }, () => question)))).toBe(true)
+    expect(ok('plan', asked(Array.from({ length: 11 }, () => question)))).toBe(false)
+    expect(ok('plan', asked([{ ...question, options: options(10) }]))).toBe(true)
+    expect(ok('plan', asked([{ ...question, options: options(11) }]))).toBe(false)
+    const answers = (count: number) => Object.fromEntries(options(count).map((key) => [key, 'x']))
+    expect(ok('plan', answered(answers(10)))).toBe(true)
+    expect(ok('plan', answered(answers(11)))).toBe(false)
+    expect(ok('plan', answered({ q1: 'x'.repeat(8000) }))).toBe(true)
+    expect(ok('plan', answered({ q1: 'x'.repeat(8001) }))).toBe(false)
+  })
+
+  it('rejects a request with thousands of options and answers', () => {
+    const turns = [
+      { role: 'assistant', text: '', result: { kind: 'questions', questions: [{ ...question, options: Array.from({ length: 30000 }, (_, index) => `o${index}`) }], summary: 's' } },
+      { role: 'user', text: 'x', answers: Object.fromEntries(Array.from({ length: 20000 }, (_, index) => [`k${index}`, `z${index}`])) },
+    ]
+    const result = validateParams('plan', { ...planParams, turns })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.code).toBe('INVALID_PARAMS')
+  })
+
   it('validates the attachment refs inside the request', () => {
     const withRef = (value: unknown) => ({ ...planParams, attachments: [value] })
     expect(ok('plan', withRef(ref))).toBe(true)
@@ -243,6 +268,12 @@ describe('FlagSchema and PlanQuestionSchema', () => {
     expect(Value.Check(FlagSchema, { ...flag, code: 'other' })).toBe(false)
     expect(Value.Check(FlagSchema, { ...flag, extra: 1 })).toBe(false)
     expect(Value.Check(FlagSchema, { nodeId: 'n1', pointer: '/a', code: 'untrusted_flow' })).toBe(false)
+  })
+
+  it('bounds the options of a question', () => {
+    const options = (count: number) => Array.from({ length: count }, (_, index) => `o${index}`)
+    expect(Value.Check(PlanQuestionSchema, { ...question, options: options(10) })).toBe(true)
+    expect(Value.Check(PlanQuestionSchema, { ...question, options: options(11) })).toBe(false)
   })
 
   it('is closed for questions', () => {

@@ -247,6 +247,23 @@ describe('planner methods over the websocket', () => {
     expect(provider.requests).toHaveLength(0)
   })
 
+  it('refuses a turn with thousands of options and answers at once', async () => {
+    const { url, provider, db } = await start([])
+    const { client } = await connect(url)
+    const questions = [{ id: 'q', text: 't', options: Array.from({ length: 30000 }, (_, i) => `o${i}`), default: 'o1' }]
+    const answers = Object.fromEntries(Array.from({ length: 20000 }, (_, i) => [`k${i}`, `z${i}`]))
+    const turns = [
+      { role: 'user' as const, text: 'hi' },
+      { role: 'assistant' as const, text: '', result: { kind: 'questions' as const, questions, summary: 's' } },
+      { role: 'user' as const, text: 'x', answers },
+    ]
+    const started = Date.now()
+    expect((await failure(client.request('plan', planParams({ turns })))).code).toBe('INVALID_PARAMS')
+    expect(Date.now() - started).toBeLessThan(5000)
+    expect(provider.requests).toHaveLength(0)
+    expect(db.all('SELECT id FROM plans')).toEqual([])
+  })
+
   it('reports LLM_UNAVAILABLE when the engine has no model provider', async () => {
     const { url } = await start([], { llm: undefined })
     const { client } = await connect(url)
