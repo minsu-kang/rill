@@ -52,7 +52,7 @@ function taintIndex(nodes: readonly WorkflowNode[], sources: ReadonlySet<string>
     if (node === undefined || visiting.has(id)) return false
     visiting.add(id)
     const result =
-      sources.has(baseType(node.type)) || extractRefs(node.config).some((ref) => ref.nodeId !== id && tainted(ref.nodeId))
+      sources.has(baseType(node.type)) || extractRefs(node.config).some((ref) => tainted(ref.nodeId))
     visiting.delete(id)
     known.set(id, result)
     return result
@@ -66,14 +66,10 @@ export function computeProvenance(input: ProvenanceInput, options: ProvenanceOpt
   const attachmentHaystacks = attachmentTexts.map(fold)
   const tainted = taintIndex(workflow.nodes, options.untrustedSourceTypes ?? UNTRUSTED_SOURCE_TYPES)
   const found: { index: number; flag: Flag }[] = []
-  const seen = new Set<string>()
   workflow.nodes.forEach((node, index) => {
     const def = registry.get(node.type)
     if (def === undefined) return
     const add = (pointer: string, code: Flag['code']) => {
-      const key = `${index}\u0000${pointer}\u0000${code}`
-      if (seen.has(key)) return
-      seen.add(key)
       found.push({ index, flag: { nodeId: node.id, pointer, code, message: `node ${node.id}: ${pointer} ${MESSAGES[code]}` } })
     }
     for (const { pointer, role } of fieldRoles(def)) {

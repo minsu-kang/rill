@@ -5,11 +5,11 @@ export interface Literal {
   text: string
 }
 
-const HOME = 'home'
+const HOME = '\uE000home'
 
 const BEFORE: Record<LiteralKind, RegExp> = {
   host: /[a-z0-9_.-]/,
-  path: /[a-z0-9_./-]/,
+  path: /[a-z0-9_.\uE000/-]/,
   name: /[a-z0-9_.@-]/,
 }
 
@@ -19,7 +19,7 @@ export function fold(text: string): string {
   return text
     .normalize('NFC')
     .toLowerCase()
-    .replaceAll(/~(?=\/|$)/g, HOME)
+    .replaceAll('~', HOME)
 }
 
 function stripTrailingSlashes(text: string): string {
