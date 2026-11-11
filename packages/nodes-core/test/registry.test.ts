@@ -7,6 +7,7 @@ const trigger = defineTrigger({
   type: 'trigger.test@1',
   title: 'Test trigger',
   description: 'For tests.',
+  configSchema: Type.Object({}),
   outputSchema: Type.Object({}),
 })
 

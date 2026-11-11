@@ -37,6 +37,8 @@ interface NodeBase {
 
 export interface TriggerNodeDefinition extends NodeBase {
   kind: 'trigger'
+  configSchema: Type.TSchema
+  validate?(config: unknown): string[]
 }
 
 export interface ActionNodeDefinition extends NodeBase {
