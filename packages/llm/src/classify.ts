@@ -66,7 +66,7 @@ export function classifyError(error: unknown): LlmError {
   }
   if (error instanceof Anthropic.APIError) {
     const status = error.status
-    const streamKind = status === undefined && error.type !== null ? STREAM_ERROR_KINDS.get(error.type) : undefined
+    const streamKind = status === undefined ? STREAM_ERROR_KINDS.get(error.type ?? '') : undefined
     if (streamKind !== undefined) {
       return new LlmError(streamKind, `the model provider ended the stream with an error (${error.type})`, meta(error))
     }

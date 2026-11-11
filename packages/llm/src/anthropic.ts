@@ -243,8 +243,8 @@ export class AnthropicProvider implements LlmProvider {
       )
     }
     const { timeoutMs } = callOptions
-    if (timeoutMs !== undefined && !(Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= MAX_CALL_TIMEOUT_MS)) {
-      throw new LlmError('invalid_request', `timeoutMs must be a number of milliseconds between 1 and ${MAX_CALL_TIMEOUT_MS}, got ${timeoutMs}`)
+    if (timeoutMs !== undefined && !(timeoutMs > 0 && timeoutMs <= MAX_CALL_TIMEOUT_MS)) {
+      throw new LlmError('invalid_request', `timeoutMs must be a positive number of milliseconds up to ${MAX_CALL_TIMEOUT_MS}, got ${timeoutMs}`)
     }
     const maxTokens = request.maxTokens ?? this.maxTokens
     const base = {
