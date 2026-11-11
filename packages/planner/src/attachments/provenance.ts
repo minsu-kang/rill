@@ -11,6 +11,8 @@ import { fold, literalOf, occursIn, occursInAny } from './normalize'
  * untrusted_flow. Versions are ignored: llm.extract@1 and llm.extract@2 are the same entry.
  * One designed flow is exempt: a path that is only read (never written) and is exactly the file
  * of a trigger.folderWatch event ({{t1.output.file}}), which is the file the user chose to watch.
+ * A condition@1 left or right operand that references such an output is flagged untrusted_flow too
+ * when the condition can reach a send or a write, because the content then decides whether it happens.
  */
 export const UNTRUSTED_SOURCE_TYPES: ReadonlySet<string> = new Set([
   'llm.extract',

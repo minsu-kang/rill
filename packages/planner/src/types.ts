@@ -28,6 +28,7 @@ export interface PlanQuestion {
 
 export interface Flag {
   nodeId: string
+  /** The flagged config pointer: a role field, or the left or right operand of a condition@1 (untrusted_flow). */
   pointer: string
   code: 'attachment_origin' | 'new_egress_target' | 'untrusted_flow'
   message: string
