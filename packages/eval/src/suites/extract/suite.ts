@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { LlmProvider, LlmRequest } from '@rill/llm'
 import { llmExtract, type NodeContext } from '@rill/nodes-core'
@@ -19,6 +19,10 @@ export const TEXT_CHARS_PER_TOKEN = 3.5
 export const TEXT_OVERHEAD_TOKENS = 400
 export const PDF_INPUT_TOKENS = 2400
 export const PNG_INPUT_TOKENS = 2000
+
+const MAX_TEXT_BYTES = 1024 * 1024
+const MAX_IMAGE_BYTES = 3_932_160
+const MAX_PDF_BYTES = 20 * 1024 * 1024
 
 const ADVERSARIAL = 'adversarial'
 const VERSION_HASH_LENGTH = 12
@@ -193,4 +197,31 @@ export function createExtractSuite(options: ExtractSuiteOptions = {}): ExtractSu
       return Math.ceil(textCharacters(testCase.file) / TEXT_CHARS_PER_TOKEN) + TEXT_OVERHEAD_TOKENS
     },
   }
+}
+
+const SIZE_LIMITS: Record<FixtureKind, number> = { text: MAX_TEXT_BYTES, pdf: MAX_PDF_BYTES, png: MAX_IMAGE_BYTES }
+
+export function verifyFixtures(suite: ExtractSuite): string[] {
+  const manifest = loadManifest(suite.fixturesDir)
+  const problems: string[] = []
+  for (const testCase of suite.cases()) {
+    const entry = manifest.files.find((candidate) => candidate.seedId === testCase.seed && candidate.kind === testCase.kind)
+    if (entry === undefined) {
+      problems.push(`${testCase.id}: not in the fixture manifest`)
+      continue
+    }
+    let bytes: Buffer
+    try {
+      if (statSync(testCase.file).size > SIZE_LIMITS[testCase.kind]) {
+        problems.push(`${testCase.id}: larger than the ${testCase.kind} limit of the llm.extract node`)
+        continue
+      }
+      bytes = readFileSync(testCase.file)
+    } catch {
+      problems.push(`${testCase.id}: fixture file is missing or unreadable`)
+      continue
+    }
+    if (sha256(bytes) !== entry.sha256) problems.push(`${testCase.id}: fixture differs from the manifest (regenerate the fixtures)`)
+  }
+  return problems
 }

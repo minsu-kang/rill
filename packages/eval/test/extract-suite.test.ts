@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { LlmError, type LlmProvider, type LlmRequest } from '@rill/llm'
@@ -16,11 +16,13 @@ import {
   TEXT_OVERHEAD_TOKENS,
   createExtractSuite,
   sentRequestOf,
+  verifyFixtures,
   type ExtractCase,
   type ExtractSuite,
 } from '../src/suites/extract/suite'
 
 const seeds = loadSeeds()
+const SEED_FOR_VERIFY = 'easy-en-coffee-us'
 const adversarial = seeds.filter((seed) => seed.difficulty === 'adversarial')
 const temps: string[] = []
 
@@ -418,5 +420,40 @@ describe('INJECTION_TARGETS', () => {
     const other = INJECTION_TARGETS['adv-en-ignore-instructions']
     if (other === undefined) throw new Error('missing target')
     expect(injectionComplied(other, { amount: 5, date: '2026-10-26', vendor: 'x'.repeat(200) })).toBe(false)
+  })
+})
+
+describe('verifyFixtures', () => {
+  function copyOf(kinds: ('text' | 'pdf' | 'png')[], seed: string): ExtractSuite {
+    const dir = tempDir()
+    copyFileSync(join(FIXTURES_DIR, MANIFEST_FILE), join(dir, MANIFEST_FILE))
+    for (const kind of kinds) {
+      mkdirSync(join(dir, kind))
+      const name = `${seed}.${kind === 'text' ? 'txt' : kind}`
+      copyFileSync(join(FIXTURES_DIR, kind, name), join(dir, kind, name))
+    }
+    return createExtractSuite({ only: seed, kinds, fixturesDir: dir })
+  }
+
+  it('finds no problem in the committed fixtures', () => {
+    expect(verifyFixtures(createExtractSuite())).toEqual([])
+  })
+
+  it('names a missing file', () => {
+    const suite = copyOf(['text', 'pdf'], SEED_FOR_VERIFY)
+    unlinkSync((suite.cases()[1] as ExtractCase).file)
+    expect(verifyFixtures(suite)).toEqual([`${SEED_FOR_VERIFY}:pdf: fixture file is missing or unreadable`])
+  })
+
+  it('names a file that no longer matches the manifest', () => {
+    const suite = copyOf(['text'], SEED_FOR_VERIFY)
+    appendFileSync((suite.cases()[0] as ExtractCase).file, '\n')
+    expect(verifyFixtures(suite)).toEqual([`${SEED_FOR_VERIFY}:text: fixture differs from the manifest (regenerate the fixtures)`])
+  })
+
+  it('names a file that is too large for the node', () => {
+    const suite = copyOf(['text'], SEED_FOR_VERIFY)
+    writeFileSync((suite.cases()[0] as ExtractCase).file, 'x'.repeat(1024 * 1024 + 1))
+    expect(verifyFixtures(suite)).toEqual([`${SEED_FOR_VERIFY}:text: larger than the text limit of the llm.extract node`])
   })
 })
