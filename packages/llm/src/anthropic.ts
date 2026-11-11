@@ -16,6 +16,7 @@ export const DEFAULT_MODEL = 'claude-opus-5-5'
 export const DEFAULT_TIMEOUT_MS = 120_000
 export const MAX_CACHE_BREAKPOINTS = 4
 export const MAX_CALL_TIMEOUT_MS = 2_147_483_647
+export const STREAMING_ABOVE_MAX_TOKENS = 16_000
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 
 export interface AnthropicProviderOptions {
@@ -186,9 +187,10 @@ export class AnthropicProvider implements LlmProvider {
     if (timeoutMs !== undefined && !(Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= MAX_CALL_TIMEOUT_MS)) {
       throw new LlmError('invalid_request', `timeoutMs must be a number of milliseconds between 1 and ${MAX_CALL_TIMEOUT_MS}, got ${timeoutMs}`)
     }
+    const maxTokens = request.maxTokens ?? this.maxTokens
     const base = {
       model: this.modelId,
-      max_tokens: request.maxTokens ?? this.maxTokens,
+      max_tokens: maxTokens,
       messages: request.messages.map(toMessage),
       output_config: {
         effort: request.effort ?? this.effort,
@@ -198,16 +200,21 @@ export class AnthropicProvider implements LlmProvider {
       ...cacheControl(request.cache),
     }
     const requestOptions = { signal: callOptions.signal, ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }) }
+    const streaming = maxTokens > STREAMING_ABOVE_MAX_TOKENS
     const startedAt = Date.now()
     let reply: unknown
     try {
       const client = this.client()
-      reply = this.refusalFallback
-        ? await client.beta.messages.create(
-            { ...base, betas: [FALLBACK_BETA], fallbacks: 'default' } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming,
-            requestOptions,
-          )
-        : await client.messages.create(base, requestOptions)
+      if (this.refusalFallback) {
+        const params = { ...base, betas: [FALLBACK_BETA], fallbacks: 'default' } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming
+        reply = streaming
+          ? await client.beta.messages.stream(params, requestOptions).finalMessage()
+          : await client.beta.messages.create(params, requestOptions)
+      } else {
+        reply = streaming
+          ? await client.messages.stream(base, requestOptions).finalMessage()
+          : await client.messages.create(base, requestOptions)
+      }
     } catch (error) {
       throw classifyError(error)
     }

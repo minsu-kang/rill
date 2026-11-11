@@ -6,6 +6,12 @@ export interface Seen {
   url: string
   headers: IncomingHttpHeaders
   body: Record<string, unknown>
+  closed: boolean
+}
+
+export interface SseReply {
+  events: string[]
+  then?: 'end' | 'hold' | 'drop'
 }
 
 export interface Reply {
@@ -14,6 +20,7 @@ export interface Reply {
   body?: unknown
   raw?: string
   delayMs?: number
+  sse?: SseReply
 }
 
 const servers: Server[] = []
@@ -33,10 +40,20 @@ export async function mock(respond: (seen: Seen, index: number) => Reply) {
       raw += String(chunk)
     })
     req.on('end', () => {
-      const entry: Seen = { url: req.url ?? '', headers: req.headers, body: raw ? JSON.parse(raw) : {} }
+      const entry: Seen = { url: req.url ?? '', headers: req.headers, body: raw ? JSON.parse(raw) : {}, closed: false }
       seen.push(entry)
+      res.on('close', () => {
+        entry.closed = true
+      })
       const reply = respond(entry, seen.length - 1)
       setTimeout(() => {
+        if (reply.sse !== undefined) {
+          res.writeHead(reply.status ?? 200, { 'content-type': 'text/event-stream', ...reply.headers })
+          res.write(reply.sse.events.join(''))
+          if (reply.sse.then === 'drop') setTimeout(() => res.socket?.destroy(), 30)
+          else if (reply.sse.then !== 'hold') res.end()
+          return
+        }
         const type = reply.raw === undefined ? 'application/json' : 'text/html'
         res.writeHead(reply.status ?? 200, { 'content-type': type, ...reply.headers })
         res.end(reply.raw ?? JSON.stringify(reply.body))
@@ -69,3 +86,47 @@ export function provider(baseURL: string, options: Partial<ConstructorParameters
   return new AnthropicProvider({ apiKey: 'test-key', baseURL, maxRetries: 0, ...options })
 }
 
+
+export const sse = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+
+type Json = Record<string, unknown>
+
+function split(text: string): string[] {
+  const middle = Math.floor(text.length / 2)
+  return middle === 0 ? [text] : [text.slice(0, middle), text.slice(middle)]
+}
+
+export function streamEvents(reply: Json): string[] {
+  const { content, usage, stop_reason, stop_sequence, stop_details, ...rest } = reply as Json & { content: Json[]; usage: Json }
+  const { output_tokens, iterations, ...startUsage } = usage
+  const events = [
+    sse('message_start', {
+      type: 'message_start',
+      message: { ...rest, content: [], stop_reason: null, stop_sequence: null, usage: { ...startUsage, output_tokens: 0 } },
+    }),
+  ]
+  content.forEach((block, index) => {
+    if (block.type === 'text') {
+      events.push(sse('content_block_start', { type: 'content_block_start', index, content_block: { type: 'text', text: '' } }))
+      for (const text of split(String(block.text))) {
+        events.push(sse('content_block_delta', { type: 'content_block_delta', index, delta: { type: 'text_delta', text } }))
+      }
+    } else if (block.type === 'thinking') {
+      events.push(sse('content_block_start', { type: 'content_block_start', index, content_block: { type: 'thinking', thinking: '', signature: '' } }))
+      events.push(sse('content_block_delta', { type: 'content_block_delta', index, delta: { type: 'thinking_delta', thinking: String(block.thinking ?? '') } }))
+      events.push(sse('content_block_delta', { type: 'content_block_delta', index, delta: { type: 'signature_delta', signature: String(block.signature ?? '') } }))
+    } else {
+      events.push(sse('content_block_start', { type: 'content_block_start', index, content_block: block }))
+    }
+    events.push(sse('content_block_stop', { type: 'content_block_stop', index }))
+  })
+  events.push(
+    sse('message_delta', {
+      type: 'message_delta',
+      delta: { stop_reason, stop_sequence: stop_sequence ?? null, ...(stop_details === undefined ? {} : { stop_details }) },
+      usage: { output_tokens, ...(iterations === undefined ? {} : { iterations }) },
+    }),
+    sse('message_stop', { type: 'message_stop' }),
+  )
+  return events
+}
