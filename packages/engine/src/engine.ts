@@ -1,7 +1,7 @@
 import { isTrigger, isWarningIssue, type PlanIssue, type Workflow } from '@rill/dsl'
 import { assertPathAllowed, validateWorkflow, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
 import type { LlmProvider } from '@rill/llm'
-import { createPlanner, type AttachmentStore, type PlanConnection } from '@rill/planner'
+import { createPlanner, scrubResultText, userTexts, type AttachmentStore, type PlanConnection, type PlanRequest, type PlanResult } from '@rill/planner'
 import type {
   AttachmentRef,
   NodeInfo,
@@ -13,7 +13,7 @@ import type {
   StepDetail,
   WorkflowSummary,
 } from '@rill/protocol'
-import { createFsAttachmentStore } from './attachments'
+import { createFsAttachmentStore, recordReads } from './attachments'
 import { systemClock, type Clock } from './clock'
 import type { Db } from './db'
 import { EventBus, type EngineListener } from './events'
@@ -193,31 +193,45 @@ export class Engine {
     signal: AbortSignal,
   ): Promise<PlanOutcome> {
     try {
+      const reads = this.attachmentStore === undefined ? undefined : recordReads(this.attachmentStore)
       const planner = createPlanner({
         provider: llm,
         registry: this.registry,
-        ...(this.attachmentStore === undefined ? {} : { attachmentStore: this.attachmentStore }),
+        ...(reads === undefined ? {} : { attachmentStore: reads.store }),
         ...(this.maxRepairRounds === undefined ? {} : { maxRepairRounds: this.maxRepairRounds }),
       })
-      let planned
+      const request: PlanRequest = {
+        text: input.text,
+        turns: input.turns,
+        attachments: input.attachments,
+        effort: input.effort,
+        ...(input.selection === undefined ? {} : { selection: input.selection }),
+        context: {
+          connections: this.planConnections,
+          allowedRoots: this.allowedRoots ?? [],
+          attachmentsRoot: this.attachmentsRoot ?? '',
+          ...(existingWorkflow === undefined ? {} : { existingWorkflow }),
+        },
+        signal,
+      }
+      let planned: PlanResult
       try {
-        planned = await planner.plan({
-          text: input.text,
-          turns: input.turns,
-          attachments: input.attachments,
-          effort: input.effort,
-          ...(input.selection === undefined ? {} : { selection: input.selection }),
-          context: {
-            connections: this.planConnections,
-            allowedRoots: this.allowedRoots ?? [],
-            attachmentsRoot: this.attachmentsRoot ?? '',
-            ...(existingWorkflow === undefined ? {} : { existingWorkflow }),
-          },
-          signal,
-        })
+        planned = await planner.plan(request)
       } catch (error) {
         this.store.savePlan(failedRecord(input, error, this.now()))
         throw error
+      }
+      if (reads !== undefined) {
+        const attachmentTexts = reads.textsOf([...input.attachments, ...input.turns.flatMap((turn) => turn.attachments ?? [])])
+        planned = {
+          ...planned,
+          ...scrubResultText(planned, {
+            attachmentTexts,
+            userTexts: userTexts(request),
+            registry: this.registry,
+            ...(existingWorkflow === undefined ? {} : { existingWorkflow }),
+          }),
+        }
       }
       const { record, outcome } = plannedRecord(input, planned, this.now())
       this.store.savePlan(record)

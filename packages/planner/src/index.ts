@@ -17,6 +17,8 @@ export {
   createAttachmentModule,
   ATTACHMENT_RULES,
   UNTRUSTED_SOURCE_TYPES,
+  scrubResultText,
+  type ScrubInput,
   type AttachmentModuleOptions,
   type RandomHex,
 } from './attachments'

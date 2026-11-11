@@ -26,4 +26,5 @@ export function createAttachmentModule(options: AttachmentModuleOptions = {}): A
 export const attachmentModule: AttachmentModule = createAttachmentModule()
 
 export { ATTACHMENT_RULES, UNTRUSTED_SOURCE_TYPES }
+export { scrubResultText, type ScrubInput } from './scrub'
 export type { RandomHex }

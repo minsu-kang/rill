@@ -408,6 +408,64 @@ describe('attachments', () => {
   })
 })
 
+describe('attachment text the model repeats', () => {
+  const WORDS = 'Quokkaplatypus Fennecwombat'
+  const RECEIPT = `Receipt from ${WORDS}\nInvoice INV-2024-0042\nTotal 12.50\nZebrafinch\n`
+  const ref: AttachmentRef = { id: 'receipt1', mediaType: 'text/plain', name: 'receipt.txt', bytes: 70 }
+  const everything = (engine: Engine, db: Db, outcome: unknown) =>
+    [JSON.stringify(outcome), JSON.stringify(engine.getPlan('plan-1')), JSON.stringify(engine.listPlans()), dump(db)].join('\n')
+
+  beforeEach(() => {
+    writeFileSync(join(attachments, 'receipt1.txt'), RECEIPT)
+  })
+
+  it('keeps it out of the summary of a workflow result in the response, the record and the listing', async () => {
+    const { engine, db } = setup([{ data: workflowReply(plainWorkflow(), `Waits after receipts from ${WORDS}, file INV-2024-0042`) }])
+    const outcome = await engine.plan(planInput({ attachments: [ref], text: 'Wait after my receipts' }))
+    const text = everything(engine, db, outcome)
+    expect(text).not.toMatch(/quokkaplatypus|fennecwombat|inv-2024-0042/i)
+    expect(outcome.result.summary).toContain('receipts')
+    expect(engine.getPlan('plan-1').result).toEqual(outcome.result)
+  })
+
+  it('keeps it out of the questions of a questions result', async () => {
+    const reply = questionsReply([{ id: 'q1', text: `Is ${WORDS} the vendor?`, options: ['Quokkaplatypus', 'someone else'], default: 'Quokkaplatypus' }])
+    const { engine, db } = setup([{ data: reply }])
+    const outcome = await engine.plan(planInput({ attachments: [ref] }))
+    expect(everything(engine, db, outcome)).not.toMatch(/quokkaplatypus|fennecwombat/i)
+    if (outcome.result.kind !== 'questions') throw new Error('kind')
+    expect(outcome.result.questions[0]!.id).toBe('q1')
+    expect(outcome.result.questions[0]!.options).toHaveLength(2)
+  })
+
+  it('keeps it out of an unsupported result', async () => {
+    const { engine, db } = setup([{ data: unsupportedReply({ summary: `No mail for ${WORDS}`, reason: `${WORDS} wants mail` }) }])
+    const outcome = await engine.plan(planInput({ attachments: [ref] }))
+    expect(everything(engine, db, outcome)).not.toMatch(/quokkaplatypus|fennecwombat/i)
+  })
+
+  it('also covers a file that was attached in an earlier turn', async () => {
+    const { engine, db } = setup([{ data: workflowReply(plainWorkflow(), `Waits for ${WORDS}`) }])
+    const turns = [{ role: 'user' as const, text: 'Here is a receipt', attachments: [ref] }, { role: 'assistant' as const, text: 'Noted' }]
+    const outcome = await engine.plan(planInput({ turns, text: 'Now wait' }))
+    expect(everything(engine, db, outcome)).not.toMatch(/quokkaplatypus|fennecwombat/i)
+  })
+
+  it('keeps the words that the user wrote or that the existing workflow has', async () => {
+    const { engine, provider } = setup([{ data: workflowReply(plainWorkflow(), `Waits for ${WORDS} and Zebrafinch`) }])
+    const workflowId = engine.deploy(plainWorkflow('Zebrafinch ledger'))
+    const outcome = await engine.plan(planInput({ attachments: [ref], workflowId, text: 'Wait for Fennecwombat' }))
+    expect(provider.requests).toHaveLength(1)
+    expect(outcome.result.summary).toBe(`Waits for <hidden> Fennecwombat and Zebrafinch`)
+  })
+
+  it('leaves the summary alone when no attachment text is involved', async () => {
+    const { engine } = setup([{ data: workflowReply(plainWorkflow(), `Waits for ${WORDS}`) }])
+    const outcome = await engine.plan(planInput())
+    expect(outcome.result.summary).toBe(`Waits for ${WORDS}`)
+  })
+})
+
 describe('Engine.getPlan and Engine.listPlans', () => {
   it('throws PlanNotFoundError for an unknown plan', () => {
     const { engine } = setup()

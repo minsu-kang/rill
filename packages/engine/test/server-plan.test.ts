@@ -466,7 +466,7 @@ describe('attachment bytes never leave the engine', () => {
       { id: 'receipt2', mediaType: 'text/csv', name: 'receipt.csv', bytes: 20 },
     ]
     const { url, db, engine, provider, logs } = await start([
-      { data: workflowReply(plainWorkflow()) },
+      { data: workflowReply(plainWorkflow(), `Waits after the receipts ${MARKER}`) },
       { error: new LlmError('overloaded', 'busy') },
       { error: new Error(`raw failure with ${MARKER}`) },
     ])

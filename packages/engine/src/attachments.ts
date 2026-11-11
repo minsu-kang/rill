@@ -2,6 +2,7 @@ import { closeSync, constants, fstatSync, openSync, readSync, readdirSync } from
 import { join } from 'node:path'
 import { MAX_DOCUMENT_BYTES } from '@rill/nodes-core'
 import type { AttachmentStore } from '@rill/planner'
+import type { AttachmentRef } from '@rill/protocol'
 
 const ID = /^[A-Za-z0-9_-]{8,64}$/
 const EXTENSION = /^[a-z0-9]{1,8}$/
@@ -41,5 +42,28 @@ export function createFsAttachmentStore(root: string): AttachmentStore {
         return undefined
       }
     },
+  }
+}
+
+export interface ReadRecorder {
+  store: AttachmentStore
+  textsOf(refs: readonly AttachmentRef[]): string[]
+}
+
+export function recordReads(inner: AttachmentStore): ReadRecorder {
+  const reads = new Map<string, Uint8Array>()
+  return {
+    store: {
+      read: async (id) => {
+        const bytes = await inner.read(id)
+        if (bytes !== undefined) reads.set(id, bytes)
+        return bytes
+      },
+    },
+    textsOf: (refs) =>
+      refs.flatMap((ref) => {
+        const bytes = ref.mediaType.startsWith('text/') ? reads.get(ref.id) : undefined
+        return bytes === undefined ? [] : [new TextDecoder().decode(bytes)]
+      }),
   }
 }

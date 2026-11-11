@@ -92,8 +92,14 @@ export function questionsReply(questions: PlanQuestion[] = [{ id: 'q1', text: 'H
   return encodeGeneration({ kind: 'questions', questions, summary: 'I need to know how long' })
 }
 
-export function unsupportedReply(): unknown {
-  return encodeGeneration({ kind: 'unsupported', reason: 'no node can send email', nearest: 'notify.slack@1', summary: 'Cannot do that' })
+export function unsupportedReply(overrides: { reason?: string; nearest?: string; summary?: string } = {}): unknown {
+  return encodeGeneration({
+    kind: 'unsupported',
+    reason: 'no node can send email',
+    nearest: 'notify.slack@1',
+    summary: 'Cannot do that',
+    ...overrides,
+  })
 }
 
 export function planInput(overrides: Partial<EnginePlanInput> = {}): EnginePlanInput {
