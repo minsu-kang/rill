@@ -10,8 +10,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
+    "@rill/dsl": "workspace:*",
     "@rill/llm": "workspace:*",
     "@rill/nodes-core": "workspace:*",
+    "@rill/planner": "workspace:*",
     "typebox": "^1.4.6"
   },
   "devDependencies": {

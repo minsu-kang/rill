@@ -1,1 +1,5 @@
 export * from './types'
+export * from './ports'
+export * from './plan'
+export * from './generation'
+export { attachmentModule, ATTACHMENT_RULES } from './attachments'

@@ -66,12 +66,18 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^1.8.0
         version: 1.8.0
+      '@rill/dsl':
+        specifier: workspace:*
+        version: link:../dsl
       '@rill/llm':
         specifier: workspace:*
         version: link:../llm
       '@rill/nodes-core':
         specifier: workspace:*
         version: link:../nodes-core
+      '@rill/planner':
+        specifier: workspace:*
+        version: link:../planner
       typebox:
         specifier: ^1.4.6
         version: 1.4.6
