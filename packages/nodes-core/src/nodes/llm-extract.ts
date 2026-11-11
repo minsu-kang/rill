@@ -11,9 +11,9 @@ import { RetryableError, defineAction, type NodeContext } from '../types'
 type FieldType = 'string' | 'number' | 'integer' | 'boolean' | 'date'
 
 const DATE_PATTERN = '^\\d{4}-\\d{2}-\\d{2}$'
-const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
-const MAX_IMAGE_BYTES = 3_932_160
-const MAX_TEXT_BYTES = 1024 * 1024
+export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
+export const MAX_IMAGE_BYTES = 3_932_160
+export const MAX_TEXT_BYTES = 1024 * 1024
 const MAX_FIELDS = 16
 
 const SYSTEM_PROMPT =
@@ -24,7 +24,7 @@ const SYSTEM_PROMPT =
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 
-const SIGNATURES: Record<string, (bytes: Buffer) => boolean> = {
+export const SIGNATURES: Record<string, (bytes: Buffer) => boolean> = {
   'application/pdf': (bytes) => bytes.subarray(0, 5).toString('latin1') === '%PDF-',
   'image/png': (bytes) => bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
   'image/jpeg': (bytes) => bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff,
