@@ -297,12 +297,9 @@ class Run {
         issues.push(...(restored.issues.length > 0 ? restored.issues : [{ stage: 1 as const, pointer, code: 'config_json_parse', message: 'the repaired config is not an object' }]))
         continue
       }
-      const config = { ...(restored.value as Record<string, unknown>), ...hidden }
-      if (this.mode === 'create') {
-        envelope.workflow!.nodes[index]!.config = JSON.stringify(config)
-      } else {
-        envelope.patch = [...(envelope.patch ?? []), { op: 'set_config', nodeId: node.id, config: JSON.stringify(config) }]
-      }
+      const config = JSON.stringify(restored.value)
+      if (this.mode === 'create') envelope.workflow!.nodes[index]!.config = config
+      else envelope.patch = [...(envelope.patch ?? []), { op: 'set_config', nodeId: node.id, config }]
     }
     return { data: envelope, issues }
   }
