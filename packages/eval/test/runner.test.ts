@@ -237,6 +237,30 @@ describe('classifyFailure', () => {
     expect(classifyFailure(new LlmError('auth', 'x'), { ceilingFired: true }).class).toBe('auth')
     expect(classifyFailure(new LlmError('refusal', 'x'), { ceilingFired: true }).class).toBe('refusal')
   })
+
+  describe('an abort that surfaces between two calls', () => {
+    const abort = (): DOMException => new DOMException('This operation was aborted', 'AbortError')
+    const wrapped = (cause: unknown): Error => new Error('planning was aborted', { cause })
+
+    it('is timeout_ceiling once the ceiling fired, also behind a wrapper', () => {
+      expect(classifyFailure(wrapped(abort()), { ceilingFired: true })).toEqual({ class: 'timeout_ceiling', retryable: false })
+      expect(classifyFailure(wrapped(wrapped(abort())), { ceilingFired: true })).toEqual({ class: 'timeout_ceiling', retryable: false })
+      expect(classifyFailure(abort(), { ceilingFired: true }).class).toBe('timeout_ceiling')
+    })
+
+    it('stays a harness failure when the ceiling did not fire, and for an error that is not an abort', () => {
+      expect(classifyFailure(wrapped(abort()), { ceilingFired: false })).toEqual({ class: 'harness', retryable: false })
+      expect(classifyFailure(wrapped(abort()))).toEqual({ class: 'harness', retryable: false })
+      expect(classifyFailure(wrapped(new TypeError('x')), { ceilingFired: true })).toEqual({ class: 'harness', retryable: false })
+      expect(classifyFailure(wrapped('AbortError'), { ceilingFired: true })).toEqual({ class: 'harness', retryable: false })
+    })
+
+    it('does not look deeper than the cause chain limit', () => {
+      let error: Error = abort()
+      for (let depth = 0; depth < 8; depth += 1) error = wrapped(error)
+      expect(classifyFailure(error, { ceilingFired: true }).class).toBe('harness')
+    })
+  })
 })
 
 describe('backoffMs', () => {

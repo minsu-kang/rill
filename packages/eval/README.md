@@ -263,7 +263,7 @@ Results go to `packages/eval/results/planner-<timestamp>/` (git-ignored; the dir
 | `--concurrency n` | 2 | Cases in flight at once, 1 to 16. |
 | `--max-repair-rounds n` | 3 | Repair rounds the planner may use, 0 to 5. Also the input of the guard formula. |
 | `--budget-usd n` | none, required with `--yes` | Spending cap. The plan prints a suggested value. |
-| `--max-call-seconds n` | 300 | Ceiling for one attempt of one case, repair rounds included, 1 to 1800. |
+| `--max-call-seconds n` | 1260 | Ceiling for one attempt of one case, repair rounds included, 1 to 3600. The default is the worst case of one high-effort case: (1 + 2 x repair rounds) calls of 180 s, the call limit of a high-effort request (7 x 180 s for 3 repair rounds, so it follows `--max-repair-rounds`). A ceiling that fires between two calls of the planner ends the attempt as `timeout_ceiling`, like one that fires inside a call. |
 | `--max-attempts n` | 2 | Attempts per case for transient provider failures. A plan that stays invalid is a graded failure, not retried. |
 | `--seed n` | 1 | Schedule and bootstrap seed. |
 | `--out dir`, `--allow-base-url`, `--yes` | | As for extract: results directory, accept another `ANTHROPIC_BASE_URL`, really call the API. |

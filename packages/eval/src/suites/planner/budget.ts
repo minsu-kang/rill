@@ -59,6 +59,14 @@ function defaultBaseInputTokens(): number {
   return coreBaseInputTokens
 }
 
+export function slowestCallSeconds(): number {
+  return Math.ceil(Math.max(...measurableEfforts().map((effort) => EFFORT_BUDGETS[effort].timeoutMs)) / 1000)
+}
+
+export function worstCaseSeconds(maxRepairRounds: number): number {
+  return worstCaseCalls(maxRepairRounds) * slowestCallSeconds()
+}
+
 function contextChars(spec: CaseSpec): number {
   const { context } = spec
   const workflow = context.existingWorkflow === undefined ? 0 : JSON.stringify(context.existingWorkflow).length

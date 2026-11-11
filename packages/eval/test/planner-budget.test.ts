@@ -1,7 +1,7 @@
 import { capIssues } from '@rill/dsl'
 import { LlmError } from '@rill/llm'
 import { createCoreRegistry } from '@rill/nodes-core'
-import { repairMessage } from '@rill/planner'
+import { EFFORT_BUDGETS, repairMessage } from '@rill/planner'
 import { describe, expect, it } from 'vitest'
 import { estimateCallUsd } from '../src/pricing'
 import { createRecorder } from '../src/record'
@@ -9,6 +9,8 @@ import { runEval, worstCaseCallUsd } from '../src/runner'
 import {
   REPAIR_MESSAGE_TOKENS,
   TARGETED_CALLS_PER_ROUND,
+  slowestCallSeconds,
+  worstCaseSeconds,
   effortMaxTokens,
   baseInputTokens,
   firstCallInputTokens,
@@ -37,6 +39,16 @@ describe('worst-case calls per case', () => {
     expect(worstCaseCalls(1)).toBe(3)
     expect(worstCaseCalls(3)).toBe(1 + 2 * 3)
     expect(worstCaseCalls(5)).toBe(11)
+  })
+})
+
+describe('worst-case seconds of one case', () => {
+  it('is the calls of the worst case times the longest call limit of a measurable effort', () => {
+    expect(slowestCallSeconds()).toBe(EFFORT_BUDGETS.high.timeoutMs / 1000)
+    expect(slowestCallSeconds()).toBeLessThan(EFFORT_BUDGETS.xhigh.timeoutMs / 1000)
+    expect(worstCaseSeconds(3)).toBe(7 * 180)
+    expect(worstCaseSeconds(0)).toBe(180)
+    for (const rounds of [0, 1, 2, 3, 4, 5]) expect(worstCaseSeconds(rounds)).toBe(worstCaseCalls(rounds) * slowestCallSeconds())
   })
 })
 

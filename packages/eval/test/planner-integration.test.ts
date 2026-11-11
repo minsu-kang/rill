@@ -381,7 +381,7 @@ describe('2b. the per-attempt ceiling', () => {
     expect(provider.seen).toHaveLength(1)
   })
 
-  it.fails('classifies a ceiling that fires between two rounds as timeout_ceiling', async () => {
+  it('classifies a ceiling that fires between two rounds as timeout_ceiling', async () => {
     const run = await runWithCeiling(slowInvalid())
     expect(task(run, ID).failureClass).toBe('timeout_ceiling')
   })

@@ -59,6 +59,15 @@ function causeChainMatches(error: unknown, pattern: RegExp): boolean {
   return false
 }
 
+function causeChainHasAbort(error: unknown): boolean {
+  let current: unknown = error
+  for (let depth = 0; depth < MAX_CAUSE_DEPTH && current instanceof Error; depth += 1) {
+    if (current.name === 'AbortError') return true
+    current = current.cause
+  }
+  return false
+}
+
 function failureOfKind(error: LlmError): Failure {
   switch (error.kind) {
     case 'rate_limit':
@@ -87,6 +96,7 @@ export function classifyFailure(error: unknown, options: { ceilingFired?: boolea
   else if (error instanceof Error && error.message.startsWith(UNEXPECTED_SHAPE_PREFIX)) {
     failure = { class: 'unexpected_shape', status: 'schema_failed', retryable: false }
   } else failure = { class: 'harness', retryable: false }
+  if (failure.class === 'harness' && options.ceilingFired === true && causeChainHasAbort(error)) failure = { class: 'aborted', retryable: false }
   if (failure.class === 'unknown' && causeChainMatches(error, BODY_FAILURE)) failure = { class: 'connection', retryable: true }
   if (options.ceilingFired === true && CEILING_CLASSES.has(failure.class)) return { class: 'timeout_ceiling', retryable: false }
   return failure

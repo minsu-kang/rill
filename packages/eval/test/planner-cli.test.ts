@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LlmError } from '@rill/llm'
-import { PlanError } from '@rill/planner'
+import { EFFORT_BUDGETS, PlanError } from '@rill/planner'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { USAGE, main, type CliIo } from '../src/cli'
 import { formatUsdPlain, guardReserveUsd, worstCallUsd } from '../src/budget'
@@ -17,6 +17,7 @@ import { buildSchedule, worstCaseCallUsd } from '../src/runner'
 import { verifyAttachments } from '../src/suites/planner/attachments'
 import { effortMaxTokens, plannerWorstCaseUsd, worstCaseCalls } from '../src/suites/planner/budget'
 import {
+  PLANNER_LIMITS,
   PLANNER_USAGE,
   parsePlannerCli,
   plannerCommandLine,
@@ -135,7 +136,7 @@ describe('parsePlannerCli', () => {
       concurrency: 2,
       maxRepairRounds: 3,
       budgetUsd: undefined,
-      maxCallSeconds: 300,
+      maxCallSeconds: 1260,
       maxAttempts: 2,
       seed: 1,
       out: undefined,
@@ -185,7 +186,7 @@ describe('parsePlannerCli', () => {
     [['--max-repair-rounds=-1'], '--max-repair-rounds must be an integer from 0 to 5'],
     [['--max-output-tokens', '8000'], '--max-output-tokens is not an option of the planner command: the planner sets max_tokens itself, by effort (low 8000, medium 12000, high 16000, xhigh 32000 (not measurable), max 32000 (not measurable))'],
     [['--max-output-tokens', '16001'], 'choose the effort with --effort'],
-    [['--max-call-seconds', '1801'], '--max-call-seconds must be an integer from 1 to 1800'],
+    [['--max-call-seconds', '3601'], '--max-call-seconds must be an integer from 1 to 3600'],
     [['--max-attempts', '11'], '--max-attempts must be an integer from 1 to 10'],
     [['--seed', '4294967296'], '--seed must be an integer from 0 to 4294967295'],
     [['--only', ' '], '--only must not be empty'],
@@ -193,6 +194,20 @@ describe('parsePlannerCli', () => {
     [['extract'], 'unexpected argument: extract'],
   ])('rejects %j', (args, message) => {
     expect(() => parsePlannerCli(args)).toThrow(message)
+  })
+
+  it.each([0, 1, 3, 5])('defaults --max-call-seconds to the worst case of one high-effort case with %i repair rounds', (rounds) => {
+    const worst = ((1 + 2 * rounds) * EFFORT_BUDGETS.high.timeoutMs) / 1000
+    const parsed = config('--max-repair-rounds', String(rounds))
+    expect(parsed.maxCallSeconds).toBe(worst)
+    expect(parsed.maxCallSeconds).toBeLessThanOrEqual(PLANNER_LIMITS.maxCallSeconds.max)
+    expect(config('--max-repair-rounds', String(rounds), '--max-call-seconds', '90').maxCallSeconds).toBe(90)
+  })
+
+  it('has a default that is at least one worst-case case for every effort a case can have', () => {
+    for (const effort of ['low', 'medium', 'high'] as const) {
+      expect(config().maxCallSeconds * 1000).toBeGreaterThanOrEqual(worstCaseCalls(3) * EFFORT_BUDGETS[effort].timeoutMs)
+    }
   })
 
   it('shows the help without checking anything else', () => {
@@ -209,6 +224,12 @@ describe('plannerCommandLine', () => {
     expect(plannerCommandLine(busy, 1)).toBe(
       'pnpm eval planner --yes --model a,b --effort high --group easy,patch --only easy-0 --reps 2 --concurrency 3 --max-repair-rounds 1 --max-call-seconds 120 --max-attempts 3 --seed 9 --out /tmp/x --allow-base-url --budget-usd 1.00',
     )
+  })
+
+  it('leaves out --max-call-seconds when it is the default of the repair rounds, and keeps any other value', () => {
+    expect(plannerCommandLine(config('--max-repair-rounds', '0'), 1)).not.toContain('--max-call-seconds')
+    expect(plannerCommandLine(config('--max-repair-rounds', '5'), 1)).not.toContain('--max-call-seconds')
+    expect(plannerCommandLine(config('--max-repair-rounds', '0', '--max-call-seconds', '1260'), 1)).toContain('--max-call-seconds 1260')
   })
 
   it('prints a command that parses back to the same plan', () => {
@@ -235,6 +256,7 @@ describe('the dry run', () => {
     expect(text).toContain('tasks: 48 (48 cases x 1 rep x 1 model)')
     expect(text).toContain('provider calls: 48 planned at one call per task if no plan needs repair; at most 336 (7 per task)')
     expect(text).toContain('effort: each case sets its own (low 18, medium 18, high 12)')
+    expect(text).toContain('1260 s per attempt (the worst case of one high-effort case is 1260 s: 7 calls x 180 s)')
     expect(text).toContain(
       'planner: up to 3 repair rounds; worst case 7 calls per case = 1 first call + 3 repair rounds x up to 2 calls (a repair round re-asks once, or repairs up to 2 nodes with one call each)',
     )

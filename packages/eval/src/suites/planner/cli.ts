@@ -33,6 +33,8 @@ import {
   TARGETED_CALLS_PER_ROUND,
   TYPICAL_OUTPUT_TOKENS,
   effortTable,
+  slowestCallSeconds,
+  worstCaseSeconds,
   isMeasurableEffort,
   measurableEfforts,
   unmeasurableEffortMessage,
@@ -49,7 +51,6 @@ import { createPlannerSuite, plannerSentRequestOf, plannerVersions, type Planner
 export const PLANNER_DEFAULT_MODELS = ['claude-sonnet-5-5'] as const
 export const PLANNER_DEFAULT_REPS = 1
 export const PLANNER_DEFAULT_CONCURRENCY = 2
-export const PLANNER_DEFAULT_MAX_CALL_SECONDS = 300
 export const PLANNER_DEFAULT_MAX_ATTEMPTS = 2
 export const PLANNER_DEFAULT_SEED = 1
 export const PLANNER_PROGRESS_EVERY = 5
@@ -57,7 +58,7 @@ export const PLANNER_PROGRESS_EVERY = 5
 export const PLANNER_LIMITS = {
   reps: { min: 1, max: 20 },
   concurrency: { min: 1, max: 16 },
-  maxCallSeconds: { min: 1, max: 1800 },
+  maxCallSeconds: { min: 1, max: 3600 },
   maxAttempts: { min: 1, max: 10 },
   maxRepairRounds: { min: 0, max: 5 },
   seed: { min: 0, max: 4_294_967_295 },
@@ -81,7 +82,7 @@ options:
   --concurrency <n>       cases in flight at once (default: ${PLANNER_DEFAULT_CONCURRENCY})
   --max-repair-rounds <n> repair rounds the planner may use, ${PLANNER_LIMITS.maxRepairRounds.min} to ${PLANNER_LIMITS.maxRepairRounds.max} (default: ${DEFAULT_MAX_REPAIR_ROUNDS}); sets the worst case of the budget guard
   --budget-usd <usd>      spending cap, required with --yes (the plan prints a suggested value)
-  --max-call-seconds <n>  ceiling for one attempt of one case, repair rounds included, ${PLANNER_LIMITS.maxCallSeconds.min} to ${PLANNER_LIMITS.maxCallSeconds.max} (default: ${PLANNER_DEFAULT_MAX_CALL_SECONDS})
+  --max-call-seconds <n>  ceiling for one attempt of one case, repair rounds included, ${PLANNER_LIMITS.maxCallSeconds.min} to ${PLANNER_LIMITS.maxCallSeconds.max} (default: the worst case of one high-effort case, (1 + 2 x repair rounds) calls of ${slowestCallSeconds()} s each, which is ${worstCaseSeconds(DEFAULT_MAX_REPAIR_ROUNDS)} for ${DEFAULT_MAX_REPAIR_ROUNDS} repair rounds)
   --max-attempts <n>      attempts per case for transient provider failures, at most ${PLANNER_LIMITS.maxAttempts.max} (default: ${PLANNER_DEFAULT_MAX_ATTEMPTS})
   --seed <n>              schedule and bootstrap seed, 0 to ${PLANNER_LIMITS.seed.max} (default: ${PLANNER_DEFAULT_SEED})
   --out <dir>             results directory (default: packages/eval/results/planner-<timestamp>)
@@ -177,6 +178,7 @@ export function parsePlannerCli(argv: readonly string[]): PlannerCliConfig {
     }
   }
   if (yes && budgetUsd === undefined) throw new UsageError('--yes needs --budget-usd: run the command without --yes to see the estimate and a suggested budget')
+  const maxRepairRounds = integerOption('--max-repair-rounds', values['max-repair-rounds'], DEFAULT_MAX_REPAIR_ROUNDS, PLANNER_LIMITS.maxRepairRounds)
   return {
     models,
     effort,
@@ -185,9 +187,9 @@ export function parsePlannerCli(argv: readonly string[]): PlannerCliConfig {
     dry,
     reps: integerOption('--reps', values.reps, PLANNER_DEFAULT_REPS, PLANNER_LIMITS.reps),
     concurrency: integerOption('--concurrency', values.concurrency, PLANNER_DEFAULT_CONCURRENCY, PLANNER_LIMITS.concurrency),
-    maxRepairRounds: integerOption('--max-repair-rounds', values['max-repair-rounds'], DEFAULT_MAX_REPAIR_ROUNDS, PLANNER_LIMITS.maxRepairRounds),
+    maxRepairRounds,
     budgetUsd,
-    maxCallSeconds: integerOption('--max-call-seconds', values['max-call-seconds'], PLANNER_DEFAULT_MAX_CALL_SECONDS, PLANNER_LIMITS.maxCallSeconds),
+    maxCallSeconds: integerOption('--max-call-seconds', values['max-call-seconds'], worstCaseSeconds(maxRepairRounds), PLANNER_LIMITS.maxCallSeconds),
     maxAttempts: integerOption('--max-attempts', values['max-attempts'], PLANNER_DEFAULT_MAX_ATTEMPTS, PLANNER_LIMITS.maxAttempts),
     seed: integerOption('--seed', values.seed, PLANNER_DEFAULT_SEED, PLANNER_LIMITS.seed),
     out: values.out,
@@ -208,7 +210,7 @@ function emptyPlannerConfig(): PlannerCliConfig {
     concurrency: PLANNER_DEFAULT_CONCURRENCY,
     maxRepairRounds: DEFAULT_MAX_REPAIR_ROUNDS,
     budgetUsd: undefined,
-    maxCallSeconds: PLANNER_DEFAULT_MAX_CALL_SECONDS,
+    maxCallSeconds: worstCaseSeconds(DEFAULT_MAX_REPAIR_ROUNDS),
     maxAttempts: PLANNER_DEFAULT_MAX_ATTEMPTS,
     seed: PLANNER_DEFAULT_SEED,
     out: undefined,
@@ -226,7 +228,7 @@ export function plannerCommandLine(config: PlannerCliConfig, budgetUsd: number |
   if (config.reps !== PLANNER_DEFAULT_REPS) parts.push('--reps', String(config.reps))
   if (config.concurrency !== PLANNER_DEFAULT_CONCURRENCY) parts.push('--concurrency', String(config.concurrency))
   if (config.maxRepairRounds !== DEFAULT_MAX_REPAIR_ROUNDS) parts.push('--max-repair-rounds', String(config.maxRepairRounds))
-  if (config.maxCallSeconds !== PLANNER_DEFAULT_MAX_CALL_SECONDS) parts.push('--max-call-seconds', String(config.maxCallSeconds))
+  if (config.maxCallSeconds !== worstCaseSeconds(config.maxRepairRounds)) parts.push('--max-call-seconds', String(config.maxCallSeconds))
   if (config.maxAttempts !== PLANNER_DEFAULT_MAX_ATTEMPTS) parts.push('--max-attempts', String(config.maxAttempts))
   if (config.seed !== PLANNER_DEFAULT_SEED) parts.push('--seed', String(config.seed))
   if (config.out !== undefined) parts.push('--out', config.out)
@@ -305,7 +307,7 @@ export function plannerPlanText(config: PlannerCliConfig, suite: PlannerSuite, e
     `provider calls: ${tasks} planned at one call per task if no plan needs repair; at most ${tasks * calls} (${calls} per task)`,
     `effort: ${config.effort === undefined ? `each case sets its own (${countBy(cases, (testCase) => testCase.spec.effort)})` : `${config.effort} (override)`}; the planner sets max_tokens from it: ${effortTable({ measurableOnly: true })}`,
     `planner: up to ${plural(config.maxRepairRounds, 'repair round')}; worst case ${plural(calls, 'call')} per case = 1 first call + ${config.maxRepairRounds} repair rounds x up to ${TARGETED_CALLS_PER_ROUND} calls (a repair round re-asks once, or repairs up to ${TARGETED_CALLS_PER_ROUND} nodes with one call each)`,
-    `schedule seed ${config.seed}, concurrency ${config.concurrency}, at most ${config.maxAttempts} attempts per case, ${config.maxCallSeconds} s per attempt`,
+    `schedule seed ${config.seed}, concurrency ${config.concurrency}, at most ${config.maxAttempts} attempts per case, ${config.maxCallSeconds} s per attempt (the worst case of one high-effort case is ${worstCaseSeconds(config.maxRepairRounds)} s: ${plural(calls, 'call')} x ${slowestCallSeconds()} s)`,
     '',
     'cases:',
     ...caseTable(cases, config.effort).map((line) => `  ${line}`),
