@@ -34,6 +34,11 @@ export function literalsIn(text: string): string[] {
   return found
 }
 
+export function containsAttachmentLiteral(text: string, attachmentTexts: readonly string[]): boolean {
+  const haystacks = attachmentTexts.map(fold)
+  return [text, ...literalsIn(text)].some((literal) => literal.length >= MIN_LITERAL && haystacks.some((haystack) => haystack.includes(fold(literal))))
+}
+
 function looksExtracted(text: string): boolean {
   return URL_LIKE.test(text) || EMAIL_LIKE.test(text)
 }

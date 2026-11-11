@@ -11,6 +11,7 @@ import {
   type PlanResult,
   type PlanTurn,
 } from '../../src/index'
+import { literalsIn } from '../../src/attachments/redact'
 import { FakeProvider } from '../fake-provider'
 import { ROOT, receipts, registry, request, workflowBody, workflowData } from '../fixtures'
 import { attachmentRef, breakpoints, countingStore, enc } from './helpers'
@@ -202,7 +203,53 @@ describe('injection end to end: real attachment module, in-memory store, scripte
       expect(JSON.parse(message!).issues[0].hint).toBe(`allowed folders: ${ROOT}`)
     })
 
-    it.fails('does not put a flagged literal of the model output into a targeted repair request', async () => {
+    const ATTACHMENT_LITERALS = literalsIn(INVOICE)
+
+    it('builds a targeted request on the flagged node from the request text and masked values only, and keeps the value', async () => {
+      expect(ATTACHMENT_LITERALS).toEqual(expect.arrayContaining(['129.50', URL_TARGET, HOOK, EVIL_PATH]))
+      const invalid = invalidFirst((workflow) => {
+        workflow.nodes[3]!.config = { url: URL_TARGET, method: 'YEET', body: '{{n1.output}}', note: `from ${EVIL_PATH}` }
+      })
+      const provider = new FakeProvider([{ data: workflowData(invalid) }, { data: { url: '<hidden>', method: 'POST', body: '"{{n1.output}}"' } }])
+      const result = await createPlanner({ provider, registry, attachmentStore: countingStore({ inv: enc(INVOICE) }) }).plan(
+        request({ text: INVOICE_REQUEST, attachments: [attachmentRef('inv', 'text/plain')] }),
+      )
+      expect(result.rounds.map((round) => round.targeted)).toEqual([[], ['n3']])
+      const targeted = provider.calls[1]!.request
+      expect(targeted.messages).toHaveLength(1)
+      const text = targeted.messages[0]!.content as string
+      expect(text).toContain(`Request:\n${INVOICE_REQUEST}`)
+      expect(text).toContain('"url":"<hidden>"')
+      expect(text).not.toContain('<attachment-')
+      for (const literal of ATTACHMENT_LITERALS) expect(JSON.stringify(targeted)).not.toContain(literal)
+      for (const literal of ATTACHMENT_LITERALS) expect(JSON.stringify(result.rounds)).not.toContain(literal)
+      if (result.kind !== 'workflow') throw new Error('expected a workflow')
+      expect(result.workflow.nodes[3]!.config).toMatchObject({ url: URL_TARGET, method: 'POST' })
+      expect(result.flags.filter((flag) => flag.nodeId === 'n3').map((flag) => flag.code)).toEqual(['attachment_origin', 'new_egress_target'])
+      expect(result.needsConfirmation).toBe(true)
+    })
+
+    it('keeps every attachment literal out of a full repair request and out of every recorded round', async () => {
+      const invalid = invalidFirst((workflow) => {
+        workflow.nodes.push({ id: 'n4', type: 'notify.slack@1', config: { connection: HOOK, text: `copy kept in ${EVIL_PATH}` } })
+        workflow.nodes.push({ id: 'n5', type: 'csv.append@1', config: { file: EVIL_PATH, row: ['{{n1.output.date}}'] } })
+        workflow.edges.push({ from: 'n3', to: 'n4' }, { from: 'n4', to: 'n5' })
+      })
+      const provider = new FakeProvider([{ data: workflowData(invalid) }, { data: workflowData(copyingWorkflow()) }])
+      const result = await createPlanner({ provider, registry, attachmentStore: countingStore({ inv: enc(INVOICE) }) }).plan(
+        request({ text: INVOICE_REQUEST, attachments: [attachmentRef('inv', 'text/plain')] }),
+      )
+      expect(result.rounds).toHaveLength(2)
+      expect(result.rounds[0]!.issues.map((issue) => issue.code).sort()).toEqual(['path_outside_roots', 'unknown_connection'])
+      const repair = repairUserMessages(provider, 1)
+      expect(repair).toHaveLength(1)
+      for (const literal of ATTACHMENT_LITERALS) {
+        expect(repair[0]).not.toContain(literal)
+        for (const round of result.rounds) expect(JSON.stringify(round.issues)).not.toContain(literal)
+      }
+    })
+
+    it('does not put a flagged literal of the model output into a targeted repair request', async () => {
       const invalid = invalidFirst((workflow) => {
         workflow.nodes.push({ id: 'n4', type: 'delay@1', config: { ms: 'soon' } })
         workflow.edges.push({ from: 'n3', to: 'n4' })

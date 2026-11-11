@@ -3,20 +3,22 @@ import { LlmError, costUsd, type LlmMessage, type LlmPart, type LlmRequest, type
 import type { NodeRegistry } from '@rill/nodes-core'
 import { ATTACHMENT_RULES, attachmentModule } from './attachments'
 import { fold, occursIn } from './attachments/normalize'
+import { userSourcedTest } from './attachments/provenance'
 import { literalsIn } from './attachments/redact'
+import { maskConfig, unmaskConfig } from './mask'
 import { convertSchema, restoreConverted } from './convert'
 import { decodeGeneration, type DecodeContext, type Decoded } from './decode'
 import { AttachmentError } from './errors'
 import { generationSchema, type Envelope, type GenerationMode } from './generation'
 import { hiddenValues, withoutHiddenFields } from './hidden'
-import { MAX_ATTACHMENTS_PER_CONVERSATION, MAX_ATTACHMENTS_PER_MESSAGE, type AttachmentModule, type Planner, type PlannerDeps } from './ports'
+import { MAX_ATTACHMENTS_PER_CONVERSATION, MAX_ATTACHMENTS_PER_MESSAGE, type AttachmentModule, type Planner, type PlannerDeps, type ProvenanceInput } from './ports'
 import {
   EFFORT_BUDGETS,
   assistantContent,
-  contextText,
   currentTurnText,
   renderUserTurn,
   systemBlocks,
+  targetedText,
   userMessage,
   type CurrentTurnInput,
 } from './prompt'
@@ -234,18 +236,21 @@ class Run {
     }
   }
 
-  private flagsFor(workflow: Workflow | undefined): Flag[] {
-    if (workflow === undefined) return []
+  private provenanceInput(): Omit<ProvenanceInput, 'workflow'> {
     const existing = this.request.context.existingWorkflow
-    return this.attachments.provenance({
-      workflow,
+    return {
       registry: this.registry,
       userTexts: userTexts(this.request, this.attachmentTexts),
       ...(existing === undefined ? {} : { existingWorkflow: existing }),
       attachmentTexts: this.attachmentTexts,
       trustedConnections: this.request.context.connections.map((connection) => connection.name),
       allowedRoots: this.request.context.allowedRoots,
-    })
+    }
+  }
+
+  private flagsFor(workflow: Workflow | undefined): Flag[] {
+    if (workflow === undefined) return []
+    return this.attachments.provenance({ workflow, ...this.provenanceInput() })
   }
 
   private redact(issues: PlanIssue[], workflow: Workflow | undefined, flags: Flag[]): PlanIssue[] {
@@ -274,30 +279,22 @@ class Run {
     const envelope = structuredClone(decoded.envelope!)
     const issues: PlanIssue[] = []
     const flags = this.flagsFor(workflow)
+    const userSourced = userSourcedTest(this.provenanceInput())
     for (const index of indexes) {
       this.checkAbort()
       const node = workflow.nodes[index]!
       const def = this.registry.get(node.type)!
       const pointer = `/nodes/${index}/config`
-      const own = this.redact(
+      const redacted = this.redact(
         errors.filter((issue) => issue.pointer === pointer || issue.pointer.startsWith(`${pointer}/`)),
         workflow,
         flags,
       )
       const visible = withoutHiddenFields(def)
       const hidden = hiddenValues(def, node.config)
-      const shown = Object.fromEntries(Object.entries(node.config).filter(([key]) => !Object.hasOwn(hidden, key)))
-      const text = [
-        contextText(this.turnInput()),
-        '',
-        `Targeted repair: fix only the config of node ${node.id} (type ${node.type}). Answer with the config object itself, matching the output schema. Values described as JSON text are sent as JSON text; maps are sent as key/value entries.`,
-        'Workflow (JSON):',
-        JSON.stringify(workflow),
-        'Current config of the node (JSON):',
-        JSON.stringify(shown),
-        'Issues (JSON):',
-        JSON.stringify(own),
-      ].join('\n')
+      const own = Object.fromEntries(Object.entries(node.config).filter(([key]) => !Object.hasOwn(hidden, key)))
+      const { shown, masked } = maskConfig(own, { def, nodePointer: pointer, flags, userSourced, attachmentTexts: this.attachmentTexts })
+      const text = targetedText(this.request, node, shown, redacted)
       const result = await this.call(this.baseRequest([{ role: 'user', content: text }], convertSchema(visible).schema))
       if (result instanceof LlmError) {
         issues.push({ stage: 1, pointer, code: 'invalid_output', message: `targeted repair of node ${node.id}: ${result.message}` })
@@ -309,7 +306,7 @@ class Run {
         issues.push(...(restored.issues.length > 0 ? restored.issues : [{ stage: 1 as const, pointer, code: 'config_json_parse', message: 'the repaired config is not an object' }]))
         continue
       }
-      const config = JSON.stringify(restored.value)
+      const config = JSON.stringify(unmaskConfig(restored.value, masked))
       if (this.mode === 'create') envelope.workflow!.nodes[index]!.config = config
       else envelope.patch = [...(envelope.patch ?? []), { op: 'set_config', nodeId: node.id, config }]
     }

@@ -2,7 +2,7 @@ import { extractRefs, stringLeaves, type Workflow, type WorkflowNode } from '@ri
 import { assertPathAllowed, fieldRoles, isEgressField, isWriteField, valueAtPointer } from '@rill/nodes-core'
 import type { ProvenanceInput } from '../ports'
 import type { Flag } from '../types'
-import { fold, literalOf, occursIn, occursInAny, type Literal } from './normalize'
+import { fold, literalOf, occursIn, occursInAny } from './normalize'
 
 /**
  * Node types whose output carries content from outside the workflow: file text, extracted values,
@@ -26,7 +26,7 @@ export interface ProvenanceOptions {
   untrustedSourceTypes?: ReadonlySet<string>
 }
 
-const CHECKED_ROLES = new Set(['path', 'url', 'connection', 'recipient'])
+export const CHECKED_ROLES: ReadonlySet<string> = new Set(['path', 'url', 'connection', 'recipient'])
 
 const MESSAGES: Record<Flag['code'], string> = {
   attachment_origin: 'holds a value that appears in an attached file but not in your messages or the current workflow',
@@ -63,7 +63,7 @@ function taintIndex(nodes: readonly WorkflowNode[], sources: ReadonlySet<string>
   return tainted
 }
 
-type CheckedRole = 'path' | 'url' | 'connection' | 'recipient'
+export type CheckedRole = 'path' | 'url' | 'connection' | 'recipient'
 
 export const MAX_RESOLVED_LITERALS = 1000
 
@@ -154,18 +154,23 @@ function fileNameOf(path: string): string {
   return fold(path.trim()).split(/[/\\]/).at(-1) ?? ''
 }
 
-export function computeProvenance(input: ProvenanceInput, options: ProvenanceOptions = {}): Flag[] {
-  const { workflow, registry, userTexts, existingWorkflow, attachmentTexts } = input
-  const sources = options.untrustedSourceTypes ?? UNTRUSTED_SOURCE_TYPES
-  const ownHaystacks = userTexts.map(fold)
-  const userHaystacks = [...ownHaystacks, ...(existingWorkflow === undefined ? [] : roleLiterals(existingWorkflow, registry, sources).map(fold))]
-  const attachmentHaystacks = attachmentTexts.map(fold)
+export type UserSourcedTest = (role: CheckedRole, text: string, write: boolean) => boolean
+
+/**
+ * Whether a literal at a role field counts as written by the user: it occurs in the user texts or
+ * in a role field of the existing workflow, or it is a configured connection name, or it is a
+ * write path inside the allowed folders whose file name the user wrote. A text without a literal
+ * part has nothing to check and counts as user-sourced.
+ */
+export function userSourcedTest(input: Omit<ProvenanceInput, 'workflow' | 'attachmentTexts'>, sources: ReadonlySet<string> = UNTRUSTED_SOURCE_TYPES): UserSourcedTest {
+  const ownHaystacks = input.userTexts.map(fold)
+  const existing = input.existingWorkflow
+  const userHaystacks = [...ownHaystacks, ...(existing === undefined ? [] : roleLiterals(existing, input.registry, sources).map(fold))]
   const trustedConnections = new Set(input.trustedConnections ?? [])
   const roots = input.allowedRoots ?? []
-  const tainted = taintIndex(workflow.nodes, sources)
-  const taintedForReads = taintIndex(workflow.nodes, new Set([...sources].filter((type) => type !== FILE_EVENT_SOURCE)))
-  const byId = indexNodes(workflow.nodes)
-  const userSourced = (role: CheckedRole, text: string, literal: Literal, write: boolean): boolean => {
+  return (role, text, write) => {
+    const literal = literalOf(role, text)
+    if (literal === undefined) return true
     if (literal.opaque === true) return false
     if (occursInAny(userHaystacks, literal)) return true
     if (role === 'connection') return trustedConnections.has(text)
@@ -173,6 +178,16 @@ export function computeProvenance(input: ProvenanceInput, options: ProvenanceOpt
     const name = fileNameOf(text)
     return name !== '' && ownHaystacks.some((haystack) => occursIn(haystack, name, 'name'))
   }
+}
+
+export function computeProvenance(input: ProvenanceInput, options: ProvenanceOptions = {}): Flag[] {
+  const { workflow, registry, attachmentTexts } = input
+  const sources = options.untrustedSourceTypes ?? UNTRUSTED_SOURCE_TYPES
+  const attachmentHaystacks = attachmentTexts.map(fold)
+  const userSourced = userSourcedTest(input, sources)
+  const tainted = taintIndex(workflow.nodes, sources)
+  const taintedForReads = taintIndex(workflow.nodes, new Set([...sources].filter((type) => type !== FILE_EVENT_SOURCE)))
+  const byId = indexNodes(workflow.nodes)
   const found: { index: number; flag: Flag }[] = []
   workflow.nodes.forEach((node, index) => {
     const def = registry.get(node.type)
@@ -195,7 +210,7 @@ export function computeProvenance(input: ProvenanceInput, options: ProvenanceOpt
       if (resolved.truncated && egress) codes.add('new_egress_target')
       for (const text of [value, ...resolved.literals]) {
         const literal = literalOf(checked, text)
-        if (literal === undefined || userSourced(checked, text, literal, write)) continue
+        if (literal === undefined || userSourced(checked, text, write)) continue
         if (egress) codes.add('new_egress_target')
         if (occursInAny(attachmentHaystacks, literal)) codes.add('attachment_origin')
       }

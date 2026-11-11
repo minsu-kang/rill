@@ -246,7 +246,7 @@ describe('patch mode in the planner', () => {
 
   it('repairs a node config in patch mode with a targeted call and keeps hidden fields', async () => {
     const ops: PatchOp[] = [{ op: 'set_config', nodeId: 't1', config: { folder: `${ROOT}/New`, glob: 'a/b' } }]
-    const provider = new FakeProvider([{ data: patchData(ops) }, { data: { folder: `${ROOT}/New`, glob: '*.pdf' } }])
+    const provider = new FakeProvider([{ data: patchData(ops) }, { data: { folder: '<hidden>', glob: '*.pdf' } }])
     const result = await createPlannerFor(provider).plan(patchRequest('t1'))
     if (result.kind !== 'workflow') throw new Error('expected a workflow')
     expect(result.rounds.map((r) => r.targeted)).toEqual([[], ['t1']])
@@ -254,7 +254,8 @@ describe('patch mode in the planner', () => {
     expect(provider.calls).toHaveLength(2)
     expect(result.workflow.nodes[0]!.config).toEqual({ folder: `${ROOT}/New`, glob: '*.pdf', pollMs: 500, stableMs: 2000 })
     const text = provider.calls[1]!.request.messages[0]!.content as string
-    expect(text).toContain('Current config of the node (JSON):\n{"folder":"/rill-planner-test-root/New","glob":"a/b"}')
+    expect(text).toContain('Current config of the node (JSON):\n{"folder":"<hidden>","glob":"a/b"}')
+    expect(text).not.toContain(`${ROOT}/New`)
   })
 })
 
