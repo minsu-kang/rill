@@ -471,6 +471,24 @@ describe('redactIssues: plain words that the model took from an attachment', () 
     expect(JSON.stringify(run([ref], declared, { existingWorkflow: existing }))).toContain('spoolmaster')
   })
 
+  it('hides an unknown key outside a node config, where there is no decoded workflow to take the name from', () => {
+    const where = ['/workflow/nodes/2/spoolmaster', '/workflow/edges/0/spoolmaster', '/workflow/spoolmaster', '/spoolmaster', '/patch/0/spoolmaster']
+    for (const pointer of where) {
+      const original: PlanIssue = { ...issue(pointer, 'shape_additionalProperties', `output ${pointer}: spoolmaster is not allowed`), stage: 1 }
+      const [out] = redact([original], { workflow: undefined, attachmentTexts: [attachment], userTexts })
+      expect(JSON.stringify(out), pointer).not.toContain('spoolmaster')
+      expect(out, pointer).toMatchObject({ stage: 1, code: 'shape_additionalProperties', pointer: `${pointer.slice(0, pointer.lastIndexOf('/'))}/<hidden>` })
+    }
+  })
+
+  it('leaves an unknown key outside a node config when the user wrote it, when the attachment lacks it, and for other codes', () => {
+    const unknownKey = (name: string, code = 'shape_additionalProperties'): PlanIssue => ({ ...issue(`/workflow/nodes/2/${name}`, code, `output /workflow/nodes/2/${name}: ${name} is not allowed`), stage: 1 })
+    const none = { workflow: undefined, attachmentTexts: [attachment], userTexts }
+    expect(redact([unknownKey('spoolmaster')], { ...none, userTexts: [...userTexts, 'use the spoolmaster'] })[0]).toEqual(unknownKey('spoolmaster'))
+    expect(redact([unknownKey('ledgerx')], none)[0]).toEqual(unknownKey('ledgerx'))
+    expect(redact([unknownKey('spoolmaster', 'shape_type')], none)[0]).toEqual(unknownKey('spoolmaster', 'shape_type'))
+  })
+
   it('shows a name that belongs to the catalog even when the attachment has it', () => {
     const wide = 'the file and the amount and the row and the url'
     for (const name of ['file', 'row', 'url', 'date']) {

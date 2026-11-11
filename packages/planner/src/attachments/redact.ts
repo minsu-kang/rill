@@ -97,7 +97,8 @@ export function redactIssues(issues: PlanIssue[], input: RedactInput): PlanIssue
     ...(input.userTexts === undefined ? {} : { userTexts: input.userTexts }),
     ...(input.existingWorkflow === undefined ? {} : { existingWorkflow: input.existingWorkflow }),
   })
-  const chosen = new Set([...chosenNames(input.workflow, input.patch)].map(fold))
+  const unknownKeys = issues.filter((entry) => ADDITIONAL_PROPERTIES.test(entry.code)).map((entry) => decodeSegment(entry.pointer.slice(entry.pointer.lastIndexOf('/') + 1)))
+  const chosen = new Set([...chosenNames(input.workflow, input.patch), ...unknownKeys].map(fold))
   const echoedName = (word: string): boolean => chosen.has(fold(word)) && guard.hides(word)
   const echoes = (text: string): boolean => wordsIn(text).some(echoedName)
   const hiddenSegment = (segment: string): boolean => sensitive(segment) || echoedName(segment)

@@ -340,6 +340,26 @@ describe('injection end to end: real attachment module, in-memory store, scripte
         expect(JSON.stringify(targetedResult.rounds)).not.toContain('spoolmaster')
       })
 
+      it('hides an unknown key on a node, an edge, the workflow and the envelope, where the decoder has no workflow', async () => {
+        type Envelope = { workflow: { nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] } } & Record<string, unknown>
+        const mutations: ((data: Envelope) => void)[] = [
+          (data) => void (data.workflow.nodes[2]!.spoolmaster = 1),
+          (data) => void (data.workflow.edges[0]!.spoolmaster = 1),
+          (data) => void ((data.workflow as Record<string, unknown>).spoolmaster = 1),
+          (data) => void (data.spoolmaster = 1),
+        ]
+        for (const mutate of mutations) {
+          const data = structuredClone(workflowData(receipts())) as Envelope
+          mutate(data)
+          const provider = new FakeProvider([{ data }, { data: workflowData(receipts()) }])
+          const result = await plan(provider)
+          expect(result.kind).toBe('workflow')
+          expect(repairUserMessages(provider, 1)[0]).toContain('shape_additionalProperties')
+          expect(repairUserMessages(provider, 1)[0]).not.toContain('spoolmaster')
+          expect(JSON.stringify(result.rounds)).not.toContain('spoolmaster')
+        }
+      })
+
       it('hides an unknown property in a targeted repair: out of the issue, the pointer and the config shown', async () => {
         const invalid = invalidFirst((workflow) => {
           workflow.nodes[2]!.config = { file: `${ROOT}/ledger.csv`, row: ['{{n1.output.amount}}'], spoolmaster: 1 }
