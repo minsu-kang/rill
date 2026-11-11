@@ -39,6 +39,13 @@ export function addUsage(a: LlmUsage, b: LlmUsage): LlmUsage {
   }
 }
 
+export function upperBoundCost(result: Pick<LlmResult, 'model' | 'usage' | 'servedModels'>): number | undefined {
+  const models = [...new Set([result.model, ...(result.servedModels ?? [])])]
+  const prices = models.map((model) => costUsd(model, result.usage))
+  if (prices.some((price) => price === undefined)) return undefined
+  return Math.max(...(prices as number[]))
+}
+
 export function repairMessage(round: number, issues: readonly PlanIssue[]): string {
   return JSON.stringify({ round, issues })
 }
@@ -220,7 +227,7 @@ class Run {
 
   private record(result: LlmResult): void {
     this.totalUsage = addUsage(this.totalUsage, result.usage)
-    const price = costUsd(result.model, result.usage)
+    const price = upperBoundCost(result)
     this.cost = this.cost === null || price === undefined ? null : this.cost + price
     this.lastModel = result.model
     this.fallbackUsed ||= result.fallbackUsed

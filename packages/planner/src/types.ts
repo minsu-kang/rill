@@ -79,6 +79,11 @@ export interface PlanRound {
 export type PlanResult = PlanResultBody & {
   rounds: PlanRound[]
   usage: LlmUsage
+  /**
+   * Upper bound in USD: each call's usage priced at the most expensive of the models that served it
+   * (the final model and any fallback models). Null when one of them has no price. Calls that failed
+   * with unreadable output report no usage and are not counted.
+   */
   costUsd: number | null
   model: string
   effort: PlanEffort

@@ -1,7 +1,7 @@
 import { LlmError, type LlmCallOptions, type LlmProvider, type LlmRequest, type LlmResult, type LlmUsage } from '@rill/llm'
 
 export type Step =
-  | { data: unknown; model?: string; usage?: Partial<LlmUsage>; fallbackUsed?: boolean }
+  | { data: unknown; model?: string; usage?: Partial<LlmUsage>; fallbackUsed?: boolean; servedModels?: string[] }
   | { error: LlmError }
   | { wait: true }
 
@@ -51,7 +51,7 @@ export class FakeProvider implements LlmProvider {
       stopReason: 'end_turn',
       durationMs: 5,
       fallbackUsed: step.fallbackUsed ?? false,
-      servedModels: [model],
+      servedModels: step.servedModels ?? [model],
     }
   }
 }

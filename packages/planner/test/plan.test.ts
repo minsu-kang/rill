@@ -1,6 +1,6 @@
 import { LlmError, costUsd, type LlmSystemBlock } from '@rill/llm'
 import { describe, expect, it } from 'vitest'
-import { EFFORT_BUDGETS, PLANNER_RULES, PlanError, catalogText, createPlanner, generationSchema, type PlanEffort } from '../src/index'
+import { EFFORT_BUDGETS, PLANNER_RULES, PlanError, catalogText, createPlanner, generationSchema, upperBoundCost, type PlanEffort } from '../src/index'
 import { FakeProvider, SONNET, usage } from './fake-provider'
 import { ROOT, receipts, registry, request, slackWorkflow, workflowData } from './fixtures'
 
@@ -99,6 +99,20 @@ describe('createPlanner', () => {
       costUsd(SONNET, { inputTokens: 200, outputTokens: 20, cacheReadInputTokens: 50, cacheCreationInputTokens: 0 })!
     expect(result.costUsd).toBeCloseTo(expected, 12)
     expect(result.costUsd).toBeGreaterThan(0)
+  })
+
+  it('prices each call at the most expensive model that served it, as an upper bound', async () => {
+    const HAIKU = 'claude-haiku-5-5'
+    const OPUS = 'claude-opus-5-5'
+    const use = { inputTokens: 1000, outputTokens: 500, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
+    expect(costUsd(OPUS, use)!).toBeGreaterThan(costUsd(HAIKU, use)!)
+    const provider = new FakeProvider([{ data: workflowData(receipts()), model: HAIKU, servedModels: [OPUS, HAIKU], fallbackUsed: true, usage: use }])
+    const result = await createPlanner({ provider, registry }).plan(request())
+    expect(result.model).toBe(HAIKU)
+    expect(result.costUsd).toBeCloseTo(costUsd(OPUS, use)!, 12)
+    expect(upperBoundCost({ model: HAIKU, usage: use, servedModels: [HAIKU] })).toBeCloseTo(costUsd(HAIKU, use)!, 12)
+    expect(upperBoundCost({ model: OPUS, usage: use })).toBeCloseTo(costUsd(OPUS, use)!, 12)
+    expect(upperBoundCost({ model: HAIKU, usage: use, servedModels: ['mystery-model', HAIKU] })).toBeUndefined()
   })
 
   it('reports a null cost for an unknown model and the served model of the last round', async () => {
