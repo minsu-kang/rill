@@ -64,11 +64,26 @@ describe('connection kinds', () => {
     expect(connectionKindIssues(wf([webhook('team')]), registry, connections).map((issue) => issue.hint)).toEqual(['no webhookSecret connections are configured'])
   })
 
+  it('checks the kind of a connection name that a reference resolves to', () => {
+    const connections: PlanConnection[] = [{ name: 'team', kind: 'slack' }, { name: 'api', kind: 'http' }]
+    const carrier = { id: 'n0', type: 'transform@1', config: { values: { c: 'team', a: 'api', pre: 'te', several: ['api', 'team'] } } }
+    const auth = (connection: string) => ({ ...httpNode(connection), id: 'n1' })
+    const codes = (connection: string) => connectionKindIssues(wf([manual, carrier, auth(connection)]), registry, connections).map((issue) => [issue.pointer, issue.message])
+    expect(codes('{{n0.output.c}}')).toEqual([['/nodes/2/config/auth/connection', 'node n1: connection team is a slack connection, but this field needs a http connection']])
+    expect(codes('{{n0.output.pre}}am')).toEqual([['/nodes/2/config/auth/connection', 'node n1: connection team is a slack connection, but this field needs a http connection']])
+    expect(codes('{{n0.output.several}}')).toHaveLength(1)
+    expect(codes('{{n0.output.a}}')).toEqual([])
+    const extracted = wf([manual, { id: 'n0', type: 'llm.extract@1', config: { text: 'team', fields: [{ name: 'c', type: 'string' }] } }, auth('{{n0.output.c}}')])
+    expect(connectionKindIssues(extracted, registry, connections)).toEqual([])
+    expect(attachmentModule.provenance({ workflow: extracted, registry, userTexts: ['https://api.example.test'], attachmentTexts: [], trustedConnections: ['team', 'api'] }).map((flag) => flag.code)).toEqual(['untrusted_flow'])
+  })
+
   it('leaves the right kind, unknown names and templated names to other checks', () => {
     const connections: PlanConnection[] = [{ name: 'team', kind: 'slack' }]
     expect(connectionKindIssues(wf([manual, slackNode('team')]), registry, connections)).toEqual([])
     expect(connectionKindIssues(wf([manual, slackNode('other')]), registry, connections)).toEqual([])
     expect(connectionKindIssues(wf([manual, slackNode('{{t1.output.c}}')]), registry, connections)).toEqual([])
+    expect(connectionKindIssues(wf([manual, { id: 'n0', type: 'transform@1', config: { values: { c: 'team' } } }, { ...slackNode('{{n0.output.c}}'), id: 'n2' }]), registry, connections)).toEqual([])
   })
 
   it('keeps the right-kind hint after redaction even when the pointer is flagged', () => {
@@ -99,6 +114,16 @@ describe('connection kinds in the planner', () => {
     expect(result.kind).toBe('workflow')
     expect(result.rounds[0]!.issues.map((issue) => [issue.code, issue.hint])).toEqual([[CONNECTION_KIND_CODE, 'configured slack connections: team']])
     expect(provider.calls[1]!.request.messages.at(-1)!.content).toContain('configured slack connections: team')
+  })
+
+  it('repairs an http auth connection that a transform points at a Slack connection', async () => {
+    const bad = wf([manual, { id: 'n0', type: 'transform@1', config: { values: { c: 'team' } } }, { ...httpNode('{{n0.output.c}}'), id: 'n1' }])
+    const good = wf([manual, { id: 'n0', type: 'transform@1', config: { values: { c: 'api' } } }, { ...httpNode('{{n0.output.c}}'), id: 'n1' }])
+    const provider = new FakeProvider([{ data: workflowData(bad) }, { data: workflowData(good) }])
+    const result = await createPlanner({ provider, registry }).plan(request({ text: 'call https://api.example.test/x', context: context([{ name: 'api', kind: 'http' }, { name: 'team', kind: 'slack' }]) }))
+    expect(result.rounds[0]!.issues.map((issue) => [issue.code, issue.hint])).toEqual([[CONNECTION_KIND_CODE, 'configured http connections: api']])
+    if (result.kind !== 'workflow') throw new Error('expected a workflow')
+    expect(result.flags).toEqual([])
   })
 
   it('asks to set up a Slack connection when only connections of another kind exist', async () => {
