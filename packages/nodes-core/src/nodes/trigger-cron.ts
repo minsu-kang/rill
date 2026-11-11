@@ -20,6 +20,7 @@ export const triggerCron = defineTrigger({
   description:
     'Starts the workflow on a five-field cron schedule. A schedule missed for more than a minute is skipped, or run once with catchUp "once"; with overlap "skip" a tick is dropped while the previous run is still active.',
   configSchema: cronConfigSchema,
+  ruleIssue: { code: 'cron_expression', pointer: '/expression' },
   outputSchema: Type.Object({ scheduledFor: Type.String(), firedAt: Type.String() }),
   validate: (config) => {
     const { expression, timezone } = config as CronTriggerConfig

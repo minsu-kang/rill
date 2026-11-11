@@ -100,6 +100,9 @@ importers:
 
   packages/nodes-core:
     dependencies:
+      '@rill/dsl':
+        specifier: workspace:*
+        version: link:../dsl
       '@rill/llm':
         specifier: workspace:*
         version: link:../llm

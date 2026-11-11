@@ -36,12 +36,18 @@ export type FieldRole = (typeof FIELD_ROLES)[number]
 
 export type FieldRoles = Readonly<Record<string, FieldRole>>
 
+export interface RuleIssue {
+  code: string
+  pointer: string
+}
+
 interface NodeBase {
   type: string
   title: string
   description: string
   outputSchema: Type.TSchema
   roles?: FieldRoles
+  ruleIssue?: RuleIssue
 }
 
 export interface TriggerNodeDefinition extends NodeBase {
@@ -81,6 +87,7 @@ export function defineAction<C extends Type.TSchema, O extends Type.TSchema>(def
   configSchema: C
   lenientRefs?: boolean
   roles?: FieldRoles
+  ruleIssue?: RuleIssue
   outputSchema: O
   outputSchemaFor?: (config: Type.Static<C>) => Type.TSchema
   validate?: (config: unknown) => string[]

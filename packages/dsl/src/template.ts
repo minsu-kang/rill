@@ -86,3 +86,12 @@ export function resolveTemplates(
   }
   return value
 }
+
+export function matchWholeRef(value: string): TemplateRef | null {
+  const whole = REF_WHOLE.exec(value)
+  return whole ? { nodeId: whole[1]!, path: parsePath(whole[2]!) } : null
+}
+
+export function replaceRefs(value: string, replace: (ref: TemplateRef) => string): string {
+  return value.replace(REF_ANY, (_match, nodeId: string, path: string) => replace({ nodeId, path: parsePath(path) }))
+}
