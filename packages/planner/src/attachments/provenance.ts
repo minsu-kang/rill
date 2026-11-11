@@ -1,5 +1,5 @@
 import { extractRefs, stringLeaves, type WorkflowNode } from '@rill/dsl'
-import { fieldRoles, isEgressField, valueAtPointer } from '@rill/nodes-core'
+import { fieldRoles, isEgressField, isWriteField, valueAtPointer } from '@rill/nodes-core'
 import type { ProvenanceInput } from '../ports'
 import type { Flag } from '../types'
 import { fold, literalOf, occursInAny } from './normalize'
@@ -9,6 +9,8 @@ import { fold, literalOf, occursInAny } from './normalize'
  * HTTP responses and incoming requests or file names. A url, path, recipient or connection that is
  * built from the output of one of these, directly or through nodes that reference it, is flagged
  * untrusted_flow. Versions are ignored: llm.extract@1 and llm.extract@2 are the same entry.
+ * One designed flow is exempt: a path that is only read (never written) may come from the file
+ * event of trigger.folderWatch, which is the file the user chose to watch.
  */
 export const UNTRUSTED_SOURCE_TYPES: ReadonlySet<string> = new Set([
   'llm.extract',
@@ -17,6 +19,8 @@ export const UNTRUSTED_SOURCE_TYPES: ReadonlySet<string> = new Set([
   'trigger.webhook',
   'trigger.folderWatch',
 ])
+
+const FILE_EVENT_SOURCE = 'trigger.folderWatch'
 
 export interface ProvenanceOptions {
   untrustedSourceTypes?: ReadonlySet<string>
@@ -64,7 +68,9 @@ export function computeProvenance(input: ProvenanceInput, options: ProvenanceOpt
   const { workflow, registry, userTexts, existingWorkflow, attachmentTexts } = input
   const userHaystacks = [...userTexts, ...(existingWorkflow === undefined ? [] : stringLeaves(existingWorkflow).map((leaf) => leaf.value))].map(fold)
   const attachmentHaystacks = attachmentTexts.map(fold)
-  const tainted = taintIndex(workflow.nodes, options.untrustedSourceTypes ?? UNTRUSTED_SOURCE_TYPES)
+  const sources = options.untrustedSourceTypes ?? UNTRUSTED_SOURCE_TYPES
+  const tainted = taintIndex(workflow.nodes, sources)
+  const taintedForReads = taintIndex(workflow.nodes, new Set([...sources].filter((type) => type !== FILE_EVENT_SOURCE)))
   const found: { index: number; flag: Flag }[] = []
   workflow.nodes.forEach((node, index) => {
     const def = registry.get(node.type)
@@ -77,7 +83,8 @@ export function computeProvenance(input: ProvenanceInput, options: ProvenanceOpt
       const value = valueAtPointer(node.config, pointer)
       if (typeof value !== 'string') continue
       const at = `/nodes/${index}/config${pointer}`
-      if (extractRefs(value).some((ref) => tainted(ref.nodeId))) add(at, 'untrusted_flow')
+      const isTainted = role === 'path' && !isWriteField(def, pointer) ? taintedForReads : tainted
+      if (extractRefs(value).some((ref) => isTainted(ref.nodeId))) add(at, 'untrusted_flow')
       const literal = literalOf(role as 'path' | 'url' | 'connection' | 'recipient', value)
       if (literal === undefined || occursInAny(userHaystacks, literal)) continue
       if (isEgressField(def, pointer)) add(at, 'new_egress_target')

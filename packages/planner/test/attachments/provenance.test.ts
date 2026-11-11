@@ -263,10 +263,38 @@ describe('provenance: untrusted flow', () => {
       slack('n3', '{{n1.output.text}}'),
     )
     expect(brief(provenance(wf, { userTexts: ['watch ~/In'] }))).toEqual([
-      'n1 /nodes/1/config/path untrusted_flow',
       'n2 /nodes/2/config/file untrusted_flow',
       'n3 /nodes/3/config/connection untrusted_flow',
     ])
+  })
+
+  it('lets a read path come from the file event of the watched folder, and nothing else', () => {
+    const read = (source: Node, field: string) => chain(source, n('n1', 'file.read@1', { path: `{{t1.output.${field}}}` }))
+    const user = { userTexts: ['watch ~/In'] }
+    expect(provenance(read(n('t1', 'trigger.folderWatch@1', { folder: '~/In' }), 'file'), user)).toEqual([])
+    expect(brief(provenance(read(n('t1', 'trigger.webhook@1', { path: '/hook' }), 'query'), user))).toEqual(['n1 /nodes/1/config/path untrusted_flow'])
+    const viaTransform = chain(
+      n('t1', 'trigger.folderWatch@1', { folder: '~/In' }),
+      n('n0', 'transform@1', { values: { p: '{{t1.output.file}}' } }),
+      n('n1', 'file.read@1', { path: '{{n0.output.p}}' }),
+    )
+    expect(provenance(viaTransform, user)).toEqual([])
+    expect(brief(provenance(chain(n('t1', 'trigger.folderWatch@1', { folder: '~/In' }), extract('n1'), n('n2', 'file.read@1', { path: '{{n1.output.name}}' })), user))).toEqual([
+      'n2 /nodes/2/config/path untrusted_flow',
+    ])
+  })
+
+  it('does not let the watched file event into a URL or a connection name', () => {
+    const watch = n('t1', 'trigger.folderWatch@1', { folder: '~/In' })
+    const user = { userTexts: ['watch ~/In and post to https://x.test'] }
+    const post = chain(watch, n('n1', 'http.request@1', { url: 'https://x.test/{{t1.output.file}}', method: 'POST' }))
+    expect(brief(provenance(post, user))).toEqual(['n1 /nodes/1/config/url untrusted_flow'])
+    expect(brief(provenance(chain(watch, slack('n1', '{{t1.output.file}}')), user))).toEqual(['n1 /nodes/1/config/connection untrusted_flow'])
+  })
+
+  it('does not let the watched file event into a written path', () => {
+    const wf = chain(n('t1', 'trigger.folderWatch@1', { folder: '~/In' }), csv('n1', '{{t1.output.file}}'))
+    expect(brief(provenance(wf, { userTexts: ['watch ~/In'] }))).toEqual(['n1 /nodes/1/config/file untrusted_flow'])
   })
 
   it('flags a templated path through its literal prefix and its template', () => {

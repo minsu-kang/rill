@@ -2,7 +2,7 @@ import { LlmError, costUsd, type LlmSystemBlock } from '@rill/llm'
 import { describe, expect, it } from 'vitest'
 import { EFFORT_BUDGETS, PLANNER_RULES, PlanError, catalogText, createPlanner, generationSchema, type PlanEffort } from '../src/index'
 import { FakeProvider, SONNET, usage } from './fake-provider'
-import { receipts, registry, request, slackWorkflow, workflowData } from './fixtures'
+import { ROOT, receipts, registry, request, slackWorkflow, workflowData } from './fixtures'
 
 async function planError(promise: Promise<unknown>): Promise<PlanError> {
   try {
@@ -17,7 +17,7 @@ async function planError(promise: Promise<unknown>): Promise<PlanError> {
 describe('createPlanner', () => {
   it('returns a valid workflow on the first try', async () => {
     const provider = new FakeProvider([{ data: workflowData(receipts(), 'Ledger') }])
-    const result = await createPlanner({ provider, registry }).plan(request())
+    const result = await createPlanner({ provider, registry }).plan(request({ text: `Put my receipts into ${ROOT}/ledger.csv` }))
     expect(result.kind).toBe('workflow')
     if (result.kind !== 'workflow') return
     expect(result.workflow).toEqual(receipts())

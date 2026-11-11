@@ -10,4 +10,11 @@ export * from './hidden'
 export * from './patch'
 export * from './prompt'
 export * from './questions'
-export { attachmentModule, ATTACHMENT_RULES } from './attachments'
+export {
+  attachmentModule,
+  createAttachmentModule,
+  ATTACHMENT_RULES,
+  UNTRUSTED_SOURCE_TYPES,
+  type AttachmentModuleOptions,
+  type RandomHex,
+} from './attachments'

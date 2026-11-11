@@ -154,19 +154,27 @@ describe('the receipt demo workflow', () => {
   }
   const request = 'When a receipt PDF lands in ~/Receipts, extract the amount, add it to a CSV and tell me on Slack'
 
-  it('asks for confirmation of the ledger path, the Slack connection and the file name flowing into llm.extract', () => {
+  it('asks for confirmation of the ledger path and the Slack connection, not of the watched file flowing into llm.extract', () => {
     const flags = attachmentModule.provenance({ workflow: demo, registry, userTexts: [request], attachmentTexts: [] })
-    expect(flags.map((flag) => `${flag.nodeId} ${flag.code}`)).toEqual([
-      'n1 untrusted_flow',
-      'n2 new_egress_target',
-      'n3 new_egress_target',
-    ])
+    expect(flags.map((flag) => `${flag.nodeId} ${flag.code}`)).toEqual(['n2 new_egress_target', 'n3 new_egress_target'])
   })
 
-  it('keeps only the file name flow once the user has given the ledger path and the connection', () => {
+  it('has no flag once the user has given the ledger path and the connection', () => {
     const answers = ['ledger: ~/Receipts/ledger.csv', 'slack connection: team-slack']
     const flags = attachmentModule.provenance({ workflow: demo, registry, userTexts: [request, ...answers], attachmentTexts: [] })
-    expect(flags.map((flag) => `${flag.nodeId} ${flag.code}`)).toEqual(['n1 untrusted_flow'])
+    expect(flags).toEqual([])
+  })
+
+  it('still flags a file name that flows from the watched folder into a written path or a URL', () => {
+    const answers = ['ledger: ~/Receipts/ledger.csv', 'slack connection: team-slack']
+    const rerouted: Workflow = {
+      ...demo,
+      nodes: demo.nodes.map((node) =>
+        node.id === 'n2' ? { ...node, config: { file: '{{t1.output.file}}', row: ['{{n1.output.amount}}'] } } : node,
+      ),
+    }
+    const flags = attachmentModule.provenance({ workflow: rerouted, registry, userTexts: [request, ...answers], attachmentTexts: [] })
+    expect(flags.map((flag) => `${flag.nodeId} ${flag.code}`)).toEqual(['n2 untrusted_flow'])
   })
 })
 
