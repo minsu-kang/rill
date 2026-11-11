@@ -1,7 +1,18 @@
 import Anthropic, { type APIError } from '@anthropic-ai/sdk'
-import { LlmError, type LlmErrorOptions } from './types'
+import { LlmError, type LlmErrorKind, type LlmErrorOptions } from './types'
 
 const MAX_DETAIL = 300
+
+const STREAM_ERROR_KINDS: ReadonlyMap<string, LlmErrorKind> = new Map([
+  ['overloaded_error', 'overloaded'],
+  ['api_error', 'overloaded'],
+  ['rate_limit_error', 'rate_limit'],
+  ['timeout_error', 'timeout'],
+  ['authentication_error', 'auth'],
+  ['permission_error', 'auth'],
+])
+const DROPPED_CONNECTION_CODES: ReadonlySet<string> = new Set(['ECONNRESET', 'EPIPE', 'UND_ERR_SOCKET', 'UND_ERR_CLOSED'])
+const STREAM_ENDED_EARLY = /^(stream ended without producing|request ended without sending any chunks)/
 
 function detail(error: Error): string {
   const text = error.message.replace(/\s+/g, ' ').trim()
@@ -20,6 +31,17 @@ function retryAfterMs(error: APIError): number | undefined {
   if (milliseconds !== undefined) return milliseconds
   const seconds = headerNumber(error.headers, 'retry-after')
   return seconds === undefined ? undefined : seconds * 1000
+}
+
+function isDroppedStream(error: Error): boolean {
+  if (STREAM_ENDED_EARLY.test(error.message)) return true
+  let cause: unknown = error.cause
+  for (let depth = 0; depth < 4 && cause instanceof Error; depth++) {
+    const code = (cause as { code?: unknown }).code
+    if (cause.message === 'terminated' || (typeof code === 'string' && DROPPED_CONNECTION_CODES.has(code))) return true
+    cause = cause.cause
+  }
+  return false
 }
 
 function meta(error: APIError): LlmErrorOptions {
@@ -44,6 +66,10 @@ export function classifyError(error: unknown): LlmError {
   }
   if (error instanceof Anthropic.APIError) {
     const status = error.status
+    const streamKind = status === undefined ? STREAM_ERROR_KINDS.get(error.type ?? '') : undefined
+    if (streamKind !== undefined) {
+      return new LlmError(streamKind, `the model provider ended the stream with an error (${error.type})`, meta(error))
+    }
     if (status === 401 || status === 403) {
       return new LlmError('auth', `the model provider rejected the credentials (${status})`, meta(error))
     }
@@ -61,6 +87,9 @@ export function classifyError(error: unknown): LlmError {
       `the model provider rejected the request (${status ?? 'unknown status'}): ${detail(error)}`,
       meta(error),
     )
+  }
+  if (error instanceof Anthropic.AnthropicError && isDroppedStream(error)) {
+    return new LlmError('connection', 'the connection to the model provider dropped while the reply was streaming', { cause: error })
   }
   if (error instanceof Error && /authentication method/i.test(error.message)) {
     return new LlmError('auth', 'no Anthropic credentials found; set ANTHROPIC_API_KEY', { cause: error })

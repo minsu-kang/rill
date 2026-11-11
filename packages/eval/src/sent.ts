@@ -12,9 +12,14 @@ export interface SentRequest {
   messages: SentMessage[]
 }
 
+function systemText(system: LlmRequest['system']): string | null {
+  if (system === undefined) return null
+  return typeof system === 'string' ? system : system.map((block) => block.text).join('\n\n')
+}
+
 export function summarizeRequest(request: LlmRequest): SentRequest {
   return {
-    system: request.system ?? null,
+    system: systemText(request.system),
     messages: request.messages.map((message) => ({
       role: message.role,
       parts:

@@ -9,10 +9,15 @@ import {
   type LlmProvider,
   type LlmRequest,
   type LlmResult,
+  type LlmSystemBlock,
+  type LlmUsage,
 } from './types'
 
 export const DEFAULT_MODEL = 'claude-opus-5-5'
 export const DEFAULT_TIMEOUT_MS = 120_000
+export const MAX_CACHE_BREAKPOINTS = 4
+export const MAX_CALL_TIMEOUT_MS = 2_147_483_647
+export const STREAMING_ABOVE_MAX_TOKENS = 16_000
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 
 export interface AnthropicProviderOptions {
@@ -37,8 +42,14 @@ interface Reply {
     output_tokens: number
     cache_read_input_tokens?: number | null
     cache_creation_input_tokens?: number | null
-    iterations?: ReadonlyArray<{ type: string }> | null
+    iterations?: unknown
   }
+}
+
+interface Iteration {
+  type: string
+  model: string | null
+  usage: LlmUsage
 }
 
 function isReply(value: unknown): value is Reply {
@@ -49,15 +60,103 @@ function isReply(value: unknown): value is Reply {
   return typeof usage?.input_tokens === 'number' && typeof usage.output_tokens === 'number'
 }
 
+function cacheControl(cache: boolean | undefined) {
+  return cache === true ? { cache_control: { type: 'ephemeral' as const } } : {}
+}
+
+const SERVING_ITERATIONS: ReadonlySet<string> = new Set(['message', 'fallback_message'])
+
+const iterationType = (entry: unknown): unknown =>
+  typeof entry === 'object' && entry !== null ? (entry as { type?: unknown }).type : undefined
+
+const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
+
+function rawIterations(reply: Reply): unknown[] {
+  return Array.isArray(reply.usage.iterations) ? reply.usage.iterations : []
+}
+
+function readIteration(entry: unknown): Iteration | undefined {
+  if (typeof entry !== 'object' || entry === null) return undefined
+  const fields = entry as Record<string, unknown>
+  if (!isCount(fields.input_tokens) || !isCount(fields.output_tokens)) return undefined
+  return {
+    type: typeof fields.type === 'string' ? fields.type : '',
+    model: typeof fields.model === 'string' ? fields.model : null,
+    usage: {
+      inputTokens: fields.input_tokens,
+      outputTokens: fields.output_tokens,
+      cacheReadInputTokens: isCount(fields.cache_read_input_tokens) ? fields.cache_read_input_tokens : 0,
+      cacheCreationInputTokens: isCount(fields.cache_creation_input_tokens) ? fields.cache_creation_input_tokens : 0,
+    },
+  }
+}
+
+function usageOf(reply: Reply): { usage: LlmUsage; servedModels: string[] } {
+  const iterations = rawIterations(reply).flatMap((entry) => readIteration(entry) ?? [])
+  if (iterations.length === 0) {
+    return {
+      servedModels: [reply.model],
+      usage: {
+        inputTokens: reply.usage.input_tokens,
+        outputTokens: reply.usage.output_tokens,
+        cacheReadInputTokens: reply.usage.cache_read_input_tokens ?? 0,
+        cacheCreationInputTokens: reply.usage.cache_creation_input_tokens ?? 0,
+      },
+    }
+  }
+  const served = iterations
+    .filter((entry) => SERVING_ITERATIONS.has(entry.type) && entry.usage.outputTokens > 0)
+    .flatMap((entry) => entry.model ?? [])
+    .reverse()
+  return {
+    servedModels: served.length === 0 ? [reply.model] : [...new Set(served)],
+    usage: {
+      inputTokens: iterations.reduce((sum, entry) => sum + entry.usage.inputTokens, 0),
+      outputTokens: iterations.reduce((sum, entry) => sum + entry.usage.outputTokens, 0),
+      cacheReadInputTokens: iterations.reduce((sum, entry) => sum + entry.usage.cacheReadInputTokens, 0),
+      cacheCreationInputTokens: iterations.reduce((sum, entry) => sum + entry.usage.cacheCreationInputTokens, 0),
+    },
+  }
+}
+
 function toBlock(part: LlmPart): Anthropic.ContentBlockParam {
   switch (part.type) {
     case 'text':
-      return { type: 'text', text: part.text }
+      return { type: 'text', text: part.text, ...cacheControl(part.cache) }
     case 'document':
-      return { type: 'document', source: { type: 'base64', media_type: part.mediaType, data: part.data } }
+      return {
+        type: 'document',
+        source: { type: 'base64', media_type: part.mediaType, data: part.data },
+        ...cacheControl(part.cache),
+      }
     case 'image':
-      return { type: 'image', source: { type: 'base64', media_type: part.mediaType, data: part.data } }
+      return {
+        type: 'image',
+        source: { type: 'base64', media_type: part.mediaType, data: part.data },
+        ...cacheControl(part.cache),
+      }
   }
+}
+
+function toSystemBlock(block: LlmSystemBlock): Anthropic.TextBlockParam {
+  return { type: 'text', text: block.text, ...cacheControl(block.cache) }
+}
+
+function systemParam(system: LlmRequest['system']): { system?: string | Anthropic.TextBlockParam[] } {
+  if (system === undefined) return {}
+  if (typeof system === 'string') return { system }
+  return system.length === 0 ? {} : { system: system.map(toSystemBlock) }
+}
+
+function countBreakpoints(request: LlmRequest): number {
+  let count = request.cache === true ? 1 : 0
+  if (request.system !== undefined && typeof request.system !== 'string') {
+    count += request.system.filter((block) => block.cache === true).length
+  }
+  for (const message of request.messages) {
+    if (typeof message.content !== 'string') count += message.content.filter((part) => part.cache === true).length
+  }
+  return count
 }
 
 function toMessage(message: LlmMessage): Anthropic.MessageParam {
@@ -91,19 +190,16 @@ function toResult(reply: unknown, requestedModel: string, startedAt: number): Ll
   } catch (error) {
     throw new LlmError('invalid_output', 'the model reply was not valid JSON', { cause: error })
   }
+  const { usage, servedModels } = usageOf(reply)
   return {
     data,
     model: reply.model,
     requestedModel,
     stopReason: reply.stop_reason ?? 'unknown',
     durationMs: Date.now() - startedAt,
-    fallbackUsed: lastFallback >= 0 || (reply.usage.iterations ?? []).some((entry) => entry.type === 'fallback_message'),
-    usage: {
-      inputTokens: reply.usage.input_tokens,
-      outputTokens: reply.usage.output_tokens,
-      cacheReadInputTokens: reply.usage.cache_read_input_tokens ?? 0,
-      cacheCreationInputTokens: reply.usage.cache_creation_input_tokens ?? 0,
-    },
+    fallbackUsed: lastFallback >= 0 || rawIterations(reply).some((entry) => iterationType(entry) === 'fallback_message'),
+    usage,
+    servedModels,
   }
 }
 
@@ -139,28 +235,45 @@ export class AnthropicProvider implements LlmProvider {
     if (request.messages.at(-1)?.role !== 'user') {
       throw new LlmError('invalid_request', 'the last message must come from the user (assistant prefill is not supported)')
     }
+    const breakpoints = countBreakpoints(request)
+    if (breakpoints > MAX_CACHE_BREAKPOINTS) {
+      throw new LlmError(
+        'invalid_request',
+        `a request can carry at most ${MAX_CACHE_BREAKPOINTS} cache breakpoints (system blocks, content parts and the cache flag together), got ${breakpoints}`,
+      )
+    }
+    const { timeoutMs } = callOptions
+    if (timeoutMs !== undefined && !(timeoutMs > 0 && timeoutMs <= MAX_CALL_TIMEOUT_MS)) {
+      throw new LlmError('invalid_request', `timeoutMs must be a positive number of milliseconds up to ${MAX_CALL_TIMEOUT_MS}, got ${timeoutMs}`)
+    }
+    const maxTokens = request.maxTokens ?? this.maxTokens
     const base = {
       model: this.modelId,
-      max_tokens: request.maxTokens ?? this.maxTokens,
+      max_tokens: maxTokens,
       messages: request.messages.map(toMessage),
       output_config: {
         effort: request.effort ?? this.effort,
         format: { type: 'json_schema' as const, schema: request.schema },
       },
-      ...(request.system === undefined ? {} : { system: request.system }),
-      ...(request.cache === true ? { cache_control: { type: 'ephemeral' as const } } : {}),
+      ...systemParam(request.system),
+      ...cacheControl(request.cache),
     }
-    const requestOptions = { signal: callOptions.signal }
+    const requestOptions = { signal: callOptions.signal, ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }) }
+    const streaming = maxTokens > STREAMING_ABOVE_MAX_TOKENS
     const startedAt = Date.now()
     let reply: unknown
     try {
       const client = this.client()
-      reply = this.refusalFallback
-        ? await client.beta.messages.create(
-            { ...base, betas: [FALLBACK_BETA], fallbacks: 'default' } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming,
-            requestOptions,
-          )
-        : await client.messages.create(base, requestOptions)
+      if (this.refusalFallback) {
+        const params = { ...base, betas: [FALLBACK_BETA], fallbacks: 'default' } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming
+        reply = streaming
+          ? await client.beta.messages.stream(params, requestOptions).finalMessage()
+          : await client.beta.messages.create(params, requestOptions)
+      } else {
+        reply = streaming
+          ? await client.messages.stream(base, requestOptions).finalMessage()
+          : await client.messages.create(base, requestOptions)
+      }
     } catch (error) {
       throw classifyError(error)
     }
