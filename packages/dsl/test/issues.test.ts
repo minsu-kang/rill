@@ -122,6 +122,8 @@ describe('graphIssues', () => {
       { from: 'a', to: 't1' },
     ])
     expect(graphIssues(wf).filter((i) => i.code === 'trigger_incoming').map((i) => i.pointer)).toEqual(['/edges/2'])
+    const first = make([t1, node('a')], [{ from: 'a', to: 't1' }, { from: 't1', to: 'a' }])
+    expect(graphIssues(first).filter((i) => i.code === 'trigger_incoming').map((i) => i.pointer)).toEqual(['/edges/0'])
   })
 
   it('returns nothing for a valid graph', () => {

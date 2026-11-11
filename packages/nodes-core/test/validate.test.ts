@@ -88,6 +88,7 @@ const custom = createCoreRegistry()
           count: Type.Optional(Type.Integer()),
           num: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
           mode: Type.Optional(Type.Union([Type.Literal('a'), Type.Literal('b')])),
+          pick: Type.Optional(Type.Union([Type.Literal('a'), Type.Integer()])),
           list: Type.Optional(Type.Array(Type.String(), { maxItems: 2 })),
           map: Type.Optional(Type.Record(Type.String(), Type.Integer())),
         },
@@ -237,6 +238,8 @@ describe('validateWorkflow semantics', () => {
     expect(validateWorkflow(ok, env)).toEqual([])
     const broken = chain(manual, n('x', 'llm.extract@1', { text: 'r', fields: 'nope' }), n('a', 'delay@1', { ms: '{{x.output.anything}}' }))
     expect(brief(validateWorkflow(broken, env))).toEqual(['config_type /nodes/1/config/fields'])
+    const badType = chain(manual, n('x', 'llm.extract@1', { text: 'r', fields: [{ name: 'amount', type: 'money' }] }), n('a', 'delay@1', { ms: '{{x.output.amount}}' }))
+    expect(brief(validateWorkflow(badType, env))).toEqual(['config_anyOf /nodes/1/config/fields/0/type'])
   })
 
   it('stops the field walk at open schemas and reports scalars that are not objects', () => {
@@ -296,7 +299,7 @@ describe('validateWorkflow semantics', () => {
       n('t1', 'trigger.webhook@1', { path: '/in' }),
       n('a', 'http.request@1', { url: '{{t1.output.path}}' }),
       n('b', 'csv.append@1', { file: '{{t1.output.body}}', row: ['{{t1.output.body}}', 1] }),
-      n('c', 'test.sink@1', { mode: '{{t1.output.method}}', list: '{{t1.output.body}}' }),
+      n('c', 'test.sink@1', { mode: '{{t1.output.method}}', list: '{{t1.output.body}}', pick: '{{t1.output.method}}' }),
     )
     expect(validateWorkflow(wf, customEnv)).toEqual([])
   })
@@ -315,6 +318,8 @@ describe('validateWorkflow semantics', () => {
     ])
     const bad = chain(manual, n('a', 'test.sink@1', { text: 'bad' }), n('b', 'test.sink@1', { text: 'throw' }))
     expect(validateWorkflow(bad, customEnv).map((i) => i.message)).toEqual(['node a: text must not be bad', 'node b: hook exploded'])
+    const mismatched = chain(manual, extract('x'), n('a', 'test.sink@1', { text: 'bad', flag: '{{x.output.date}}' }))
+    expect(brief(validateWorkflow(mismatched, customEnv))).toEqual(['config_type /nodes/2/config/flag'])
     expect(brief(validateWorkflow(chain(n('t1', 'trigger.webhook@1', { path: '/a/../b' })), env))).toEqual(['config_rule /nodes/0/config'])
     expect(validateWorkflow(chain(n('t1', 'trigger.cron@1', { expression: '0 0 31 2 *' })), env)[0]!.message).toBe('trigger t1: expression never fires')
   })
@@ -370,6 +375,11 @@ describe('validateWorkflow semantics', () => {
     const issues = validateWorkflow(wf, env)
     expect(issues.map((i) => [i.code, i.pointer, i.hint])).toEqual([['when_unknown_label', '/edges/2/when', 'use one of: true, false']])
     expect(issues[0]!.message).toBe('edge c -> z: "False" is not one of true, false')
+  })
+
+  it('does not walk the output of a node that does not run before the reference', () => {
+    const wf = chain(manual, n('a', 'delay@1', { ms: '{{b.output.nope}}' }), extract('b'))
+    expect(brief(validateWorkflow(wf, env))).toEqual(['ref_not_upstream /nodes/1/config/ms'])
   })
 
   it('reports an unknown type with the catalog and skips its semantics', () => {
