@@ -149,7 +149,7 @@ export function restoreConverted(schema: unknown, value: unknown, base = ''): Re
           issues.push({ stage: 1, pointer: joinPointer(pointer, i, 'key'), code: 'config_duplicate_key', message: `key ${key} appears twice` })
           return
         }
-        out[key] = restore(valueSchema, value, joinPointer(pointer, key))
+        Object.defineProperty(out, key, { value: restore(valueSchema, value, joinPointer(pointer, key)), enumerable: true, writable: true, configurable: true })
       })
       return out
     }

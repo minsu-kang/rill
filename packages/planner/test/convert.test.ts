@@ -86,6 +86,20 @@ describe('convertSchema', () => {
 })
 
 describe('restoreConverted', () => {
+  it('keeps a __proto__ map key as an own key, as JSON.parse does on the create path, and reports it twice like any key', () => {
+    const transform = withoutHiddenFields(registry.get('transform@1')!)
+    const restored = restoreConverted(transform, { values: [{ key: '__proto__', value: '{"x":1}' }, { key: 'a', value: '1' }] })
+    const values = (restored.value as { values: Record<string, unknown> }).values
+    expect(Object.getPrototypeOf(values)).toBe(Object.prototype)
+    expect(Object.keys(values)).toEqual(['__proto__', 'a'])
+    expect(Object.getOwnPropertyDescriptor(values, '__proto__')?.value).toEqual({ x: 1 })
+    expect((values as { x?: unknown }).x).toBeUndefined()
+    expect(restored.issues).toEqual([])
+    expect(JSON.stringify(values)).toBe(JSON.stringify(JSON.parse('{"__proto__":{"x":1},"a":1}')))
+    const twice = restoreConverted(transform, { values: [{ key: '__proto__', value: '1' }, { key: '__proto__', value: '2' }] })
+    expect(twice.issues).toEqual([{ stage: 1, pointer: '/values/1/key', code: 'config_duplicate_key', message: 'key __proto__ appears twice' }])
+  })
+
   const http = withoutHiddenFields(registry.get('http.request@1')!)
 
   it('turns entries into a record and JSON text into values', () => {
