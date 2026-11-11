@@ -25,6 +25,24 @@ export function computeBackoff(failures: number, baseDelayMs: number, random: ()
   return Math.floor(random() * ceiling)
 }
 
+export const MAX_RETRY_AFTER_MS = 60_000
+const MAX_CAUSE_DEPTH = 4
+
+function retryAfterOf(error: unknown): number | undefined {
+  let current = error
+  for (let depth = 0; depth <= MAX_CAUSE_DEPTH && typeof current === 'object' && current !== null; depth++) {
+    const { retryAfterMs, cause } = current as { retryAfterMs?: unknown; cause?: unknown }
+    if (typeof retryAfterMs === 'number' && Number.isFinite(retryAfterMs) && retryAfterMs > 0) return retryAfterMs
+    current = cause
+  }
+  return undefined
+}
+
+export function retryDelay(failures: number, baseDelayMs: number, random: () => number, error: unknown): number {
+  const backoff = computeBackoff(failures, baseDelayMs, random)
+  return Math.min(Math.max(backoff, retryAfterOf(error) ?? 0), MAX_RETRY_AFTER_MS)
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -195,7 +213,7 @@ export class RunExecutor {
         const willRetry = error instanceof RetryableError && failures < maxAttempts
         this.emit({ type: 'step.failed', runId: run.id, nodeId: node.id, attempt, error: message, willRetry })
         if (!willRetry) return { ok: false, error: message, attempt }
-        await this.sleep(computeBackoff(failures, node.retry?.baseDelayMs ?? 500, this.random))
+        await this.sleep(retryDelay(failures, node.retry?.baseDelayMs ?? 500, this.random, error))
       }
     }
   }
