@@ -16,9 +16,17 @@ import { defineAction } from '../types'
 
 type Cell = string | number | boolean | null
 
-function encodeCell(cell: Cell): string {
+const FORMULA_START = /^[=+\-@\t\r]/
+const PLAIN_NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/
+
+function neutralise(cell: Cell): string {
   if (cell === null) return ''
   const text = String(cell)
+  return typeof cell === 'string' && FORMULA_START.test(text) && !PLAIN_NUMBER.test(text) ? `'${text}` : text
+}
+
+function encodeCell(cell: Cell): string {
+  const text = neutralise(cell)
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
 }
 
@@ -71,7 +79,8 @@ const CellSchema = Type.Union([Type.String(), Type.Number(), Type.Boolean(), Typ
 export const csvAppend = defineAction({
   type: 'csv.append@1',
   title: 'Append CSV row',
-  description: 'Appends one row to a CSV file, exactly once even if the run is retried or resumed.',
+  description:
+    'Appends one row to a CSV file, exactly once even if the run is retried or resumed. A text cell that starts with =, +, -, @, a tab or a carriage return gets a leading single quote so a spreadsheet shows it as text; plain numbers stay as they are.',
   sideEffect: 'idempotent',
   roles: { '/file': 'path' },
   configSchema: Type.Object(
