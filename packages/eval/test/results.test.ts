@@ -328,7 +328,8 @@ describe('writeResults: outcomes that are not a plain pass', () => {
   })
 
   it('marks a truncated row with status truncated and an empty grade', () => {
-    expect(rowOf('c-text')).toMatchObject({ status: 'truncated', grade: {} })
+    expect(rowOf('c-text')).toMatchObject({ status: 'truncated', stop_reason: 'max_tokens' })
+    expect(rowOf('c-text')?.['grade']).toEqual({})
   })
 
   it('writes no row and no trace for a failed or skipped task', () => {

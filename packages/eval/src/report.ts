@@ -277,6 +277,27 @@ function deltaSection(input: ReportInput, stats: readonly ModelStats[]): string[
   return [...lines, ...table(['Model', 'Delta', '95% interval', 'Verdict', 'Based on'], rows)]
 }
 
+function agreementSection(stats: readonly ModelStats[]): string[] {
+  const rows: string[][] = []
+  for (const entry of stats) {
+    const byCase = new Map<string, string[]>()
+    for (const task of entry.tasks) {
+      if (!isScored(task) || task.status === 'truncated') continue
+      byCase.set(task.caseId, [...(byCase.get(task.caseId) ?? []), `${task.status}|${JSON.stringify(task.output ?? null)}`])
+    }
+    const repeated = [...byCase.values()].filter((outputs) => outputs.length >= 2)
+    const same = repeated.filter((outputs) => outputs.every((output) => output === outputs[0])).length
+    rows.push([entry.model, String(repeated.length), repeated.length === 0 ? 'n/a' : `${pct(same / repeated.length)} (${same}/${repeated.length})`])
+  }
+  return [
+    '## Rep agreement',
+    '',
+    'Cases with at least two scored reps whose replies were identical on every rep. High agreement means more reps add little; spend on more cases instead.',
+    '',
+    ...table(['Model', 'Cases with 2+ reps', 'Identical on every rep'], rows),
+  ]
+}
+
 const GRADED_CLASSES = new Set(['refusal', 'truncated', 'invalid_output', 'unexpected_shape'])
 
 function errorSection(run: RunResult<unknown>, models: readonly string[]): string[] {
@@ -396,6 +417,7 @@ export function renderReport(input: ReportInput): string {
       ...breakdownSection('By difficulty', stats, (row) => row.category),
       ...breakdownSection('By fixture kind', stats, (_row, task) => task.kind),
       ...deltaSection(input, stats),
+      ...agreementSection(stats),
     )
     if (run.budgetUsd !== undefined) lines.push(`Budget: ${usd(run.budgetUsd)}, spent ${usd(run.spentUsd)}.`, '')
   }

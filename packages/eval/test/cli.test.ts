@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   BUDGET_FACTOR,
   DEFAULT_MODELS,
@@ -20,6 +20,12 @@ import {
   type CliIo,
 } from '../src/cli'
 import { PRICE_TABLE_AS_OF } from '../src/pricing'
+import { writeResults } from '../src/results'
+
+vi.mock('../src/results', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/results')>()
+  return { ...actual, writeResults: vi.fn(actual.writeResults) }
+})
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..')
 const cli = join(root, 'packages/eval/src/cli.ts')
@@ -51,7 +57,7 @@ afterEach(async () => {
   }
 })
 
-async function mockApi(usage = { input_tokens: 700, output_tokens: 40 }): Promise<string> {
+async function mockApi(usage = { input_tokens: 700, output_tokens: 40 }, fail?: { status: number; message: string }): Promise<string> {
   server = createServer((req, res) => {
     let raw = ''
     req.on('data', (chunk) => {
@@ -60,6 +66,11 @@ async function mockApi(usage = { input_tokens: 700, output_tokens: 40 }): Promis
     req.on('end', () => {
       const body = JSON.parse(raw) as Seen['body']
       seen.push({ url: req.url ?? '', headers: req.headers, body })
+      if (fail !== undefined) {
+        res.writeHead(fail.status, { 'content-type': 'application/json', 'request-id': `req_${seen.length}` })
+        res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: fail.message } }))
+        return
+      }
       res.writeHead(200, { 'content-type': 'application/json', 'request-id': `req_${seen.length}` })
       res.end(
         JSON.stringify({
@@ -211,6 +222,23 @@ describe('eval extract: process level', () => {
     expect(result.stdout).toContain('of a $0.0100 budget')
     expect(readFileSync(join(out, 'report.md'), 'utf8')).toContain('- Tasks skipped because of the budget: 2.')
     expect(readJsonl(join(out, 'baseline', 'results.jsonl'))).toHaveLength(1)
+  })
+
+  it('records an authentication failure as an error row and never writes the key', async () => {
+    const baseURL = await mockApi(undefined, { status: 401, message: `invalid x-api-key ${KEY}` })
+    const out = join(dir, 'out')
+    const result = await runCli(['extract', '--yes', '--models', 'claude-haiku-5-5', '--only', SEED, '--kinds', 'text', '--reps', '1', '--out', out], {
+      ANTHROPIC_API_KEY: KEY,
+      ANTHROPIC_BASE_URL: baseURL,
+    })
+    expect(result.code).toBe(0)
+    expect(seen).toHaveLength(1)
+    const errors = readJsonl(join(out, 'baseline', 'errors.jsonl'))
+    expect(errors.map((line) => [line['scope'], line['failure_class']])).toEqual([['attempt', 'auth'], ['task', 'auth']])
+    expect(String(errors[0]?.['message'])).toContain('rejected the credentials')
+    expect(readJsonl(join(out, 'baseline', 'results.jsonl'))).toEqual([])
+    for (const text of [result.stdout, result.stderr, allText(out)]) expect(text).not.toContain(KEY)
+    expect(readFileSync(join(out, 'report.md'), 'utf8')).toContain('| auth | 1 |')
   })
 
   it('refuses --yes into a directory that already has files before any request', async () => {
@@ -421,6 +449,36 @@ describe('main', () => {
   it('never prints the key from the environment when something fails', async () => {
     const { io, err } = quietIo({ env: { ANTHROPIC_API_KEY: KEY } })
     expect(await main(['extract', '--yes', '--models', 'claude-mystery-9', '--only', SEED, '--kinds', 'text'], io)).toBe(1)
+    expect(err.join('')).not.toContain(KEY)
+  })
+
+  it('hands the key to the results writer as a secret to scrub, and no secret for the baselines', async () => {
+    const baseURL = await mockApi()
+    vi.stubEnv('ANTHROPIC_BASE_URL', baseURL)
+    try {
+      vi.mocked(writeResults).mockClear()
+      const real = quietIo({ env: { ANTHROPIC_API_KEY: KEY } })
+      const args = ['extract', '--yes', '--models', 'claude-haiku-5-5', '--only', SEED, '--kinds', 'text', '--reps', '1']
+      expect(await main([...args, '--out', join(dir, 'real')], real.io)).toBe(0)
+      expect(seen).toHaveLength(1)
+      expect(vi.mocked(writeResults).mock.calls.map((call) => call[2].secrets)).toEqual([[KEY]])
+      vi.mocked(writeResults).mockClear()
+      const fake = quietIo({ env: { ANTHROPIC_API_KEY: KEY } })
+      expect(await main(['extract', '--baselines', '--only', SEED, '--kinds', 'text', '--out', join(dir, 'fake')], fake.io)).toBe(0)
+      expect(vi.mocked(writeResults).mock.calls.map((call) => call[2].secrets)).toEqual([[]])
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('redacts the key from an error message that happens to contain it', async () => {
+    const withKey = join(dir, KEY)
+    mkdirSync(withKey)
+    writeFileSync(join(withKey, 'x'), 'x')
+    const { io, err } = quietIo({ env: { ANTHROPIC_API_KEY: KEY } })
+    expect(await main(['extract', '--yes', '--models', 'claude-haiku-5-5', '--only', SEED, '--kinds', 'text', '--reps', '1', '--out', withKey], io)).toBe(1)
+    expect(err.join('')).toContain('output directory is not empty: ')
+    expect(err.join('')).toContain('[redacted]')
     expect(err.join('')).not.toContain(KEY)
   })
 })

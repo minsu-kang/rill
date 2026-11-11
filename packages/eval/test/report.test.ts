@@ -110,6 +110,12 @@ describe('renderReport: header', () => {
     expect(bigger).toContain('up to about 23 points')
   })
 
+  it('treats an explicit low as the shipped setting', () => {
+    const explicit = renderReport({ run: run(grid({ seeds: 1, reps: 1, pass: () => true })), meta: { ...META, effort: 'low', reps: 1 } })
+    expect(explicit).toContain('- Effort: low (as the node ships)')
+    expect(explicit).not.toContain('override')
+  })
+
   it('names an effort override and one seed in the singular', () => {
     const overridden = renderReport({ run: run(grid({ seeds: 1, reps: 1, pass: () => true })), meta: { ...META, effort: 'high', reps: 1 } })
     expect(overridden).toContain('- Effort: high (override; the node ships low)')
@@ -238,6 +244,36 @@ describe('renderReport: paired deltas', () => {
   })
 })
 
+describe('renderReport: rep agreement', () => {
+  it('counts the cases whose replies were identical on every rep', () => {
+    const tasks = grid({
+      seeds: 4,
+      reps: 3,
+      kinds: ['text'],
+      models: [HAIKU],
+      pass: () => true,
+      extend: (_model, seed, _kind, rep) => ({ output: { amount: seed === 2 && rep === 1 ? 9 : 5, date: null, vendor: 'V' } }),
+    })
+    const report = renderReport({ run: run(tasks), meta: { ...META, models: [HAIKU], reps: 3 } })
+    expect(row(report, 'Rep agreement', HAIKU)).toBe(`| ${HAIKU} | 4 | 75.0% (3/4) |`)
+  })
+
+  it('needs two reps and ignores truncated calls', () => {
+    const single = renderReport({ run: run(grid({ seeds: 2, reps: 1, pass: () => true, models: [HAIKU] })), meta: { ...META, models: [HAIKU], reps: 1 } })
+    expect(row(single, 'Rep agreement', HAIKU)).toBe(`| ${HAIKU} | 0 | n/a |`)
+    const truncated = [
+      fakeTask({ group: 'a', rep: 0 }),
+      fakeTask({ group: 'a', rep: 1, status: 'truncated', failureClass: 'truncated' }),
+    ]
+    expect(row(renderReport({ run: run(truncated), meta: { ...META, models: [HAIKU] } }), 'Rep agreement', HAIKU)).toBe(`| ${HAIKU} | 0 | n/a |`)
+  })
+
+  it('counts a refusal on one rep as a disagreement', () => {
+    const tasks = [fakeTask({ group: 'a', rep: 0 }), fakeTask({ group: 'a', rep: 1, status: 'refused', failureClass: 'refusal' })]
+    expect(row(renderReport({ run: run(tasks), meta: { ...META, models: [HAIKU] } }), 'Rep agreement', HAIKU)).toBe(`| ${HAIKU} | 1 | 0.0% (0/1) |`)
+  })
+})
+
 describe('renderReport: errors, truncation and the budget', () => {
   const tasks = [
     ...grid({ seeds: 3, reps: 1, kinds: ['text'], pass: () => true }),
@@ -277,6 +313,15 @@ describe('renderReport: errors, truncation and the budget', () => {
     expect(line).toContain('75.0% (')
     expect(line).toContain(', 3/4 |')
     expect(line).toContain('| 25.0% |')
+  })
+
+  it('leaves a truncated call out of the latency and token means', () => {
+    const base = grid({ seeds: 2, reps: 1, kinds: ['text'], pass: () => true, models: [HAIKU] })
+    const withTruncated = [...base, fakeTask({ group: 's9', model: HAIKU, status: 'truncated', failureClass: 'truncated', latencyMs: 600_000, usage: { inputTokens: 90_000, outputTokens: 90_000 } })]
+    const meta = { ...META, models: [HAIKU], reps: 1 }
+    const line = row(renderReport({ run: run(withTruncated), meta }), 'Latency, tokens and cost', HAIKU)
+    expect(line).toBe(row(renderReport({ run: run(base), meta }), 'Latency, tokens and cost', HAIKU).replace('$0.0020 | $0.10', '$0.0030 | $0.15'))
+    expect(line).toContain('| 1.00 | 1.00 | 1000 | 100 |')
   })
 
   it('lists the truncated rows that were excluded', () => {
