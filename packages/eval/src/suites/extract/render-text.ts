@@ -314,7 +314,7 @@ function hash(str: string, mod: number): number {
   return h % mod
 }
 
-function dw(s: string): number {
+export function displayWidth(s: string): number {
   let w = 0
   for (const ch of s) {
     const c = ch.codePointAt(0) ?? 0
@@ -331,9 +331,9 @@ function dw(s: string): number {
   return w
 }
 
-const padL = (s: string, n: number): string => ' '.repeat(Math.max(0, n - dw(s))) + s
-const center = (s: string, w: number): string => ' '.repeat(Math.max(0, Math.floor((w - dw(s)) / 2))) + s
-const row = (left: string, right: string, w: number): string => left + ' '.repeat(Math.max(1, w - dw(left) - dw(right))) + right
+const padL = (s: string, n: number): string => ' '.repeat(Math.max(0, n - displayWidth(s))) + s
+const center = (s: string, w: number): string => ' '.repeat(Math.max(0, Math.floor((w - displayWidth(s)) / 2))) + s
+const row = (left: string, right: string, w: number): string => left + ' '.repeat(Math.max(1, w - displayWidth(left) - displayWidth(right))) + right
 const rule = (ch: string, w: number): string => ch.repeat(w)
 const jag = (w: number): string => '/\\'.repeat(Math.ceil(w / 2)).slice(0, w)
 const lineTotal = (li: LineItem): number => r2(li.qty * li.unitPrice)

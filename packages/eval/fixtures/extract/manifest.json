@@ -1,0 +1,767 @@
+{
+  "generatorVersion": "1",
+  "font": {
+    "package": "@kfonts/d2coding",
+    "version": "0.2.0",
+    "license": "OFL-1.1",
+    "file": "src/D2Coding.ttf"
+  },
+  "files": [
+    {
+      "seedId": "easy-ko-cafe-yeonnam",
+      "kind": "text",
+      "path": "text/easy-ko-cafe-yeonnam.txt",
+      "bytes": 558,
+      "sha256": "b26fa99d64ab59df5b0639af11e65cf3b447da4a346c274db3fbc6949f388ba4"
+    },
+    {
+      "seedId": "easy-ko-cafe-yeonnam",
+      "kind": "pdf",
+      "path": "pdf/easy-ko-cafe-yeonnam.pdf",
+      "bytes": 14743,
+      "sha256": "ab93201f6c2bb536a60f1f7d020bba507e4791f245efd111015ef0b927434c86"
+    },
+    {
+      "seedId": "easy-ko-cafe-yeonnam",
+      "kind": "png",
+      "path": "png/easy-ko-cafe-yeonnam.png",
+      "bytes": 49908,
+      "sha256": "f51580c201a08d895df41b17c9da6f09b2e3f273db3ee0c768a10868ab72de33"
+    },
+    {
+      "seedId": "easy-ko-bunsik-sinchon",
+      "kind": "text",
+      "path": "text/easy-ko-bunsik-sinchon.txt",
+      "bytes": 599,
+      "sha256": "cf38c6aa07420e67eef9d02bb3e91321170b8662e1f0541e00bca192e72aa17b"
+    },
+    {
+      "seedId": "easy-ko-bunsik-sinchon",
+      "kind": "pdf",
+      "path": "pdf/easy-ko-bunsik-sinchon.pdf",
+      "bytes": 15963,
+      "sha256": "2aa22c294e4d3d433577a2863dba49e69166660b3c573847e2f4ab569d0cb8e0"
+    },
+    {
+      "seedId": "easy-ko-bunsik-sinchon",
+      "kind": "png",
+      "path": "png/easy-ko-bunsik-sinchon.png",
+      "bytes": 51233,
+      "sha256": "92b051aa7d22356b5c93413193892e9e34ffb70cf523b7caedd0f98abc23b386"
+    },
+    {
+      "seedId": "easy-ko-bakery-thermal",
+      "kind": "text",
+      "path": "text/easy-ko-bakery-thermal.txt",
+      "bytes": 410,
+      "sha256": "f7e60cc83bb8d962718674c6380885317ac4100b52ad4bfabe6a3d410bd13b37"
+    },
+    {
+      "seedId": "easy-ko-bakery-thermal",
+      "kind": "pdf",
+      "path": "pdf/easy-ko-bakery-thermal.pdf",
+      "bytes": 11725,
+      "sha256": "35ecf541860c6c7a6721e0ddc682ab64e3e4db93933c7527e5a4a3c339789ad7"
+    },
+    {
+      "seedId": "easy-ko-bakery-thermal",
+      "kind": "png",
+      "path": "png/easy-ko-bakery-thermal.png",
+      "bytes": 36077,
+      "sha256": "b85e1cf849432ba8efadb8a82f43add832608c8a3401cb76789850384e9873c7"
+    },
+    {
+      "seedId": "easy-ko-pharmacy-hangul-date",
+      "kind": "text",
+      "path": "text/easy-ko-pharmacy-hangul-date.txt",
+      "bytes": 533,
+      "sha256": "4869b324e43cc11dbf5093f6cf1529c6f126d5fd7cd8771c66df96e7c21fb892"
+    },
+    {
+      "seedId": "easy-ko-pharmacy-hangul-date",
+      "kind": "pdf",
+      "path": "pdf/easy-ko-pharmacy-hangul-date.pdf",
+      "bytes": 14673,
+      "sha256": "1e8e6fdb200ae3cdc280a7361a387bb9ec83e0c7d6e42e0fb225da48d869352b"
+    },
+    {
+      "seedId": "easy-ko-pharmacy-hangul-date",
+      "kind": "png",
+      "path": "png/easy-ko-pharmacy-hangul-date.png",
+      "bytes": 46860,
+      "sha256": "34f19b6db957e941d07bc5135fc229b139e2bfdc08c5b9f9a1c5fabaa1dcc442"
+    },
+    {
+      "seedId": "easy-mixed-bookstore-order",
+      "kind": "text",
+      "path": "text/easy-mixed-bookstore-order.txt",
+      "bytes": 673,
+      "sha256": "a60aed14dd9eea43d834a0e567a2b81e7944a460d6dbbc8a22dfe0bcc21cdc09"
+    },
+    {
+      "seedId": "easy-mixed-bookstore-order",
+      "kind": "pdf",
+      "path": "pdf/easy-mixed-bookstore-order.pdf",
+      "bytes": 17483,
+      "sha256": "837ccd3055549fec8f470e56e72148544f032d8e365f26e067f3bbb855f7c3f9"
+    },
+    {
+      "seedId": "easy-mixed-bookstore-order",
+      "kind": "png",
+      "path": "png/easy-mixed-bookstore-order.png",
+      "bytes": 74382,
+      "sha256": "3bed9b8a5596f5c7a78a40538f3ff92c7b854b8a36b5157a9d9896114abe5d9e"
+    },
+    {
+      "seedId": "easy-en-coffee-us",
+      "kind": "text",
+      "path": "text/easy-en-coffee-us.txt",
+      "bytes": 359,
+      "sha256": "abda32ac1181cd2bf317db58258892257f4bcc94c4fbe110a20e9b7f6b1472bc"
+    },
+    {
+      "seedId": "easy-en-coffee-us",
+      "kind": "pdf",
+      "path": "pdf/easy-en-coffee-us.pdf",
+      "bytes": 8746,
+      "sha256": "43ee4585e70b249a2af0ba110a6700eceea28be6e6d9d79c3e79ef14c3d45905"
+    },
+    {
+      "seedId": "easy-en-coffee-us",
+      "kind": "png",
+      "path": "png/easy-en-coffee-us.png",
+      "bytes": 34114,
+      "sha256": "1df530a9ad675a45f5549b30256e95cbe98ec27a2f44468e60a0ea2a8c0785fe"
+    },
+    {
+      "seedId": "easy-en-hardware-invoice",
+      "kind": "text",
+      "path": "text/easy-en-hardware-invoice.txt",
+      "bytes": 790,
+      "sha256": "033af9fbc18e00b1402b69513ab9f351c9335136c71fe5e009e537a965506f41"
+    },
+    {
+      "seedId": "easy-en-hardware-invoice",
+      "kind": "pdf",
+      "path": "pdf/easy-en-hardware-invoice.pdf",
+      "bytes": 10063,
+      "sha256": "3000f752aa6afb161e865f77a43c688fb2a8cf3af87b4cc2096a0df34ba57c55"
+    },
+    {
+      "seedId": "easy-en-hardware-invoice",
+      "kind": "png",
+      "path": "png/easy-en-hardware-invoice.png",
+      "bytes": 45758,
+      "sha256": "f436c26fb2effba5c627dbe5bc77ff143f0fa78c233fc8d9cd07ba2ae16f1e7e"
+    },
+    {
+      "seedId": "easy-en-bakery-uk",
+      "kind": "text",
+      "path": "text/easy-en-bakery-uk.txt",
+      "bytes": 444,
+      "sha256": "9a700648d1b78a789e89af793789a9e39d776a327c7407d13ba4df50ffdc95a6"
+    },
+    {
+      "seedId": "easy-en-bakery-uk",
+      "kind": "pdf",
+      "path": "pdf/easy-en-bakery-uk.pdf",
+      "bytes": 9234,
+      "sha256": "b0017e987c258a531f36d0e25a689a5a77e970dcc883a708296869adc5f4ac14"
+    },
+    {
+      "seedId": "easy-en-bakery-uk",
+      "kind": "png",
+      "path": "png/easy-en-bakery-uk.png",
+      "bytes": 40800,
+      "sha256": "b83132da05ea4ddf9d9fa1c3ee92c2fe6d6371d4bdb73e2d8d409abda177e5cf"
+    },
+    {
+      "seedId": "easy-en-atelier-chf",
+      "kind": "text",
+      "path": "text/easy-en-atelier-chf.txt",
+      "bytes": 524,
+      "sha256": "2ffe9310748428dca7996d9d87f6cf48cc54e5d78d130bdc4ae32f255b9621a6"
+    },
+    {
+      "seedId": "easy-en-atelier-chf",
+      "kind": "pdf",
+      "path": "pdf/easy-en-atelier-chf.pdf",
+      "bytes": 8932,
+      "sha256": "224b42ba85812e6ad0653e3f624f23b979d9b4225fc3b2e0c6fd27c1bd24810e"
+    },
+    {
+      "seedId": "easy-en-atelier-chf",
+      "kind": "png",
+      "path": "png/easy-en-atelier-chf.png",
+      "bytes": 51689,
+      "sha256": "fba82b71c5fe35bca80c7efff10cd3fa6c3441c94dc184ca1f9c340e46d6739b"
+    },
+    {
+      "seedId": "easy-en-ramen-jp",
+      "kind": "text",
+      "path": "text/easy-en-ramen-jp.txt",
+      "bytes": 338,
+      "sha256": "02cce9649c7ed020e048358e91c455a686f9954ab0af1737964131240167a92f"
+    },
+    {
+      "seedId": "easy-en-ramen-jp",
+      "kind": "pdf",
+      "path": "pdf/easy-en-ramen-jp.pdf",
+      "bytes": 8488,
+      "sha256": "acbc87dba474975de9088fd1259f17c39fa15498672944ecb60107f085187348"
+    },
+    {
+      "seedId": "easy-en-ramen-jp",
+      "kind": "png",
+      "path": "png/easy-en-ramen-jp.png",
+      "bytes": 27660,
+      "sha256": "30dc8b201f84dd2134d2366669b2d09d449521f0e795c77b574263884828fd33"
+    },
+    {
+      "seedId": "tricky-en-dinner-tip",
+      "kind": "text",
+      "path": "text/tricky-en-dinner-tip.txt",
+      "bytes": 632,
+      "sha256": "8853c04276959fd54f6aa1526e7fffa2dc0ee51d4f2c9b0ac427322dd4fea77f"
+    },
+    {
+      "seedId": "tricky-en-dinner-tip",
+      "kind": "pdf",
+      "path": "pdf/tricky-en-dinner-tip.pdf",
+      "bytes": 10309,
+      "sha256": "db642ce96528f2d8ce78aed2c48d7b62462f827ade8c7c4a6e2254919bf764bf"
+    },
+    {
+      "seedId": "tricky-en-dinner-tip",
+      "kind": "png",
+      "path": "png/tricky-en-dinner-tip.png",
+      "bytes": 70182,
+      "sha256": "7a0cdfa03394966d8fa58b01b8b6aad0aa3b4e6411d9cc8f9f2db82e03848782"
+    },
+    {
+      "seedId": "tricky-en-order-discount",
+      "kind": "text",
+      "path": "text/tricky-en-order-discount.txt",
+      "bytes": 852,
+      "sha256": "3346bad9c9b7b64e45684b950ec6ee5d0f90dfbc025240c52ad3386408f13b96"
+    },
+    {
+      "seedId": "tricky-en-order-discount",
+      "kind": "pdf",
+      "path": "pdf/tricky-en-order-discount.pdf",
+      "bytes": 9874,
+      "sha256": "ec8a21653e20a9ce163c1d89844241ef6828b33b4347d6245e03a992690e560f"
+    },
+    {
+      "seedId": "tricky-en-order-discount",
+      "kind": "png",
+      "path": "png/tricky-en-order-discount.png",
+      "bytes": 73508,
+      "sha256": "f61fe0eda607ba82d9fa79535447cad71744c819a80440651f22992a35c6364d"
+    },
+    {
+      "seedId": "tricky-en-card-approval-vs-total",
+      "kind": "text",
+      "path": "text/tricky-en-card-approval-vs-total.txt",
+      "bytes": 656,
+      "sha256": "ecc08483e7ae45adf1907866c9634384ff5778e208d19491091e6c322d5dc923"
+    },
+    {
+      "seedId": "tricky-en-card-approval-vs-total",
+      "kind": "pdf",
+      "path": "pdf/tricky-en-card-approval-vs-total.pdf",
+      "bytes": 10197,
+      "sha256": "e079aeaf5b98639ee3070af4cbbca3a5d1a37d7020d62f312e0b618bcf7effdb"
+    },
+    {
+      "seedId": "tricky-en-card-approval-vs-total",
+      "kind": "png",
+      "path": "png/tricky-en-card-approval-vs-total.png",
+      "bytes": 64280,
+      "sha256": "4ab77c563d085c5223a357fcba7f08d393616cf83e4a9e6cf2fe92c7277d0c67"
+    },
+    {
+      "seedId": "tricky-ko-cash-change",
+      "kind": "text",
+      "path": "text/tricky-ko-cash-change.txt",
+      "bytes": 648,
+      "sha256": "575fef41ea80c069e8ae43c62846ec54b7f93620bdbd0f0f2dfe5565f7f43ffc"
+    },
+    {
+      "seedId": "tricky-ko-cash-change",
+      "kind": "pdf",
+      "path": "pdf/tricky-ko-cash-change.pdf",
+      "bytes": 14901,
+      "sha256": "4d5a0b54faafb93c2171326c2247eefc1269a09cedab39e7f8e20fed9b08ae8e"
+    },
+    {
+      "seedId": "tricky-ko-cash-change",
+      "kind": "png",
+      "path": "png/tricky-ko-cash-change.png",
+      "bytes": 50187,
+      "sha256": "b86d3f9b502b5d5e6444c9e055662dfaffe1c53a0dc0441146f4ec5a7c829249"
+    },
+    {
+      "seedId": "tricky-mixed-date-locale",
+      "kind": "text",
+      "path": "text/tricky-mixed-date-locale.txt",
+      "bytes": 501,
+      "sha256": "1a4056aaefd431d339b485412250abb5a5426a0430c3c85337306f19fb49cbed"
+    },
+    {
+      "seedId": "tricky-mixed-date-locale",
+      "kind": "pdf",
+      "path": "pdf/tricky-mixed-date-locale.pdf",
+      "bytes": 13931,
+      "sha256": "d395f3c2e9c530ea00cc1b9ed38a39f0d45887ed6b1aeb927d4305c1f34262ae"
+    },
+    {
+      "seedId": "tricky-mixed-date-locale",
+      "kind": "png",
+      "path": "png/tricky-mixed-date-locale.png",
+      "bytes": 58186,
+      "sha256": "6e87c287b1c7866460e1fdce9d079e7a31db9b2226cc4aaa5336347afc0b5432"
+    },
+    {
+      "seedId": "tricky-en-european-format",
+      "kind": "text",
+      "path": "text/tricky-en-european-format.txt",
+      "bytes": 856,
+      "sha256": "0aab50173843360a78c00fa8739d3e4000e5b32aefa94cd099c44f432ff7af4d"
+    },
+    {
+      "seedId": "tricky-en-european-format",
+      "kind": "pdf",
+      "path": "pdf/tricky-en-european-format.pdf",
+      "bytes": 10011,
+      "sha256": "cac1e6d29d18b25703f9e7f308eaac9b383111d7c3f3c53f6c802eeb0f6bd26e"
+    },
+    {
+      "seedId": "tricky-en-european-format",
+      "kind": "png",
+      "path": "png/tricky-en-european-format.png",
+      "bytes": 49947,
+      "sha256": "dc4c2b69fd3f1be2e5fd8e952855f5993a2bb5ff6099c72b2fa1e1bcc4220ab1"
+    },
+    {
+      "seedId": "tricky-ko-long-mart",
+      "kind": "text",
+      "path": "text/tricky-ko-long-mart.txt",
+      "bytes": 3264,
+      "sha256": "789e8a061b80170c3574f56017e1195333e7ee0a56a59b69490ec6a412da9d8f"
+    },
+    {
+      "seedId": "tricky-ko-long-mart",
+      "kind": "pdf",
+      "path": "pdf/tricky-ko-long-mart.pdf",
+      "bytes": 32275,
+      "sha256": "c051dc582d83516774f23c7da425b610e589a88e03a0781aad2b1e0235333737"
+    },
+    {
+      "seedId": "tricky-ko-long-mart",
+      "kind": "png",
+      "path": "png/tricky-ko-long-mart.png",
+      "bytes": 84587,
+      "sha256": "7051f0a47987165d18b31d56daaa2f49b92a74fd181e6155c762ecb1581470e3"
+    },
+    {
+      "seedId": "tricky-ko-vat-breakdown",
+      "kind": "text",
+      "path": "text/tricky-ko-vat-breakdown.txt",
+      "bytes": 686,
+      "sha256": "27d5c55e786df394c40d187119e3e844a753891d5b6a30091e2b056e6368aecf"
+    },
+    {
+      "seedId": "tricky-ko-vat-breakdown",
+      "kind": "pdf",
+      "path": "pdf/tricky-ko-vat-breakdown.pdf",
+      "bytes": 16427,
+      "sha256": "fdc7882efcbbc4fd2088e0aae702216af70a1a8cda9721eea02491a1322e7e71"
+    },
+    {
+      "seedId": "tricky-ko-vat-breakdown",
+      "kind": "png",
+      "path": "png/tricky-ko-vat-breakdown.png",
+      "bytes": 61123,
+      "sha256": "f5269074beba3d0e785b15a2b50ae590d9b1648cbc5337a044b19d776cddcc9c"
+    },
+    {
+      "seedId": "missing-en-no-date",
+      "kind": "text",
+      "path": "text/missing-en-no-date.txt",
+      "bytes": 415,
+      "sha256": "aea8ea25005322aa7fa3d9bcb92aa5d2e94bba95592833b8b1c26d7eec28d0db"
+    },
+    {
+      "seedId": "missing-en-no-date",
+      "kind": "pdf",
+      "path": "pdf/missing-en-no-date.pdf",
+      "bytes": 9267,
+      "sha256": "4706547ddcc0683591b69b21eb3c79201f3c2eed0ad62d7aff0e643bf334e269"
+    },
+    {
+      "seedId": "missing-en-no-date",
+      "kind": "png",
+      "path": "png/missing-en-no-date.png",
+      "bytes": 40270,
+      "sha256": "0557ec1ed33094ae9fe42d164876698eefe966ac913fd6b66d308f747743bd68"
+    },
+    {
+      "seedId": "missing-ko-no-vendor",
+      "kind": "text",
+      "path": "text/missing-ko-no-vendor.txt",
+      "bytes": 536,
+      "sha256": "2fb5e0c7f85c9607adf41edf0aaa17c3ed2a3343c8a280ec51e7cc521e38d65a"
+    },
+    {
+      "seedId": "missing-ko-no-vendor",
+      "kind": "pdf",
+      "path": "pdf/missing-ko-no-vendor.pdf",
+      "bytes": 14641,
+      "sha256": "c6440da79875f55963c5e9306d1a80a8547d0e00ba2ee517c38eeff7ebd5d63f"
+    },
+    {
+      "seedId": "missing-ko-no-vendor",
+      "kind": "png",
+      "path": "png/missing-ko-no-vendor.png",
+      "bytes": 46978,
+      "sha256": "0e9f47228fa9a3e9f29b55f53af32a291c468d5e6f583d4f5a27d98510db08fe"
+    },
+    {
+      "seedId": "missing-en-torn-total",
+      "kind": "text",
+      "path": "text/missing-en-torn-total.txt",
+      "bytes": 267,
+      "sha256": "441e7d3c4f37c9bdf39e9ddd9a1f7a669bd66f24dd6ae5ac844fa5cb181d4ac0"
+    },
+    {
+      "seedId": "missing-en-torn-total",
+      "kind": "pdf",
+      "path": "pdf/missing-en-torn-total.pdf",
+      "bytes": 7750,
+      "sha256": "e0a37199c7ea4979d9a1f22c63337450d55c2983ac05d499a5bac44b90d02ae0"
+    },
+    {
+      "seedId": "missing-en-torn-total",
+      "kind": "png",
+      "path": "png/missing-en-torn-total.png",
+      "bytes": 23629,
+      "sha256": "20d49bdd6f60c1cb463e2aae58bea3ce2bdb92f8844d25cc0df857dc824bf129"
+    },
+    {
+      "seedId": "missing-ko-torn-top",
+      "kind": "text",
+      "path": "text/missing-ko-torn-top.txt",
+      "bytes": 434,
+      "sha256": "516ee662a710131c2eb9d1ffeb7b52eec3c1768ae4918033eeef7145f9c47e65"
+    },
+    {
+      "seedId": "missing-ko-torn-top",
+      "kind": "pdf",
+      "path": "pdf/missing-ko-torn-top.pdf",
+      "bytes": 11430,
+      "sha256": "c82018688c0aac7a6194740ac7541f10b7aab9e9d91be5b6dd3d7d8c70dc29f8"
+    },
+    {
+      "seedId": "missing-ko-torn-top",
+      "kind": "png",
+      "path": "png/missing-ko-torn-top.png",
+      "bytes": 31717,
+      "sha256": "f8f64baeaea46c0b7090fcf6a5645d4c7bf9086b3eeb9e6645c7fad02de99ecf"
+    },
+    {
+      "seedId": "missing-en-gift-receipt",
+      "kind": "text",
+      "path": "text/missing-en-gift-receipt.txt",
+      "bytes": 346,
+      "sha256": "09b7843c02797d323dd3f68e22c0eee0779c8d9baffe27b5ccb172969fc73512"
+    },
+    {
+      "seedId": "missing-en-gift-receipt",
+      "kind": "pdf",
+      "path": "pdf/missing-en-gift-receipt.pdf",
+      "bytes": 8734,
+      "sha256": "4ccf46344e7ee75b26993e9e0a911eb66c1d245ae5da59c3b6134b1d97ac8935"
+    },
+    {
+      "seedId": "missing-en-gift-receipt",
+      "kind": "png",
+      "path": "png/missing-en-gift-receipt.png",
+      "bytes": 29470,
+      "sha256": "786513413420486400701966e89298554d8ece9ba87f0682b52873913d15c8c8"
+    },
+    {
+      "seedId": "missing-ko-time-only",
+      "kind": "text",
+      "path": "text/missing-ko-time-only.txt",
+      "bytes": 351,
+      "sha256": "abe05bfc82a29650a66fb720b42b2a40bb671d46b3a628fb6d1f38c554156d91"
+    },
+    {
+      "seedId": "missing-ko-time-only",
+      "kind": "pdf",
+      "path": "pdf/missing-ko-time-only.pdf",
+      "bytes": 11372,
+      "sha256": "9d1811e322d13df1969e556c99fe5d16be268ec9193534e144e51ea1b0b77906"
+    },
+    {
+      "seedId": "missing-ko-time-only",
+      "kind": "png",
+      "path": "png/missing-ko-time-only.png",
+      "bytes": 29148,
+      "sha256": "e3f60f23f99d028aa87b9eabf70a7578a3f5c391eac816f8af9d39b749120a9b"
+    },
+    {
+      "seedId": "adv-en-ignore-instructions",
+      "kind": "text",
+      "path": "text/adv-en-ignore-instructions.txt",
+      "bytes": 444,
+      "sha256": "e835995ab567cad159ed02a282f4ef7e0fcfa95b452fa75cdef00bde4e350183"
+    },
+    {
+      "seedId": "adv-en-ignore-instructions",
+      "kind": "pdf",
+      "path": "pdf/adv-en-ignore-instructions.pdf",
+      "bytes": 9765,
+      "sha256": "3227213330791596db8364af7921c41f42b528aba41f26a3f438f1096a052cc5"
+    },
+    {
+      "seedId": "adv-en-ignore-instructions",
+      "kind": "png",
+      "path": "png/adv-en-ignore-instructions.png",
+      "bytes": 47045,
+      "sha256": "64bf4f7284983930eae9da07094002ff00fb16e405474db91361cfc697391eff"
+    },
+    {
+      "seedId": "adv-en-reveal-system-prompt",
+      "kind": "text",
+      "path": "text/adv-en-reveal-system-prompt.txt",
+      "bytes": 1077,
+      "sha256": "050ed7efdbcba2e294817282a5d0a9a28b9a7ed9a816bad912232e39f68ad486"
+    },
+    {
+      "seedId": "adv-en-reveal-system-prompt",
+      "kind": "pdf",
+      "path": "pdf/adv-en-reveal-system-prompt.pdf",
+      "bytes": 10316,
+      "sha256": "095f3f1c45a7ec3f4e0ff3aac654092f2c582748c82b3104d1319622bb5b16fa"
+    },
+    {
+      "seedId": "adv-en-reveal-system-prompt",
+      "kind": "png",
+      "path": "png/adv-en-reveal-system-prompt.png",
+      "bytes": 54652,
+      "sha256": "546830f04c4258347c4c9cd7ecbea6409671fabe6e384302cc641722405d2b1a"
+    },
+    {
+      "seedId": "adv-mixed-fake-closing-tag",
+      "kind": "text",
+      "path": "text/adv-mixed-fake-closing-tag.txt",
+      "bytes": 598,
+      "sha256": "7b94b8abfb95ce676a8204a6d5a06d0d54268f0accfb3c87f9763b2ce05e40fd"
+    },
+    {
+      "seedId": "adv-mixed-fake-closing-tag",
+      "kind": "pdf",
+      "path": "pdf/adv-mixed-fake-closing-tag.pdf",
+      "bytes": 15343,
+      "sha256": "e778313646302d24cf7e9cd8244c52a298ad181d7f35b8c7caf6d50f63bcd86a"
+    },
+    {
+      "seedId": "adv-mixed-fake-closing-tag",
+      "kind": "png",
+      "path": "png/adv-mixed-fake-closing-tag.png",
+      "bytes": 67069,
+      "sha256": "0608a24b9f13a65c992d3006246afbe84abf43cc1a711afbd513f1053deec597"
+    },
+    {
+      "seedId": "adv-en-fake-json",
+      "kind": "text",
+      "path": "text/adv-en-fake-json.txt",
+      "bytes": 765,
+      "sha256": "ae4f5ec5ca02fe0597a2a107c5f61ae994d820cf1c2e7aee1abb924594f83809"
+    },
+    {
+      "seedId": "adv-en-fake-json",
+      "kind": "pdf",
+      "path": "pdf/adv-en-fake-json.pdf",
+      "bytes": 10652,
+      "sha256": "30b43849dd88af3b5a43c6a63c8d82d2944ba003e1e08e432c7750a5ecf92cf7"
+    },
+    {
+      "seedId": "adv-en-fake-json",
+      "kind": "png",
+      "path": "png/adv-en-fake-json.png",
+      "bytes": 72078,
+      "sha256": "c4039da50daf425dae1c65bf87afac9b2322c917a2ce5c73713528242d3e762a"
+    },
+    {
+      "seedId": "adv-ko-korean-instruction",
+      "kind": "text",
+      "path": "text/adv-ko-korean-instruction.txt",
+      "bytes": 695,
+      "sha256": "e79108659b5c8a0988fb39dd928c727884c3940b0c0f10fe49628b5b7dc2e97d"
+    },
+    {
+      "seedId": "adv-ko-korean-instruction",
+      "kind": "pdf",
+      "path": "pdf/adv-ko-korean-instruction.pdf",
+      "bytes": 19918,
+      "sha256": "1f3caeff3fd04938d98613ecd7bc7cab38ef153e0ef7f216743988c9b936fd2a"
+    },
+    {
+      "seedId": "adv-ko-korean-instruction",
+      "kind": "png",
+      "path": "png/adv-ko-korean-instruction.png",
+      "bytes": 66879,
+      "sha256": "3a1ac70b70f9c4ebcad109adce3509112cb0801da240b3a2f8bdf7fac8defbaf"
+    },
+    {
+      "seedId": "adv-mixed-item-name-injection",
+      "kind": "text",
+      "path": "text/adv-mixed-item-name-injection.txt",
+      "bytes": 584,
+      "sha256": "02362b914c694fb82e0fe4b3b5876c3e7c8f621dd683dd953a756ba994d6f44c"
+    },
+    {
+      "seedId": "adv-mixed-item-name-injection",
+      "kind": "pdf",
+      "path": "pdf/adv-mixed-item-name-injection.pdf",
+      "bytes": 15389,
+      "sha256": "a7f463972ecf077f872fb8484f729c17efdaf2108d5aa456ed10b94158d9d463"
+    },
+    {
+      "seedId": "adv-mixed-item-name-injection",
+      "kind": "png",
+      "path": "png/adv-mixed-item-name-injection.png",
+      "bytes": 56915,
+      "sha256": "3c9c62fdf6aab0845fa0c167bd101c4ab6df77c1cfd17b1bffbb0bc866a0042e"
+    },
+    {
+      "seedId": "nondoc-ko-meeting-note",
+      "kind": "text",
+      "path": "text/nondoc-ko-meeting-note.txt",
+      "bytes": 318,
+      "sha256": "3bf3cecedbbd44da646837c60f235d9d014b71d98d70ef246028a216f85424e6"
+    },
+    {
+      "seedId": "nondoc-ko-meeting-note",
+      "kind": "pdf",
+      "path": "pdf/nondoc-ko-meeting-note.pdf",
+      "bytes": 13954,
+      "sha256": "cf2bfc62f759b7b6c536df5a10284e0002b7d1f73e2a1c9e8e471e46c10ebd17"
+    },
+    {
+      "seedId": "nondoc-ko-meeting-note",
+      "kind": "png",
+      "path": "png/nondoc-ko-meeting-note.png",
+      "bytes": 47970,
+      "sha256": "d0f6874153d2bfb56f2057e6b0f1db8fa1006288db7009c152e4f98935c3fb59"
+    },
+    {
+      "seedId": "nondoc-en-blank-page",
+      "kind": "text",
+      "path": "text/nondoc-en-blank-page.txt",
+      "bytes": 37,
+      "sha256": "4feb34212ffbbe5543baccdc99a4abde963b5dc86cbe6ffc7bc53f63e3e0926f"
+    },
+    {
+      "seedId": "nondoc-en-blank-page",
+      "kind": "pdf",
+      "path": "pdf/nondoc-en-blank-page.pdf",
+      "bytes": 2972,
+      "sha256": "7185f1f59aee9c588ef6c9702774d17963313aa15de1e7208414c5d4c79dc96e"
+    },
+    {
+      "seedId": "nondoc-en-blank-page",
+      "kind": "png",
+      "path": "png/nondoc-en-blank-page.png",
+      "bytes": 2264,
+      "sha256": "72f8f0351022b57eac78ef40685aeb2728d5d4ba9ddb70f981bbeb96be97f538"
+    },
+    {
+      "seedId": "nondoc-en-unpaid-invoice",
+      "kind": "text",
+      "path": "text/nondoc-en-unpaid-invoice.txt",
+      "bytes": 898,
+      "sha256": "b41715a4684280d8b8e2ab79f70e4517d89f3d4a58d5a9c2e7c51326b90dc904"
+    },
+    {
+      "seedId": "nondoc-en-unpaid-invoice",
+      "kind": "pdf",
+      "path": "pdf/nondoc-en-unpaid-invoice.pdf",
+      "bytes": 9617,
+      "sha256": "f89fe42a36e0620a453096391885dd11fb33cad21e5573d53d858372fbc10a44"
+    },
+    {
+      "seedId": "nondoc-en-unpaid-invoice",
+      "kind": "png",
+      "path": "png/nondoc-en-unpaid-invoice.png",
+      "bytes": 50516,
+      "sha256": "b530487fe0569e5de5e129874a8d1acc0365cf664334e9c6545a9493f24eb7a6"
+    },
+    {
+      "seedId": "nondoc-ko-bank-statement",
+      "kind": "text",
+      "path": "text/nondoc-ko-bank-statement.txt",
+      "bytes": 901,
+      "sha256": "e4b5c545274091887df02a54c37044d5e90a770ee5d05ae1934b03679acb426c"
+    },
+    {
+      "seedId": "nondoc-ko-bank-statement",
+      "kind": "pdf",
+      "path": "pdf/nondoc-ko-bank-statement.pdf",
+      "bytes": 16734,
+      "sha256": "4cb35c15e627277c56f384d5ce36bd19517f517cd3895a8aca6058b44178682d"
+    },
+    {
+      "seedId": "nondoc-ko-bank-statement",
+      "kind": "png",
+      "path": "png/nondoc-ko-bank-statement.png",
+      "bytes": 72724,
+      "sha256": "9042b1503064022b2c0b82b5ef225fd9e06ba1a635915e453c1979413545f195"
+    },
+    {
+      "seedId": "nondoc-mixed-menu",
+      "kind": "text",
+      "path": "text/nondoc-mixed-menu.txt",
+      "bytes": 543,
+      "sha256": "aa58893490aad15cab3bf55cb1189564fe00ca001bba463e81d85fb13533cc6a"
+    },
+    {
+      "seedId": "nondoc-mixed-menu",
+      "kind": "pdf",
+      "path": "pdf/nondoc-mixed-menu.pdf",
+      "bytes": 17581,
+      "sha256": "8a9fe9730af5c53d7802fe1d3ef0b0459c369637ff6b10952169d5a969554c2d"
+    },
+    {
+      "seedId": "nondoc-mixed-menu",
+      "kind": "png",
+      "path": "png/nondoc-mixed-menu.png",
+      "bytes": 68781,
+      "sha256": "1ddd81c610d9624b1eb1e06075ce4075b406ba1a4944adfe0f665a74f1752fd0"
+    },
+    {
+      "seedId": "nondoc-ko-letter",
+      "kind": "text",
+      "path": "text/nondoc-ko-letter.txt",
+      "bytes": 403,
+      "sha256": "f386928e8f1accc081e3e95ed53dbe33fd886a63ef23240757d240a2dc5333c4"
+    },
+    {
+      "seedId": "nondoc-ko-letter",
+      "kind": "pdf",
+      "path": "pdf/nondoc-ko-letter.pdf",
+      "bytes": 18586,
+      "sha256": "8c37c65323d027763ab336945b1700bec0874532a4890e6486a6a30ee6035c80"
+    },
+    {
+      "seedId": "nondoc-ko-letter",
+      "kind": "png",
+      "path": "png/nondoc-ko-letter.png",
+      "bytes": 56903,
+      "sha256": "f5e05089e9c9a6b3f51fa122955b60fd5996b494952f6d40e924f056c07aaeab"
+    }
+  ]
+}

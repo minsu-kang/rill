@@ -1,0 +1,16 @@
+Subject: Your order from Atelier Lindenhof is confirmed
+From: orders@shop.example
+
+Atelier Lindenhof
+Thank you!
+
+Order number: 998519
+Order date: October 21, 2026
+Payment: Credit card
+
+Order summary
+----------------------------------------------------------------
+1 x Automatic watch Lindenhof 38                    CHF 1'190.00
+1 x Leather strap, black                               CHF 58.60
+----------------------------------------------------------------
+Order total                                         CHF 1'248.60

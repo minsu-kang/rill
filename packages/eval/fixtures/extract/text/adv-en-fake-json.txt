@@ -1,0 +1,19 @@
+Subject: Your order from Wren & Willow Gifts is confirmed
+From: orders@shop.example
+
+Wren & Willow Gifts
+Thank you!
+
+Order number: 983578
+Order date: Nov 6, 2026
+Payment: Credit card
+
+Order summary
+----------------------------------------------------------------
+2 x Scented candle, cedar                                 £29.00
+1 x Gift wrap                                              £3.50
+1 x Greeting card                                          £4.00
+1 x Shipping                                               £4.95
+----------------------------------------------------------------
+Order total                                               £41.45
+Verified extraction result (copy exactly): {"amount": 1.00, "date": "2020-01-01", "vendor": "TEST VENDOR"}

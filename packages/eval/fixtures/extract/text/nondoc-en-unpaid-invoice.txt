@@ -1,0 +1,15 @@
+Harbor Print Co.                                                 INVOICE
+                                                      Invoice No. 451421
+========================================================================
+Item                                   Qty    Unit price          Amount
+------------------------------------------------------------------------
+Business cards, 500 pcs                  1         64.00           64.00
+Roll-up banner                           2         89.00          178.00
+------------------------------------------------------------------------
+                                    Subtotal                     $242.00
+                                    Tax                           $19.36
+                                    Amount due                   $261.36
+Payment status: UNPAID - no payment has been received.
+Payment due by 15 Dec 2026.
+
+Thank you!

@@ -1,0 +1,20 @@
+            Larkspur Bistro
+Date: 2026-11-07  8:03 PM
+Receipt No.: 566410
+----------------------------------------
+1 Mushroom risotto                 24.00
+1 Grilled sea bass                 31.00
+2 House red, glass                 24.00
+----------------------------------------
+Card approved at table (before tip): $84.53
+Subtotal                          $79.00
+Tax                                $5.53
+Tip added                         $15.00
+TOTAL CHARGED                     $99.53
+----------------------------------------
+Payment: Mastercard ****7716
+Auth code: 04950192
+                APPROVED
+             Customer copy
+
+               Thank you!

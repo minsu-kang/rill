@@ -1,0 +1,15 @@
+              Seoul Pantry
+일시 Date: 03/04/26  10:15
+Locale: en-GB (date format DD/MM/YY)
+----------------------------------------
+Instant noodles 라면 5-pack         9.00
+  2 x 4.50
+Kimchi 김치 500g                    5.80
+Short-grain rice 쌀 5kg            14.50
+----------------------------------------
+VAT 20% incl. 부가세               £4.88
+합계 Total                        £29.30
+결제 Payment: Visa contactless
+승인번호 Auth: 62100796
+
+         감사합니다 Thank you!

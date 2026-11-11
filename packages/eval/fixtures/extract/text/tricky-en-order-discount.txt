@@ -1,0 +1,21 @@
+Subject: Your order from Northfield Outfitters is confirmed
+From: orders@shop.example
+
+Northfield Outfitters
+Thank you!
+
+Order number: 899881
+Order date: Nov 5, 2026
+Payment: Credit card
+
+Order summary
+----------------------------------------------------------------
+1 x Wool beanie                                           $28.00
+2 x Trail socks (3-pack)                                  $38.00
+1 x Insulated bottle                                      $34.00
+1 x Shipping (standard)                                    $6.95
+----------------------------------------------------------------
+Subtotal                                                 $106.95
+Promo code SAVE20                                        -$20.00
+Tax                                                        $6.09
+Order total                                               $93.04
