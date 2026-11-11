@@ -1,0 +1,60 @@
+import { extractRefs, type PlanIssue, type Workflow } from '@rill/dsl'
+import { fieldRoles, valueAtPointer, type NodeRegistry } from '@rill/nodes-core'
+import type { PlanConnection } from './types'
+
+export type ConnectionKind = PlanConnection['kind']
+
+export const CONNECTION_KIND_CODE = 'connection_kind_mismatch'
+
+export const CONNECTION_KINDS: Readonly<Record<string, Readonly<Record<string, ConnectionKind>>>> = {
+  'notify.slack': { '/connection': 'slack' },
+  'http.request': { '/auth/connection': 'http' },
+  'trigger.webhook': { '/secretConnection': 'webhookSecret' },
+}
+
+function baseType(type: string): string {
+  return type.replace(/@\d+$/, '')
+}
+
+export function neededConnectionKind(type: string, pointer: string): ConnectionKind | undefined {
+  const table = CONNECTION_KINDS[baseType(type)]
+  return table !== undefined && Object.hasOwn(table, pointer) ? table[pointer] : undefined
+}
+
+export interface ConnectionSite {
+  nodeId: string
+  type: string
+  kind: ConnectionKind | undefined
+}
+
+export function connectionSiteAt(pointer: string, workflow: Workflow | undefined): ConnectionSite | undefined {
+  const match = /^\/nodes\/(\d+)\/config(\/.*)$/.exec(pointer)
+  const node = match === null ? undefined : workflow?.nodes[Number(match[1])]
+  if (match === null || node === undefined) return undefined
+  return { nodeId: node.id, type: node.type, kind: neededConnectionKind(node.type, match[2] as string) }
+}
+
+export function connectionKindIssues(workflow: Workflow, registry: NodeRegistry, connections: readonly PlanConnection[]): PlanIssue[] {
+  const issues: PlanIssue[] = []
+  workflow.nodes.forEach((node, index) => {
+    const def = registry.get(node.type)
+    if (def === undefined) return
+    for (const { pointer, role } of fieldRoles(def)) {
+      if (role !== 'connection') continue
+      const value = valueAtPointer(node.config, pointer)
+      if (typeof value !== 'string' || extractRefs(value).length > 0) continue
+      const needed = neededConnectionKind(node.type, pointer)
+      const configured = connections.find((connection) => connection.name === value)
+      if (needed === undefined || configured === undefined || configured.kind === needed) continue
+      const names = connections.filter((connection) => connection.kind === needed).map((connection) => connection.name)
+      issues.push({
+        stage: 3,
+        pointer: `/nodes/${index}/config${pointer}`,
+        code: CONNECTION_KIND_CODE,
+        message: `node ${node.id}: connection ${value} is a ${configured.kind} connection, but this field needs a ${needed} connection`,
+        hint: names.length > 0 ? `configured ${needed} connections: ${names.join(', ')}` : `no ${needed} connections are configured`,
+      })
+    }
+  })
+  return issues
+}

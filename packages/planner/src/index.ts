@@ -10,6 +10,8 @@ export * from './hidden'
 export * from './patch'
 export * from './prompt'
 export * from './questions'
+export * from './connections'
+export * from './mask'
 export {
   attachmentModule,
   createAttachmentModule,

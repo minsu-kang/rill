@@ -132,6 +132,57 @@ describe('deterministic gaps', () => {
     expect(result.rounds[0]!.issues.map((i) => i.code)).toEqual(['unknown_connection'])
   })
 
+  it('writes the gap questions in Korean when the request is Korean', async () => {
+    const provider = new FakeProvider([{ data: workflowData(slackWorkflow()) }, { data: workflowData(receipts()) }])
+    const planner = createPlanner({ provider, registry })
+    const slack = await planner.plan(request({ text: '끝나면 슬랙으로 알려줘', context: { ...request().context, connections: [] } }))
+    expect(slack).toMatchObject({
+      kind: 'questions',
+      summary: '계획하기 전에 먼저 설정해야 할 것이 있습니다.',
+      questions: [
+        {
+          id: 'setup_connection',
+          text: '이 워크플로에는 Slack 연결이 필요합니다 (n1에서 사용). 아직 설정된 연결이 없습니다. 먼저 설정에서 연결을 추가할까요, 아니면 결과를 CSV 파일에 기록할까요?',
+          options: ['먼저 연결 설정하기', '대신 CSV 파일에 기록하기'],
+          default: '먼저 연결 설정하기',
+        },
+      ],
+    })
+    const folder = await planner.plan(request({ text: '영수증을 장부에 넣어줘', context: { ...request().context, allowedRoots: [] } }))
+    expect(folder).toMatchObject({
+      kind: 'questions',
+      questions: [{ id: 'allow_folder', text: '이 워크플로는 폴더를 사용합니다 (n2, t1에서 사용). 아직 허용된 폴더가 없습니다. 먼저 설정에서 허용 폴더에 추가할까요?', options: ['먼저 폴더 추가하기', '취소'], default: '먼저 폴더 추가하기' }],
+    })
+  })
+
+  it('writes the gap questions in English when the request has no Hangul', async () => {
+    const provider = new FakeProvider([{ data: workflowData(slackWorkflow()) }])
+    const result = await createPlanner({ provider, registry }).plan(request({ text: 'tell me on Slack, café', context: { ...request().context, connections: [] } }))
+    expect(result).toMatchObject({ kind: 'questions', summary: 'Before I can plan this, something has to be set up first.', questions: [{ options: ['Set up a connection first', 'Write to a CSV file instead'] }] })
+  })
+
+  it('plans with defaults and names the missing setup after two question turns instead of asking again', async () => {
+    const provider = new FakeProvider([{ data: workflowData(slackWorkflow(), 'Pings the team.') }])
+    const result = await createPlanner({ provider, registry }).plan(request({ text: 'ping me', turns: questionTurns(2), context: { ...request().context, connections: [] } }))
+    expect(provider.calls).toHaveLength(1)
+    if (result.kind !== 'workflow') throw new Error('expected a workflow')
+    expect(result.summary).toBe('Pings the team.\nStill missing: a Slack connection (needed by n1). I planned with the defaults; set this up in Settings before you activate the workflow.')
+    expect(result.needsConfirmation).toBe(true)
+    expect(result.rounds[0]!.issues.map((issue) => issue.code)).toEqual(['unknown_connection'])
+    const folder = await createPlanner({ provider: new FakeProvider([{ data: workflowData(receipts(), '') }]), registry }).plan(
+      request({ text: '장부에 넣어줘', turns: questionTurns(2), context: { ...request().context, allowedRoots: [] } }),
+    )
+    if (folder.kind !== 'workflow') throw new Error('expected a workflow')
+    expect(folder.summary).toBe('아직 없는 설정: 허용 폴더 (n2, t1에서 사용). 기본값으로 계획했습니다. 워크플로를 활성화하기 전에 설정에서 추가해 주세요.')
+    expect(folder.needsConfirmation).toBe(true)
+  })
+
+  it('still asks for a gap after one question turn', async () => {
+    const provider = new FakeProvider([{ data: workflowData(slackWorkflow()) }])
+    const result = await createPlanner({ provider, registry }).plan(request({ turns: questionTurns(1), context: { ...request().context, connections: [] } }))
+    expect(result.kind).toBe('questions')
+  })
+
   it('asks to allow a folder when no folder is allowed', async () => {
     const provider = new FakeProvider([{ data: workflowData(receipts()) }])
     const result = await createPlanner({ provider, registry }).plan(request({ context: { ...request().context, allowedRoots: [] } }))

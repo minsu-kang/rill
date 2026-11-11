@@ -8,6 +8,7 @@ const MIN_LITERAL = 6
 const TRUSTED_HINTS: Record<string, RegExp[]> = {
   unknown_connection: [/^configured: [^\n]*$/, /^no connections are configured$/],
   path_outside_roots: [/^allowed folders: [^\n]*$/],
+  connection_kind_mismatch: [/^configured (slack|http|webhookSecret) connections: [^\n]*$/, /^no (slack|http|webhookSecret) connections are configured$/],
 }
 
 const NODE_CONFIG = /^\/nodes\/(\d+)\/config(\/.*)?$/

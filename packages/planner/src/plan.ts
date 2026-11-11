@@ -22,7 +22,7 @@ import {
   userMessage,
   type CurrentTurnInput,
 } from './prompt'
-import { MAX_QUESTION_TURNS, gapQuestions, isGapIssue, isNoticeIssue, questionTurnsSinceLastWorkflow } from './questions'
+import { MAX_QUESTION_TURNS, gapLanguage, gapQuestions, gapSummary, isGapIssue, isNoticeIssue, questionTurnsSinceLastWorkflow } from './questions'
 import { PlanError, type Flag, type PlanRequest, type PlanResult, type PlanResultBody, type PlanRound, type PlanTurn } from './types'
 
 export const DEFAULT_MAX_REPAIR_ROUNDS = 3
@@ -64,12 +64,12 @@ interface Classified {
   gaps: PlanIssue[]
 }
 
-function classify(issues: readonly PlanIssue[], request: PlanRequest): Classified {
+function classify(issues: readonly PlanIssue[], request: PlanRequest, workflow: Workflow | undefined): Classified {
   const errors: PlanIssue[] = []
   const gaps: PlanIssue[] = []
   for (const issue of issues) {
     if (isWarningIssue(issue) || isNoticeIssue(issue)) continue
-    if (isGapIssue(issue, request.context)) gaps.push(issue)
+    if (isGapIssue(issue, request.context, workflow)) gaps.push(issue)
     else errors.push(issue)
   }
   return { errors, gaps }
@@ -350,7 +350,7 @@ class Run {
         }
       }
       const issues = [...extra, ...decoded.issues]
-      const { errors, gaps } = classify(issues, this.request)
+      const { errors, gaps } = classify(issues, this.request, decoded.workflow)
       const flags = this.flagsFor(decoded.workflow)
       const recorded = this.redact(capIssues(issues), decoded.workflow, flags)
       this.rounds.push({ index, issues: recorded, usage: this.roundUsage, durationMs: Date.now() - started, targeted })
@@ -389,11 +389,13 @@ class Run {
   }
 
   private complete(body: PlanResultBody, gaps: PlanIssue[], workflow: Workflow | undefined, flags: Flag[]): PlanResultBody {
-    if (gaps.length > 0) {
-      const asked = gapQuestions(gaps, workflow)
+    const language = gapLanguage(this.request.text)
+    if (gaps.length > 0 && this.allowQuestions) {
+      const asked = gapQuestions(gaps, workflow, language)
       return { kind: 'questions', questions: asked.questions, summary: asked.summary }
     }
     if (body.kind !== 'workflow') return body
+    if (gaps.length > 0) return { ...body, summary: gapSummary(body.summary, gaps, workflow, language), flags, needsConfirmation: true }
     return { ...body, flags, needsConfirmation: flags.length > 0 || body.needsConfirmation }
   }
 }
