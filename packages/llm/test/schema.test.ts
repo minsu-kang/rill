@@ -272,3 +272,127 @@ describe('checkSchemaLimits', () => {
     expect(fail(object({ a: { $ref: 'https://example.com/x.json' } }))).toContain('#/properties/a')
   })
 })
+
+describe('strictify: which optional properties get a null', () => {
+  const only = (property: JsonSchema, extra: Record<string, JsonSchema> = {}, definitions?: Record<string, JsonSchema>): JsonSchema => ({
+    ...object({ p: property }),
+    ...(definitions === undefined ? {} : { $defs: definitions }),
+    ...extra,
+  })
+  const propertyOf = (schema: JsonSchema) => (schema.properties as Record<string, JsonSchema>).p
+
+  it('leaves an optional property alone when its type list already has null', () => {
+    expect(propertyOf(strictify(only({ type: ['string', 'null'] })).schema)).toEqual({ type: ['string', 'null'] })
+  })
+
+  it('leaves an optional union alone when one branch is null, and adds null to one that has none', () => {
+    expect(propertyOf(strictify(only({ anyOf: [{ type: 'string' }, { type: 'null' }] })).schema)).toEqual({ anyOf: [{ type: 'string' }, { type: 'null' }] })
+    expect(propertyOf(strictify(only({ anyOf: [{ type: 'string' }, { type: 'number' }] })).schema)).toEqual({ anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'null' }] })
+  })
+
+  it('follows a reference to see whether the target already takes null', () => {
+    const nullable = strictify(only({ $ref: '#/$defs/maybe' }, {}, { maybe: { type: ['string', 'null'] } }))
+    expect(propertyOf(nullable.schema)).toEqual({ $ref: '#/$defs/maybe' })
+    const plain = strictify(only({ $ref: '#/$defs/text' }, {}, { text: { type: 'string' } }))
+    expect(propertyOf(plain.schema)).toEqual({ anyOf: [{ $ref: '#/$defs/text' }, { type: 'null' }] })
+  })
+
+  it('wraps an optional const and an optional enum that has no type, because neither takes null', () => {
+    expect(propertyOf(strictify(only({ const: 'x' })).schema)).toEqual({ anyOf: [{ const: 'x' }, { type: 'null' }] })
+    expect(propertyOf(strictify(only({ enum: ['a', 'b'] })).schema)).toEqual({ anyOf: [{ enum: ['a', 'b'] }, { type: 'null' }] })
+  })
+
+  it('treats a const null and an enum with null as already taking null', () => {
+    expect(propertyOf(strictify(only({ const: null })).schema)).toEqual({ const: null })
+    expect(propertyOf(strictify(only({ enum: ['a', null] })).schema)).toEqual({ enum: ['a', null] })
+  })
+
+  it('adds null to the type list of an optional scalar, integer included, and wraps a type list that is not all scalars', () => {
+    expect(propertyOf(strictify(only({ type: 'integer' })).schema)).toEqual({ type: ['integer', 'null'] })
+    expect(propertyOf(strictify(only({ type: ['string', 'integer'] })).schema)).toEqual({ type: ['string', 'integer', 'null'] })
+    expect(propertyOf(strictify(only({ type: ['string', 'array'] })).schema)).toEqual({ anyOf: [{ type: ['string', 'array'] }, { type: 'null' }] })
+  })
+
+  it('closes the objects inside each branch of a union and inside array items', () => {
+    const { schema } = strictify(only({ anyOf: [object({ a: { type: 'string' } }), { type: 'array', items: object({ b: { type: 'string' } }) }] }))
+    const branches = (propertyOf(schema) as { anyOf: JsonSchema[] }).anyOf
+    expect(branches[0]).toEqual({ type: 'object', properties: { a: { type: ['string', 'null'] } }, required: ['a'], additionalProperties: false })
+    expect(branches[1]).toEqual({ type: 'array', items: { type: 'object', properties: { b: { type: ['string', 'null'] } }, required: ['b'], additionalProperties: false } })
+  })
+
+  it('closes the objects in definitions and in tuple items', () => {
+    const { schema } = strictify(only({ type: 'array', prefixItems: [object({ t: { type: 'string' } })] }, {}, { leaf: object({ l: { type: 'string' } }) }))
+    expect((schema.$defs as Record<string, JsonSchema>).leaf).toMatchObject({ required: ['l'], additionalProperties: false })
+    expect(((propertyOf(schema) as { anyOf: JsonSchema[] }).anyOf[0] as { prefixItems: JsonSchema[] }).prefixItems[0]).toMatchObject({ required: ['t'], additionalProperties: false })
+  })
+
+  it('refuses an object that has properties and also a schema for the rest, or pattern properties', () => {
+    expect(() => strictify(only({ type: 'object', properties: { a: { type: 'string' } }, additionalProperties: { type: 'string' } }))).toThrow('#/properties/p')
+    expect(() => strictify(only({ type: 'object', properties: { a: { type: 'string' } }, additionalProperties: true }))).toThrow('#/properties/p')
+    expect(() => strictify(only({ type: 'object', properties: { a: { type: 'string' } }, patternProperties: { '^x': { type: 'string' } } }))).toThrow('#/properties/p')
+    expect(() => strictify(only({ type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false }))).not.toThrow()
+  })
+})
+
+describe('restore: edge cases', () => {
+  it('keeps a null that the original schema allowed, and a null on a required property it does not allow', () => {
+    const original = object({ maybe: { type: ['string', 'null'] }, must: { type: 'string' }, extra: { type: 'string' } }, ['must'])
+    const { restore } = strictify(original)
+    expect(restore({ maybe: null, must: null, extra: null })).toEqual({ maybe: null, must: null })
+  })
+
+  it('restores the elements of a tuple by their own position', () => {
+    const { restore } = strictify(object({ pair: { type: 'array', prefixItems: [object({ a: { type: 'string' } }), object({ b: { type: 'string' } })] } }, ['pair']))
+    expect(restore({ pair: [{ a: null }, { b: 'x' }] })).toEqual({ pair: [{}, { b: 'x' }] })
+    expect(restore({ pair: [{ a: 'y' }, { b: null }] })).toEqual({ pair: [{ a: 'y' }, {}] })
+  })
+
+  it('follows a chain of references longer than one hop', () => {
+    const { restore } = strictify({
+      ...object({ top: { $ref: '#/$defs/one' } }, ['top']),
+      $defs: { one: { $ref: '#/$defs/two' }, two: { $ref: '#/$defs/three' }, three: object({ a: { type: 'string' } }) },
+    })
+    expect(restore({ top: { a: null } })).toEqual({ top: {} })
+  })
+
+  it('stops following references that loop back on themselves', () => {
+    const { restore } = strictify({ ...object({ top: { $ref: '#/$defs/loop' } }, ['top']), $defs: { loop: { $ref: '#/$defs/loop' } } })
+    expect(restore({ top: { a: null } })).toEqual({ top: { a: null } })
+  })
+
+  it('picks the union branch that has every key of the value, then falls back to the first branch', () => {
+    const { restore } = strictify(
+      object({ pick: { anyOf: [object({ a: { type: 'string' } }, ['a']), object({ a: { type: 'string' }, b: { type: 'string' } }, ['a'])] } }, ['pick']),
+    )
+    expect(restore({ pick: { a: 'x', b: null } })).toEqual({ pick: { a: 'x' } })
+    const first = strictify(object({ pick: { anyOf: [object({ a: { type: 'string' }, b: { type: 'string' } }, ['a']), object({ c: { type: 'string' } }, ['c'])] } }, ['pick']))
+    expect(first.restore({ pick: { a: 'x', b: null, z: 1 } })).toEqual({ pick: { a: 'x', z: 1 } })
+  })
+
+  it('leaves unknown keys of an object as they are', () => {
+    const { restore } = strictify(object({ a: { type: 'string' } }))
+    expect(restore({ a: null, other: null })).toEqual({ other: null })
+  })
+})
+
+describe('checkSchemaLimits: root and pointers', () => {
+  const limits = { maxDepth: 10, maxProperties: 5000, maxChars: 120_000, allowRecursion: true, rootObject: true }
+
+  it('refuses a root that is an object but also a union', () => {
+    for (const keyword of ['anyOf', 'oneOf', 'allOf']) {
+      expect(() => checkSchemaLimits({ ...object({ a: { type: 'string' } }), [keyword]: [{ type: 'object' }] }, limits), keyword).toThrow('root')
+    }
+  })
+
+  it('escapes slash and tilde in a property name inside the pointer it reports', () => {
+    const schema = object({ 'a/b': object({ 'c~d': { type: 'string' } }) })
+    expect(() => checkSchemaLimits(schema, { ...limits, maxProperties: 1 })).toThrow('#/properties/a~1b/properties/c~0d')
+    expect(() => checkSchemaLimits(schema, { ...limits, maxDepth: 1 })).toThrow('#/properties/a~1b')
+  })
+
+  it('counts the characters of every property name, including ones inside definitions', () => {
+    const schema: JsonSchema = { ...object({ ab: { type: 'string' } }), $defs: { leaf: object({ cde: { type: 'string' } }) } }
+    expect(() => checkSchemaLimits(schema, { ...limits, maxChars: 2 + 4 + 3 })).not.toThrow()
+    expect(() => checkSchemaLimits(schema, { ...limits, maxChars: 2 + 4 + 2 })).toThrow('characters')
+  })
+})
