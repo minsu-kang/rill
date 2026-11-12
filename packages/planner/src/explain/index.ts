@@ -1,3 +1,7 @@
 export * from './types'
 export { buildRunDigest } from './digest'
 export { failureSignals } from './signals'
+export { ANSWER_PROBLEMS, checkAnswer, explainSchema, type CheckedAnswer } from './answer'
+export { EXPLAIN_BUDGETS, EXPLAIN_RULES, repairText, userText, type ExplainEffort } from './prompt'
+export { HIDDEN, MAX_EXPLANATION_CHARS, MAX_REQUEST_CHARS, cleanText, createAnswerScrubber, type AnswerScrubber, type ScrubContext } from './scrub'
+export { EXPLAIN_ERROR_TEXT, createExplainer, type ExplainRequest, type Explainer, type ExplainerDeps } from './explain'
