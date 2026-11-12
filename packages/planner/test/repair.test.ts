@@ -21,6 +21,13 @@ function outsideRoots(): Workflow {
   return workflow
 }
 
+function ledgerInWatchedFolder(): Workflow {
+  const workflow = receipts()
+  workflow.nodes[0]!.config = { folder: `${ROOT}/Receipts`, glob: '*' }
+  workflow.nodes[2]!.config = { file: `${ROOT}/Receipts/ledger.csv`, row: ['{{n1.output.date}}'] }
+  return workflow
+}
+
 function withDelay(ms: unknown, extra: Workflow['nodes'] = []): Workflow {
   const workflow = receipts()
   workflow.nodes.push({ id: 'n3', type: 'delay@1', config: { ms } }, ...extra)
@@ -49,6 +56,17 @@ describe('repair loop', () => {
     expect(payload.round).toBe(1)
     expect(payload.issues).toEqual([expect.objectContaining({ stage: 3, pointer: '/nodes/2/config/file', code: 'path_outside_roots' })])
     expect(second.schema).toEqual(provider.calls[0]!.request.schema)
+  })
+
+  it('asks for a repair when the ledger is written into the folder the trigger watches', async () => {
+    const provider = new FakeProvider([{ data: workflowData(ledgerInWatchedFolder()) }, { data: workflowData(receipts()) }])
+    const result = await createPlanner({ provider, registry }).plan(request())
+    expect(result.kind).toBe('workflow')
+    expect(result.rounds[0]!.issues.map((i) => `${i.code} ${i.pointer}`)).toEqual(['inside_watched_folder /nodes/2/config/file'])
+    const payload = repairPayload(provider.calls[1]!.request.messages[2]!.content as string)
+    expect(payload.issues).toHaveLength(1)
+    expect(payload.issues[0]).toMatchObject({ code: 'inside_watched_folder', pointer: '/nodes/2/config/file' })
+    expect(payload.issues[0]!.message).not.toContain(ROOT)
   })
 
   it('numbers the repair rounds', async () => {

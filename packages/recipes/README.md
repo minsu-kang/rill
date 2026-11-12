@@ -105,7 +105,7 @@ Notes on `url`: a user name or password in a URL would put a secret into the wor
 
 Notes on the recipes:
 
-- The ledger of the two receipt recipes must not be in the watched folder when the pattern matches its name, because the folder trigger would see each new row as a new receipt and send it to the model again. The engine refuses that layout (see its README). The sample keeps the ledger one folder above the watched folder.
+- The ledger of the two receipt recipes must not be in the watched folder when the pattern matches its name, because the folder trigger would see each new row as a new receipt and send it to the model again. `validateWorkflow` refuses that layout as `inside_watched_folder`, for `deploy` and `plan` as well as for recipes (see the engine README). The sample keeps the ledger one folder above the watched folder.
 - `http.request` already fails the node for a redirect and for every answer that is not 2xx, and `daily-health-check` continues after a failure, so the output of the call is empty exactly when the call failed. The condition asks whether a status exists: any 2xx answer, including 201 and 204, is healthy, and the alert goes out on the false branch. A dry run does not call the URL and reports status 0, which counts as an answer, so a dry run sends no alert.
 - The condition of `failure-webhook-alert` compares with strict equality, so `{"status": 500}` does not match the text `500`. The help of the parameter says that the sender must send the status as text.
 - The Slack connection of a recipe is declared with `connectionKind: 'slack'`, so a form can list only the connections of that kind, and the engine refuses a connection of another kind.

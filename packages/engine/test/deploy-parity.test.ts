@@ -117,6 +117,7 @@ const VALID: [string, unknown][] = [
   ['warning only: nullable number into delay', wf([manual, n('ex', 'llm.extract@1', { text: 't', fields }), n('d', 'delay@1', { ms: '{{ex.output.amount}}' })])],
   ['warning only: unused branch', wf([manual, n('c', 'condition@1', { left: 1, operator: 'eq', right: 1 }), n('a', 'test.echo@1', { value: 1 })])],
   ['manual only', wf([manual])],
+  ['ledger beside a pdf watch', wf([n('t1', 'trigger.folderWatch@1', { folder: join(root, 'in'), glob: '*.pdf' }), n('c', 'csv.append@1', { file: join(root, 'in', 'ledger.csv'), row: [1] })])],
 ]
 
 const INVALID: [string, unknown][] = [
@@ -172,6 +173,8 @@ const INVALID: [string, unknown][] = [
   ['path_outside_roots', wf([manual, n('c', 'csv.append@1', { file: './allowed/out.csv', row: [1] })])],
   ['path_outside_roots', wf([manual, n('r', 'file.read@1', { path: 'a.txt' })])],
   ['path_outside_roots', wf([n('t1', 'trigger.folderWatch@1', { folder: 'in' })])],
+  ['inside_watched_folder', wf([n('t1', 'trigger.folderWatch@1', { folder: join(root, 'in'), glob: '*' }), n('c', 'csv.append@1', { file: join(root, 'in', 'ledger.csv'), row: [1] })])],
+  ['inside_watched_folder', wf([n('t1', 'trigger.folderWatch@1', { folder: join(root, 'in') }), n('c', 'csv.append@1', { file: join(root, 'in', 'ledger.csv'), row: [1] })])],
 ]
 
 const registry = createTestRegistry()

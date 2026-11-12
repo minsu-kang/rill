@@ -170,6 +170,7 @@ const CASES: CodeCase[] = [
   { code: 'number_into_integer', input: chain(manual, extract('x'), n('a', 'delay@1', { ms: '{{x.output.amount}}' })), pointer: '/nodes/2/config/ms' },
   { code: 'path_outside_roots', input: chain(manual, n('a', 'file.read@1', { path: '/etc/hosts' })), pointer: '/nodes/1/config/path', env: { registry, allowedRoots: [dir] } },
   { code: 'unknown_connection', input: chain(manual, n('a', 'notify.slack@1', { connection: 'team', text: 'hi' })), pointer: '/nodes/1/config/connection', env: { registry, connections: ['ops'] } },
+  { code: 'inside_watched_folder', input: chain(n('t1', 'trigger.folderWatch@1', { folder: '/Users/demo/Receipts', glob: '*' }), n('a', 'csv.append@1', { file: '/Users/demo/Receipts/ledger.csv', row: ['x'] })), pointer: '/nodes/1/config/file' },
 ]
 
 const UNREACHABLE: Record<string, string> = {
@@ -346,7 +347,7 @@ describe('validateWorkflow semantics', () => {
     const inside = chain(n('t1', 'trigger.folderWatch@1', { folder: join(dir, 'in') }), n('a', 'csv.append@1', { file: join(dir, 'o.csv'), row: [1] }))
     expect(validateWorkflow(inside, roots)).toEqual([])
     const outside = chain(
-      n('t1', 'trigger.folderWatch@1', { folder: tmpdir() }),
+      n('t1', 'trigger.folderWatch@1', { folder: tmpdir(), glob: '*.pdf' }),
       n('a', 'csv.append@1', { file: `${dir}/../x.csv`, row: [1] }),
       n('b', 'llm.extract@1', { file: '/etc/passwd', fields: [{ name: 'a', type: 'string' }] }),
       n('c', 'file.read@1', { path: '{{t1.output.file}}' }),

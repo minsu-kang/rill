@@ -1,25 +1,9 @@
 import { createHash } from 'node:crypto'
 import { readdirSync, statSync } from 'node:fs'
 import { extname, join } from 'node:path'
-import { assertPathAllowed, type FolderWatchConfig } from '@rill/nodes-core'
+import { assertPathAllowed, folderWatchSees, globToRegExp, type FolderWatchConfig } from '@rill/nodes-core'
 import { DuplicateFileError } from '../store'
 import type { TriggerHost, TriggerRuntime } from './types'
-
-const IGNORED = [/^\./, /^~\$/, /~$/, /\.(tmp|part|crdownload|download)$/i]
-
-export function globToRegExp(glob: string): RegExp {
-  let source = ''
-  for (const char of glob.normalize('NFC')) {
-    if (char === '*') source += '[^/\\\\]*'
-    else if (char === '?') source += '[^/\\\\]'
-    else source += char.replace(/[.+^${}()|[\]\\]/g, '\\$&')
-  }
-  return new RegExp(`^${source}$`, 'i')
-}
-
-export function folderWatchSees(matches: RegExp, name: string): boolean {
-  return matches.test(name.normalize('NFC')) && !IGNORED.some((pattern) => pattern.test(name))
-}
 
 function fingerprintOf(path: string, mtimeMs: number, size: number): string {
   return createHash('sha256').update(`${path}\0${mtimeMs}\0${size}`).digest('hex')

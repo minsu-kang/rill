@@ -28,6 +28,7 @@ import { assertPathAllowed } from './guard'
 import type { NodeRegistry } from './registry'
 import { fieldRoles, valueAtPointer } from './roles'
 import type { NodeDefinition } from './types'
+import { watchedFolderIssues } from './watched-folder'
 
 export interface ValidateEnv {
   registry: NodeRegistry
@@ -527,6 +528,7 @@ function semanticIssues(wf: Workflow, env: ValidateEnv): PlanIssue[] {
     checker.environment(node, index, def, label)
   })
   checker.branches()
+  issues.push(...watchedFolderIssues(wf, env.registry))
   return issues
 }
 

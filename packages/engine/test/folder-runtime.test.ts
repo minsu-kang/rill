@@ -1,10 +1,10 @@
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
-import { PathNotAllowedError } from '@rill/nodes-core'
+import { PathNotAllowedError, globToRegExp } from '@rill/nodes-core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DuplicateFileError } from '../src/store'
-import { FolderRuntime, globToRegExp } from '../src/triggers/folder'
+import { FolderRuntime } from '../src/triggers/folder'
 import { ManualClock } from './manual-clock'
 import { createHost } from './trigger-helpers'
 
