@@ -250,3 +250,50 @@ Host names are read in any script: a name written in letters, digits, marks and 
 
 Not in this method: the desktop view of the explanation, storing explanations, explaining a failure automatically, and questions across runs. The desktop plan owns the button and the flow.
 
+
+## Recipe methods
+
+A recipe is a ready-made, validated workflow with a short form. The user picks one from a gallery, fills in the form and gets a workflow draft, without asking the planner. The recipes and the rules for the form are in `@rill/recipes` (see its README). Both methods work with no model provider, no attachments folder, no configured connection and no network.
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `listRecipes` | none | `recipes` |
+| `instantiateRecipe` | `recipeId`, `values` | `recipeId`, `workflow`, `summary` |
+
+`listRecipes` returns one entry per recipe, in catalogue order: `id`, `title` and `description` (each `{ ko, en }`), `tags`, `params` (the form: `id`, `kind`, `label`, optional `help`, `required`, optional `default`, `min` and `max`), `nodeTypes` (the node types of the workflow, once each) and `needsConnection` (the form has a `connection` parameter). It never carries a workflow body or the sample values of the recipe.
+
+`instantiateRecipe` turns the values of the form into a workflow draft. `values` maps a parameter id to a string or a number: at most 20 values, each string at most 500 characters. The params object is closed. The engine checks in this order:
+
+1. The recipe exists, or the call fails with `NOT_FOUND` and the fixed text `recipe not found`.
+2. Every value against the rules of its parameter kind, and the form for missing required values and keys that no parameter declares. A failure is `RECIPE_INVALID` and each problem is `<param>: <rule>`, such as `schedule: bad_cron`, `message: template_text` or `threshold: below_min`.
+3. The filled workflow through `validateWorkflow`, all three stages, with the engine's node registry, its allowed folders and the names of its configured connections (the list that `plan` gets). A failure is `RECIPE_INVALID` and each problem is `<code> at <pointer>`, such as `path_outside_roots at /nodes/0/config/folder` or `unknown_connection at /nodes/1/config/connection`. A warning does not refuse the draft, as with `deploy`.
+
+The message of `RECIPE_INVALID` is the fixed text `the recipe values are not valid`. A problem names the parameter or the position and a rule or an issue code, never a value. A value is not copied into a message, a problem, a log line or an event, and an unexpected failure of `instantiateRecipe` logs only the error name, like `plan`. A key that is not shaped like a parameter id is reported as `?: unknown_param`.
+
+The result is `{ recipeId, workflow, summary }`:
+
+- `workflow` is the draft. The same recipe and values give the same workflow, node ids included, on every call.
+- `summary.nodes` lists `{ id, type, title }` for every node, with the title taken from the node definition.
+- `summary.sideEffects` is derived from the node definitions, not stored in the recipe: `idempotent` when a node writes a file (`csv.append`) and `external` when a node calls the network or sends a message (`http.request`, `notify.slack`). It holds each value at most once, in this order, and is empty for a recipe that only reads.
+
+`instantiateRecipe` never deploys and never writes: no table changes (a test compares every table before and after, for drafts and for refusals), no run starts and no event is emitted. A draft is not a plan, so it has no flags and no confirmation; the open-plan check of `deploy` does not apply to it.
+
+`~/` in a folder or file value stays as typed in the draft. The engine expands it wherever it uses the path, so the allowed-folder check in step 3 applies to the folder that `~/` stands for.
+
+Only the connections that the connections file lists with a kind are known to this check, the same list the planner sees. A connection written as a plain secret string (the first form in Connections file) is not on that list, so a recipe cannot use it.
+
+### Errors
+
+| Code | Meaning |
+| --- | --- |
+| `RECIPE_INVALID` | A value or the filled workflow breaks a rule; `problems` lists `<param>: <rule>` or `<code> at <pointer>` |
+| `NOT_FOUND` | The recipe does not exist |
+| `INVALID_PARAMS` | The params are malformed: an extra field, more than 20 values, a string over 500 characters or a value that is not a string or a finite number |
+
+### Client contract
+
+- Build the form from `params`: one control per entry by `kind`, the label and help in the language of the user, `default` as the initial value of an optional field, `min` and `max` for a number. Send only the fields the user filled in; an optional field that is left out takes its default.
+- Show the graph and one line per side effect from `summary` before anything is deployed (for example "writes a CSV file" for `idempotent` and "calls the network or sends a message" for `external`).
+- Deploy only after the user confirms, through the existing `deploy` with the `workflow` of the draft. Then use `startRun` with `dryRun` and `activate` as for any workflow.
+- Show a `RECIPE_INVALID` problem next to the form field named by `<param>`. A `<code> at <pointer>` problem belongs to the workflow, not to one field: the first segments of the pointer name the node. Do not show a problem as if the user had typed it.
+- Never assemble a value from other text, for example a reference to a node. The engine refuses a text that contains `{{` or `}}`.
