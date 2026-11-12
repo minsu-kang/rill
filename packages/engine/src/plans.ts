@@ -105,9 +105,8 @@ export function workflowHash(workflow: unknown): string {
   const source = isRecord(workflow) ? workflow : {}
   const plain = JSON.parse(JSON.stringify({ schemaVersion: source.schemaVersion, nodes: source.nodes, edges: source.edges })) as Record<string, unknown>
   const nodes = Array.isArray(plain.nodes) ? plain.nodes.map(normalizedNode) : plain.nodes
-  const content = JSON.parse(JSON.stringify({ schemaVersion: plain.schemaVersion, nodes, edges: plain.edges })) as Record<string, unknown>
   return createHash('sha256')
-    .update(canonical({ schemaVersion: content.schemaVersion, nodes: unordered(content.nodes), edges: unordered(content.edges) }))
+    .update(canonical({ schemaVersion: plain.schemaVersion, nodes: unordered(nodes), edges: unordered(plain.edges) }))
     .digest('hex')
 }
 
