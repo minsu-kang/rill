@@ -53,6 +53,9 @@ importers:
       '@rill/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@rill/recipes':
+        specifier: workspace:*
+        version: link:../recipes
       typebox:
         specifier: ^1.4.6
         version: 1.4.6

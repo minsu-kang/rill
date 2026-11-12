@@ -1,0 +1,437 @@
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createCoreRegistry } from '@rill/nodes-core'
+import {
+  RECIPE_MAX_STRING_CHARS,
+  RECIPE_MAX_VALUES,
+  RECIPE_PARAM_KINDS,
+  RecipeParamInfoSchema,
+  type MethodParams,
+} from '@rill/protocol'
+import { MAX_PARAM_STRING_CHARS, MAX_PARAM_VALUES, PARAM_KINDS, RECIPES, checkValue, findRecipe, instantiateRecipe, recipeNodeTypes, type ParamValues, type Recipe } from '@rill/recipes'
+import Value from 'typebox/value'
+import { describe, expect, it, vi } from 'vitest'
+import { Db } from '../src/db'
+import { Engine } from '../src/engine'
+import { MemoryInvalidError, normaliseMemoryText } from '../src/memory'
+import { RecipeInvalidError, RecipeNotFoundError } from '../src/recipes'
+import { failure, snapshot, startRecipeEnv, useCleanups } from './recipe-helpers'
+
+useCleanups()
+
+const MARKER = 'VALUE-MARKER-5d0e'
+const registry = createCoreRegistry()
+
+const EFFECTS: Record<string, string[]> = {
+  'receipt-folder-to-csv': ['idempotent'],
+  'receipt-big-amount-alert': ['idempotent', 'external'],
+  'daily-health-check': ['external'],
+  'webhook-to-slack': ['external'],
+  'monthly-reminder': ['external'],
+  'failure-webhook-alert': ['external'],
+}
+
+const instantiateParams = (recipeId: string, values: Record<string, string | number>): MethodParams<'instantiateRecipe'> => ({ recipeId, values })
+
+function workflowOf(recipe: Recipe, values: ParamValues) {
+  const result = instantiateRecipe(recipe, values)
+  if (!('workflow' in result)) throw new Error(JSON.stringify(result.problems))
+  return result.workflow
+}
+
+function requiredOnly(id: string): Record<string, string | number> {
+  const recipe = findRecipe(id)!
+  return Object.fromEntries(recipe.params.filter((param) => param.required).map((param) => [param.id, recipe.sample[param.id]!]))
+}
+
+describe('the mirror of the recipe package in the protocol', () => {
+  it('has the same parameter kinds and limits', () => {
+    expect([...RECIPE_PARAM_KINDS]).toEqual([...PARAM_KINDS])
+    expect(RECIPE_MAX_VALUES).toBe(MAX_PARAM_VALUES)
+    expect(RECIPE_MAX_STRING_CHARS).toBe(MAX_PARAM_STRING_CHARS)
+  })
+
+  it('describes every parameter of every recipe', () => {
+    for (const recipe of RECIPES) for (const param of recipe.params) expect(Value.Check(RecipeParamInfoSchema, param), `${recipe.id} ${param.id}`).toBe(true)
+  })
+})
+
+describe('the character rules of a text value', () => {
+  const text = { id: 'value', kind: 'text', label: { ko: '라벨', en: 'Label' }, required: true } as const
+  const characters = [
+    '\u0000', '\n', '\r', '\t', '\u001b', '\u007f', '\u0085', '\u2028', '\u2029',
+    '\u061c', '\u200e', '\u200f', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066', '\u2067', '\u2068', '\u2069',
+    '\u200b', '\u00ad', '\u2060', '\ufeff', '\u{e0041}', '\u{e007f}', '\u{e0100}', '\u{e01ef}',
+    '\u200c', '\u200d', 'é', '😀', '—', ' ', '\u00a0', '\u3000', '東',
+  ]
+
+  it('are the ones of a memory note: the same characters are refused under the same rule name', () => {
+    for (const character of characters) {
+      const sample = `a${character}b`
+      let memory: string | undefined
+      try {
+        normaliseMemoryText(sample)
+      } catch (error) {
+        if (!(error instanceof MemoryInvalidError)) throw error
+        memory = error.rule
+      }
+      expect(checkValue(text, sample), JSON.stringify(character)).toBe(memory)
+    }
+  })
+})
+
+describe('listRecipes', () => {
+  it('lists the six recipes with the fields of a form and no workflow body', async () => {
+    const { client, frames } = await startRecipeEnv()
+    const result = await client.request('listRecipes', {})
+    expect(result.recipes.map((entry) => entry.id)).toEqual(RECIPES.map((recipe) => recipe.id))
+    expect(result.recipes).toHaveLength(6)
+    for (const entry of result.recipes) {
+      const recipe = findRecipe(entry.id)!
+      expect(Object.keys(entry).sort()).toEqual(['description', 'id', 'needsConnection', 'nodeTypes', 'params', 'tags', 'title'])
+      expect(entry.title).toEqual(recipe.title)
+      expect(entry.description).toEqual(recipe.description)
+      expect(entry.tags).toEqual(recipe.tags)
+      expect(entry.params).toEqual(recipe.params)
+      expect(entry.nodeTypes).toEqual(recipeNodeTypes(recipe))
+      expect(entry.needsConnection).toBe(recipe.params.some((param) => param.kind === 'connection'))
+    }
+    const frame = frames.find((text) => text.includes('"recipes"'))!
+    for (const word of ['"workflow"', '"sample"', '"nodes"', '"edges"', '"config"', '"schemaVersion"']) expect(frame, word).not.toContain(word)
+  })
+
+  it('says which recipes need a Slack connection', async () => {
+    const { client } = await startRecipeEnv()
+    const need = Object.fromEntries((await client.request('listRecipes', {})).recipes.map((entry) => [entry.id, entry.needsConnection]))
+    expect(need).toEqual({
+      'receipt-folder-to-csv': false,
+      'receipt-big-amount-alert': true,
+      'daily-health-check': true,
+      'webhook-to-slack': true,
+      'monthly-reminder': true,
+      'failure-webhook-alert': true,
+    })
+  })
+
+  it('works with no model provider, no attachments folder and no connection, and writes nothing', async () => {
+    const { client, db } = await startRecipeEnv({ planConnections: [], connections: undefined, allowedRoots: undefined })
+    const before = snapshot(db)
+    expect((await client.request('listRecipes', {})).recipes).toHaveLength(6)
+    expect(snapshot(db)).toEqual(before)
+  })
+
+  it('takes no params', async () => {
+    const { client } = await startRecipeEnv()
+    expect((await failure(client.request('listRecipes', { tag: 'csv' } as never))).code).toBe('INVALID_PARAMS')
+  })
+
+  it('hands out copies, so a caller cannot change the catalogue', async () => {
+    const { engine } = await startRecipeEnv()
+    const first = engine.listRecipes()
+    first[0]!.params[0]!.label.ko = 'changed'
+    first[0]!.params.pop()
+    first[0]!.tags.push('x')
+    first[0]!.nodeTypes.length = 0
+    first.pop()
+    const again = engine.listRecipes()
+    expect(again).toHaveLength(6)
+    expect(again[0]!.params).toEqual(RECIPES[0]!.params)
+    expect(again[0]!.tags).toEqual(RECIPES[0]!.tags)
+    expect(again[0]!.nodeTypes).toEqual(recipeNodeTypes(RECIPES[0]!))
+  })
+})
+
+describe('instantiateRecipe', () => {
+  it.each(RECIPES)('turns the sample of $id into a draft that deploys', async (recipe) => {
+    const { client } = await startRecipeEnv()
+    const draft = await client.request('instantiateRecipe', instantiateParams(recipe.id, recipe.sample))
+    expect(draft.recipeId).toBe(recipe.id)
+    expect(draft.workflow).toEqual(workflowOf(recipe, recipe.sample))
+    expect(draft.summary.nodes).toEqual(draft.workflow.nodes.map((node) => ({ id: node.id, type: node.type, title: registry.get(node.type)!.title })))
+    expect(draft.summary.sideEffects).toEqual(EFFECTS[recipe.id])
+    const { workflowId } = await client.request('deploy', { workflow: draft.workflow })
+    expect((await client.request('getWorkflow', { workflowId })).workflow).toEqual(draft.workflow)
+  })
+
+  it.each(RECIPES)('fills the defaults of $id when only the required values come', async (recipe) => {
+    const { client } = await startRecipeEnv()
+    const draft = await client.request('instantiateRecipe', instantiateParams(recipe.id, requiredOnly(recipe.id)))
+    expect(draft.workflow).toEqual(workflowOf(recipe, requiredOnly(recipe.id)))
+    await client.request('deploy', { workflow: draft.workflow })
+  })
+
+  it('names the title of each node from its definition and derives the side effects from the definitions', async () => {
+    const { client } = await startRecipeEnv()
+    const draft = await client.request('instantiateRecipe', instantiateParams('receipt-big-amount-alert', findRecipe('receipt-big-amount-alert')!.sample))
+    expect(draft.summary.nodes).toEqual([
+      { id: 't1', type: 'trigger.folderWatch@1', title: 'Folder watch' },
+      { id: 'n1', type: 'llm.extract@1', title: 'Extract fields with AI' },
+      { id: 'n2', type: 'csv.append@1', title: 'Append CSV row' },
+      { id: 'n3', type: 'condition@1', title: 'Condition' },
+      { id: 'n4', type: 'notify.slack@1', title: 'Slack message' },
+    ])
+    expect(draft.summary.sideEffects).toEqual(['idempotent', 'external'])
+  })
+
+  it('works with no model provider, no attachments folder and no network', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('the network is not allowed'))
+    try {
+      const { client } = await startRecipeEnv()
+      await client.request('instantiateRecipe', instantiateParams('webhook-to-slack', { slackConnection: 'slack-ops' }))
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('gives the same workflow for the same input, on every call, every engine and every key order', async () => {
+    const recipe = findRecipe('receipt-big-amount-alert')!
+    const reversed = Object.fromEntries(Object.entries(recipe.sample).reverse())
+    const a = await startRecipeEnv()
+    const b = await startRecipeEnv()
+    const results = [
+      await a.client.request('instantiateRecipe', instantiateParams(recipe.id, recipe.sample)),
+      await a.client.request('instantiateRecipe', instantiateParams(recipe.id, recipe.sample)),
+      await a.client.request('instantiateRecipe', instantiateParams(recipe.id, reversed)),
+      await b.client.request('instantiateRecipe', instantiateParams(recipe.id, recipe.sample)),
+    ]
+    const texts = results.map((result) => JSON.stringify(result))
+    expect(new Set(texts).size).toBe(1)
+    expect(results[0]!.workflow.nodes.map((node) => node.id)).toEqual(['t1', 'n1', 'n2', 'n3', 'n4'])
+  })
+
+  it('never deploys and never writes: every table is the same before and after, for drafts and for refusals', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rill-recipes-'))
+    try {
+      mkdirSync(join(dir, 'in'))
+      const { client, db, engine } = await startRecipeEnv({ allowedRoots: [dir] })
+      await client.request('saveMemory', { text: 'My receipts live in the Receipts folder' })
+      const seeded = (await client.request('instantiateRecipe', instantiateParams('webhook-to-slack', { slackConnection: 'slack-ops' }))).workflow
+      await client.request('deploy', { workflow: seeded })
+      const before = snapshot(db)
+      for (const name of ['workflows', 'memory_items']) expect(JSON.parse(before[name]!), name).not.toHaveLength(0)
+      expect(Object.keys(before)).toEqual(
+        db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").map((row) => row.name),
+      )
+      const files = readdirSync(dir, { recursive: true }).map(String).sort()
+      const events: unknown[] = []
+      engine.on((event) => events.push(event))
+
+      const sample = findRecipe('receipt-folder-to-csv')!.sample
+      const values = { ...sample, watchFolder: join(dir, 'in'), csvFile: join(dir, 'in', 'ledger.csv') }
+      await client.request('instantiateRecipe', instantiateParams('receipt-folder-to-csv', values))
+      await client.request('instantiateRecipe', instantiateParams('receipt-folder-to-csv', values))
+      await client.request('instantiateRecipe', instantiateParams('webhook-to-slack', { slackConnection: 'slack-ops' }))
+      for (const bad of [{ ...values, watchFolder: '/elsewhere' }, { ...values, glob: 'a/b' }, { ...values, stray: 1 }, {}]) {
+        await failure(client.request('instantiateRecipe', instantiateParams('receipt-folder-to-csv', bad)))
+      }
+      await failure(client.request('instantiateRecipe', instantiateParams('no-such-recipe', {})))
+      await client.request('listRecipes', {})
+
+      expect(snapshot(db)).toEqual(before)
+      expect(readdirSync(dir, { recursive: true }).map(String).sort()).toEqual(files)
+      expect(events).toEqual([])
+      expect((await client.request('listWorkflows', {})).workflows).toHaveLength(1)
+      expect((await client.request('listPlans', {})).plans).toEqual([])
+      expect((await client.request('listRuns', {})).runs).toEqual([])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not apply the open-plan gate of deploy, since a draft is not a plan', async () => {
+    const { client } = await startRecipeEnv()
+    const draft = await client.request('instantiateRecipe', instantiateParams('webhook-to-slack', { slackConnection: 'slack-ops' }))
+    expect((await client.request('deploy', { workflow: draft.workflow })).workflowId).toBeTruthy()
+  })
+})
+
+describe('instantiateRecipe refuses', () => {
+  const invalid = async (recipeId: string, values: Record<string, string | number>, options: Parameters<typeof startRecipeEnv>[0] = {}) => {
+    const env = await startRecipeEnv(options)
+    const error = await failure(env.client.request('instantiateRecipe', instantiateParams(recipeId, values)))
+    return { ...env, error }
+  }
+
+  it('a folder outside the allowed folders, with the code and the pointer and not the path', async () => {
+    const { error, frames, logs } = await invalid('receipt-folder-to-csv', { ...findRecipe('receipt-folder-to-csv')!.sample, watchFolder: `/Users/other/${MARKER}/Receipts` })
+    expect(error).toMatchObject({ code: 'RECIPE_INVALID', message: 'the recipe values are not valid', problems: ['path_outside_roots at /nodes/0/config/folder'] })
+    expect([...frames, ...logs].join('\n')).not.toContain(MARKER)
+    expect([...frames, ...logs].join('\n')).not.toContain('/Users/other')
+  })
+
+  it('a file outside the allowed folders', async () => {
+    const { error } = await invalid('receipt-folder-to-csv', { ...findRecipe('receipt-folder-to-csv')!.sample, csvFile: '/Users/other/ledger.csv' })
+    expect(error).toMatchObject({ code: 'RECIPE_INVALID', problems: ['path_outside_roots at /nodes/2/config/file'] })
+  })
+
+  it('a missing connection', async () => {
+    const { error, frames } = await invalid('webhook-to-slack', { slackConnection: `${MARKER}-conn` })
+    expect(error).toMatchObject({ code: 'RECIPE_INVALID', message: 'the recipe values are not valid', problems: ['unknown_connection at /nodes/1/config/connection'] })
+    expect(frames.join('\n')).not.toContain(MARKER)
+  })
+
+  it('every connection when the engine knows none', async () => {
+    const { error } = await invalid('webhook-to-slack', { slackConnection: 'slack-ops' }, { planConnections: [] })
+    expect(error).toMatchObject({ code: 'RECIPE_INVALID', problems: ['unknown_connection at /nodes/1/config/connection'] })
+  })
+
+  it('a bad cron expression', async () => {
+    const { error, frames } = await invalid('monthly-reminder', { slackConnection: 'slack-ops', schedule: `61 9 * * * ${MARKER}` })
+    expect(error).toMatchObject({ code: 'RECIPE_INVALID', message: 'the recipe values are not valid', problems: ['schedule: bad_cron'] })
+    expect(frames.join('\n')).not.toContain(MARKER)
+  })
+
+  it('a text that tries to become a reference', async () => {
+    const { error, frames } = await invalid('monthly-reminder', { slackConnection: 'slack-ops', message: `{{n1.output.${MARKER}}}` })
+    expect(error).toMatchObject({ code: 'RECIPE_INVALID', message: 'the recipe values are not valid', problems: ['message: template_text'] })
+    expect(frames.join('\n')).not.toContain(MARKER)
+  })
+
+  it('a key that no parameter declares, by name only when it looks like a parameter id', async () => {
+    const stray = await invalid('webhook-to-slack', { slackConnection: 'slack-ops', stray: 'x' })
+    expect(stray.error).toMatchObject({ code: 'RECIPE_INVALID', problems: ['stray: unknown_param'] })
+    const odd = await invalid('webhook-to-slack', { slackConnection: 'slack-ops', [`${MARKER}-key`]: 'x' })
+    expect(odd.error).toMatchObject({ code: 'RECIPE_INVALID', problems: ['?: unknown_param'] })
+    expect(odd.frames.join('\n')).not.toContain(MARKER)
+  })
+
+  it('a missing value, a wrong type and a number out of bounds, in the order of the form', async () => {
+    const { error } = await invalid('receipt-big-amount-alert', { glob: 5, threshold: -1 })
+    expect(error.problems).toEqual(['watchFolder: required', 'glob: wrong_type', 'csvFile: required', 'threshold: below_min', 'slackConnection: required'])
+    const typed = await invalid('receipt-big-amount-alert', { ...findRecipe('receipt-big-amount-alert')!.sample, threshold: '100000' })
+    expect(typed.error.problems).toEqual(['threshold: wrong_type'])
+  })
+
+  it('an unknown recipe, with the code NOT_FOUND and a fixed text that does not name it', async () => {
+    const { error, frames } = await invalid(`${MARKER}-recipe`, {})
+    expect(error).toMatchObject({ code: 'NOT_FOUND', message: 'recipe not found', problems: [] })
+    expect(frames.join('\n')).not.toContain(MARKER)
+  })
+
+  it('21 values, a string of 501 characters and extra params, as malformed params', async () => {
+    const { client, frames, logs } = await startRecipeEnv()
+    const many = Object.fromEntries(Array.from({ length: RECIPE_MAX_VALUES + 1 }, (_unused, index) => [`p${index}`, `${MARKER}${index}`]))
+    expect((await failure(client.request('instantiateRecipe', instantiateParams('webhook-to-slack', many)))).code).toBe('INVALID_PARAMS')
+    const long = `${MARKER}${'x'.repeat(RECIPE_MAX_STRING_CHARS)}`
+    expect((await failure(client.request('instantiateRecipe', instantiateParams('webhook-to-slack', { slackConnection: long })))).code).toBe('INVALID_PARAMS')
+    const extra = { recipeId: 'webhook-to-slack', values: { slackConnection: 'slack-ops' }, deploy: true } as never
+    expect((await failure(client.request('instantiateRecipe', extra))).code).toBe('INVALID_PARAMS')
+    expect((await failure(client.request('instantiateRecipe', { recipeId: 'webhook-to-slack' } as never))).code).toBe('INVALID_PARAMS')
+    expect([...frames.slice(1), ...logs].join('\n')).not.toContain(MARKER)
+  })
+
+  it('20 unknown keys as one refusal that lists at most 20 problems', async () => {
+    const keys = Object.fromEntries(Array.from({ length: RECIPE_MAX_VALUES }, (_unused, index) => [`extra${index}`, 'x']))
+    const { error } = await invalid('webhook-to-slack', keys)
+    expect(error.code).toBe('RECIPE_INVALID')
+    expect(error.problems).toHaveLength(20)
+    expect(error.problems[0]).toBe('slackConnection: required')
+  })
+
+  it('a string of exactly 500 characters as long text but not as a value that breaks a rule', async () => {
+    const { client } = await startRecipeEnv()
+    const draft = await client.request('instantiateRecipe', instantiateParams('monthly-reminder', { slackConnection: 'slack-ops', message: 'x'.repeat(500) }))
+    expect(JSON.stringify(draft.workflow)).toContain('x'.repeat(500))
+  })
+
+  it('never puts any value into a frame or a log line, for every kind of refusal', async () => {
+    const { client, frames, logs } = await startRecipeEnv()
+    const bad: Array<[string, Record<string, string | number>]> = [
+      ['receipt-folder-to-csv', { watchFolder: `../${MARKER}`, csvFile: `/Users/demo/${MARKER}/../x.csv`, glob: `${MARKER}/*` }],
+      ['receipt-folder-to-csv', { watchFolder: `/Users/demo/${MARKER}\n`, csvFile: `${MARKER}`, glob: `${MARKER}‮` }],
+      ['receipt-big-amount-alert', { watchFolder: `/Users/elsewhere/${MARKER}`, csvFile: `/Users/demo/${MARKER}.csv`, threshold: 1, slackConnection: `${MARKER}` }],
+      ['daily-health-check', { url: `ftp://${MARKER}`, schedule: `${MARKER}`, slackConnection: `{{${MARKER}}}` }],
+      ['daily-health-check', { url: `https://user:${MARKER}@example.test/`, slackConnection: 'slack-ops' }],
+      ['failure-webhook-alert', { slackConnection: 'slack-ops', failedStatus: `${MARKER}{{x}}` }],
+      ['monthly-reminder', { slackConnection: 'slack-ops', message: `${MARKER}\u0000` }],
+    ]
+    for (const [recipeId, values] of bad) {
+      const error = await failure(client.request('instantiateRecipe', instantiateParams(recipeId, values)))
+      expect(error.code, recipeId).toBe('RECIPE_INVALID')
+      expect(error.message).toBe('the recipe values are not valid')
+      expect(error.problems.length).toBeGreaterThan(0)
+      expect(JSON.stringify([error.message, error.problems])).not.toContain(MARKER)
+    }
+    expect([...frames, ...logs].join('\n')).not.toContain(MARKER)
+  })
+
+  it('logs only the name of an unexpected failure, never the message', async () => {
+    const { client, engine, logs, frames } = await startRecipeEnv()
+    vi.spyOn(engine, 'instantiateRecipe').mockImplementation(() => {
+      throw new Error(`raw failure ${MARKER}`)
+    })
+    const error = await failure(client.request('instantiateRecipe', instantiateParams('webhook-to-slack', { slackConnection: `${MARKER}` })))
+    expect(error).toMatchObject({ code: 'INTERNAL', message: 'internal error' })
+    expect(logs.map((line) => JSON.parse(line) as unknown)).toEqual([{ type: 'error', method: 'instantiateRecipe', name: 'Error' }])
+    expect([...frames, ...logs].join('\n')).not.toContain(MARKER)
+  })
+})
+
+describe('paths in the values and the allowed folders', () => {
+  it('lets any absolute path through when the engine has no allowed folders, the same as deploy does', async () => {
+    const { client } = await startRecipeEnv({ allowedRoots: undefined })
+    const values = { ...findRecipe('receipt-folder-to-csv')!.sample, watchFolder: '/anywhere/Receipts' }
+    const draft = await client.request('instantiateRecipe', instantiateParams('receipt-folder-to-csv', values))
+    expect(draft.workflow.nodes[0]!.config.folder).toBe('/anywhere/Receipts')
+  })
+
+  it('keeps a path with ~/ as typed, and the engine checks the folder it stands for', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rill-recipes-home-'))
+    try {
+      const values = { ...findRecipe('receipt-folder-to-csv')!.sample, watchFolder: '~/rill-recipe-test/Receipts', csvFile: '~/rill-recipe-test/ledger.csv' }
+      const inside = await startRecipeEnv({ allowedRoots: [homedir()] })
+      const draft = await inside.client.request('instantiateRecipe', instantiateParams('receipt-folder-to-csv', values))
+      expect(draft.workflow.nodes[0]!.config.folder).toBe('~/rill-recipe-test/Receipts')
+      expect(draft.workflow.nodes[2]!.config.file).toBe('~/rill-recipe-test/ledger.csv')
+      const outside = await startRecipeEnv({ allowedRoots: [dir] })
+      const error = await failure(outside.client.request('instantiateRecipe', instantiateParams('receipt-folder-to-csv', values)))
+      expect(error.problems).toEqual(['path_outside_roots at /nodes/0/config/folder', 'path_outside_roots at /nodes/2/config/file'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a path that climbs out with .. before the engine looks at it', async () => {
+    const { client } = await startRecipeEnv()
+    const values = { ...findRecipe('receipt-folder-to-csv')!.sample, csvFile: '/Users/demo/../other/ledger.csv' }
+    expect((await failure(client.request('instantiateRecipe', instantiateParams('receipt-folder-to-csv', values)))).problems).toEqual(['csvFile: parent_segment'])
+  })
+})
+
+describe('Engine.instantiateRecipe', () => {
+  const engine = () => new Engine({ db: Db.open(':memory:'), registry: createCoreRegistry(), allowedRoots: ['/Users/demo'], planConnections: [{ name: 'slack-ops', kind: 'slack' }] })
+
+  it('throws a RecipeNotFoundError for an unknown recipe and a RecipeInvalidError with problems for bad values', () => {
+    const target = engine()
+    expect(() => target.instantiateRecipe({ recipeId: 'nope', values: {} })).toThrow(RecipeNotFoundError)
+    for (const id of ['constructor', '__proto__', 'toString']) expect(() => target.instantiateRecipe({ recipeId: id, values: {} })).toThrow(RecipeNotFoundError)
+    try {
+      target.instantiateRecipe({ recipeId: 'webhook-to-slack', values: {} })
+      expect.unreachable()
+    } catch (error) {
+      expect(error).toBeInstanceOf(RecipeInvalidError)
+      expect((error as RecipeInvalidError).problems).toEqual(['slackConnection: required'])
+      expect((error as RecipeInvalidError).message).toBe('the recipe values are not valid')
+    }
+  })
+
+  it('returns a draft that Engine.deploy accepts', () => {
+    const target = engine()
+    const recipe = findRecipe('daily-health-check')!
+    const draft = target.instantiateRecipe({ recipeId: recipe.id, values: recipe.sample })
+    expect(target.deploy(draft.workflow)).toBeTruthy()
+  })
+
+  it('does not hand out a structure that shares anything with the next draft', () => {
+    const target = engine()
+    const recipe = findRecipe('daily-health-check')!
+    const first = target.instantiateRecipe({ recipeId: recipe.id, values: recipe.sample })
+    first.workflow.nodes[0]!.config.expression = 'changed'
+    first.summary.nodes.length = 0
+    const second = target.instantiateRecipe({ recipeId: recipe.id, values: recipe.sample })
+    expect(second.workflow.nodes[0]!.config.expression).toBe(recipe.sample.schedule)
+    expect(second.summary.nodes).toHaveLength(4)
+  })
+})

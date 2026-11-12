@@ -11,6 +11,7 @@
     "@rill/nodes-core": "workspace:*",
     "@rill/planner": "workspace:*",
     "@rill/protocol": "workspace:*",
+    "@rill/recipes": "workspace:*",
     "typebox": "^1.4.6",
     "ws": "^8.22.2"
   },

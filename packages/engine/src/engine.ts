@@ -22,6 +22,9 @@ import type {
   PlanRecord,
   PlanSummary,
   PlanTurn,
+  RecipeDraft,
+  RecipeInfo,
+  RecipeValues,
   RunSummary,
   StepDetail,
   WorkflowSummary,
@@ -47,6 +50,7 @@ import {
   type PlanOutcome,
 } from './plans'
 import { RunQueue } from './queue'
+import { draftFromRecipe, listRecipeInfos } from './recipes'
 import { Store, type RunRow } from './store'
 import { TriggerManager } from './triggers/manager'
 import type { FireOptions } from './triggers/types'
@@ -427,6 +431,18 @@ export class Engine {
 
   llmModels(): LlmModelsResult {
     return llmModelsResult(this.llmInfo)
+  }
+
+  listRecipes(): RecipeInfo[] {
+    return listRecipeInfos()
+  }
+
+  instantiateRecipe(input: { recipeId: string; values: RecipeValues }): RecipeDraft {
+    return draftFromRecipe(input.recipeId, input.values, {
+      registry: this.registry,
+      allowedRoots: this.allowedRoots,
+      connections: this.planConnections.map((connection) => connection.name),
+    })
   }
 
   nodeCatalog(): NodeInfo[] {

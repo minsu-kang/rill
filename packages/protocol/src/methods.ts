@@ -13,6 +13,7 @@ import {
   PlanSummarySchema,
   PlanTurnSchema,
 } from './plan'
+import { RecipeDraftSchema, RecipeInfoSchema, RecipeValuesSchema } from './recipes'
 
 const id = IdSchema
 const closed = { additionalProperties: false } as const
@@ -163,6 +164,14 @@ export const METHODS = {
     params: Type.Object({ runId: id, effort: Type.Optional(ExplainEffortSchema) }, closed),
     result: ExplainResultSchema,
   },
+  listRecipes: {
+    params: noParams,
+    result: Type.Object({ recipes: Type.Array(RecipeInfoSchema) }, closed),
+  },
+  instantiateRecipe: {
+    params: Type.Object({ recipeId: id, values: RecipeValuesSchema }, closed),
+    result: RecipeDraftSchema,
+  },
   llmModels: { params: noParams, result: LlmModelsResultSchema },
   ping: { params: noParams, result: Type.Object({ time: Type.Number() }) },
 } as const
@@ -194,4 +203,5 @@ export const ERROR_CODES = [
   'EXPLAIN_BUSY',
   'EXPLAIN_PROVIDER',
   'EXPLAIN_INVALID',
+  'RECIPE_INVALID',
 ] as const

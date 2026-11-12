@@ -32,13 +32,14 @@ import {
   PlanNotConfirmedError,
   PlanNotFoundError,
 } from '../plans'
+import { RecipeInvalidError, RecipeNotFoundError } from '../recipes'
 import { NotFoundError } from '../store'
 
 const OPEN = 1
 const CLOSED = 3
 const TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]{16,}$/
 const MAX_PROBLEMS = 20
-const NAME_ONLY_ERROR_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan', 'saveMemory', 'explainRun'])
+const NAME_ONLY_ERROR_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan', 'saveMemory', 'explainRun', 'instantiateRecipe'])
 
 export interface RillServerOptions {
   engine: Engine
@@ -129,6 +130,8 @@ function toErrorBody(method: string, error: unknown): ErrorBody {
   if (error instanceof ExplainError) return explainErrorBody(error)
   if (error instanceof RunNotExplainableError) return { code: 'RUN_NOT_EXPLAINABLE', message: error.message }
   if (error instanceof ExplainBusyError) return { code: 'EXPLAIN_BUSY', message: error.message }
+  if (error instanceof RecipeInvalidError) return { code: 'RECIPE_INVALID', message: error.message, problems: error.problems }
+  if (error instanceof RecipeNotFoundError) return { code: 'NOT_FOUND', message: error.message }
   if (error instanceof MemoryInvalidError) return { code: 'MEMORY_INVALID', message: 'the note is not valid', problems: error.problems }
   if (error instanceof MemoryFullError) return { code: 'MEMORY_FULL', message: error.message }
   if (error instanceof MemoryDuplicateError) return { code: 'MEMORY_DUPLICATE', message: error.message }
@@ -419,6 +422,8 @@ export class RillServer {
       saveMemory: (params) => ({ item: engine.saveMemory({ text: params.text, ...(params.id === undefined ? {} : { id: params.id }) }) }),
       deleteMemory: (params) => ({ deleted: engine.deleteMemory(params.id) }),
       llmModels: () => engine.llmModels(),
+      listRecipes: () => ({ recipes: engine.listRecipes() }),
+      instantiateRecipe: (params) => engine.instantiateRecipe(params),
       explainRun: async (params, signal) => {
         const result = await engine.explainRun({ runId: params.runId, ...(params.effort === undefined ? {} : { effort: params.effort }), signal })
         return {
