@@ -13,3 +13,7 @@ export function markHidden(text: string, options: { keepLayout?: boolean } = {})
 export function clampText(text: string, max: number): { shown: string; cut: boolean } {
   return text.length <= max ? { shown: text, cut: false } : { shown: truncate(text, max), cut: true }
 }
+
+export function plainText(text: string, max = 60): string {
+  return clampText(markHidden(text), max).shown
+}

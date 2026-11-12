@@ -1,0 +1,96 @@
+.bubble {
+  max-width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+}
+
+.bubble[data-role='user'] {
+  align-self: flex-end;
+  background: var(--accent-subtle);
+  border-color: var(--status-running-border);
+}
+
+.bubble::before {
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  content: attr(aria-label);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.text {
+  margin: 0;
+}
+
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  font-size: var(--font-size-xs);
+}
+
+.fileName {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.meta {
+  color: var(--text-secondary);
+}
+
+.badge {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--badge-external-border);
+  border-radius: var(--radius-pill);
+  background: var(--badge-external-bg);
+  color: var(--badge-external-text);
+  font-weight: 600;
+}
+
+.subheading {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.answers {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.answers dt {
+  color: var(--text-secondary);
+}
+
+.answers dd {
+  margin: 0 0 var(--space-1);
+  font-weight: 600;
+}

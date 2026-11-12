@@ -1,0 +1,85 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.summary {
+  margin: 0;
+}
+
+.heading {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-sm);
+}
+
+.patch {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-base);
+}
+
+.list {
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.graph {
+  height: 260px;
+  min-width: 0;
+}
+
+.banner {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--badge-external-border);
+  border-radius: var(--radius-md);
+  background: var(--badge-external-bg);
+  color: var(--badge-external-text);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.deploy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.button {
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button:disabled {
+  border-color: var(--border-default);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.progress {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.done {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--status-succeeded-border);
+  border-radius: var(--radius-md);
+  background: var(--status-succeeded-bg);
+  color: var(--status-succeeded-text);
+  font-weight: 600;
+}

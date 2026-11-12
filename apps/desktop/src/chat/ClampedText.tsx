@@ -10,6 +10,7 @@ export interface ClampedTextProps {
   text: string
   max?: number
   className?: string
+  labelFor?: string
 }
 
 function source(text: string): string {
@@ -18,7 +19,7 @@ function source(text: string): string {
   return text.slice(0, last >= 0xd800 && last <= 0xdbff ? HARD_MAX - 1 : HARD_MAX)
 }
 
-export function ClampedText({ text, max = DEFAULT_MAX, className }: ClampedTextProps) {
+export function ClampedText({ text, max = DEFAULT_MAX, className, labelFor }: ClampedTextProps) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const marked = useMemo(() => markHidden(source(text), { keepLayout: true }), [text])
@@ -27,7 +28,13 @@ export function ClampedText({ text, max = DEFAULT_MAX, className }: ClampedTextP
   const expandable = clamped.cut || unseen > 0
   return (
     <span className={className === undefined ? styles.root : `${styles.root} ${className}`}>
-      <bdi className={styles.text}>{open ? marked : clamped.shown}</bdi>
+      {labelFor === undefined ? (
+        <bdi className={styles.text}>{open ? marked : clamped.shown}</bdi>
+      ) : (
+        <label htmlFor={labelFor}>
+          <bdi className={styles.text}>{open ? marked : clamped.shown}</bdi>
+        </label>
+      )}
       {open && unseen > 0 ? <span className={styles.rest}>{t('chat.text.hidden', { count: unseen })}</span> : null}
       {expandable ? (
         <button type="button" className={styles.toggle} aria-expanded={open} onClick={() => setOpen(!open)}>
