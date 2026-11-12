@@ -286,6 +286,10 @@ The robust answer for non-receipts is in the workflow, not in the wording: extra
 
 **No model number exists yet.** The suite was built without an API key. Everything that does not need a model is verified offline: the scoring, the assertions, the report and the budget guard run against fake planners in `pnpm test`. Every number about a model (validity, cost, latency, question quality) needs a live run, so the tables below say what is measured, not what was found.
 
+### Draft memory cases
+
+Seven draft cases for the planner memory (Plan 3f) live apart from the 48: `src/suites/planner/data/memory-draft/cases.draft.json`, its references and one generated attachment. They are marked `DRAFT: not approved`, carry the category `memory`, and are not part of the 48-case list: the default suite, the CLI and the group list do not load them. The user approves them before they join. A case carries its saved notes in `context.memory`. Case 2 is the approved `ambig-01-which-folder` word for word, as the control of case 1, and `pairs` in the file links the two: the paired difference "questions avoided with memory" (`memoryPairMetrics`, shown by `renderPlannerReport` when it gets `pairs`) counts pairs where only the run without notes asked, minus pairs where only the run with notes asked. They run offline today through `createPlannerSuite(data from memoryDraftData(), files.plannerDir = MEMORY_DRAFT_ATTACHMENTS_DIR)` against the oracle, null and perturbed planners; no model has seen them. `pnpm --filter @rill/eval generate-memory-draft-attachments` rewrites the attachment.
+
 ### Run it
 
 All commands run from the repository root.

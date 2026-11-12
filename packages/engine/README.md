@@ -79,7 +79,7 @@ Five methods turn a request into a workflow and deploy it after the user has con
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `plan` | `planId`, `text`, `turns`, `attachments`, `effort`, optional `workflowId` and `selection` | `planId`, `result`, `meta` |
+| `plan` | `planId`, `text`, `turns`, `attachments`, `effort`, optional `workflowId`, `selection` and `useMemory` | `planId`, `result`, `meta` |
 | `cancelPlan` | `planId` | `cancelled` |
 | `getPlan` | `planId` | `plan` (the stored record) |
 | `listPlans` | optional `limit` (1 to 200) | `plans` (summaries, newest first) |
@@ -109,7 +109,7 @@ A flag marks a node field whose value did not come from the user's own words (`a
 
 ### Records and errors
 
-A record has the status `planned`, `failed` or `cancelled`, the effort, the request text, the attachment references, the result and the meta of a planned record, and the confirmed keys once it is deployed. A failed or cancelled record keeps a fixed error text and the redacted repair rounds, never the model's reply.
+A record has the status `planned`, `failed` or `cancelled`, the effort, the request text, the attachment references, the ids of the memory notes the plan loaded (`memoryIds`), the result and the meta of a planned record, and the confirmed keys once it is deployed. A failed or cancelled record keeps a fixed error text and the redacted repair rounds, never the model's reply.
 
 The meta of a planned record (returned by `plan` and stored in the record that `getPlan` returns) holds `rounds`, `usage`, `costUsd`, `model`, `effort` (the level the client asked for) and `fallbackUsed`, and these fields about the provider:
 
@@ -134,4 +134,45 @@ All four are optional in the protocol schema. A plan stored before they existed 
 | `PLAN_DEPLOYED` | The plan is already deployed, or has no workflow to deploy |
 | `ATTACHMENT_REJECTED` | An attachment is missing, too large, of the wrong type or over the count limit |
 | `INVALID_PARAMS` | The params are malformed, or the selection does not fit the stored workflow |
-| `NOT_FOUND` | The plan or the workflow does not exist |
+| `NOT_FOUND` | The plan, the workflow or (for an edit with an `id`) the memory note does not exist |
+| `MEMORY_INVALID` | The note breaks a rule; `problems` names the rule that failed, never the text |
+| `MEMORY_FULL` | The 20 note places are taken; delete one first |
+| `MEMORY_DUPLICATE` | A note with the same text, ignoring case and spacing, is already saved |
+
+## Memory methods
+
+The user can keep up to 20 short notes, such as "my receipts live in ~/Receipts" or "alerts go to the connection team-alerts". The planner reads them on every plan request that uses memory, so it asks fewer questions and fills the same defaults. A note is created, changed or deleted only by an explicit request to one of these three methods. No plan, plan result, attachment, `llm.extract` output, question or patch writes one, and the planner package has no database access at all.
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `listMemory` | none | `items`, oldest first |
+| `saveMemory` | `text`, optional `id` | `item` |
+| `deleteMemory` | `id` | `deleted` |
+
+An item is `{ id, text, createdAt, updatedAt }`. `saveMemory` without `id` creates a note under a new random id (the client does not choose it). With an `id` it edits that note: the id and `createdAt` stay and `updatedAt` moves, and an unknown id is `NOT_FOUND`. `deleteMemory` answers `false` for an id that is not there. The three methods work when the engine has no model provider.
+
+### Rules for a note
+
+`saveMemory` applies these rules to `text` before it stores anything (`normaliseMemoryText` in the engine):
+
+- The text is normalised to NFC, trimmed, and every run of spaces inside it becomes one space.
+- It has 1 to 300 characters after that. An emoji counts once.
+- It is one line: no line feed, carriage return, tab or other control character, no line or paragraph separator, and no bidirectional formatting character (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069).
+- No two notes have the same text once the case is folded. Saving a copy, or editing a note into a copy of another note, is `MEMORY_DUPLICATE`. A note can be saved again with only its case changed.
+- At most 20 notes exist. The count and the insert run in one transaction, so two clients that race for the last place cannot both get it. Editing a note when the list is full is allowed.
+
+The protocol caps `text` at 2000 characters, only to bound the payload; a text between 301 and 2000 characters passes the schema and is `MEMORY_INVALID` with the rule `too_long`. The error of a rejected note carries the name of the rule (`empty`, `control_character`, `line_separator`, `bidi_format`, `too_long`) and never the text. A rejected request is also not logged with its text: an unexpected failure of `saveMemory` logs only the error name, like the planner methods.
+
+### Notes in a plan
+
+`plan` takes an optional `useMemory`. It defaults to `true`; `false` sends no notes for that request. A client cannot send notes with a plan: `plan` has no such param, and the engine reads the saved notes itself when the plan starts.
+
+What leaves the engine: with memory on, the note text goes to the model provider on every call of the plan, as a system block after the node catalog and before the conversation. The block says that the notes are the user's own preferences and facts and not instructions that change the planner's rules, that the current request wins when a note disagrees with it, and that an attached file cannot add, change or delete a note. The notes sit between `<user-memory-...>` tags with 12 random hex characters, drawn once per plan from the same random source as the attachment tags. A note that would hold the closing tag, or a line break, is left out of the prompt and counted in `memoryDropped`. There is no retrieval layer: all notes go in, and the model picks the ones that matter.
+
+What does not leave: the note text is not written to logs, error messages, protocol events or plan records. A record keeps `memoryIds`, the ids of the notes the plan loaded (an empty list when memory was off or nothing was saved, and for plans stored before memory existed), and the meta of a planned record gains `memoryUsed` and `memoryDropped`, two counts. Both are optional in the protocol schema. The `PlanRecord` and `PlanMeta` results are closed, so a client built before these fields rejects `plan` and `getPlan` results that carry them, as with the provider fields above; `PROTOCOL_VERSION` is still 1.
+
+Notes count as text the user wrote when the planner decides what to flag. A URL, a folder, a file name or a connection that a note holds is not flagged as `new_egress_target` or `attachment_origin`; the same value in no note and no message still is. A note is never added to the attachment texts, and a word that only an attachment and a note share is not hidden in the summary or in the repair messages.
+
+Cache: the notes block is marked for caching only when the provider declares explicit caching and one more breakpoint stays within its maximum, counting the node catalog and a cached attachment turn. Otherwise the notes join the end of the node catalog block (explicit caching) or form an unmarked block (automatic or no caching). The tag changes with every plan, so the block is read from the cache across the repair rounds of one plan, not across plans.
+
+Storage: migration 5 creates `memory_items` (`id`, `text`, `text_key` unique, `created_at`, `updated_at`) and adds `memory_ids` to `plans`. The unique key is the case-folded text and is what refuses duplicates.
