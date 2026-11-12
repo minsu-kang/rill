@@ -50,7 +50,9 @@ describe('schemas against the planner types', () => {
         Type.Static<typeof PlanMetaSchema>,
         Pick<PlannerPlanResult, 'rounds' | 'usage' | 'costUsd' | 'model' | 'effort' | 'fallbackUsed'>
       >,
-    ] = [true, true, true, true, true, true, true, true]
+      MutuallyAssignable<NonNullable<Type.Static<typeof PlanMetaSchema>['effortDetail']>, PlannerPlanResult['meta']['effort']>,
+      MutuallyAssignable<NonNullable<Type.Static<typeof PlanMetaSchema>['provider']>, PlannerPlanResult['meta']['provider']>,
+    ] = [true, true, true, true, true, true, true, true, true, true]
     expect(checks.every(Boolean)).toBe(true)
   })
 })
@@ -336,6 +338,26 @@ describe('PlanMetaSchema', () => {
     expect(valid({ ...meta, costUsd: null })).toBe(true)
     const bare = without(meta.rounds[0]!.issues[0]!, 'hint')
     expect(valid({ ...meta, rounds: [{ ...meta.rounds[0], issues: [bare] }] })).toBe(true)
+  })
+
+  it('accepts the provider fields, and a meta stored before they existed', () => {
+    const detail = { requested: 'xhigh', effective: 'high', native: 'high', collapsed: true }
+    expect(valid({ ...meta, provider: 'gemini', effortDetail: detail, reasoningCapped: true })).toBe(true)
+    expect(valid({ ...meta, provider: 'grok', effortDetail: { ...detail, collapsed: false }, reasoningCapped: false, costNote: 'soft cap' })).toBe(true)
+    expect(valid(meta)).toBe(true)
+    expect(Object.keys(meta)).not.toContain('provider')
+  })
+
+  it('rejects malformed provider fields', () => {
+    const detail = { requested: 'xhigh', effective: 'high', native: 'high', collapsed: true }
+    expect(valid({ ...meta, provider: 7 })).toBe(false)
+    expect(valid({ ...meta, reasoningCapped: 'yes' })).toBe(false)
+    expect(valid({ ...meta, costNote: 1 })).toBe(false)
+    expect(valid({ ...meta, effortDetail: { ...detail, collapsed: 'no' } })).toBe(false)
+    expect(valid({ ...meta, effortDetail: { ...detail, effective: 'ultra' } })).toBe(false)
+    expect(valid({ ...meta, effortDetail: { ...detail, extra: 1 } })).toBe(false)
+    expect(valid({ ...meta, effortDetail: { requested: 'high', effective: 'high', native: 'high' } })).toBe(false)
+    expect(valid({ ...meta, effortDetail: 'high' })).toBe(false)
   })
 
   it('rejects bad rounds, usage and extra properties', () => {

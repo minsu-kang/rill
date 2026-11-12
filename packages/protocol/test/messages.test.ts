@@ -145,6 +145,7 @@ describe('METHODS', () => {
         'listPlans',
         'listRuns',
         'listWorkflows',
+        'llmModels',
         'nodeCatalog',
         'ping',
         'plan',

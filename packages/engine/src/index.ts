@@ -1,6 +1,7 @@
 export * from './db'
 export * from './store'
 export * from './engine'
+export * from './llm-models'
 export * from './events'
 export * from './queue'
 export * from './clock'

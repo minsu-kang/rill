@@ -1,5 +1,6 @@
 import { WorkflowSchema } from '@rill/dsl'
 import Type from 'typebox'
+import { LlmModelsResultSchema } from './llm'
 import {
   AttachmentRefSchema,
   IdSchema,
@@ -143,6 +144,7 @@ export const METHODS = {
     params: Type.Object({ planId: id, confirmed: Type.Array(Type.String(), { maxItems: 200 }) }, closed),
     result: Type.Object({ workflowId: id }),
   },
+  llmModels: { params: noParams, result: LlmModelsResultSchema },
   ping: { params: noParams, result: Type.Object({ time: Type.Number() }) },
 } as const
 

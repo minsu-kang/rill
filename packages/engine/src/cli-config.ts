@@ -1,7 +1,9 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { AnthropicProvider, DEFAULT_MODEL, LlmError, PROVIDER_IDS, createProvider, providerDescriptor, type LlmProvider, type ProviderId } from '@rill/llm'
 import { assertPathAllowed, expandHome, type ConnectionResolver } from '@rill/nodes-core'
 import type { PlanConnection } from '@rill/planner'
+import { configuredProviders, type EngineLlmInfo } from './llm-models'
 
 export class UsageError extends Error {}
 
@@ -58,4 +60,55 @@ export function prepareAttachmentsDir(dir: string, allow: readonly string[] | un
   }
   mkdirSync(path, { recursive: true, mode: 0o700 })
   return path
+}
+
+export interface LlmChoice {
+  llm: LlmProvider | undefined
+  info: EngineLlmInfo
+}
+
+export interface LlmChoiceInput {
+  provider?: string
+  model?: string
+  noFallback?: boolean
+  env: Readonly<Record<string, string | undefined>>
+}
+
+function isProviderId(value: string): value is ProviderId {
+  return (PROVIDER_IDS as readonly string[]).includes(value)
+}
+
+function checkModel(provider: ProviderId, model: string): void {
+  try {
+    createProvider(`${provider}:${model}`, { env: {} })
+  } catch (error) {
+    if (error instanceof LlmError && error.kind === 'invalid_request') throw new UsageError(`--llm-model: ${error.message}`)
+    if (!(error instanceof LlmError && error.kind === 'auth')) throw error
+  }
+}
+
+export function chooseLlm(input: LlmChoiceInput): LlmChoice {
+  const provider = input.provider ?? 'anthropic'
+  if (!isProviderId(provider)) throw new UsageError(`--llm-provider must be one of ${PROVIDER_IDS.join(', ')}`)
+  const configured = configuredProviders(input.env)
+  if (provider === 'anthropic') {
+    if (input.model !== undefined) checkModel(provider, input.model)
+    return {
+      llm: new AnthropicProvider({
+        ...(input.model === undefined ? {} : { model: input.model }),
+        ...(input.noFallback === true ? { refusalFallback: false } : {}),
+      }),
+      info: { configured, active: { provider, model: input.model ?? DEFAULT_MODEL } },
+    }
+  }
+  if (input.model === undefined) {
+    const known = providerDescriptor(provider).models.map((model) => model.id).join(', ')
+    throw new UsageError(`--llm-provider ${provider} needs --llm-model; known models: ${known}`)
+  }
+  checkModel(provider, input.model)
+  if (!configured.includes(provider)) return { llm: undefined, info: { configured, active: null } }
+  return {
+    llm: createProvider(`${provider}:${input.model}`, { env: input.env }),
+    info: { configured, active: { provider, model: input.model } },
+  }
 }

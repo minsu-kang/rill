@@ -130,6 +130,11 @@ const PlanRoundSchema = Type.Object(
   closed,
 )
 
+export const PlanEffortDetailSchema = Type.Object(
+  { requested: PlanEffortSchema, effective: PlanEffortSchema, native: Type.String(), collapsed: Type.Boolean() },
+  closed,
+)
+
 export const PlanMetaSchema = Type.Object(
   {
     rounds: Type.Array(PlanRoundSchema),
@@ -138,6 +143,10 @@ export const PlanMetaSchema = Type.Object(
     model: Type.String(),
     effort: PlanEffortSchema,
     fallbackUsed: Type.Boolean(),
+    provider: Type.Optional(Type.String()),
+    effortDetail: Type.Optional(PlanEffortDetailSchema),
+    reasoningCapped: Type.Optional(Type.Boolean()),
+    costNote: Type.Optional(Type.String()),
   },
   closed,
 )
@@ -183,6 +192,7 @@ export type PlanQuestion = Type.Static<typeof PlanQuestionSchema>
 export type PatchOp = Type.Static<typeof PatchOpSchema>
 export type PlanResultBody = Type.Static<typeof PlanResultBodySchema>
 export type PlanTurn = Type.Static<typeof PlanTurnSchema>
+export type PlanEffortDetail = Type.Static<typeof PlanEffortDetailSchema>
 export type PlanMeta = Type.Static<typeof PlanMetaSchema>
 export type PlanRecord = Type.Static<typeof PlanRecordSchema>
 export type PlanSummary = Type.Static<typeof PlanSummarySchema>

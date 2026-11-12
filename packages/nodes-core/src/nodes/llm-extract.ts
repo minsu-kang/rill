@@ -238,7 +238,7 @@ export const llmExtract = defineAction({
   validate,
   execute: async (config, ctx) => {
     const llm = ctx.llm
-    if (!llm) throw new Error('llm.extract needs an LLM provider; set ANTHROPIC_API_KEY')
+    if (!llm) throw new Error('llm.extract needs an LLM provider; start the engine with --llm-provider and its key variable')
     const problems = validate(config)
     if (problems.length > 0) throw new Error(problems[0])
     const tag = `document-${randomBytes(6).toString('hex')}`

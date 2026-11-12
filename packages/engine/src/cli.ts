@@ -1,13 +1,15 @@
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
-import { AnthropicProvider } from '@rill/llm'
+import { PROVIDER_IDS, providerDescriptor } from '@rill/llm'
 import { createCoreRegistry } from '@rill/nodes-core'
 import { PROTOCOL_VERSION } from '@rill/protocol'
-import { UsageError, loadConnections, prepareAttachmentsDir } from './cli-config'
+import { UsageError, chooseLlm, loadConnections, prepareAttachmentsDir } from './cli-config'
 import { Db } from './db'
 import { Engine, WorkflowValidationError } from './engine'
 import { RillServer } from './server/server'
+
+const PROVIDER_TABLE = PROVIDER_IDS.map((id) => `  ${id.padEnd(10)}${providerDescriptor(id).keyEnv}`).join('\n')
 
 const USAGE = `usage:
   rill-engine run <workflow.json> [--db <path>] [--payload <json>] [--dry-run] [--allow <dir>]... [--connections <file.json>]
@@ -15,13 +17,15 @@ const USAGE = `usage:
   rill-engine serve [--db <path>] [--allow <dir>]... [--connections <file.json>] [--attachments-dir <dir>] [--port <n>] [--webhook-port <n>] [--shutdown-timeout <ms>]
   rill-engine recover [--db <path>] [--allow <dir>]... [--connections <file.json>]
 
-Every command accepts --llm-model <id> (default claude-opus-5-5) and --llm-no-fallback for llm.extract steps, which call the Anthropic API with the credentials in ANTHROPIC_API_KEY.
+Every command accepts --llm-provider <id> (default anthropic), --llm-model <id> and --llm-no-fallback. The chosen provider serves llm.extract steps and, for serve, the planner. Providers and the environment variable that holds each key:
+${PROVIDER_TABLE}
+--llm-model defaults to claude-opus-5-5 for anthropic and is required for every other provider; an unknown model, or a Meta model whose id ends in -contributor, is refused. --llm-no-fallback turns off the Anthropic refusal fallback and has no effect on the other providers. When the key of a provider other than anthropic is missing the engine starts without a model provider: plan requests fail with LLM_UNAVAILABLE and llm.extract steps fail. The llmModels method lists the models, which providers have a key and the active model, and never returns a key.
 
 serve reads its access token from the RILL_TOKEN environment variable (16 or more characters from A-Z, a-z, 0-9 and !#$%&'*+-.^_\`|~) and prints a generated one when it is not set.
 
 Connections file: a JSON object that maps a connection name to either a secret string or {"secret": "...", "kind": "slack" | "http" | "webhookSecret"}. Nodes can use both forms. Only the second form is offered to the planner, by name and kind and never with the secret.
 
-Planning: serve answers the planner methods (plan, cancelPlan, getPlan, listPlans, deployPlan). The planner calls the Anthropic API with the credentials in ANTHROPIC_API_KEY. It can only propose file paths inside the --allow folders, so without --allow it cannot propose reading or writing files. Plan attachments are read from --attachments-dir (created with mode 0700 when missing, and inside an --allow folder when any is given). A client puts each file there as <id>.<ext> and sends only the id over the protocol.`
+Planning: serve answers the planner methods (plan, cancelPlan, getPlan, listPlans, deployPlan) with the chosen provider and the key in its environment variable (ANTHROPIC_API_KEY unless --llm-provider says otherwise). It can only propose file paths inside the --allow folders, so without --allow it cannot propose reading or writing files. Plan attachments are read from --attachments-dir (created with mode 0700 when missing, and inside an --allow folder when any is given). A client puts each file there as <id>.<ext> and sends only the id over the protocol.`
 
 function waitForStopSignal(): Promise<void> {
   return new Promise((resolve) => {
@@ -83,6 +87,7 @@ async function main(argv: string[]): Promise<number> {
       port: { type: 'string' },
       'webhook-port': { type: 'string' },
       'shutdown-timeout': { type: 'string' },
+      'llm-provider': { type: 'string' },
       'llm-model': { type: 'string' },
       'llm-no-fallback': { type: 'boolean' },
       'attachments-dir': { type: 'string' },
@@ -96,6 +101,12 @@ async function main(argv: string[]): Promise<number> {
     const webhookPort = toPort('--webhook-port', values['webhook-port'])
     const shutdownTimeout = toMillis('--shutdown-timeout', values['shutdown-timeout'], 10_000)
     const llmModel = toModel(values['llm-model'])
+    const chosen = chooseLlm({
+      ...(values['llm-provider'] === undefined ? {} : { provider: values['llm-provider'] }),
+      ...(llmModel === undefined ? {} : { model: llmModel }),
+      noFallback: values['llm-no-fallback'] ?? false,
+      env: process.env,
+    })
     const connections = loadConnections(values.connections)
     if (values['attachments-dir'] !== undefined && command !== 'serve') {
       throw new UsageError('--attachments-dir is only used by serve')
@@ -111,10 +122,8 @@ async function main(argv: string[]): Promise<number> {
       planConnections: connections.planConnections,
       ...(attachmentsRoot === undefined ? {} : { attachmentsRoot }),
       webhookPort: command === 'serve' ? webhookPort : port,
-      llm: new AnthropicProvider({
-        ...(llmModel === undefined ? {} : { model: llmModel }),
-        ...(values['llm-no-fallback'] ? { refusalFallback: false } : {}),
-      }),
+      ...(chosen.llm === undefined ? {} : { llm: chosen.llm }),
+      llmInfo: chosen.info,
     })
     if (command === 'run' && file) {
       const id = engine.deploy(JSON.parse(readFileSync(file, 'utf8')))

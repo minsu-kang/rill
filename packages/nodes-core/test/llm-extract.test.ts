@@ -179,7 +179,7 @@ describe('llm.extract result', () => {
 
 describe('llm.extract input checks', () => {
   it('needs a provider', async () => {
-    await expect(run({ text: 'x', fields }, undefined)).rejects.toThrow('llm.extract needs an LLM provider; set ANTHROPIC_API_KEY')
+    await expect(run({ text: 'x', fields }, undefined)).rejects.toThrow('llm.extract needs an LLM provider; start the engine with --llm-provider and its key variable')
   })
 
   it('needs exactly one of file and text', async () => {

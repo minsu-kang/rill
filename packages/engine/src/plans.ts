@@ -155,6 +155,15 @@ export function plannedRecord(source: PlanSource, planned: PlanResult, createdAt
     model: planned.model,
     effort: planned.effort,
     fallbackUsed: planned.fallbackUsed,
+    provider: planned.meta.provider,
+    effortDetail: {
+      requested: planned.meta.effort.requested,
+      effective: planned.meta.effort.effective,
+      native: planned.meta.effort.native,
+      collapsed: planned.meta.effort.collapsed,
+    },
+    reasoningCapped: planned.meta.reasoningCapped,
+    ...(planned.meta.costNote === undefined ? {} : { costNote: planned.meta.costNote }),
   }
   const record: StoredPlan = {
     planId: source.planId,

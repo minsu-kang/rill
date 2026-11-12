@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { childEnvironment } from './llm-env'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..')
 const cli = join(root, 'packages/engine/src/cli.ts')
@@ -58,7 +59,7 @@ function runCli(args: string[], env: Record<string, string>) {
   return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
     const child = spawn(process.execPath, ['--import', 'tsx', cli, ...args], {
       cwd: root,
-      env: { ...process.env, ...env },
+      env: childEnvironment(env),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { RillClient } from '@rill/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { UsageError, loadConnections, parseConnections, prepareAttachmentsDir } from '../src/cli-config'
+import { childEnvironment } from './llm-env'
 import { exited, waitFor } from './process'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -216,10 +217,7 @@ describe('prepareAttachmentsDir', () => {
 })
 
 function cliEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, RILL_TOKEN: TOKEN, ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' }
-  delete env.ANTHROPIC_API_KEY
-  delete env.ANTHROPIC_AUTH_TOKEN
-  return { ...env, ...extra }
+  return childEnvironment({ RILL_TOKEN: TOKEN, ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', ...extra })
 }
 
 async function fakeAnthropic(): Promise<{ baseUrl: string; bodies: string[] }> {

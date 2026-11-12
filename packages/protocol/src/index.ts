@@ -1,5 +1,6 @@
 export * from './events'
 export * from './plan'
+export * from './llm'
 export * from './methods'
 export * from './messages'
 export * from './client'

@@ -82,12 +82,14 @@ function issueProblems(issues: readonly PlanIssue[]): string[] {
   return issues.slice(0, MAX_PROBLEMS).map((issue) => `${issue.code} at ${issue.pointer === '' ? '/' : issue.pointer}`)
 }
 
+const isAuthFailure = (error: unknown): boolean => error instanceof LlmError && error.kind === 'auth'
+
+const REJECTED_CREDENTIALS: ErrorBody = { code: 'LLM_UNAVAILABLE', message: 'the model provider rejected the credentials' }
+
 function planErrorBody(error: PlanError): ErrorBody {
   switch (error.kind) {
     case 'provider':
-      return error.cause instanceof LlmError && error.cause.kind === 'auth'
-        ? { code: 'LLM_UNAVAILABLE', message: 'the model provider rejected the credentials' }
-        : { code: 'PLAN_PROVIDER', message: 'the model provider failed' }
+      return isAuthFailure(error.cause) ? REJECTED_CREDENTIALS : { code: 'PLAN_PROVIDER', message: 'the model provider failed' }
     case 'invalid_after_repair':
       return { code: 'PLAN_INVALID', message: 'no valid plan after the repair rounds', problems: issueProblems(error.lastIssues) }
     case 'invalid_request':
@@ -105,6 +107,7 @@ function toErrorBody(method: string, error: unknown): ErrorBody {
     return { code: 'INVALID_WORKFLOW', message: 'the workflow is not valid', problems }
   }
   if (error instanceof PlanError) return planErrorBody(error)
+  if (isAuthFailure(error)) return REJECTED_CREDENTIALS
   if (error instanceof AttachmentError) return { code: 'ATTACHMENT_REJECTED', message: error.message }
   if (error instanceof LlmUnavailableError) return { code: 'LLM_UNAVAILABLE', message: error.message }
   if (error instanceof PlanBusyError) return { code: 'PLAN_BUSY', message: error.message }
@@ -386,6 +389,7 @@ export class RillServer {
       listRuns: (params) => ({ runs: engine.listRuns({ workflowId: params.workflowId, limit: params.limit }) }),
       getRun: (params) => engine.getRunDetail(params.runId),
       nodeCatalog: () => ({ nodes: engine.nodeCatalog() }),
+      llmModels: () => engine.llmModels(),
       plan: (params) => engine.plan(params),
       cancelPlan: (params) => ({ cancelled: engine.cancelPlan(params.planId) }),
       getPlan: (params) => ({ plan: engine.getPlan(params.planId) }),

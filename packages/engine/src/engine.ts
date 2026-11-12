@@ -4,6 +4,7 @@ import type { LlmProvider } from '@rill/llm'
 import { createPlanner, scrubResultText, userTexts, type AttachmentStore, type PlanConnection, type PlanRequest, type PlanResult } from '@rill/planner'
 import type {
   AttachmentRef,
+  LlmModelsResult,
   NodeInfo,
   PlanEffort,
   PlanRecord,
@@ -18,6 +19,7 @@ import { systemClock, type Clock } from './clock'
 import type { Db } from './db'
 import { EventBus, type EngineListener } from './events'
 import { RunExecutor, type RunResult } from './executor'
+import { llmModelsResult, type EngineLlmInfo } from './llm-models'
 import {
   LlmUnavailableError,
   PlanBusyError,
@@ -50,6 +52,7 @@ export interface EngineOptions {
   maxConcurrentRuns?: number
   webhookPort?: number
   llm?: LlmProvider
+  llmInfo?: EngineLlmInfo
   attachmentsRoot?: string
   planConnections?: PlanConnection[]
   maxConcurrentPlans?: number
@@ -95,6 +98,7 @@ export class Engine {
   private readonly db: Db
   private readonly now: () => number
   private readonly llm: LlmProvider | undefined
+  private readonly llmInfo: EngineLlmInfo | undefined
   private readonly attachmentsRoot: string | undefined
   private readonly attachmentStore: AttachmentStore | undefined
   private readonly planConnections: PlanConnection[]
@@ -119,6 +123,10 @@ export class Engine {
     this.registry = options.registry
     this.allowedRoots = options.allowedRoots
     this.llm = options.llm
+    this.llmInfo =
+      options.llmInfo === undefined
+        ? undefined
+        : { configured: [...options.llmInfo.configured], active: options.llmInfo.active === null ? null : { ...options.llmInfo.active } }
     this.attachmentsRoot = options.attachmentsRoot
     this.attachmentStore = options.attachmentsRoot === undefined ? undefined : createFsAttachmentStore(options.attachmentsRoot)
     this.planConnections = options.planConnections ?? []
@@ -324,6 +332,10 @@ export class Engine {
 
   getRunDetail(runId: string): { run: RunSummary; steps: StepDetail[] } {
     return { run: this.store.getRunSummary(runId), steps: this.store.listStepDetails(runId) }
+  }
+
+  llmModels(): LlmModelsResult {
+    return llmModelsResult(this.llmInfo)
   }
 
   nodeCatalog(): NodeInfo[] {
