@@ -38,6 +38,30 @@
   min-height: 0;
 }
 
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  height: 100%;
+  min-height: 0;
+}
+
+.stackMain {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.extra {
+  flex: 0 1 auto;
+  max-height: 60%;
+  min-height: 0;
+  overflow: auto;
+}
+
+.runActions {
+  flex: 0 0 auto;
+}
+
 .errors {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--status-failed-border);

@@ -1,7 +1,28 @@
-import type { LlmModelsResult, MethodName, MethodParams, MethodResult } from '@rill/protocol'
+import { isTrigger, type Workflow } from '@rill/dsl'
+import {
+  METHODS,
+  RillError,
+  type EngineEvent,
+  type ExplainResult,
+  type LlmModelsResult,
+  type MethodName,
+  type MethodParams,
+  type MethodResult,
+  type NodeInfo,
+} from '@rill/protocol'
+import Value from 'typebox/value'
 import type { EngineClient } from '../engine/client'
-import { models } from '../fixtures/plan'
+import { createFakeClient, type FakeClient, type FakeWorkflow } from '../engine/fake-client'
+import { withExplainMethod, type ExplainScript } from '../engine/fake-explain'
+import { createFakeHost, type FakeHost, type FakeHostOptions, type FakeHostState } from '../engine/fake-host'
+import { withPlanMethods, type FakePlanData } from '../engine/fake-plan'
+import { withRecipeMethods, type FakeRecipeData } from '../engine/fake-recipes'
+import { catalog, fakeData } from '../fixtures'
+import { explainCases } from '../fixtures/explain'
+import { memoryFixtures, models, outcomeOf, results } from '../fixtures/plan'
+import { fixtureRecipeData } from '../fixtures/recipes'
 import type { HostApi, Settings } from '../shared/host-api'
+import type { ConnectedClient, ConnectFn } from './connection'
 
 export function modelsFor(settings: Settings): LlmModelsResult {
   const configured = new Set(settings.configuredProviders)
@@ -18,5 +39,180 @@ export function withHostModels(client: EngineClient, host: Pick<HostApi, 'settin
       if (method !== 'llmModels') return client.request(method, params)
       return modelsFor(await host.settings.get()) as MethodResult<M>
     },
+  }
+}
+
+export interface FakeWorldControl {
+  runOutcome: 'succeeded' | 'failed'
+  activationError: boolean
+  stepIntervalMs: number
+}
+
+export interface FakeWorldOptions {
+  host?: FakeHost
+  hostInit?: Partial<FakeHostState>
+  hostOptions?: FakeHostOptions
+  workflows?: readonly FakeWorkflow[]
+  catalog?: readonly NodeInfo[]
+  plan?: FakePlanData['script']
+  planDelayMs?: number
+  explain?: ExplainScript
+  recipes?: FakeRecipeData
+  control?: Partial<FakeWorldControl>
+}
+
+export interface FakeWorldCall {
+  method: MethodName
+  params: unknown
+}
+
+export interface FakeWorld {
+  host: FakeHost
+  client: EngineClient & { emit(event: EngineEvent): void }
+  connect: ConnectFn
+  control: FakeWorldControl
+  calls: FakeWorldCall[]
+  callsOf(method: MethodName): FakeWorldCall[]
+  workflowIds(): string[]
+}
+
+const DEFAULT_EXPLAIN: ExplainScript = (params): ExplainResult => ({ ...structuredClone(explainCases.threeActions), runId: params.runId })
+
+function failureText(node: string): string {
+  return `node ${node} failed: HTTP 503 from https://api.example.com/health`
+}
+
+export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
+  const host = options.host ?? createFakeHost(options.hostInit, options.hostOptions)
+  const control: FakeWorldControl = { runOutcome: 'succeeded', activationError: false, stepIntervalMs: 350, ...options.control }
+  const registry = new Map<string, FakeWorkflow>((options.workflows ?? fakeData.workflows).map((entry) => [entry.id, structuredClone(entry)]))
+  const nodeCatalog = options.catalog ?? catalog
+  const base: FakeClient = createFakeClient({ ...fakeData, workflows: [], catalog: nodeCatalog })
+  const plans = new Map<string, Workflow>()
+  const calls: FakeWorldCall[] = []
+  let runSerial = 0
+
+  const planned = withPlanMethods(base, {
+    models,
+    script: options.plan ?? (() => outcomeOf(results.workflow)),
+    memory: [...memoryFixtures.three],
+    ...(options.planDelayMs === undefined ? {} : { delayMs: options.planDelayMs }),
+  })
+  const recipes = withRecipeMethods(planned, options.recipes ?? fixtureRecipeData())
+  const inner = withExplainMethod(recipes, options.explain ?? DEFAULT_EXPLAIN)
+
+  function register(id: string, workflow: Workflow): void {
+    registry.set(id, { id, workflow: structuredClone(workflow), active: false, createdAt: Date.now() })
+  }
+
+  function entryOf(workflowId: string): FakeWorkflow {
+    const entry = registry.get(workflowId)
+    if (entry === undefined) throw new RillError('NOT_FOUND', `workflow not found: ${workflowId}`)
+    return entry
+  }
+
+  function checked(method: MethodName, params: unknown): void {
+    if (!Value.Check(METHODS[method].params, params)) throw new RillError('INVALID_PARAMS', `invalid ${method} params`)
+  }
+
+  function startRun(params: MethodParams<'startRun'>): MethodResult<'startRun'> {
+    checked('startRun', params)
+    const entry = entryOf(params.workflowId)
+    runSerial += 1
+    const runId = `run-fake-${String(runSerial).padStart(4, '0')}`
+    const dryRun = params.dryRun ?? false
+    const at = Date.now()
+    base.emit({ type: 'trigger.fired', at, workflowId: params.workflowId, runId })
+    const actions = entry.workflow.nodes.filter((node) => !isTrigger(node.type))
+    const failAt = control.runOutcome === 'failed' ? actions.length - 1 : -1
+    const events: EngineEvent[] = [{ type: 'run.started', at, runId, workflowId: params.workflowId, dryRun }]
+    let failedNode: string | undefined
+    for (const [index, node] of actions.entries()) {
+      if (failedNode !== undefined) {
+        events.push({ type: 'step.skipped', at, runId, nodeId: node.id })
+        continue
+      }
+      events.push({ type: 'step.started', at, runId, nodeId: node.id, attempt: 1 })
+      if (index === failAt) {
+        failedNode = node.id
+        events.push({ type: 'step.failed', at, runId, nodeId: node.id, attempt: 1, error: failureText(node.id), willRetry: false })
+      } else {
+        events.push({ type: 'step.succeeded', at, runId, nodeId: node.id, attempt: 1 })
+      }
+    }
+    events.push({ type: 'run.finished', at, runId, status: failedNode === undefined ? 'succeeded' : 'failed', error: failedNode === undefined ? null : failureText(failedNode) })
+    base.play(runId, events, (fn, ms) => void setTimeout(fn, ms), control.stepIntervalMs)
+    return { runId }
+  }
+
+  function setActive(params: { workflowId: string }, active: boolean): MethodResult<'activate'> {
+    const entry = entryOf(params.workflowId)
+    if (active && (control.activationError || entry.workflow.nodes.some((node) => node.type === 'trigger.manual@1'))) {
+      throw new RillError('ACTIVATION_FAILED', 'the trigger could not be started')
+    }
+    entry.active = active
+    base.emit({ type: active ? 'workflow.activated' : 'workflow.deactivated', at: Date.now(), workflowId: params.workflowId })
+    return {}
+  }
+
+  async function request<M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> {
+    calls.push({ method, params })
+    switch (method) {
+      case 'llmModels':
+        return modelsFor(await host.settings.get()) as MethodResult<M>
+      case 'listWorkflows':
+        return {
+          workflows: [...registry.values()]
+            .map((entry) => ({
+              id: entry.id,
+              name: entry.workflow.name,
+              active: entry.active ?? false,
+              triggerType: entry.workflow.nodes.find((node) => isTrigger(node.type))?.type ?? 'unknown',
+              createdAt: entry.createdAt ?? 0,
+            }))
+            .sort((a, b) => b.createdAt - a.createdAt),
+        } as MethodResult<M>
+      case 'getWorkflow':
+        return { workflow: structuredClone(entryOf((params as MethodParams<'getWorkflow'>).workflowId).workflow) } as MethodResult<M>
+      case 'startRun':
+        return startRun(params as MethodParams<'startRun'>) as MethodResult<M>
+      case 'activate':
+        checked('activate', params)
+        return setActive(params as MethodParams<'activate'>, true) as MethodResult<M>
+      case 'deactivate':
+        checked('deactivate', params)
+        return setActive(params as MethodParams<'deactivate'>, false) as MethodResult<M>
+      case 'plan': {
+        const answer = (await inner.request(method, params)) as MethodResult<'plan'>
+        if (answer.result.kind === 'workflow') plans.set(answer.planId, answer.result.workflow)
+        return answer as MethodResult<M>
+      }
+      case 'deployPlan': {
+        const answer = (await inner.request(method, params)) as MethodResult<'deployPlan'>
+        const workflow = plans.get((params as MethodParams<'deployPlan'>).planId)
+        if (workflow !== undefined) register(answer.workflowId, workflow)
+        return answer as MethodResult<M>
+      }
+      case 'deploy': {
+        const answer = (await inner.request(method, params)) as MethodResult<'deploy'>
+        register(answer.workflowId, (params as MethodParams<'deploy'>).workflow as Workflow)
+        return answer as MethodResult<M>
+      }
+      default:
+        return inner.request(method, params)
+    }
+  }
+
+  const client: FakeWorld['client'] = { request, onEvent: (listener) => base.onEvent(listener), emit: (event) => base.emit(event) }
+  const connect: ConnectFn = async () => ({ request: client.request, onEvent: client.onEvent }) satisfies ConnectedClient
+
+  return {
+    host,
+    client,
+    connect,
+    control,
+    calls,
+    callsOf: (method) => calls.filter((call) => call.method === method),
+    workflowIds: () => [...registry.keys()],
   }
 }
