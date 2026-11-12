@@ -97,3 +97,134 @@ export function classifyError(error: unknown): LlmError {
   const text = error instanceof Error ? detail(error) : String(error)
   return new LlmError('unknown', `unexpected error calling the model provider: ${text}`, { cause: error })
 }
+
+export type HeaderSource = Headers | Readonly<Record<string, string | undefined>> | undefined
+
+export interface HttpErrorInfo {
+  status: number
+  message: string
+  code?: string
+  type?: string
+  param?: string
+  retryAfterMs?: number
+  requestId?: string
+}
+
+export interface ClassifyHttpOptions {
+  kindFor?: (info: HttpErrorInfo) => LlmErrorKind | undefined
+  secrets?: readonly string[]
+  now?: () => number
+}
+
+const CONTEXT_OVERFLOW = /context (?:length|window|is too long)|too long for|exceeds? (?:the )?(?:maximum )?(?:context|input)|input (?:is )?too long|maximum context/i
+const SECRET_SHAPES = [
+  /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
+  /\b(?:sk|pk|rk|xai|gsk)-[A-Za-z0-9_*-]{8,}/g,
+  /\bAIza[0-9A-Za-z_-]{20,}/g,
+  /\bLLM_[A-Za-z0-9_-]{16,}/g,
+]
+
+function header(headers: HeaderSource, name: string): string | undefined {
+  if (headers === undefined) return undefined
+  if (headers instanceof Headers) return headers.get(name) ?? undefined
+  const wanted = name.toLowerCase()
+  for (const [key, value] of Object.entries(headers)) if (key.toLowerCase() === wanted) return value
+  return undefined
+}
+
+export function parseRetryAfterMs(headers: HeaderSource, now: () => number = Date.now): number | undefined {
+  const milliseconds = header(headers, 'retry-after-ms')?.trim()
+  if (milliseconds !== undefined && milliseconds !== '' && Number.isFinite(Number(milliseconds)) && Number(milliseconds) >= 0) return Number(milliseconds)
+  const raw = header(headers, 'retry-after')?.trim()
+  if (raw === undefined || raw === '') return undefined
+  const seconds = Number(raw)
+  if (Number.isFinite(seconds)) return seconds >= 0 ? Math.round(seconds * 1000) : undefined
+  const date = Date.parse(raw)
+  return Number.isNaN(date) ? undefined : Math.max(0, date - now())
+}
+
+export function redactSecrets(text: string, secrets: readonly string[] = []): string {
+  let out = text
+  for (const secret of secrets) if (secret.length >= 4) out = out.split(secret).join('[redacted]')
+  for (const shape of SECRET_SHAPES) out = out.replace(shape, '[redacted]')
+  return out
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : typeof value === 'number' ? String(value) : undefined
+}
+
+function errorInfo(status: number, bodyText: string, headers: HeaderSource, options: ClassifyHttpOptions): HttpErrorInfo {
+  const info: HttpErrorInfo = { status, message: bodyText }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(bodyText)
+  } catch {
+    parsed = undefined
+  }
+  if (typeof parsed === 'object' && parsed !== null) {
+    const outer = parsed as Record<string, unknown>
+    const inner = typeof outer.error === 'object' && outer.error !== null ? (outer.error as Record<string, unknown>) : outer
+    info.message = text(inner.message) ?? text(outer.error) ?? text(outer.message) ?? ''
+    const code = text(inner.code) ?? text(outer.code)
+    const type = text(inner.type) ?? text(inner.status)
+    if (code !== undefined) info.code = code.slice(0, 64)
+    if (type !== undefined) info.type = type.slice(0, 64)
+    const param = text(inner.param)
+    if (param !== undefined) info.param = param.slice(0, 64)
+  }
+  const retryAfterMs = parseRetryAfterMs(headers, options.now)
+  if (retryAfterMs !== undefined) info.retryAfterMs = retryAfterMs
+  const requestId = header(headers, 'x-request-id') ?? header(headers, 'request-id')
+  if (requestId !== undefined) info.requestId = requestId
+  return info
+}
+
+function defaultKind(status: number): LlmErrorKind {
+  if (status === 401 || status === 402 || status === 403) return 'auth'
+  if (status === 429) return 'rate_limit'
+  if (status === 408 || status === 504) return 'timeout'
+  if (status === 499) return 'connection'
+  if (status >= 500) return 'overloaded'
+  return 'invalid_request'
+}
+
+export function classifyHttp(status: number, bodyText: string, headers?: HeaderSource, options: ClassifyHttpOptions = {}): LlmError {
+  const info = errorInfo(status, bodyText, headers, options)
+  const meta: LlmErrorOptions = {
+    status,
+    ...(info.requestId === undefined ? {} : { requestId: info.requestId }),
+    ...(info.retryAfterMs === undefined ? {} : { retryAfterMs: info.retryAfterMs }),
+  }
+  const detail = detailOf(redactSecrets(info.message, options.secrets))
+  const label = info.code ?? info.type
+  const suffix = detail === '' ? '' : `: ${detail}`
+  if (CONTEXT_OVERFLOW.test(info.message)) {
+    return new LlmError('invalid_request', `the input is too long for this model (${status})${suffix}`, { ...meta, category: 'context_too_long' })
+  }
+  const custom = options.kindFor?.(info)
+  const kind = custom ?? defaultKind(status)
+  const category = label === undefined ? {} : { category: label }
+  if (custom !== undefined) {
+    return new LlmError(kind, `the model provider refused the request (${status}${label === undefined ? '' : ` ${label}`})${suffix}`, { ...meta, ...category })
+  }
+  switch (kind) {
+    case 'auth':
+      return new LlmError(kind, status === 402 ? 'the model provider reports a billing or credit problem (402)' : `the model provider rejected the credentials (${status})`, { ...meta, ...category })
+    case 'rate_limit':
+      return new LlmError(kind, 'the model provider is rate limiting requests (429)', { ...meta, ...category })
+    case 'timeout':
+      return new LlmError(kind, `the model provider timed out (${status})`, { ...meta, ...category })
+    case 'connection':
+      return new LlmError(kind, `the model provider closed the request (${status})`, { ...meta, ...category })
+    case 'overloaded':
+      return new LlmError(kind, `the model provider had a server error (${status})`, { ...meta, ...category })
+    default:
+      return new LlmError(kind, `the model provider rejected the request (${status})${suffix}`, { ...meta, ...category })
+  }
+}
+
+function detailOf(message: string): string {
+  const collapsed = message.replace(/\s+/g, ' ').trim()
+  return collapsed.length > MAX_DETAIL ? `${collapsed.slice(0, MAX_DETAIL)}...` : collapsed
+}

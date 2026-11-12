@@ -1,3 +1,5 @@
+import type { LlmCapabilities } from './capabilities'
+
 export type LlmEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
@@ -53,6 +55,7 @@ export interface LlmCallOptions {
 
 export interface LlmProvider {
   readonly name: string
+  readonly capabilities?: LlmCapabilities
   generate(request: LlmRequest, options?: LlmCallOptions): Promise<LlmResult>
 }
 

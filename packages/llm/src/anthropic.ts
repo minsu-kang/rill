@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { ANTHROPIC_CAPABILITIES } from './capabilities'
 import { classifyError } from './classify'
 import { MAX_TIMER_MS, startDeadline } from './deadline'
 import {
@@ -220,6 +221,7 @@ function toResult(reply: unknown, requestedModel: string, startedAt: number): Ll
 
 export class AnthropicProvider implements LlmProvider {
   readonly name = 'anthropic'
+  readonly capabilities = ANTHROPIC_CAPABILITIES
   private readonly options: AnthropicProviderOptions
   private readonly modelId: string
   private readonly effort: LlmEffort

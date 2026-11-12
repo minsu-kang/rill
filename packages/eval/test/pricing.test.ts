@@ -9,9 +9,9 @@ const usage = (inputTokens: number, outputTokens: number, cacheReadInputTokens =
 })
 
 describe('price table', () => {
-  it('is dated and lists the three models', () => {
-    expect(PRICE_TABLE_AS_OF).toBe('2026-11-03')
-    expect(Object.keys(PRICE_TABLE)).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'])
+  it('is dated and lists the three Claude models first', () => {
+    expect(PRICE_TABLE_AS_OF).toBe('2026-11-13')
+    expect(Object.keys(PRICE_TABLE).slice(0, 3)).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'])
   })
 
   it('holds the stated prices per million tokens', () => {
