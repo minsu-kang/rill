@@ -1,0 +1,122 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+}
+
+.root[data-dragging='true'] {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--status-running-border);
+  border-radius: var(--radius-md);
+  background: var(--status-running-bg);
+  color: var(--status-running-text);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.text {
+  width: 100%;
+  resize: vertical;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.text:disabled {
+  color: var(--text-muted);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.row > :last-child {
+  margin-left: auto;
+}
+
+.meta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.memory {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+}
+
+.drop {
+  margin: 0;
+  color: var(--text-accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.error {
+  margin: 0;
+  color: var(--status-failed-text);
+  font-size: var(--font-size-sm);
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.primary,
+.secondary {
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.secondary {
+  border: 1px solid var(--border-default);
+  background: var(--surface-base);
+  color: var(--text-primary);
+}
+
+.primary:disabled,
+.secondary:disabled {
+  border-color: var(--border-default);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
