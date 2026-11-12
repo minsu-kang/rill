@@ -16,6 +16,7 @@ export interface RetryOptions {
   sleep?: (ms: number) => Promise<void>
   random?: () => number
   maxRetries?: number
+  remainingMs?: () => number
   shouldRetry?: (error: LlmError) => boolean
 }
 
@@ -73,7 +74,9 @@ export async function withRetry<T>(attempt: (context: RetryAttempt) => Promise<T
         index < maxRetries &&
         (options.shouldRetry === undefined || options.shouldRetry(error))
       if (!retryable) throw error
-      await pause(retryDelayMs(error, index, random), options, error)
+      const delay = retryDelayMs(error, index, random)
+      if (options.remainingMs !== undefined && delay >= options.remainingMs()) throw error
+      await pause(delay, options, error)
     }
   }
 }

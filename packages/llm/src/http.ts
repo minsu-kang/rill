@@ -9,6 +9,7 @@ export interface LlmCall {
   readonly signal: AbortSignal
   readonly timeoutMs: number
   expired(): boolean
+  remainingMs(): number
   abortError(): LlmError
   dispose(): void
 }
@@ -51,6 +52,7 @@ export function startCall(timeoutMs: number, caller?: AbortSignal): LlmCall {
     signal: deadline.signal,
     timeoutMs,
     expired: deadline.expired,
+    remainingMs: deadline.remainingMs,
     abortError: () =>
       deadline.expired()
         ? new LlmError('timeout', `the model reply did not finish within ${timeoutMs} ms`)

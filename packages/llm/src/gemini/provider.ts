@@ -103,6 +103,7 @@ export class GeminiProvider implements LlmProvider {
       return await withRetry((attempt) => this.attempt(params, call, attempt, startedAt), {
         signal: call.signal,
         abortError: () => call.abortError(),
+        remainingMs: () => call.remainingMs(),
         shouldRetry: (error) => error.category !== 'quota_exceeded',
         ...(this.options.sleep === undefined ? {} : { sleep: this.options.sleep }),
         ...(this.options.random === undefined ? {} : { random: this.options.random }),

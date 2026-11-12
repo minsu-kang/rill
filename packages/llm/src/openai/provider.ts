@@ -101,6 +101,7 @@ export class OpenAiProvider implements LlmProvider {
       const reply = await withRetry((attempt) => this.attempt(built.body, streaming, call, attempt), {
         signal: call.signal,
         abortError: call.abortError,
+        remainingMs: call.remainingMs,
         ...(this.sleep === undefined ? {} : { sleep: this.sleep }),
         ...(this.random === undefined ? {} : { random: this.random }),
       })

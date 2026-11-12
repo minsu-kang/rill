@@ -108,6 +108,27 @@ describe('withRetry', () => {
     expect(h.sleeps).toEqual([4000, 4000])
   })
 
+  it('gives up at once when the wait would run past what is left of the deadline', async () => {
+    const h = harness([fail('rate_limit', 4000)], { random: () => 0, remainingMs: () => 4000 })
+    await expect(h.run()).rejects.toMatchObject({ kind: 'rate_limit' })
+    expect(h.calls()).toBe(1)
+    expect(h.sleeps).toEqual([])
+  })
+
+  it('waits when the delay is shorter than what is left of the deadline', async () => {
+    const h = harness([fail('rate_limit', 4000), 'ok'], { random: () => 0, remainingMs: () => 4001 })
+    await expect(h.run()).resolves.toBe('ok')
+    expect(h.sleeps).toEqual([4000])
+  })
+
+  it('asks for the time left before every wait, so a later wait can be refused', async () => {
+    const left = [10_000, 3000]
+    const h = harness([fail('overloaded', 4000)], { random: () => 0, remainingMs: () => left.shift() ?? 0 })
+    await expect(h.run()).rejects.toMatchObject({ kind: 'overloaded' })
+    expect(h.calls()).toBe(2)
+    expect(h.sleeps).toEqual([4000])
+  })
+
   it('lets the caller narrow what is retried', async () => {
     const h = harness([fail('rate_limit')], { shouldRetry: () => false })
     await expect(h.run()).rejects.toMatchObject({ kind: 'rate_limit' })

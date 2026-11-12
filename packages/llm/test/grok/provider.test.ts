@@ -129,8 +129,8 @@ describe('request shape', () => {
   it('reports a deadline that expires while waiting to retry as a timeout, not as a cancel', async () => {
     const { transport } = setup()
     transport.script(errorReply(503, { error: { message: 'busy' } }), okReply())
-    const slow = new GrokProvider({ model: GROK_MODEL, apiKey: transport.apiKey, fetch: transport.fetch, sleep: () => new Promise<void>(() => undefined), random: transport.random })
-    const error = (await slow.generate(ask, { timeoutMs: 40 }).catch((caught: unknown) => caught)) as LlmError
+    const slow = new GrokProvider({ model: GROK_MODEL, apiKey: transport.apiKey, fetch: transport.fetch, sleep: () => new Promise<void>(() => undefined), random: () => 0 })
+    const error = (await slow.generate(ask, { timeoutMs: 600 }).catch((caught: unknown) => caught)) as LlmError
     expect(error.kind).toBe('timeout')
     expect(transport.requests).toHaveLength(1)
   })

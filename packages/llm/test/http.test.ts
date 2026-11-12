@@ -30,6 +30,16 @@ const fails = (promise: Promise<unknown>): Promise<LlmError> =>
 const timers = () => process.getActiveResourcesInfo().filter((name) => name === 'Timeout').length
 
 describe('startCall', () => {
+  it('tells how much of the deadline is left', () => {
+    const call = startCall(60_000)
+    try {
+      expect(call.remainingMs()).toBeGreaterThan(59_000)
+      expect(call.remainingMs()).toBeLessThanOrEqual(60_000)
+    } finally {
+      call.dispose()
+    }
+  })
+
   it('rejects a timeout that is not a positive number', () => {
     for (const bad of [0, -1, Number.NaN, 2 ** 31]) expect(() => startCall(bad)).toThrow(LlmError)
   })

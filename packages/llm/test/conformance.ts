@@ -323,6 +323,17 @@ function conformanceFor(config: ProviderConformance, wire: ConformanceWire): Con
       },
     },
     {
+      name: label('rate limit: a wait that does not fit the deadline fails at once with the rate limit'),
+      async run() {
+        const { transport, provider } = setup(wire.rateLimit, wire.ok.reply)
+        const error = await rejection(provider.generate(requests.text, { timeoutMs: RETRY_AFTER_MS - 1000 }))
+        expect(error.kind).toBe('rate_limit')
+        expect(error.retryAfterMs).toBe(RETRY_AFTER_MS)
+        expect(transport.requests).toHaveLength(1)
+        expect(transport.sleeps).toEqual([])
+      },
+    },
+    {
       name: label('overloaded: two retries, then the error'),
       async run() {
         const { error, transport } = await failing(wire.overloaded, 'overloaded', 3)

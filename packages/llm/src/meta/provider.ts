@@ -87,6 +87,7 @@ export class MetaProvider implements LlmProvider {
       const reply = await withRetry((attempt) => this.attempt(body, call, attempt), {
         signal: call.signal,
         abortError: () => call.abortError(),
+        remainingMs: () => call.remainingMs(),
         ...(this.options.sleep === undefined ? {} : { sleep: this.options.sleep }),
         ...(this.options.random === undefined ? {} : { random: this.options.random }),
       })

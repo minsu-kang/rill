@@ -28,6 +28,7 @@ describe('the conformance suite catches adapters that break a rule', () => {
     ['abort-as-connection', ['abort during the call', 'deadline']],
     ['drop-pdf', ['PDF']],
     ['key-in-body', ['text and schema']],
+    ['sleep-past-deadline', ['a wait that does not fit the deadline']],
   ])('fault %s', async (fault, expected) => {
     const failed = await failures(fault)
     for (const part of expected) expect(failed.some((name) => name.includes(part)), `${fault}: no failing case mentions "${part}" (failed: ${failed.join(' | ')})`).toBe(true)

@@ -45,6 +45,22 @@ describe('startDeadline', () => {
     expect(deadline.expired()).toBe(false)
   })
 
+  it('counts the time left down to zero and stays there', () => {
+    const deadline = startDeadline(100, undefined)
+    expect(deadline.remainingMs()).toBe(100)
+    vi.advanceTimersByTime(30)
+    expect(deadline.remainingMs()).toBe(70)
+    vi.advanceTimersByTime(200)
+    expect(deadline.remainingMs()).toBe(0)
+    deadline.dispose()
+  })
+
+  it('reports the clamped time for a deadline that is out of range', () => {
+    const deadline = startDeadline(MAX_TIMER_MS * 2, undefined)
+    expect(deadline.remainingMs()).toBe(MAX_TIMER_MS)
+    deadline.dispose()
+  })
+
   it('stops the timer and detaches from the caller on dispose', () => {
     const caller = new AbortController()
     const deadline = startDeadline(100, caller.signal)

@@ -74,6 +74,7 @@ export class GrokProvider implements LlmProvider {
       const { terminal, requestId } = await withRetry((attempt) => this.attempt(body, call, attempt), {
         signal: call.signal,
         abortError: () => call.abortError(),
+        remainingMs: () => call.remainingMs(),
         sleep: this.options.sleep,
         random: this.options.random,
       })

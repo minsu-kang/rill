@@ -28,6 +28,7 @@ export type ReferenceFault =
   | 'abort-as-connection'
   | 'drop-pdf'
   | 'key-in-body'
+  | 'sleep-past-deadline'
 
 export interface ReferenceOptions {
   apiKey: string
@@ -129,7 +130,13 @@ export class ReferenceProvider implements LlmProvider {
             throw error
           }
         },
-        { signal: call.signal, abortError: () => call.abortError(), sleep: this.options.sleep, random: this.options.random },
+        {
+          signal: call.signal,
+          abortError: () => call.abortError(),
+          sleep: this.options.sleep,
+          random: this.options.random,
+          ...(fault === 'sleep-past-deadline' ? {} : { remainingMs: () => call.remainingMs() }),
+        },
       )
       return this.toResult(final, Date.now() - startedAt)
     } finally {
