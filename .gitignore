@@ -7,3 +7,4 @@ coverage/
 *.db-wal
 *.db-shm
 packages/eval/results/
+storybook-static/

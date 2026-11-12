@@ -8,7 +8,7 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p apps/desktop/tsconfig.json && tsc -p apps/desktop/tsconfig.node.json",
     "test": "vitest run",
     "check": "pnpm lint && pnpm typecheck && pnpm test",
     "eval": "pnpm --filter @rill/eval cli"
@@ -17,6 +17,7 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.19.2",
     "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "7.1.1",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.2",

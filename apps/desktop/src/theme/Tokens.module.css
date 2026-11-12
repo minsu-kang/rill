@@ -1,0 +1,35 @@
+.page {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-5);
+}
+
+.heading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-lg);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.chip {
+  min-width: 140px;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.sample {
+  display: block;
+}
+
+.edge {
+  width: 140px;
+  height: 0;
+  border-top: 3px solid;
+}
