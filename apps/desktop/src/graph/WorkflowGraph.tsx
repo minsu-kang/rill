@@ -178,7 +178,7 @@ function GraphCanvas({ workflow, catalog, states, selectedNodeId, onSelect }: Wo
         deletable: false,
         reconnectable: false,
         ariaLabel: edgeLabel(t, link),
-        markerEnd: `url(#${markerId}-${flowing ? 'active' : 'idle'})`,
+        markerEnd: `${markerId}-${flowing ? 'active' : 'idle'}`,
         style: {
           stroke: flowing ? 'var(--edge-active)' : 'var(--edge-default)',
           strokeWidth: flowing ? 2 : 1.5,

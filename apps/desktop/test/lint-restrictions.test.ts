@@ -47,3 +47,26 @@ describe('eslint import restrictions for the renderer', () => {
     expect(rules).toContain('react-hooks/rules-of-hooks')
   })
 })
+
+describe('eslint import restrictions in detail', () => {
+  it('reject the recipes and the eval package and the subpaths of the engine side packages', async () => {
+    for (const specifier of ['@rill/recipes', '@rill/eval', '@rill/engine/server', '@rill/planner/x', '@rill/llm/x', '@rill/nodes-core/registry']) {
+      const rules = await problems(`import { x } from '${specifier}'\nexport { x }\n`, 'apps/desktop/src/probe.ts')
+      expect(rules, specifier).toContain('@typescript-eslint/no-restricted-imports')
+    }
+  })
+
+  it('report a restricted import as an error, not a warning', async () => {
+    const [result] = await eslint.lintText("import { x } from '@rill/engine'\nexport { x }\n", { filePath: `${ROOT}apps/desktop/src/probe.ts` })
+    expect(result?.messages.map((message) => message.severity)).toEqual([2])
+  })
+
+  it('check the dependencies of effects', async () => {
+    const rules = await problems("import { useEffect } from 'react'\nexport function f(a: number) {\n  useEffect(() => {\n    console.log(a)\n  }, [])\n}\n", 'apps/desktop/src/probe.tsx')
+    expect(rules).toContain('react-hooks/exhaustive-deps')
+  })
+
+  it('allow a type import of a subpath of the node core', async () => {
+    expect(await problems("import type { X } from '@rill/nodes-core/registry'\nexport type { X }\n", 'apps/desktop/src/probe.ts')).toEqual([])
+  })
+})

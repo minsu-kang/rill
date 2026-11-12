@@ -55,6 +55,21 @@ function heldClient(inner: EngineClient) {
   return { client, release: () => waiting.splice(0).forEach((fn) => fn()) }
 }
 
+function controlled(inner: EngineClient) {
+  const gates: Array<() => void> = []
+  const client: EngineClient = {
+    request: <M extends MethodName>(method: M, params: MethodParams<M>) => {
+      const answer = inner.request(method, params)
+      answer.catch(() => undefined)
+      return new Promise<MethodResult<M>>((resolve, reject) => {
+        gates.push(() => answer.then(resolve, reject))
+      })
+    },
+    onEvent: (listener) => inner.onEvent(listener),
+  }
+  return { client, open: (index: number) => gates[index]!(), count: () => gates.length }
+}
+
 const run = (status: RunSummary['status'], id = 'r1'): RunSummary => ({ id, workflowId: 'w1', status, dryRun: false, error: null, createdAt: 1, startedAt: status === 'queued' ? null : 2, finishedAt: null })
 const row = (nodeId: string, attempt: number, status: StepDetail['status'], error: string | null = null): StepDetail => ({
   nodeId,
@@ -396,5 +411,163 @@ describe('useRunList', () => {
     expect(listeners()).toBe(1)
     unmount()
     expect(listeners()).toBe(0)
+  })
+})
+
+describe('useRunStates refresh', () => {
+  it('runs one refresh at a time and one more for the events that came while it ran', async () => {
+    const fake = createFakeClient(fakeData)
+    const { client, release, pending } = deferredClient(fake)
+    const runId = ids.runs.branchingRunning
+    const { result } = renderHook(() => useRunStates(client, runId))
+    await act(async () => release())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    act(() => fake.emit(ev.succeeded(runId, 'healthy')))
+    expect(pending()).toBe(1)
+    act(() => fake.emit(ev.succeeded(runId, 'log')))
+    act(() => fake.emit(ev.succeeded(runId, 'alert')))
+    expect(pending()).toBe(1)
+    await act(async () => release())
+    await waitFor(() => expect(pending()).toBe(1))
+    await act(async () => release())
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    expect(pending()).toBe(0)
+  })
+
+  function staleClient(second: () => Promise<{ run: RunSummary; steps: StepDetail[] }>) {
+    let calls = 0
+    const listeners = new Set<(event: EngineEvent) => void>()
+    const client: EngineClient = {
+      request: <M extends MethodName>(): Promise<MethodResult<M>> => {
+        calls += 1
+        return (calls === 1 ? Promise.resolve({ run: run('running'), steps: [row('a', 1, 'succeeded')] }) : second()) as Promise<MethodResult<M>>
+      },
+      onEvent: (listener) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+    }
+    return { client, emit: (event: EngineEvent) => listeners.forEach((listener) => listener(event)), calls: () => calls }
+  }
+
+  it('keeps the states the events built when the refetched rows are older', async () => {
+    const { client, emit, calls } = staleClient(() => Promise.resolve({ run: run('running'), steps: [] }))
+    const { result } = renderHook(() => useRunStates(client, 'r1'))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    act(() => emit(ev.succeeded('r1', 'b')))
+    await waitFor(() => expect(calls()).toBe(2))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    expect(stateOf(result.current.states, 'a')?.status).toBe('succeeded')
+    expect(stateOf(result.current.states, 'b')?.status).toBe('succeeded')
+    expect(result.current.steps).toEqual([])
+  })
+
+  it('reports a failed refresh and keeps what it had', async () => {
+    const { client, emit } = staleClient(() => Promise.reject(new Error('refresh failed')))
+    const { result } = renderHook(() => useRunStates(client, 'r1'))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    act(() => emit(ev.succeeded('r1', 'b')))
+    await waitFor(() => expect(result.current.error).toBe('refresh failed'))
+    expect(stateOf(result.current.states, 'a')?.status).toBe('succeeded')
+    expect(stateOf(result.current.states, 'b')?.status).toBe('succeeded')
+    expect(result.current.run?.id).toBe('r1')
+  })
+
+  it('shows the text of a rejection that is not an Error', async () => {
+    const client: EngineClient = { request: () => Promise.reject('plain text'), onEvent: () => () => undefined }
+    const { result } = renderHook(() => useRunStates(client, 'r1'))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.error).toBe('plain text')
+  })
+
+  it('drops the answer of the run it left even when it arrives after the answer of the new one', async () => {
+    const { client, open } = controlled(createFakeClient(fakeData))
+    const { result, rerender } = renderHook(({ id }) => useRunStates(client, id), { initialProps: { id: ids.runs.receiptOk as string } })
+    rerender({ id: ids.runs.receiptFailed })
+    await act(async () => open(1))
+    await waitFor(() => expect(result.current.run?.id).toBe(ids.runs.receiptFailed))
+    await act(async () => {
+      open(0)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    expect(result.current.run?.id).toBe(ids.runs.receiptFailed)
+    expect(result.current.loading).toBe(false)
+  })
+})
+
+describe('useRunList more', () => {
+  it('asks for fifty runs of the workflow', async () => {
+    const { client, calls } = spied(createFakeClient(fakeData))
+    const { result } = renderHook(() => useRunList(client, ids.workflows.receipt))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(calls.find((call) => call.method === 'listRuns')?.params).toEqual({ workflowId: ids.workflows.receipt, limit: 50 })
+  })
+
+  it('asks again when a trigger of its workflow fires', async () => {
+    const fake = createFakeClient(fakeData)
+    const { client, calls } = spied(fake)
+    const { result } = renderHook(() => useRunList(client, ids.workflows.receipt))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    const requests = calls.length
+    act(() => fake.emit({ type: 'trigger.fired', at, workflowId: ids.workflows.receipt, runId: 'fresh' }))
+    await waitFor(() => expect(calls.length).toBe(requests + 1))
+    await waitFor(() => expect(result.current.runs[0]?.id).toBe('fresh'))
+  })
+
+  function flaky(fail: (workflowId: string | undefined) => boolean) {
+    const inner = createFakeClient(fakeData)
+    const client: EngineClient = {
+      request: <M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> =>
+        method === 'listRuns' && fail((params as { workflowId?: string }).workflowId) ? Promise.reject(new Error('offline')) : inner.request(method, params),
+      onEvent: (listener) => inner.onEvent(listener),
+    }
+    return { client, inner }
+  }
+
+  it('keeps the runs it has when a reload fails', async () => {
+    let down = false
+    const { client, inner } = flaky(() => down)
+    const { result } = renderHook(() => useRunList(client, ids.workflows.receipt))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    const before = result.current.runs
+    expect(before.length).toBeGreaterThan(0)
+    down = true
+    act(() => inner.emit({ type: 'run.finished', at, runId: 'x', status: 'succeeded', error: null }))
+    await waitFor(() => expect(result.current.error).toBe('offline'))
+    expect(result.current.runs).toEqual(before)
+  })
+
+  it('does not show the runs of the old workflow when the new one cannot be loaded', async () => {
+    const { client } = flaky((workflowId) => workflowId === ids.workflows.branching)
+    const { result, rerender } = renderHook(({ id }) => useRunList(client, id), { initialProps: { id: ids.workflows.receipt as string } })
+    await waitFor(() => expect(result.current.runs.length).toBeGreaterThan(0))
+    rerender({ id: ids.workflows.branching })
+    await waitFor(() => expect(result.current.error).toBe('offline'))
+    expect(result.current.runs).toEqual([])
+  })
+
+  it('shows the text of a rejection that is not an Error', async () => {
+    const client: EngineClient = { request: () => Promise.reject('plain text'), onEvent: () => () => undefined }
+    const { result } = renderHook(() => useRunList(client, 'w'))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.error).toBe('plain text')
+  })
+
+  it('drops the answer of the workflow it left even when it arrives last', async () => {
+    const { client, open } = controlled(createFakeClient(fakeData))
+    const { result, rerender } = renderHook(({ id }) => useRunList(client, id), { initialProps: { id: ids.workflows.receipt as string } })
+    rerender({ id: ids.workflows.webhook })
+    await act(async () => open(1))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => {
+      open(0)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    expect(result.current.loading).toBe(false)
+    expect(result.current.runs.every((item) => item.workflowId === ids.workflows.webhook)).toBe(true)
   })
 })

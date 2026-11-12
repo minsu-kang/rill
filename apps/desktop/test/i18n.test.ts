@@ -117,3 +117,10 @@ describe('dictionaries', () => {
     }
   })
 })
+
+describe('createTranslator with several placeholders', () => {
+  it('fills each of them', () => {
+    expect(createTranslator('en')('graph.edgeLabelWhen', { from: 'a', to: 'b', when: 'c' })).toBe('Connection from a to b, when c')
+    expect(createTranslator('ko')('graph.edgeLabelWhen', { from: 'a', to: 'b', when: 'c' })).toBe('a에서 b까지 연결, 조건 c')
+  })
+})

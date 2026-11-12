@@ -1,6 +1,6 @@
 import type { EngineEvent, RunSummary } from '@rill/protocol'
 import { describe, expect, it } from 'vitest'
-import { NO_STATES, stateOf, type RunStates } from '../src/model/status'
+import { NO_STATES, stateOf, type NodeRunState, type RunStates } from '../src/model/status'
 import { reduceEvent, reduceRunSummary } from '../src/model/reduce-events'
 
 const RUN = 'run-1'
@@ -125,6 +125,29 @@ describe('reduceEvent', () => {
   })
 })
 
+describe('reduceEvent edges', () => {
+  it('hands back the very object it got when a run starts and no state was there', () => {
+    const empty: RunStates = Object.freeze(Object.create(null) as Record<string, NodeRunState>)
+    expect(reduceEvent(empty, { type: 'run.started', at, runId: RUN, workflowId: 'w', dryRun: false }, RUN)).toBe(empty)
+  })
+
+  it('shows a retry that starts without its first attempt known with no error text', () => {
+    expect(stateOf(apply([started('a', 2)]), 'a')).toEqual({ status: 'running', attempt: 2, retrying: true, error: null })
+  })
+
+  it('ignores a succeeded or continued event of an older attempt', () => {
+    const states = apply([started('a'), failed('a', 1, true), started('a', 2)])
+    expect(reduceEvent(states, succeeded('a', 1), RUN)).toBe(states)
+    expect(reduceEvent(states, { type: 'step.continued', at, runId: RUN, nodeId: 'a', attempt: 1, error: 'x' }, RUN)).toBe(states)
+  })
+
+  it('applies an ending event for a node whose start it never saw', () => {
+    expect(stateOf(apply([succeeded('a')]), 'a')).toEqual({ status: 'succeeded', attempt: 1, retrying: false, error: null })
+    expect(stateOf(apply([failed('b', 2, false, 'x')]), 'b')).toEqual({ status: 'failed', attempt: 2, retrying: false, error: 'x' })
+    expect(stateOf(apply([{ type: 'step.continued', at, runId: RUN, nodeId: 'c', attempt: 1, error: 'y' }]), 'c')).toEqual({ status: 'continued', attempt: 1, retrying: false, error: 'y' })
+  })
+})
+
 describe('reduceRunSummary', () => {
   const run: RunSummary = { id: RUN, workflowId: 'w', status: 'queued', dryRun: false, error: null, createdAt: 1, startedAt: null, finishedAt: null }
 
@@ -139,6 +162,22 @@ describe('reduceRunSummary', () => {
       status: 'failed',
       error: 'node a failed',
       finishedAt: 20,
+    })
+  })
+
+  it('returns the same summary for the run.started of another run', () => {
+    expect(reduceRunSummary(run, { type: 'run.started', at: 20, runId: 'run-2', workflowId: 'w', dryRun: true })).toBe(run)
+  })
+
+  it('clears the finish time and the error when a finished run starts again', () => {
+    const finished = { ...run, status: 'failed' as const, error: 'x', startedAt: 5, finishedAt: 9 }
+    expect(reduceRunSummary(finished, { type: 'run.started', at: 30, runId: RUN, workflowId: 'w', dryRun: false })).toEqual({
+      ...finished,
+      status: 'running',
+      dryRun: false,
+      startedAt: 30,
+      finishedAt: null,
+      error: null,
     })
   })
 

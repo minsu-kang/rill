@@ -75,8 +75,9 @@ describe('summarize', () => {
 
   it('stops after maxRows entries in total even when every level is wide', () => {
     const level = (depth: number): unknown => (depth === 0 ? 'leaf' : Object.fromEntries(Array.from({ length: 50 }, (_, index) => [`k${index}`, level(depth - 1)])))
+    const value = level(4)
     const started = performance.now()
-    const node = summarize(level(4), { ...LIMITS, maxDepth: 6 })
+    const node = summarize(value, { ...LIMITS, maxDepth: 6 })
     expect(count(node)).toBeLessThanOrEqual(LIMITS.maxRows + 1)
     expect(performance.now() - started).toBeLessThan(2000)
   })
@@ -122,5 +123,75 @@ describe('TEMPLATE_REF', () => {
     const text = '{{ '.repeat(100_000)
     expect([...text.matchAll(TEMPLATE_REF)]).toEqual([])
     expect(performance.now() - started).toBeLessThan(1500)
+  })
+})
+
+describe('summarize edges', () => {
+  it('cuts a string only when it is longer than the limit', () => {
+    const limits = { ...LIMITS, maxString: 10 }
+    expect(summarize('x'.repeat(10), limits)).toMatchObject({ kind: 'string', hidden: 0, shown: 'x'.repeat(10) })
+    expect(summarize('x'.repeat(11), limits)).toMatchObject({ kind: 'string', hidden: 1, shown: 'x'.repeat(10) })
+  })
+
+  it('treats a negative string limit as zero', () => {
+    expect(summarize('abcdef', { ...LIMITS, maxString: -5 })).toEqual({ kind: 'string', shown: '', hidden: 6, full: 'abcdef' })
+  })
+
+  it('gives each kind of value its own tone', () => {
+    const tone = (value: unknown) => (summarize(value, LIMITS) as { tone: string }).tone
+    expect(tone(1)).toBe('number')
+    expect(tone(10n)).toBe('number')
+    expect(tone(true)).toBe('boolean')
+    expect(tone(null)).toBe('null')
+    expect(tone(undefined)).toBe('other')
+    expect(tone(Symbol('s'))).toBe('other')
+    expect(tone(() => 1)).toBe('other')
+  })
+
+  it('keeps the size of a collapsed container as its hidden count', () => {
+    const node = summarize({ a: { b: 1, c: 2 } }, { ...LIMITS, maxDepth: 1 })
+    if (node.kind !== 'container') throw new Error('not a container')
+    expect(node.entries[0]!.value).toEqual({ kind: 'container', array: false, size: 2, collapsed: true, entries: [], hidden: 2 })
+  })
+
+  it('keys an array entry by its index', () => {
+    const node = summarize(['a', 'b', 'c'], LIMITS)
+    if (node.kind !== 'container') throw new Error('not a container')
+    expect(node.entries.map((entry) => entry.key)).toEqual(['0', '1', '2'])
+  })
+
+  it('spends one row per value and stops exactly at the budget, counting what is left out', () => {
+    const node = summarize(Array.from({ length: 10 }, (_, index) => index), { ...LIMITS, maxRows: 4 })
+    if (node.kind !== 'container') throw new Error('not a container')
+    expect(node.entries).toHaveLength(3)
+    expect(node).toMatchObject({ size: 10, hidden: 7, collapsed: false })
+  })
+
+  it('stops at a depth of 64 however large the limits are', () => {
+    let deep: unknown = 'bottom'
+    for (let level = 0; level < 100; level += 1) deep = [deep]
+    const node = summarize(deep, { maxDepth: 1_000_000, maxItems: 50, maxString: 500, maxRows: 1_000_000 })
+    expect(count(node)).toBe(65)
+    let last: JsonNode = node
+    while (last.kind === 'container' && !last.collapsed) last = last.entries[0]!.value
+    expect(last).toMatchObject({ kind: 'container', collapsed: true, size: 1 })
+  })
+
+  it('does not overflow the stack for a very deep value with limits that allow all of it', () => {
+    let deep: unknown = 1
+    for (let level = 0; level < 20_000; level += 1) deep = [deep]
+    expect(() => summarize(deep, { maxDepth: 1_000_000, maxItems: 50, maxString: 500, maxRows: 1_000_000_000 })).not.toThrow()
+  })
+})
+
+describe('TEMPLATE_REF edges', () => {
+  const find = (text: string) => [...text.matchAll(TEMPLATE_REF)].map((match) => match[0])
+
+  it('accepts a dash and an underscore inside a field name', () => {
+    expect(find('{{a.output.field-name}} {{b_1.output.x_y}}')).toEqual(['{{a.output.field-name}}', '{{b_1.output.x_y}}'])
+  })
+
+  it('refuses a node name that starts with a digit or a capital', () => {
+    expect(find('{{1a.output.x}} {{Ab.output.x}}')).toEqual([])
   })
 })

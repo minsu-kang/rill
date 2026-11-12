@@ -90,3 +90,42 @@ describe('useWorkflowSource', () => {
     expect(result.current.error).toBe('catalog down')
   })
 })
+
+describe('useWorkflowSource more', () => {
+  it('drops the failure of the workflow it left even when it arrives last', async () => {
+    const waiting: Array<() => void> = []
+    const inner = createFakeClient(fakeData)
+    const client: EngineClient = {
+      request: <M extends MethodName>(method: M, params: MethodParams<M>) => {
+        const answer = inner.request(method, params)
+        answer.catch(() => undefined)
+        return new Promise<MethodResult<M>>((resolve, reject) => {
+          waiting.push(() => answer.then(resolve, reject))
+        })
+      },
+      onEvent: (listener) => inner.onEvent(listener),
+    }
+    const { result, rerender } = renderHook(({ id }) => useWorkflowSource(client, id), { initialProps: { id: 'nope' } })
+    rerender({ id: ids.workflows.receipt })
+    expect(waiting).toHaveLength(4)
+    await act(async () => {
+      waiting[2]!()
+      waiting[3]!()
+    })
+    await waitFor(() => expect(result.current.workflow).toEqual(workflows.receipt))
+    await act(async () => {
+      waiting[0]!()
+      waiting[1]!()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    expect(result.current.workflow).toEqual(workflows.receipt)
+    expect(result.current.error).toBeUndefined()
+  })
+
+  it('shows the text of a rejection that is not an Error', async () => {
+    const client: EngineClient = { request: () => Promise.reject('plain text'), onEvent: () => () => undefined }
+    const { result } = renderHook(() => useWorkflowSource(client, 'w'))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.error).toBe('plain text')
+  })
+})

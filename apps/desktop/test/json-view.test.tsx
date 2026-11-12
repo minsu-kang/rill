@@ -1,7 +1,7 @@
 import { fireEvent, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { hostileValue } from '../src/fixtures/hostile'
-import { JsonView } from '../src/inspector/JsonView'
+import { CappedText, JsonView } from '../src/inspector/JsonView'
 import { ko } from '../src/i18n/ko'
 import { renderThemed } from './render'
 
@@ -115,8 +115,9 @@ describe('JsonView', () => {
 
   it('caps the rows of a value that is wide at every level', () => {
     const level = (depth: number): unknown => (depth === 0 ? 'leaf' : Object.fromEntries(Array.from({ length: 50 }, (_, index) => [`k${index}`, level(depth - 1)])))
+    const value = level(4)
     const started = performance.now()
-    const { container } = renderThemed(<JsonView value={level(4)} maxDepth={6} maxRows={120} />)
+    const { container } = renderThemed(<JsonView value={value} maxDepth={6} maxRows={120} />)
     expect(entries(container).length).toBeLessThanOrEqual(120)
     expect(performance.now() - started).toBeLessThan(2000)
   })
@@ -169,5 +170,87 @@ describe('JsonView with hidden characters', () => {
     fireEvent.click(screen.getByRole('button', { name: ko['json.showMore'] }))
     expect(container.textContent).toContain('‹U+202E›')
     expect(container.textContent).not.toContain('‮')
+  })
+})
+
+describe('JsonView defaults and markers', () => {
+  const wide = (depth: number): unknown => (depth === 0 ? 'leaf' : Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`k${index}`, wide(depth - 1)])))
+
+  it('opens four levels by default', () => {
+    const { container } = renderThemed(<JsonView value={{ a1: { b1: { c1: { d1: { e1: 'deep' } } } } }} />)
+    expect(container.textContent).toContain('d1')
+    expect(container.textContent).toContain('{…}')
+    expect(container.textContent).not.toContain('e1')
+  })
+
+  it('shows fifty entries by default and counts the rest', () => {
+    const { container } = renderThemed(<JsonView value={Array.from({ length: 60 }, (_, index) => index)} />)
+    expect(entries(container)).toHaveLength(50)
+    expect(screen.getByText(more(10))).toBeTruthy()
+  })
+
+  it('cuts a string above 500 characters by default and keeps one of exactly 500', () => {
+    const exact = renderThemed(<JsonView value={'s'.repeat(500)} />)
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(exact.container.textContent).toBe('s'.repeat(500))
+    exact.unmount()
+    renderThemed(<JsonView value={'s'.repeat(501)} />)
+    expect(screen.getByText(moreCharacters(1))).toBeTruthy()
+    expect(screen.getByRole('button', { name: ko['json.showMore'] })).toBeTruthy()
+  })
+
+  it('stops after 300 rows by default', () => {
+    const { container } = renderThemed(<JsonView value={wide(2)} />)
+    expect(entries(container)).toHaveLength(299)
+  })
+
+  it('writes the count of what a collapsed container holds and nothing for an empty one', () => {
+    const first = renderThemed(<JsonView value={{ a: { b: 1 } }} maxDepth={1} />)
+    expect(first.container.textContent).toContain('{…}')
+    expect(screen.getByText(more(1))).toBeTruthy()
+    first.unmount()
+    const second = renderThemed(<JsonView value={{ a: {} }} maxDepth={1} />)
+    expect(second.container.textContent).toContain('{…}')
+    expect(second.container.textContent).not.toContain(ko['json.more'].replace('{count}', '0'))
+    expect(second.container.textContent).not.toContain('개 더 있음')
+  })
+
+  it('draws an empty container as a pair of braces without a block for its children', () => {
+    const { container } = renderThemed(<JsonView value={{ a: {}, b: [] }} />)
+    expect(container.querySelectorAll('[class*="children"]')).toHaveLength(1)
+  })
+
+  it('shows the count of hidden entries only when something is hidden', () => {
+    const none = renderThemed(<JsonView value={{ a: [1, 2] }} />)
+    expect(none.container.textContent).not.toContain('개 더 있음')
+    none.unmount()
+    renderThemed(<JsonView value={[1, 2, 3]} maxItems={2} />)
+    expect(screen.getByText(more(1))).toBeTruthy()
+  })
+
+  it('puts a colon between a key and its value', () => {
+    const { container } = renderThemed(<JsonView value={{ vendor: 'Cafe Mori' }} />)
+    expect(container.textContent).toContain('vendor: Cafe Mori')
+  })
+
+  it('cuts a capped text at its own limit and does not mark references in it', () => {
+    const first = renderThemed(<CappedText text={'e'.repeat(100)} maxString={10} />)
+    expect(first.container.textContent).toContain('e'.repeat(10))
+    expect(screen.getByText(moreCharacters(90))).toBeTruthy()
+    first.unmount()
+    const second = renderThemed(<CappedText text="failed {{extract.output.amount}}" />)
+    expect(second.container.textContent).toContain('failed {{extract.output.amount}}')
+    expect(second.container.querySelector('[data-template-ref]')).toBeNull()
+  })
+
+  it('cuts a capped text at 500 characters by default', () => {
+    renderThemed(<CappedText text={'e'.repeat(501)} />)
+    expect(screen.getByText(moreCharacters(1))).toBeTruthy()
+  })
+
+  it('writes a hidden character of a capped text as a visible code point', () => {
+    const { container } = renderThemed(<CappedText text={'bad \u202ename \u200b!'} />)
+    expect(container.textContent).toBe('bad ‹U+202E›name ‹U+200B›!')
+    expect(container.querySelectorAll('[data-invisible]')).toHaveLength(2)
   })
 })

@@ -39,6 +39,47 @@ describe('NodeCard', () => {
     expect(screen.getByText(en['status.failed'])).toBeTruthy()
   })
 
+  it('shows no attempt for a card without a state and shows the second attempt', () => {
+    const first = renderThemed(<NodeCard node={transform} info={info('transform@1')} state={undefined} selected={false} />)
+    expect(screen.queryByText(/번째 시도/)).toBeNull()
+    first.unmount()
+    renderThemed(<NodeCard node={transform} info={info('transform@1')} state={state('running', { attempt: 2 })} selected={false} />)
+    expect(screen.getByText('2번째 시도')).toBeTruthy()
+  })
+
+  it('gives only the external transfer badge a hint', () => {
+    const first = renderThemed(<NodeCard node={append} info={info('csv.append@1')} state={undefined} selected={false} />)
+    expect(first.container.querySelector('[data-badge="writesFile"]')!.hasAttribute('title')).toBe(false)
+    first.unmount()
+    const second = renderThemed(<NodeCard node={request} info={info('http.request@1')} state={undefined} selected={false} />)
+    expect(second.container.querySelector('[data-badge="network"]')!.hasAttribute('title')).toBe(false)
+  })
+
+  it('cuts the title at 36 characters, the id at 28 and the type at 30 and not a character sooner', () => {
+    const fits: WorkflowNode = { id: 'i'.repeat(28), type: `t${'y'.repeat(29)}`, config: {} }
+    const fitsInfo: NodeInfo = { ...info('transform@1'), title: 'T'.repeat(36) }
+    const whole = renderThemed(<NodeCard node={fits} info={fitsInfo} state={undefined} selected={false} />)
+    expect(whole.container.textContent).toContain('T'.repeat(36))
+    expect(whole.container.textContent).toContain('i'.repeat(28))
+    expect(whole.container.textContent).toContain(`t${'y'.repeat(29)}`)
+    expect(whole.container.textContent).not.toContain('…')
+    whole.unmount()
+    const over: WorkflowNode = { id: 'i'.repeat(29), type: `t${'y'.repeat(30)}`, config: {} }
+    const overInfo: NodeInfo = { ...info('transform@1'), title: 'T'.repeat(37) }
+    const cut = renderThemed(<NodeCard node={over} info={overInfo} state={undefined} selected={false} />)
+    expect(cut.container.textContent).toContain(`${'T'.repeat(35)}…`)
+    expect(cut.container.textContent).toContain(`${'i'.repeat(27)}…`)
+    expect(cut.container.textContent).toContain(`t${'y'.repeat(28)}…`)
+    expect(cut.container.querySelector(`[title="${'T'.repeat(37)}"]`)).not.toBeNull()
+    expect(cut.container.querySelector(`[title="${'i'.repeat(29)}"]`)).not.toBeNull()
+    expect(cut.container.querySelector(`[title="t${'y'.repeat(30)}"]`)).not.toBeNull()
+  })
+
+  it('is as wide as the layout assumes', () => {
+    const { container } = renderThemed(<NodeCard node={transform} info={info('transform@1')} state={undefined} selected={false} />)
+    expect((container.querySelector('[data-selected]') as HTMLElement).style.width).toBe('264px')
+  })
+
   it('shows the idle status when there is no state', () => {
     renderThemed(<NodeCard node={transform} info={info('transform@1')} state={undefined} selected={false} />)
     expect(screen.getByRole('img', { name: ko['status.idle'] })).toBeTruthy()

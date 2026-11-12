@@ -29,6 +29,10 @@ describe('parseTokenBlocks', () => {
     expect([...blocks.get(':root')!]).toEqual([['--a', '1']])
   })
 
+  it('skips a custom property that has no colon', () => {
+    expect([...parseTokenBlocks(':root { --nocolon; --a: 1 }').get(':root')!]).toEqual([['--a', '1']])
+  })
+
   it('merges two blocks of the same selector and normalizes the whitespace of a selector', () => {
     const blocks = parseTokenBlocks(':root { --a: 1 }\n  :root   { --b: 2 }\n .x   .y { --c: 3 }')
     expect([...blocks.get(':root')!]).toEqual([

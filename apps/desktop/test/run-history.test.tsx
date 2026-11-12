@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { fixtureRuns, FIXTURE_NOW, ids } from '../src/fixtures'
 import { ko } from '../src/i18n/ko'
 import { RunHistory } from '../src/runs/RunHistory'
+import { errorsDuring } from './errors'
 import { renderThemed } from './render'
 
 const run = (id: string): RunSummary => fixtureRuns.find((item) => item.id === id)!
@@ -101,5 +102,64 @@ describe('RunHistory', () => {
     renderThemed(<RunHistory runs={[run(ids.runs.receiptQueued)]} now={FIXTURE_NOW} />, { locale: 'en' })
     expect(screen.getByText('Queued')).toBeTruthy()
     expect(screen.getByText('1 min ago')).toBeTruthy()
+  })
+})
+
+describe('RunHistory details', () => {
+  const make = (extra: Partial<RunSummary>): RunSummary => ({ ...run(ids.runs.receiptOk), ...extra })
+
+  it('can be clicked without a handler', () => {
+    renderThemed(<RunHistory runs={[make({})]} now={FIXTURE_NOW} />)
+    expect(errorsDuring(() => fireEvent.click(screen.getByRole('button')))).toEqual([])
+  })
+
+  it('cuts an error at 90 characters and an id at 28 and not a character sooner', () => {
+    const whole = renderThemed(<RunHistory runs={[make({ id: 'i'.repeat(28), status: 'failed', error: 'e'.repeat(90) })]} now={FIXTURE_NOW} />)
+    expect(whole.container.textContent).toContain('i'.repeat(28))
+    expect(whole.container.textContent).toContain('e'.repeat(90))
+    expect(whole.container.textContent).not.toContain('…')
+    whole.unmount()
+    const cut = renderThemed(<RunHistory runs={[make({ id: 'i'.repeat(29), status: 'failed', error: 'e'.repeat(91) })]} now={FIXTURE_NOW} />)
+    expect(cut.container.textContent).toContain(`${'i'.repeat(27)}…`)
+    expect(cut.container.textContent).toContain(`${'e'.repeat(89)}…`)
+  })
+
+  it('keeps the whole id and the whole error in titles', () => {
+    const id = 'i'.repeat(40)
+    const error = 'e'.repeat(200)
+    const { container } = renderThemed(<RunHistory runs={[make({ id, status: 'failed', error })]} now={FIXTURE_NOW} />)
+    expect(container.querySelector(`[title="${id}"]`)).not.toBeNull()
+    expect(container.querySelector(`[title="${error}"]`)).not.toBeNull()
+  })
+
+  it('draws each run status with the chip that looks like it', () => {
+    const expected = { queued: 'idle', running: 'running', succeeded: 'succeeded', failed: 'failed', cancelled: 'abandoned' } as const
+    for (const [status, chip] of Object.entries(expected)) {
+      const { container, unmount } = renderThemed(<RunHistory runs={[make({ status: status as RunSummary['status'] })]} now={FIXTURE_NOW} />)
+      expect(container.querySelector('[data-status]')!.getAttribute('data-status'), status).toBe(chip)
+      unmount()
+    }
+  })
+
+  it('counts the time from the moment the run was created', () => {
+    renderThemed(<RunHistory runs={[make({ createdAt: FIXTURE_NOW - 5 * 60_000, startedAt: FIXTURE_NOW - 60_000 })]} now={FIXTURE_NOW} />)
+    expect(screen.getByText('5분 전')).toBeTruthy()
+  })
+
+  it('keeps the exact date in a title, in the language and time zone given', () => {
+    const only = [make({ createdAt: FIXTURE_NOW })]
+    const first = renderThemed(<RunHistory runs={only} now={FIXTURE_NOW} timeZone="UTC" />)
+    expect(screen.getByText('방금').getAttribute('title')).toBe('2026. 11. 13. 오전 9:30:00')
+    first.unmount()
+    const second = renderThemed(<RunHistory runs={only} now={FIXTURE_NOW} timeZone="Asia/Seoul" />)
+    expect(screen.getByText('방금').getAttribute('title')).toBe('2026. 11. 13. 오후 6:30:00')
+    second.unmount()
+    renderThemed(<RunHistory runs={only} now={FIXTURE_NOW} timeZone="UTC" />, { locale: 'en' })
+    expect(screen.getByText('Just now').getAttribute('title')).toMatch(/^Nov 13, 2026, 9:30:00\sAM$/)
+  })
+
+  it('does not warn about keys when two runs share a status', () => {
+    const runs = [make({ id: 'a' }), make({ id: 'b' })]
+    expect(errorsDuring(() => renderThemed(<RunHistory runs={runs} now={FIXTURE_NOW} />))).toEqual([])
   })
 })

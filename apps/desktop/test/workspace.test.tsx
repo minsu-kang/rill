@@ -115,6 +115,7 @@ describe('Workspace', () => {
     show(createFakeClient(fakeData), 'missing')
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe(ko['workspace.loadError'].replace('{message}', 'workflow not found: missing'))
+    expect(screen.queryByText(ko['workspace.loading'])).toBeNull()
   })
 
   it('shows a localized message when the open run cannot be loaded', async () => {

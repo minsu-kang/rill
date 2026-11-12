@@ -249,3 +249,82 @@ describe('layoutWorkflow', () => {
     })
   })
 })
+
+describe('layoutWorkflow exact places', () => {
+  const trigger = (id: string) => node(id, 'trigger.manual@1', {})
+  const action = (id: string) => node(id, 'transform@1', {})
+  const at = (placed: Placed[], id: string) => byId(placed).get(id)!
+
+  it('puts a chain on the grid of margin, card width and rank gap', () => {
+    const result = layoutWorkflow(workflowOf('chain', [trigger('a'), action('b')], [edge('a', 'b')]), SIZE)
+    expect(result.nodes).toEqual([
+      { id: 'a', x: 24, y: 24 },
+      { id: 'b', x: 24 + 240 + 88, y: 24 },
+    ])
+    expect(result.width).toBe(24 * 2 + 240 * 2 + 88)
+    expect(result.height).toBe(24 * 2 + 120)
+  })
+
+  it('puts siblings a card height plus the row gap apart and centers the parent between them', () => {
+    const result = layoutWorkflow(workflowOf('fork', [trigger('a'), action('b'), action('c')], [edge('a', 'b'), edge('a', 'c')]), SIZE)
+    expect(result.nodes).toEqual([
+      { id: 'a', x: 24, y: 102 },
+      { id: 'b', x: 24 + 240 + 88, y: 24 },
+      { id: 'c', x: 24 + 240 + 88, y: 24 + 120 + 36 },
+    ])
+    expect(result.width).toBe(24 * 2 + 240 * 2 + 88)
+    expect(result.height).toBe(24 * 2 + 120 * 2 + 36)
+  })
+
+  it('gives whole coordinates and whole sizes for card sizes with fractions', () => {
+    const result = layoutWorkflow(workflowOf('odd', [trigger('a'), action('b'), action('c')], [edge('a', 'b'), edge('a', 'c')]), { width: 240.5, height: 120.3 })
+    for (const placed of result.nodes) {
+      expect(Number.isInteger(placed.x), `${placed.id} x`).toBe(true)
+      expect(Number.isInteger(placed.y), `${placed.id} y`).toBe(true)
+    }
+    expect(Number.isInteger(result.width)).toBe(true)
+    expect(Number.isInteger(result.height)).toBe(true)
+  })
+
+  const fan = (edges: Array<[string, string]>) => workflowOf('fan', [trigger('a'), action('b'), action('c'), action('d')], edges.map(([from, to]) => edge(from, to)))
+  const clean = layoutWorkflow(fan([['a', 'b'], ['a', 'c'], ['a', 'd']]), SIZE)
+
+  it('lays out a fan with a self edge exactly as without it', () => {
+    expect(layoutWorkflow(fan([['a', 'b'], ['a', 'c'], ['a', 'a'], ['a', 'd']]), SIZE)).toEqual(clean)
+  })
+
+  it('lays out a fan with an edge to an unknown node exactly as without it', () => {
+    expect(layoutWorkflow(fan([['a', 'b'], ['a', 'ghost'], ['a', 'c'], ['a', 'd']]), SIZE)).toEqual(clean)
+  })
+
+  it('falls back to a layout without the branch order when dagre cannot honour it', () => {
+    const pairs: Array<[number, number]> = [[4, 8], [1, 5], [3, 8], [5, 6], [1, 8], [1, 6], [3, 5]]
+    const names = ids(9)
+    const workflow = workflowOf('hard', names.map((id, index) => (index === 0 ? trigger(id) : action(id))), pairs.map(([from, to]) => edge(names[from]!, names[to]!)))
+    const result = layoutWorkflow(workflow, SIZE)
+    expect(result.nodes.map((placed) => placed.id)).toEqual(names)
+    expectNoOverlap(result.nodes)
+  })
+
+  describe('with the plain layout', () => {
+    const filler = (count: number, prefix = 'f') => Array.from({ length: count }, (_, index) => action(`${prefix}${index}`))
+    const x = (rank: number) => 24 + rank * (SIZE.width + 88)
+
+    it('ranks a node after all its predecessors whatever the order of the nodes and the edges', () => {
+      const nodes = [action('c'), action('b'), trigger('a'), ...filler(87)]
+      const result = layoutWorkflow(workflowOf('order', nodes, [edge('a', 'c'), edge('a', 'b'), edge('b', 'c')]), SIZE)
+      expect(at(result.nodes, 'a').x).toBe(x(0))
+      expect(at(result.nodes, 'b').x).toBe(x(1))
+      expect(at(result.nodes, 'c').x).toBe(x(2))
+    })
+
+    it('ranks by the longest path even when a cycle is broken after the long path was ranked', () => {
+      const nodes = [action('a'), action('b'), trigger('s'), action('x1'), action('x2'), action('x3'), action('t'), ...filler(80)]
+      const edges = [edge('s', 'x1'), edge('x1', 'x2'), edge('x2', 'x3'), edge('x3', 't'), edge('a', 'b'), edge('b', 'a'), edge('b', 't')]
+      const result = layoutWorkflow(workflowOf('cycle', nodes, edges), SIZE)
+      expect(at(result.nodes, 't').x).toBe(x(4))
+      expect(at(result.nodes, 'x3').x).toBe(x(3))
+      expectNoOverlap(result.nodes)
+    })
+  })
+})

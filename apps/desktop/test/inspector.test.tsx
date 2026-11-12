@@ -141,3 +141,115 @@ describe('Inspector', () => {
     expect(screen.getAllByText(/Nov 12, 2026, 8:3/).length).toBeGreaterThan(0)
   })
 })
+
+describe('Inspector details', () => {
+  const row = (extra: Partial<StepDetail> = {}): StepDetail => ({ nodeId: 'extract', attempt: 1, status: 'succeeded', input: null, output: null, error: null, startedAt: 1_000, finishedAt: 2_000, ...extra })
+  const idle: NodeRunState = { status: 'idle', attempt: 1, retrying: false, error: null }
+  const mystery: WorkflowNode = { id: 'ghost', type: 'mystery.node@1', config: {} }
+
+  it('lists two rows of one attempt in the order they started', () => {
+    view(extract, [row({ startedAt: 2_000, status: 'failed', error: 'second-error' }), row({ startedAt: 1_000, status: 'failed', error: 'first-error' })])
+    const items = screen.getAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    expect(items[0]!.textContent).toContain('first-error')
+    expect(items[1]!.textContent).toContain('second-error')
+  })
+
+  it('does not show the live error again when a row already has it', () => {
+    view(extract, [row({ status: 'failed', error: 'same text' })], { status: 'running', attempt: 2, retrying: true, error: 'same text' })
+    expect(screen.queryByText(ko['inspector.liveError'])).toBeNull()
+    expect(screen.getAllByText('same text')).toHaveLength(1)
+  })
+
+  it('shows no live error when the state has none', () => {
+    view(extract, [], { status: 'running', attempt: 1, retrying: false, error: null })
+    expect(screen.queryByText(ko['inspector.liveError'])).toBeNull()
+  })
+
+  it('does not say a node with a row did not run, and says it for a node whose state is idle', () => {
+    const first = view(extract, [row({ status: 'running', finishedAt: null })])
+    expect(screen.queryByText(ko['inspector.notRun'])).toBeNull()
+    first.unmount()
+    view(extract, [], idle)
+    expect(screen.getByText(ko['inspector.notRun'])).toBeTruthy()
+  })
+
+  it('shows the note that triggers record no data only for a trigger without rows', () => {
+    const first = view(extract, [])
+    expect(screen.queryByText(ko['inspector.triggerNoData'])).toBeNull()
+    first.unmount()
+    view(nodeOf('receipt', 'watch'), [row({ nodeId: 'watch' })])
+    expect(screen.queryByText(ko['inspector.triggerNoData'])).toBeNull()
+  })
+
+  it('draws a node without a state as waiting', () => {
+    const { container } = view(extract, [])
+    expect(container.querySelector('dl [data-status]')!.getAttribute('data-status')).toBe('idle')
+  })
+
+  it('falls back to the type for the title and shows no description without a catalog entry', () => {
+    const { container } = renderThemed(<Inspector node={mystery} info={undefined} steps={[]} state={undefined} timeZone="UTC" />)
+    expect(screen.getByRole('heading', { level: 3, name: 'mystery.node@1' })).toBeTruthy()
+    expect(container.querySelector('header p')).toBeNull()
+  })
+
+  it('shows the retry and on error rows only when the node has them', () => {
+    const first = view(nodeOf('receipt', 'watch'), [])
+    expect(screen.queryByText(ko['inspector.retry'])).toBeNull()
+    expect(screen.queryByText(ko['inspector.onError'])).toBeNull()
+    first.unmount()
+    view(check, [])
+    expect(screen.getByText(ko['inspector.retry'])).toBeTruthy()
+    expect(screen.getByText(ko['inspector.onError'])).toBeTruthy()
+  })
+
+  it('says a node that stops on error stops', () => {
+    view({ ...extract, onError: 'fail' }, [])
+    expect(screen.getByText(ko['inspector.onError.fail'])).toBeTruthy()
+    expect(screen.queryByText(ko['inspector.onError.continue'])).toBeNull()
+  })
+
+  it('shows the file write note only for a file write and the network note only for a network call', () => {
+    const first = view(nodeOf('receipt', 'append'), [])
+    expect(screen.getByText(ko['badge.writesFile'])).toBeTruthy()
+    expect(screen.queryByText(ko['badge.network'])).toBeNull()
+    first.unmount()
+    view(check, [])
+    expect(screen.getByText(ko['badge.network'])).toBeTruthy()
+    expect(screen.queryByText(ko['badge.writesFile'])).toBeNull()
+  })
+
+  it('shows the note for an empty config and the config otherwise', () => {
+    const first = view(mystery, [])
+    expect(screen.getByText(ko['inspector.noConfig'])).toBeTruthy()
+    first.unmount()
+    view(extract, [])
+    expect(screen.queryByText(ko['inspector.noConfig'])).toBeNull()
+  })
+
+  it('shows the finish time only for a finished attempt', () => {
+    const first = view(extract, [row({ status: 'running', finishedAt: null })])
+    expect(screen.getByText(ko['inspector.startedAt'])).toBeTruthy()
+    expect(screen.queryByText(ko['inspector.finishedAt'])).toBeNull()
+    first.unmount()
+    view(extract, [row()])
+    expect(screen.getByText(ko['inspector.finishedAt'])).toBeTruthy()
+  })
+
+  it('shows input, output and error only for what the row has', () => {
+    const first = view(extract, [row()])
+    for (const name of ['inspector.input', 'inspector.output', 'inspector.error'] as const) expect(screen.queryByRole('heading', { name: ko[name] }), name).toBeNull()
+    first.unmount()
+    view(extract, [row({ input: { a: 1 }, output: { b: 2 }, error: 'bad' })])
+    for (const name of ['inspector.input', 'inspector.output', 'inspector.error'] as const) expect(screen.getByRole('heading', { name: ko[name] }), name).toBeTruthy()
+  })
+
+  it('formats times in the language of the screen', () => {
+    const at = Date.UTC(2026, 10, 12, 8, 30, 0)
+    const first = view(extract, [row({ startedAt: at, finishedAt: at + 5_000 })], undefined, 'ko')
+    expect(screen.getAllByText('2026. 11. 12. 오전 8:30:00')).toHaveLength(1)
+    first.unmount()
+    view(extract, [row({ startedAt: at, finishedAt: at + 5_000 })], undefined, 'en')
+    expect(screen.getAllByText(/^Nov 12, 2026, 8:30:00\sAM$/)).toHaveLength(1)
+  })
+})

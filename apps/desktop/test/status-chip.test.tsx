@@ -5,6 +5,7 @@ import { en } from '../src/i18n/en'
 import { ko } from '../src/i18n/ko'
 import { NODE_STATUSES } from '../src/model/status'
 import { StatusChip } from '../src/ui/StatusChip'
+import { StatusIcon } from '../src/ui/StatusIcon'
 import { ThemeProvider } from '../src/theme/ThemeProvider'
 
 describe('StatusChip', () => {
@@ -17,6 +18,37 @@ describe('StatusChip', () => {
       expect(container.querySelector(`[data-status="${status}"]`)).not.toBeNull()
       unmount()
     }
+  })
+
+  it('hides the visible label from a screen reader, which hears the icon name instead', () => {
+    const { container } = render(<StatusChip status="failed" label="Failed" />)
+    expect(screen.getByText('Failed').getAttribute('aria-hidden')).toBe('true')
+    expect(container.querySelectorAll('[role="img"]')).toHaveLength(1)
+  })
+
+  it('spins only the running icon and dashes only the idle one', () => {
+    for (const status of NODE_STATUSES) {
+      const { container, unmount } = render(<StatusChip status={status} label={status} />)
+      const icon = container.querySelector('svg')!
+      expect(/spin/.test(icon.getAttribute('class') ?? ''), `${status} spin`).toBe(status === 'running')
+      expect(icon.getAttribute('stroke-dasharray'), `${status} dash`).toBe(status === 'idle' ? '2.2 2.2' : null)
+      unmount()
+    }
+  })
+
+  it('hides an icon that has no label and draws the retry mark with a shape of its own', () => {
+    const retry = render(<StatusIcon kind="retry" />)
+    const icon = retry.container.querySelector('svg')!
+    expect(icon.getAttribute('aria-hidden')).toBe('true')
+    expect(icon.hasAttribute('role')).toBe(false)
+    const shapes = new Set<string>([icon.innerHTML])
+    retry.unmount()
+    for (const status of NODE_STATUSES) {
+      const { container, unmount } = render(<StatusIcon kind={status} />)
+      shapes.add(container.querySelector('svg')!.innerHTML)
+      unmount()
+    }
+    expect(shapes.size).toBe(NODE_STATUSES.length + 1)
   })
 
   it('draws a different icon for every status so color is never the only signal', () => {

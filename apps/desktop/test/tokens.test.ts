@@ -143,11 +143,16 @@ describe('colors used by the component styles', () => {
       .b, .c:hover { background-color: var(--accent-subtle); outline-color: var(--focus-ring) }
       .d { color: #fff; background: linear-gradient(red, blue); }
       @media (prefers-reduced-motion: reduce) { .e { color: var(--text-muted) } }
+      .f
+        .g {
+          color: var(--text-primary)
+        }
     `)
     expect(found).toEqual([
       { selector: '.a', text: ['--text-primary'], background: ['--surface-raised'] },
       { selector: '.b, .c:hover', text: [], background: ['--accent-subtle'] },
       { selector: '.e', text: ['--text-muted'], background: [] },
+      { selector: '.f .g', text: ['--text-primary'], background: [] },
     ])
   })
 

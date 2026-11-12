@@ -54,6 +54,19 @@ describe('createFakeClient requests', () => {
     expect(limited.runs.map((r) => r.id)).toEqual(all.runs.slice(0, 2).map((r) => r.id))
   })
 
+  it('caps a limit at 200, never goes below one run and falls back to fifty', async () => {
+    const many = Array.from({ length: 250 }, (_, index) => ({ ...fakeData.runs[0]!, id: `run-${index}` }))
+    const big = createFakeClient({ ...fakeData, runs: many })
+    const count = async (limit?: number) => (await big.request('listRuns', limit === undefined ? {} : { limit })).runs.length
+    expect(await count(1000)).toBe(200)
+    expect(await count(200)).toBe(200)
+    expect(await count(0)).toBe(1)
+    expect(await count(-5)).toBe(1)
+    expect(await count(7.9)).toBe(7)
+    expect(await count(Number.NaN)).toBe(50)
+    expect(await count()).toBe(50)
+  })
+
   it('answers getRun with the run and its steps', async () => {
     for (const each of fakeData.runs) {
       const result = await client.request('getRun', { runId: each.id })
@@ -115,6 +128,18 @@ describe('createFakeClient events', () => {
     client.emit(runEvent('r', 'y'))
     expect(a.map((e) => (e as { nodeId: string }).nodeId)).toEqual(['x'])
     expect(b.map((e) => (e as { nodeId: string }).nodeId)).toEqual(['x', 'y'])
+  })
+
+  it('does not tell a listener that subscribed during an event about that event', () => {
+    const client = createFakeClient(fakeData)
+    const late: EngineEvent[] = []
+    client.onEvent(() => {
+      client.onEvent((event) => late.push(event))
+    })
+    client.emit(runEvent('r', 'x'))
+    expect(late).toEqual([])
+    client.emit(runEvent('r', 'y'))
+    expect(late.map((event) => (event as { nodeId: string }).nodeId)).toEqual(['y'])
   })
 
   it('keeps delivering when one listener throws', () => {
@@ -189,6 +214,20 @@ describe('createFakeClient play', () => {
     scheduler.runNext()
     scheduler.runNext()
     expect(seen).toHaveLength(1)
+  })
+
+  it('waits 600 milliseconds between events when no interval is given', () => {
+    vi.useFakeTimers()
+    const client = createFakeClient(fakeData)
+    const seen: EngineEvent[] = []
+    client.onEvent((event) => seen.push(event))
+    client.play('r1', events)
+    vi.advanceTimersByTime(0)
+    expect(seen).toHaveLength(1)
+    vi.advanceTimersByTime(599)
+    expect(seen).toHaveLength(1)
+    vi.advanceTimersByTime(1)
+    expect(seen).toHaveLength(2)
   })
 
   it('uses timers with the interval when no scheduler is given', () => {
@@ -315,6 +354,32 @@ describe('createFakeClient keeps its answers in step with the events it emits', 
     expect(await stepsOf(client, liveIds.receiptFails)).toEqual([])
     expect(await stepsOf(client, liveIds.branching)).toHaveLength(1)
     await expect(client.request('getRun', { runId: 'unknown-run' })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('forgets the steps of a run it did not know when the run shows up later', async () => {
+    const client = createFakeClient(fakeData)
+    client.emit({ type: 'step.started', at, runId: 'late', nodeId: 'a', attempt: 1 })
+    client.emit({ type: 'trigger.fired', at, workflowId: ids.workflows.receipt, runId: 'late' })
+    expect(await stepsOf(client, 'late')).toEqual([])
+  })
+
+  it('keeps the finish time of a failed attempt when it is continued later', async () => {
+    const client = createFakeClient(liveFakeData())
+    const runId = liveIds.branching
+    client.emit({ type: 'step.started', at, runId, nodeId: 'a', attempt: 1 })
+    client.emit({ type: 'step.failed', at: at + 1, runId, nodeId: 'a', attempt: 1, error: 'x', willRetry: false })
+    client.emit({ type: 'step.continued', at: at + 3, runId, nodeId: 'a', attempt: 1, error: 'x' })
+    expect(await stepsOf(client, runId)).toEqual([row('a', 1, 'continued', { error: 'x', finishedAt: at + 1 })])
+  })
+
+  it('never changes the rows or runs of the data it was given', async () => {
+    const snapshot = structuredClone(fakeData)
+    const client = createFakeClient(fakeData)
+    const runId = ids.runs.branchingRunning
+    client.emit({ type: 'step.failed', at, runId, nodeId: 'healthy', attempt: 1, error: 'x', willRetry: false })
+    client.emit({ type: 'step.started', at, runId, nodeId: 'log', attempt: 1 })
+    client.emit({ type: 'run.finished', at, runId, status: 'failed', error: 'x' })
+    expect(fakeData).toEqual(snapshot)
   })
 
   it('adds to the rows a run already has', async () => {

@@ -1,6 +1,6 @@
 import type { StepDetail } from '@rill/protocol'
 import { describe, expect, it } from 'vitest'
-import { NODE_STATUSES, stateOf } from '../src/model/status'
+import { NO_STATES, NODE_STATUSES, stateOf } from '../src/model/status'
 import { statesFromSteps } from '../src/model/steps'
 
 function step(nodeId: string, attempt: number, status: StepDetail['status'], error: string | null = null): StepDetail {
@@ -57,6 +57,16 @@ describe('statesFromSteps', () => {
     const statuses: StepDetail['status'][] = ['running', 'succeeded', 'abandoned', 'skipped', 'continued']
     const states = statesFromSteps(statuses.map((status) => step(`n_${status}`, 1, status)), 'running')
     for (const status of statuses) expect(stateOf(states, `n_${status}`)).toMatchObject({ status, retrying: false })
+  })
+
+  it('lets the later of two rows with the same attempt win', () => {
+    const states = statesFromSteps([step('a', 1, 'running'), step('a', 1, 'succeeded')])
+    expect(stateOf(states, 'a')?.status).toBe('succeeded')
+  })
+
+  it('hands back the shared empty states for no rows and freezes any other result', () => {
+    expect(statesFromSteps([])).toBe(NO_STATES)
+    expect(Object.isFrozen(statesFromSteps([step('a', 1, 'succeeded')]))).toBe(true)
   })
 
   it('leaves a node without a row out', () => {
