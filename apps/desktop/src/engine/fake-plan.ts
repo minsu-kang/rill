@@ -23,6 +23,7 @@ export interface FakePlanData {
   deployId?: string
   delayMs?: number
   now?: () => number
+  seed?: ReadonlyArray<{ planId: string; result: PlanResultBody }>
 }
 
 const HANDLED = ['plan', 'cancelPlan', 'deployPlan', 'llmModels', 'listMemory', 'saveMemory', 'deleteMemory'] as const satisfies readonly MethodName[]
@@ -75,6 +76,7 @@ interface PlanRecord {
 
 export function withPlanMethods(client: EngineClient, data: FakePlanData): EngineClient & { pendingPlans(): string[] } {
   const records = new Map<string, PlanRecord>()
+  for (const item of data.seed ?? []) records.set(item.planId, { result: structuredClone(item.result), flagKeys: item.result.kind === 'workflow' ? item.result.flags.map(flagKey) : [] })
   const pending = new Map<string, (error: RillError) => void>()
   const memory: MemoryItem[] = structuredClone(data.memory)
   const now = data.now ?? Date.now

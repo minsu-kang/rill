@@ -1,5 +1,5 @@
-import type { LlmModelsResult, NodeInfo, ProviderId } from '@rill/protocol'
-import { useEffect, useReducer, useRef, useState } from 'react'
+import type { AttachmentRef, LlmModelsResult, NodeInfo, ProviderId } from '@rill/protocol'
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import type { EngineClient } from '../engine/client'
 import { useT, type MessageKey } from '../i18n'
 import { Composer, type AttachmentPort, type ComposerProps } from './Composer'
@@ -17,6 +17,7 @@ import {
   canSubmit,
   conversationReducer,
   initialConversation,
+  memoryInUse,
   planParams,
   type AssistantEntry,
   type ConversationEntry,
@@ -65,12 +66,14 @@ export function ChatPanel(props: ChatPanelProps) {
   const [view, setView] = useState<View>('chat')
   const [modelsState, setModelsState] = useState<ModelsState>({ status: 'loading' })
   const [modelsAttempt, setModelsAttempt] = useState(0)
-  const [memoryCount, setMemoryCount] = useState(0)
+  const [memoryCount, setMemoryCount] = useState<number | undefined>(undefined)
   const [deploys, setDeploys] = useState<Record<string, DeployState>>({})
   const alive = useRef(true)
   const busy = useRef(false)
   const running = useRef<string | undefined>(undefined)
   const log = useRef<HTMLDivElement>(null)
+  const unsent = useRef<readonly AttachmentRef[]>([])
+  const portRef = useRef(port)
 
   useEffect(() => {
     alive.current = true
@@ -79,12 +82,24 @@ export function ChatPanel(props: ChatPanelProps) {
     }
   }, [])
 
+  useLayoutEffect(() => {
+    unsent.current = [...state.attachments, ...(state.unsent?.attachments ?? [])]
+    portRef.current = port
+  })
+
   useEffect(
     () => () => {
       const planId = running.current
       if (planId !== undefined) client.request('cancelPlan', { planId }).catch(() => undefined)
     },
     [client],
+  )
+
+  useEffect(
+    () => () => {
+      for (const item of unsent.current) portRef.current.remove?.(item.id)?.catch(() => undefined)
+    },
+    [],
   )
 
   useEffect(() => {
@@ -109,7 +124,9 @@ export function ChatPanel(props: ChatPanelProps) {
       (result) => {
         if (live) setMemoryCount(result.items.length)
       },
-      () => undefined,
+      () => {
+        if (live) setMemoryCount(undefined)
+      },
     )
     return () => {
       live = false
@@ -126,6 +143,7 @@ export function ChatPanel(props: ChatPanelProps) {
   const noModel = models !== undefined && models.active === null
   const planning = state.status === 'planning'
   const limited = !canSubmit(state.entries, 'message')
+  const latestWorkflow = state.entries.findLastIndex((entry) => entry.role === 'assistant' && entry.result.kind === 'workflow')
 
   function submitPlan(text: string, answers?: Record<string, string>): void {
     if (busy.current || state.status === 'planning') return
@@ -134,22 +152,25 @@ export function ChatPanel(props: ChatPanelProps) {
       return
     }
     const planId = newId()
-    const params = planParams(state, { planId, text, ...(answers === undefined ? {} : { answers }), ...(editContext === undefined ? {} : { editContext }) })
+    const params = planParams({ ...state, useMemory: memoryInUse(state.useMemory, memoryCount) }, { planId, text, ...(answers === undefined ? {} : { answers }), ...(editContext === undefined ? {} : { editContext }) })
     busy.current = true
     running.current = planId
     dispatch({ type: 'submit', text, ...(answers === undefined ? {} : { answers }) })
     client.request('plan', params).then(
       (result) => {
-        busy.current = false
-        running.current = undefined
-        if (alive.current) dispatch({ type: 'planned', planId, result: result.result, meta: result.meta })
+        if (settle(planId) && alive.current) dispatch({ type: 'planned', planId, result: result.result, meta: result.meta })
       },
       (failure: unknown) => {
-        busy.current = false
-        running.current = undefined
-        if (alive.current) dispatch({ type: 'failed', error: planErrorKey(failure) })
+        if (settle(planId) && alive.current) dispatch({ type: 'failed', error: planErrorKey(failure) })
       },
     )
+  }
+
+  function settle(planId: string): boolean {
+    if (running.current !== planId) return false
+    busy.current = false
+    running.current = undefined
+    return true
   }
 
   function send(): void {
@@ -159,7 +180,11 @@ export function ChatPanel(props: ChatPanelProps) {
 
   function cancel(): void {
     const planId = running.current
-    if (planId !== undefined) client.request('cancelPlan', { planId }).catch(() => undefined)
+    if (planId === undefined) return
+    const cancelled = (): void => {
+      if (settle(planId) && alive.current) dispatch({ type: 'failed', error: planErrorKey({ code: 'PLAN_CANCELLED' }) })
+    }
+    client.request('cancelPlan', { planId }).then(cancelled, cancelled)
   }
 
   function deploy(entry: AssistantEntry): void {
@@ -191,6 +216,7 @@ export function ChatPanel(props: ChatPanelProps) {
   }
 
   function newChat(): void {
+    for (const item of state.attachments) port.remove?.(item.id)?.catch(() => undefined)
     setDeploys({})
     dispatch({ type: 'newChat' })
   }
@@ -208,6 +234,7 @@ export function ChatPanel(props: ChatPanelProps) {
     const { result } = entry
     const isLast = index === state.entries.length - 1
     const deployState = deploys[entry.planId]
+    const superseded = index < latestWorkflow
     return (
       <MessageBubble key={entry.planId} role="assistant">
         {result.kind === 'workflow' ? (
@@ -219,6 +246,8 @@ export function ChatPanel(props: ChatPanelProps) {
             onDeploy={() => deploy(entry)}
             deploying={deployState?.status === 'deploying'}
             deployError={deployState?.status === 'error' ? deployState.key : undefined}
+            superseded={superseded}
+            planning={planning}
           />
         ) : result.kind === 'questions' ? (
           <>

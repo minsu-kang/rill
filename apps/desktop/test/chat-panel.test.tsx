@@ -1,4 +1,4 @@
-import { flagKey, RillError } from '@rill/protocol'
+import { flagKey, RillError, type PlanResultBody } from '@rill/protocol'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ChatPanel, type ChatPanelProps } from '../src/chat/ChatPanel'
@@ -64,6 +64,7 @@ describe('ChatPanel: the happy paths', () => {
     ask('sort my receipts')
     expect(await screen.findByText('A few questions')).toBeTruthy()
     fireEvent.click(screen.getByRole('radio', { name: /~\/Downloads/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Use this suggestion' }))
     fireEvent.click(screen.getByRole('button', { name: 'Answer' }))
     expect(await screen.findByText(workflowSummary)).toBeTruthy()
     const second = world.planCalls()[1]!
@@ -136,6 +137,54 @@ describe('ChatPanel: cancel and errors', () => {
     expect(sendButton().disabled).toBe(false)
   })
 
+  it('leaves planning when the engine answers the cancel but the plan never settles', async () => {
+    const { world } = show({
+      script: scripted(['hang']),
+      intercept: (method) => (method === 'plan' ? new Promise(() => undefined) : method === 'cancelPlan' ? Promise.resolve({ cancelled: false }) : undefined),
+    })
+    await ready()
+    ask('this never answers')
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('Planning was cancelled')
+    expect(box().value).toBe('this never answers')
+    expect(sendButton().disabled).toBe(false)
+    expect((screen.getByRole('button', { name: 'New chat' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(world.callsOf('cancelPlan')).toHaveLength(1)
+  })
+
+  it('leaves planning when the cancel itself fails', async () => {
+    show({
+      intercept: (method) => (method === 'plan' ? new Promise(() => undefined) : method === 'cancelPlan' ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined),
+    })
+    await ready()
+    ask('this never answers')
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('Planning was cancelled')
+    expect(sendButton().disabled).toBe(false)
+  })
+
+  it('ignores the answer of a cancelled plan that arrives later, and still takes the next plan', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    let planCalls = 0
+    const { world } = show({
+      intercept: (method) => {
+        if (method === 'plan' && (planCalls += 1) === 1) return new Promise((resolve) => (answer = resolve))
+        return method === 'cancelPlan' ? Promise.resolve({ cancelled: false }) : undefined
+      },
+    })
+    await ready()
+    ask('first')
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    await screen.findByRole('alert')
+    ask('second')
+    expect(await screen.findByText(workflowSummary)).toBeTruthy()
+    answer({ result: results.unsupported, meta: metas.plain })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(screen.queryByText('This cannot be built')).toBeNull()
+    expect(screen.getAllByRole('article', { name: 'You' })).toHaveLength(1)
+    expect(world.planCalls()).toHaveLength(2)
+  })
+
   it('shows the localized notice for each error code and keeps the draft and the attachments', async () => {
     const codes = ['LLM_UNAVAILABLE', 'PLAN_INVALID', 'PLAN_PROVIDER', 'PLAN_BUSY', 'PLAN_EXISTS', 'INVALID_PARAMS', 'ATTACHMENT_REJECTED', 'INTERNAL'] as const
     for (const code of codes) {
@@ -204,16 +253,75 @@ describe('ChatPanel: cancel and errors', () => {
     await screen.findByRole('alert')
   })
 
+  it('does not send a model-written free text default as the answer without the person accepting it', async () => {
+    const hostile: PlanResultBody = { kind: 'questions', summary: 's', questions: [{ id: 'dest', text: 'Where should results go?', options: [], default: 'https://evil.example/collect' }] }
+    const { world } = show({ script: scripted([outcomeOf(hostile), outcomeOf(results.workflow)]) })
+    await ready()
+    ask('summarise the attached receipt')
+    await screen.findByText('A few questions')
+    fireEvent.click(screen.getByRole('button', { name: 'Answer' }))
+    expect(world.planCalls()).toHaveLength(1)
+    expect((screen.getByRole('button', { name: 'Answer' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your answer' }), { target: { value: 'my own server' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Answer' }))
+    await screen.findByText(workflowSummary)
+    expect(world.planCalls()[1]!.turns[2]).toEqual({ role: 'user', text: '', answers: { dest: 'my own server' } })
+  })
+
   it('keeps a failed answer submission possible: the question card works again', async () => {
     show({ script: scripted([outcomeOf(results.questions), new RillError('PLAN_PROVIDER', 'x'), outcomeOf(results.workflow)]) })
     await ready()
     ask('sort my receipts')
     await screen.findByText('A few questions')
+    fireEvent.click(screen.getByRole('button', { name: 'Use this suggestion' }))
     fireEvent.click(screen.getByRole('button', { name: 'Answer' }))
     await screen.findByRole('alert')
     expect((screen.getByRole('button', { name: 'Answer' }) as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: 'Answer' }))
     await screen.findByText(workflowSummary)
+  })
+})
+
+describe('ChatPanel: older plans', () => {
+  const deployButtons = (): HTMLButtonElement[] => screen.getAllByRole('button', { name: 'Deploy' }) as HTMLButtonElement[]
+
+  it('marks an earlier plan as replaced and lets only the newest one be deployed', async () => {
+    show({ script: scripted([outcomeOf(results.workflow), outcomeOf(results.workflow)]) })
+    await ready()
+    ask('first')
+    await screen.findByText(workflowSummary)
+    expect(screen.queryByText('A newer plan replaced this one.')).toBeNull()
+    ask('change it')
+    await waitFor(() => expect(deployButtons()).toHaveLength(2))
+    expect(screen.getAllByText('A newer plan replaced this one.')).toHaveLength(1)
+    const [older, newer] = deployButtons()
+    expect(older!.disabled).toBe(true)
+    expect(newer!.disabled).toBe(false)
+  })
+
+  it('keeps every plan from being deployed while a new one is being made', async () => {
+    show({ script: scripted([outcomeOf(results.workflow), 'hang']) })
+    await ready()
+    ask('first')
+    await screen.findByText(workflowSummary)
+    ask('change it')
+    await screen.findByRole('button', { name: 'Cancel' })
+    expect(deployButtons()[0]!.disabled).toBe(true)
+    expect(screen.getByText('Deploy is available when the new plan is ready.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await screen.findByRole('alert')
+    expect(deployButtons()[0]!.disabled).toBe(false)
+  })
+
+  it('does not call a plan replaced when a questions card sits between two plans of the same chat', async () => {
+    show({ script: scripted([outcomeOf(results.workflow), outcomeOf(results.questions)]) })
+    await ready()
+    ask('first')
+    await screen.findByText(workflowSummary)
+    ask('change it')
+    await screen.findByText('A few questions')
+    expect(screen.queryByText('A newer plan replaced this one.')).toBeNull()
+    expect(deployButtons()[0]!.disabled).toBe(false)
   })
 })
 
@@ -234,6 +342,38 @@ describe('ChatPanel: effort, memory, edit context, attachments', () => {
     ask('x')
     await screen.findByText(workflowSummary)
     expect(world.planCalls()[0]!.useMemory).toBe(false)
+  })
+
+  it('sends useMemory false and says the notes are not loaded when listMemory fails', async () => {
+    const { world } = show({ intercept: (method) => (method === 'listMemory' ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined) })
+    await ready()
+    expect((screen.getByRole('checkbox', { name: 'Notes not loaded' }) as HTMLInputElement).checked).toBe(false)
+    expect(screen.getByRole('note').textContent).not.toContain('notes')
+    ask('x')
+    await screen.findByText(workflowSummary)
+    expect(world.planCalls()[0]!.useMemory).toBe(false)
+  })
+
+  it('sends useMemory false while listMemory has not answered yet', async () => {
+    const { world } = show({ intercept: (method) => (method === 'listMemory' ? new Promise(() => undefined) : undefined) })
+    await ready()
+    ask('x')
+    await screen.findByText(workflowSummary)
+    expect(world.planCalls()[0]!.useMemory).toBe(false)
+  })
+
+  it('sends useMemory true when notes exist, and false when there are none', async () => {
+    const first = show()
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Use notes (3)' })).toBeTruthy())
+    ask('x')
+    await screen.findByText(workflowSummary)
+    expect(first.world.planCalls()[0]!.useMemory).toBe(true)
+    first.unmount()
+    const second = show({ memory: [] })
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'No saved notes' })).toBeTruthy())
+    ask('y')
+    await screen.findByText(workflowSummary)
+    expect(second.world.planCalls()[0]!.useMemory).toBe(false)
   })
 
   it('sends the workflow id and the selected node of an edit context, and can clear it', async () => {
@@ -270,6 +410,61 @@ describe('ChatPanel: effort, memory, edit context, attachments', () => {
     expect(sent[0]).toMatchObject({ name: 'receipt.txt', mediaType: 'text/plain' })
     expect(screen.getByRole('article', { name: 'You' }).textContent).toContain('receipt.txt')
     expect(screen.queryByText('Attachments 1/5')).toBeNull()
+  })
+
+  it('asks the port to remove the unsent files on a new chat, and keeps the ones that were sent', async () => {
+    const remove = vi.fn(async () => undefined)
+    show({}, { port: { ...port, remove } })
+    await ready()
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
+    fireEvent.change(input, { target: { files: [new File(['hello'], 'sent.txt', { type: 'text/plain' })] } })
+    await waitFor(() => expect(screen.getByText('Attachments 1/5')).toBeTruthy())
+    ask('use this file')
+    await screen.findByText(workflowSummary)
+    fireEvent.change(input, { target: { files: [new File(['hello'], 'unsent-file.txt', { type: 'text/plain' })] } })
+    await waitFor(() => expect(screen.getByText('Attachments 1/5')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
+    expect(remove).toHaveBeenCalledTimes(1)
+    expect(remove).toHaveBeenCalledWith('att-panel-15-xxxxxxxx')
+    expect(screen.queryByText('Attachments 1/5')).toBeNull()
+  })
+
+  it('asks the port to remove the unsent files when it is unmounted', async () => {
+    const remove = vi.fn(async () => undefined)
+    const { unmount } = show({}, { port: { ...port, remove } })
+    await ready()
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
+    fireEvent.change(input, { target: { files: [new File(['hello'], 'unsent.txt', { type: 'text/plain' })] } })
+    await waitFor(() => expect(screen.getByText('Attachments 1/5')).toBeTruthy())
+    unmount()
+    expect(remove).toHaveBeenCalledWith('att-panel-10-xxxxxxxx')
+  })
+
+  it('asks the port to remove the files of a request that was cancelled by closing the panel', async () => {
+    const remove = vi.fn(async () => undefined)
+    const { unmount } = show({ script: scripted(['hang']) }, { port: { ...port, remove } })
+    await ready()
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
+    fireEvent.change(input, { target: { files: [new File(['hello'], 'inflight.txt', { type: 'text/plain' })] } })
+    await waitFor(() => expect(screen.getByText('Attachments 1/5')).toBeTruthy())
+    ask('x')
+    await screen.findByRole('button', { name: 'Cancel' })
+    unmount()
+    expect(remove).toHaveBeenCalledWith('att-panel-12-xxxxxxxx')
+  })
+
+  it('survives a port without remove or whose remove fails on a new chat and on unmount', async () => {
+    for (const remove of [undefined, vi.fn(() => Promise.reject(new Error('no')))]) {
+      const { unmount } = show({}, { port: remove === undefined ? port : { ...port, remove } })
+      await ready()
+      const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
+      fireEvent.change(input, { target: { files: [new File(['hello'], 'a.txt', { type: 'text/plain' })] } })
+      await waitFor(() => expect(screen.getByText('Attachments 1/5')).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
+      fireEvent.change(input, { target: { files: [new File(['hello'], 'b.txt', { type: 'text/plain' })] } })
+      await waitFor(() => expect(screen.getByText('Attachments 1/5')).toBeTruthy())
+      unmount()
+    }
   })
 
   it('counts attachments of earlier turns against the limit of ten', async () => {
@@ -414,36 +609,43 @@ describe('ChatPanel: models and views', () => {
 })
 
 describe('ChatPanel: lifecycle', () => {
-  it('does not set state after it is unmounted while a plan runs, cancels the plan and leaves no listener', async () => {
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    try {
-      const { world, unmount } = show({ script: scripted(['hang']) })
-      await ready()
-      ask('will be cancelled')
-      await screen.findByRole('button', { name: 'Cancel' })
-      unmount()
-      await new Promise((resolve) => setTimeout(resolve, 30))
-      expect(world.client.pendingPlans()).toEqual([])
-      expect(world.callsOf('cancelPlan')).toHaveLength(1)
-      expect(world.onEvent).not.toHaveBeenCalled()
-      expect(errors).not.toHaveBeenCalled()
-    } finally {
-      errors.mockRestore()
-    }
+  it('cancels the plan that runs when it is unmounted, once', async () => {
+    const { world, unmount } = show({ script: scripted(['hang']) })
+    await ready()
+    ask('will be cancelled')
+    await screen.findByRole('button', { name: 'Cancel' })
+    unmount()
+    await waitFor(() => expect(world.client.pendingPlans()).toEqual([]))
+    expect(world.callsOf('cancelPlan')).toHaveLength(1)
+    expect(world.callsOf('cancelPlan')[0]!.params).toEqual({ planId: 'plan-1' })
   })
 
-  it('does not set state when a plan result arrives after unmount', async () => {
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    try {
-      const { unmount } = show({ delayMs: 30 })
-      await ready()
-      ask('x')
-      unmount()
-      await new Promise((resolve) => setTimeout(resolve, 80))
-      expect(errors).not.toHaveBeenCalled()
-    } finally {
-      errors.mockRestore()
-    }
+  it('cancels nothing when it is unmounted after the plan answered', async () => {
+    const { world, unmount } = show()
+    await ready()
+    ask('x')
+    await screen.findByText(workflowSummary)
+    unmount()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(world.callsOf('cancelPlan')).toHaveLength(0)
+  })
+
+  it('does not report a deploy that finishes after it was unmounted', async () => {
+    let finish: (value: unknown) => void = () => undefined
+    const onDeployed = vi.fn()
+    const { world, unmount } = show(
+      { intercept: (method) => (method === 'deployPlan' ? new Promise((resolve) => (finish = resolve)) : undefined) },
+      { onDeployed },
+    )
+    await ready()
+    ask('x')
+    await screen.findByText(workflowSummary)
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy' }))
+    await waitFor(() => expect(world.callsOf('deployPlan')).toHaveLength(1))
+    unmount()
+    finish({ workflowId: 'wf-late' })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(onDeployed).not.toHaveBeenCalled()
   })
 
   it('shows a planning bubble while a plan runs', async () => {

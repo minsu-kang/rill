@@ -40,10 +40,12 @@ What the person sees and decides:
 
 - Effort steps: fast `low`, normal `medium` (default), careful `high`, very careful `xhigh`, and `max` under an advanced toggle. A step the active model does not list in `capabilities.effortLevels` is disabled with the reason. The answer shows requested and effective effort when the engine lowered it, and the cost as an upper bound (`null` shows "unknown").
 - Send is Ctrl+Enter or Cmd+Enter. Plain Enter is a line break, so a multi-line draft is safe to write. It is never sent while a plan runs, while a file is being added, with an empty draft, with more than 8000 characters or without a model.
-- Questions: the default of each question is preselected and counts as an answer, so one click continues. A question with no options is a free text field. Answers travel as the `answers` of a user turn, never as part of the request text, because the planner treats a chosen option differently from text the person wrote.
+- Questions: a default that is one of the options is preselected and counts as an answer. A question with no options is a free text field that starts empty; the model default is shown beside it as a suggestion that the person accepts with a click or types over. A default that is not one of the options is ignored. The planner also treats an unchanged default as model text, never as text the person wrote. Answers travel as the `answers` of a user turn, never as part of the request text, because the planner treats a chosen option differently from text the person wrote.
 - Flags: each flag of a plan has its own checkbox, grouped by node. Deploy stays disabled until the confirmed keys equal the flag keys of the plan (`flagKey` from `@rill/protocol`); the engine requires the same.
 - Every place that sends something to the model provider says so: the composer notice (request, attached files, notes), the badge on each attached file, the model picker (`dataNote`) and the notes screen.
-- A plan that is running can be cancelled and the draft and attachments come back. Closing the panel while a plan runs sends `cancelPlan` and drops the answer.
+- A plan that is running can be cancelled and the draft and attachments come back. When the engine has answered `cancelPlan` (or failed to) and the plan request has still not settled, the panel leaves the planning state itself and ignores a late answer for that plan. Closing the panel while a plan runs sends `cancelPlan` and drops the answer.
+- Only the newest workflow card can be deployed. An earlier one says that a newer plan replaced it, and its flag boxes and Deploy button are off. While a new plan is being made, every Deploy button is off.
+- The notes switch is on only when the engine reported at least one note. While `listMemory` is pending or failed, the composer says "Notes not loaded", leaves notes out of the transfer notice and sends `useMemory: false`, so what the screen says is what leaves the computer.
 
 Text written by the model (summary, questions, options, reason, nearest idea, flag messages) and names of attached files are untrusted. They are shown as plain text only, with bidi, zero-width and control characters made visible as `‹U+202E›`, a length cap and a "show more" button. A test reads the sources of `src/chat` and fails on `dangerouslySetInnerHTML`, `innerHTML`, `eval`, `localStorage`, `sessionStorage`, anchors, `href`, `src` and network calls.
 
@@ -56,7 +58,7 @@ interface AttachmentPort {
 }
 ```
 
-The panel validates a file before it calls `add`: the media type must be one of the eight in `AttachmentRefSchema` (read from the declared type, else the extension), PDF up to 20 MiB, image up to 3.75 MiB, text up to 1 MiB, not empty, at most 5 files per message and 10 per conversation. `add` must copy the file into the engine's attachment folder and resolve with the protocol `AttachmentRef` (`id`, `mediaType`, `name`, `bytes`). File bytes never go through the protocol. If `add` rejects, the panel shows the localized text of the error code (`ATTACHMENT_REJECTED` and the others) and never the text of the error. `remove` is optional and best effort.
+The panel validates a file before it calls `add`: the media type must be one of the eight in `AttachmentRefSchema`. A declared type of the eight must agree with the extension (`tool.exe` declared as `image/png` is refused; a declared text type may stand for any text extension, including unknown ones like `.log`); a declared type outside the eight, such as `application/vnd.ms-excel` that Windows gives to `.csv`, falls back to the extension. A dropped folder is skipped even when it is named like a file. PDF up to 20 MiB, image up to 3.75 MiB, text up to 1 MiB, not empty, at most 5 files per message and 10 per conversation. `add` must copy the file into the engine's attachment folder and resolve with the protocol `AttachmentRef` (`id`, `mediaType`, `name`, `bytes`). File bytes never go through the protocol. If `add` rejects, the panel shows the localized text of the error code (`ATTACHMENT_REJECTED` and the others) and never the text of the error. `remove` is optional and best effort. The panel calls it for a file that finished adding after the composer was gone, for the unsent files of a chat that is cleared with New chat, and for the unsent files (and those of a request that was cancelled) when the panel is closed.
 
 ### Choosing the model
 
@@ -64,7 +66,7 @@ The panel validates a file before it calls `add`: the media type must be one of 
 
 ### Notes
 
-`MemoryPanel` lists, adds, edits and deletes the notes that `listMemory`, `saveMemory` and `deleteMemory` handle (at most 20, one line of at most 300 characters). It shows the rule before the engine says it, a 0/20 and 20/20 state, and the "sent to the model provider with every plan" notice. Errors show the localized message of the code (and of the rule for an invalid note), never the text of a note.
+`MemoryPanel` lists, adds, edits and deletes the notes that `listMemory`, `saveMemory` and `deleteMemory` handle (at most 20, one line of at most 300 characters). It shows the rule before the engine says it, a 0/20 and 20/20 state, and the "sent to the model provider with every plan" notice. The add field is off until the list has loaded, and both fields stop at 2000 characters, the limit of the protocol. Errors show the localized message of the code (and of the rule for an invalid note), never the text of a note.
 
 ### Looking at it and scripting it
 

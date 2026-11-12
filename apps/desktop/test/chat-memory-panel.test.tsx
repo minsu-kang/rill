@@ -1,4 +1,4 @@
-import { RillError, type MemoryItem } from '@rill/protocol'
+import { MEMORY_MAX_INPUT_CHARS, RillError, type MemoryItem } from '@rill/protocol'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { MemoryPanel } from '../src/chat/MemoryPanel'
@@ -224,12 +224,70 @@ describe('MemoryPanel: the error codes', () => {
   })
 })
 
-describe('MemoryPanel: lifecycle', () => {
-  it('sets no state and leaves no listener after it is unmounted', async () => {
+describe('MemoryPanel: loading, limits and ids', () => {
+  it('keeps the add form disabled until the list has loaded, so a save cannot be lost to a late list', async () => {
+    let finish: (value: unknown) => void = () => undefined
+    const { world } = show([...memoryFixtures.three], (method) => (method === 'listMemory' ? new Promise((resolve) => (finish = resolve)) : undefined))
+    expect(input().disabled).toBe(true)
+    fireEvent.change(input(), { target: { value: 'typed early' } })
+    expect(save().disabled).toBe(true)
+    fireEvent.submit(input().closest('form')!)
+    expect(world.callsOf('saveMemory')).toHaveLength(0)
+    finish({ items: [...memoryFixtures.three] })
+    await loaded()
+    expect(input().disabled).toBe(false)
+    fireEvent.change(input(), { target: { value: 'typed late' } })
+    expect(save().disabled).toBe(false)
+  })
+
+  it('keeps the add form disabled when the list failed, and enables it after a successful retry', async () => {
+    let attempts = 0
+    const { world } = show([...memoryFixtures.three], (method) => {
+      if (method !== 'listMemory') return undefined
+      attempts += 1
+      return attempts === 1 ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined
+    })
+    await screen.findByRole('alert')
+    expect(input().disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await screen.findByRole('list', { name: 'Saved notes' })
+    expect(input().disabled).toBe(false)
+    expect(world.callsOf('listMemory')).toHaveLength(2)
+  })
+
+  it('limits a pasted note to what the protocol accepts, in the add field and in the editor', async () => {
+    show([...memoryFixtures.three])
+    await loaded()
+    expect(input().maxLength).toBe(MEMORY_MAX_INPUT_CHARS)
+    fireEvent.click(screen.getByRole('button', { name: `Edit note: ${memoryFixtures.three[0]!.text}` }))
+    expect((screen.getByRole('textbox', { name: 'Edit note' }) as HTMLInputElement).maxLength).toBe(MEMORY_MAX_INPUT_CHARS)
+  })
+
+  it('gives each panel its own title id, so two panels on one page label themselves', async () => {
     const world = makeWorld({ memory: [...memoryFixtures.three] })
+    const view = renderThemed(
+      <>
+        <MemoryPanel client={world.client} />
+        <MemoryPanel client={world.client} />
+      </>,
+      { locale: 'en' },
+    )
+    const sections = Array.from(view.container.querySelectorAll('section'))
+    expect(sections).toHaveLength(2)
+    const ids = sections.map((section) => section.getAttribute('aria-labelledby')!)
+    expect(new Set(ids).size).toBe(2)
+    for (const [index, section] of sections.entries()) expect(view.container.querySelector(`[id="${ids[index]}"]`)?.closest('section')).toBe(section)
+  })
+})
+
+describe('MemoryPanel: lifecycle', () => {
+  it('asks the engine nothing more after it is unmounted while the list is loading', async () => {
+    let finish: (value: unknown) => void = () => undefined
+    const world = makeWorld({ memory: [...memoryFixtures.three], intercept: (method) => (method === 'listMemory' ? new Promise((resolve) => (finish = resolve)) : undefined) })
     const view = renderThemed(<MemoryPanel client={world.client} />, { locale: 'en' })
     view.unmount()
+    finish({ items: [...memoryFixtures.three] })
     await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(world.onEvent).not.toHaveBeenCalled()
+    expect(world.calls.map((call) => call.method)).toEqual(['listMemory'])
   })
 })

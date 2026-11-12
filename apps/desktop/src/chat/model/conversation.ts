@@ -43,6 +43,10 @@ export function canSubmit(entries: readonly ConversationEntry[], kind: 'message'
   return entries.length + (kind === 'answers' ? 1 : 0) <= MAX_TURNS
 }
 
+export function memoryInUse(useMemory: boolean, memoryCount: number | undefined): boolean {
+  return useMemory && memoryCount !== undefined && memoryCount > 0
+}
+
 export function attachmentsInConversation(entries: readonly ConversationEntry[]): number {
   return entries.reduce((sum, entry) => sum + (entry.role === 'user' ? entry.attachments.length : 0), 0)
 }

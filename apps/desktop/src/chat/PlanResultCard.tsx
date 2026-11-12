@@ -17,6 +17,8 @@ export interface PlanResultCardProps {
   onDeploy(): void
   deploying: boolean
   deployError?: MessageKey
+  superseded?: boolean
+  planning?: boolean
 }
 
 const MAX_PATCH_ROWS = 50
@@ -42,13 +44,14 @@ function describePatch(t: Translate, op: PatchOp): string {
   }
 }
 
-export function PlanResultCard({ entry, catalog, confirmed, onToggleFlag, onDeploy, deploying, deployError }: PlanResultCardProps) {
+export function PlanResultCard({ entry, catalog, confirmed, onToggleFlag, onDeploy, deploying, deployError, superseded = false, planning = false }: PlanResultCardProps) {
   const t = useT()
   const { result } = entry
   if (result.kind !== 'workflow') return null
   const flags = result.flags
   const deployed = entry.deployed !== undefined
-  const ready = canDeploy(entry, confirmed)
+  const stale = superseded && !deployed
+  const ready = canDeploy(entry, confirmed) && !stale && !planning
   const done = flags.filter((flag) => confirmed.includes(flagKey(flag))).length
   const titles: Record<string, string> = {}
   for (const node of result.workflow.nodes) {
@@ -80,7 +83,7 @@ export function PlanResultCard({ entry, catalog, confirmed, onToggleFlag, onDepl
           <p className={styles.banner} role="note">
             {t('chat.flags.banner', { count: flags.length })}
           </p>
-          <FlagConfirm flags={flags} confirmed={confirmed} onToggle={onToggleFlag} disabled={deploying || deployed} nodeTitles={titles} />
+          <FlagConfirm flags={flags} confirmed={confirmed} onToggle={onToggleFlag} disabled={deploying || deployed || stale} nodeTitles={titles} />
         </>
       )}
       <div className={styles.deploy}>
@@ -94,7 +97,9 @@ export function PlanResultCard({ entry, catalog, confirmed, onToggleFlag, onDepl
               {deploying ? t('chat.deploy.deploying') : t('chat.deploy.button')}
             </button>
             {flags.length > 0 ? <span className={styles.progress}>{t('chat.flags.progress', { done, total: flags.length })}</span> : null}
-            {flags.length > 0 && !ready && !deploying ? <span className={styles.progress}>{t('chat.deploy.blocked')}</span> : null}
+            {stale ? <span className={styles.progress}>{t('chat.deploy.superseded')}</span> : null}
+            {!stale && planning ? <span className={styles.progress}>{t('chat.deploy.waiting')}</span> : null}
+            {!stale && !planning && flags.length > 0 && !ready && !deploying ? <span className={styles.progress}>{t('chat.deploy.blocked')}</span> : null}
           </>
         )}
       </div>

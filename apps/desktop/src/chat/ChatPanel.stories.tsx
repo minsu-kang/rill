@@ -11,10 +11,13 @@ import { ChatPanel, type ChatPanelProps } from './ChatPanel'
 import type { AttachmentPort } from './Composer'
 import type { ConversationEntry } from './model/conversation'
 
+let attachmentSerial = 0
+
 const port: AttachmentPort = {
   async add(file) {
     await new Promise((resolve) => setTimeout(resolve, 300))
-    return { id: `att-story-${file.name.length}-${file.size}`.padEnd(12, 'x'), mediaType: 'text/plain', name: file.name, bytes: file.size }
+    attachmentSerial += 1
+    return { id: `att-story-${String(attachmentSerial).padStart(4, '0')}`, mediaType: 'text/plain', name: file.name, bytes: file.size }
   },
 }
 
@@ -56,20 +59,21 @@ interface World {
   delayMs?: number
 }
 
-function clientOf(world: World): EngineClient {
+function clientOf(world: World, entries: readonly ConversationEntry[] = []): EngineClient {
   const client = withPlanMethods(createFakeClient(fakeData), {
     models: world.models ?? models,
     script: world.script(),
     memory: [...memoryFixtures.three],
     deployId: 'wf-story-1',
     delayMs: world.delayMs ?? 600,
+    seed: entries.flatMap((entry) => (entry.role === 'assistant' && entry.deployed === undefined ? [{ planId: entry.planId, result: entry.result }] : [])),
   })
   const request = <M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> => client.request(method, params)
   return { request, onEvent: client.onEvent }
 }
 
 function Session({ world, ...rest }: { world: World } & Partial<ChatPanelProps>) {
-  const client = useMemo(() => clientOf(world), [world])
+  const client = useMemo(() => clientOf(world, rest.initialEntries), [world, rest.initialEntries])
   return <ChatPanel client={client} port={port} catalog={catalog} {...rest} />
 }
 

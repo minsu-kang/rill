@@ -160,6 +160,14 @@ describe('Composer: effort and memory', () => {
     expect(toggle.checked).toBe(false)
   })
 
+  it('shows the toggle off and disabled while the notes are not known, and leaves notes out of the transfer notice', () => {
+    show({ memoryCount: undefined })
+    const toggle = screen.getByRole('checkbox', { name: 'Notes not loaded' }) as HTMLInputElement
+    expect(toggle.disabled).toBe(true)
+    expect(toggle.checked).toBe(false)
+    expect(screen.getByRole('note').textContent).not.toContain('notes')
+  })
+
   it('shows the external transfer notice with what leaves the computer', () => {
     const first = show({ state: { draft: 'x', attachments: [], effort: 'medium', useMemory: false } })
     const note = screen.getByRole('note')
@@ -219,6 +227,55 @@ describe('Composer: attachments', () => {
     expect(screen.getByText('Drop files here to attach them')).toBeTruthy()
     fireEvent.dragLeave(zone, { dataTransfer: { types: ['Files'], files: [] } })
     expect(screen.queryByText('Drop files here to attach them')).toBeNull()
+  })
+
+  it('takes over the drag of a file with the default action cancelled, and offers a copy', () => {
+    const { container } = show()
+    const zone = container.querySelector('[data-composer]')!
+    const transfer = { types: ['Files'], files: [], dropEffect: '' }
+    expect(fireEvent.dragOver(zone, { dataTransfer: transfer })).toBe(false)
+    expect(transfer.dropEffect).toBe('copy')
+  })
+
+  it('cancels the default action of a dragged file while busy or disabled, shows no hint and refuses the drop', () => {
+    for (const overrides of [{ busy: true }, { disabled: true }]) {
+      const { props, container, unmount } = show(overrides)
+      const zone = container.querySelector('[data-composer]')!
+      const transfer = { types: ['Files'], files: [], dropEffect: '' }
+      expect(fireEvent.dragOver(zone, { dataTransfer: transfer })).toBe(false)
+      expect(transfer.dropEffect).toBe('none')
+      expect(screen.queryByText('Drop files here to attach them')).toBeNull()
+      expect(fireEvent.drop(zone, { dataTransfer: { files: [textFile()], types: ['Files'] } })).toBe(false)
+      expect(props.port.add).not.toHaveBeenCalled()
+      unmount()
+    }
+  })
+
+  it('leaves the drag of something that is not a file alone', () => {
+    const { container } = show()
+    const zone = container.querySelector('[data-composer]')!
+    expect(fireEvent.dragOver(zone, { dataTransfer: { types: ['text/plain'], files: [] } })).toBe(true)
+    expect(screen.queryByText('Drop files here to attach them')).toBeNull()
+  })
+
+  it('skips a dropped folder, even one that is named like a file, and attaches the files beside it', async () => {
+    const { props, container } = show()
+    const folder = new File(['x'], 'looks-like.pdf')
+    const file = textFile('real.txt')
+    const items = [
+      { kind: 'file', webkitGetAsEntry: () => ({ isDirectory: true }) },
+      { kind: 'file', webkitGetAsEntry: () => ({ isDirectory: false }) },
+    ]
+    fireEvent.drop(container.querySelector('[data-composer]')!, { dataTransfer: { files: [folder, file], items, types: ['Files'] } })
+    await waitFor(() => expect(props.port.add).toHaveBeenCalledTimes(1))
+    expect(props.port.add).toHaveBeenCalledWith(file)
+  })
+
+  it('attaches a dropped file when the drop carries no item list, or an item that cannot say what it is', async () => {
+    const { props, container } = show()
+    const file = textFile('plain.txt')
+    fireEvent.drop(container.querySelector('[data-composer]')!, { dataTransfer: { files: [file], items: [{ kind: 'file' }], types: ['Files'] } })
+    await waitFor(() => expect(props.port.add).toHaveBeenCalledWith(file))
   })
 
   it('validates before it calls the port and shows the localized reason', async () => {
@@ -322,11 +379,68 @@ describe('Composer: attachments', () => {
     expect(props.onChange).not.toHaveBeenCalled()
   })
 
+  it('asks the port to remove a file that was added after the composer went away', async () => {
+    let resolve!: (ref: AttachmentRef) => void
+    const remove = vi.fn(async () => undefined)
+    const port: AttachmentPort = { add: () => new Promise<AttachmentRef>((done) => (resolve = done)), remove }
+    const { container, unmount } = show({ port })
+    fireEvent.change(input(container), { target: { files: [textFile()] } })
+    unmount()
+    await act(async () => {
+      resolve({ ...attachmentRefs.text, id: 'att-late-0001x' })
+    })
+    expect(remove).toHaveBeenCalledWith('att-late-0001x')
+  })
+
+  it('survives a port without remove, or whose remove fails, for a file added after the composer went away', async () => {
+    for (const remove of [undefined, vi.fn(() => Promise.reject(new Error('no')))]) {
+      let resolve!: (ref: AttachmentRef) => void
+      const port: AttachmentPort = { add: () => new Promise<AttachmentRef>((done) => (resolve = done)), ...(remove === undefined ? {} : { remove }) }
+      const { container, unmount } = show({ port })
+      fireEvent.change(input(container), { target: { files: [textFile()] } })
+      unmount()
+      await act(async () => {
+        resolve({ ...attachmentRefs.text, id: 'att-late-0002x' })
+      })
+    }
+  })
+
   it('does not attach while busy', () => {
     const { props, container } = show({ busy: true })
     expect((screen.getByRole('button', { name: 'Attach files' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.drop(container.querySelector('[data-composer]')!, { dataTransfer: { files: [textFile()], types: ['Files'] } })
     expect(props.port.add).not.toHaveBeenCalled()
+  })
+})
+
+describe('Composer: focus', () => {
+  function again(view: ReturnType<typeof show>, overrides: Partial<ComposerProps>): void {
+    view.rerender(<Composer {...propsOf(overrides)} />)
+  }
+
+  it('puts the focus back in the text field when the send is over and the focus was lost', () => {
+    const view = show()
+    box().focus()
+    again(view, { busy: true })
+    box().blur()
+    expect(document.activeElement).toBe(document.body)
+    again(view, { busy: false })
+    expect(document.activeElement).toBe(box())
+  })
+
+  it('does not take the focus from another control that stays', () => {
+    const editContext = { workflowId: 'wf-1' }
+    const view = show({ busy: true, editContext })
+    screen.getByRole('button', { name: 'Stop editing' }).focus()
+    again(view, { busy: false, editContext })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Stop editing' }))
+  })
+
+  it('does not move the focus on the first render, nor while the send goes on', () => {
+    const view = show()
+    expect(document.activeElement).toBe(document.body)
+    again(view, { busy: true })
+    expect(document.activeElement).toBe(document.body)
   })
 })
 

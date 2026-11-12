@@ -13,15 +13,17 @@ export interface QuestionCardProps {
 const MAX_FREE_TEXT = 2000
 
 function optionsOf(question: PlanQuestion): string[] {
-  const unique = [...new Set(question.options)]
-  if (unique.length === 0) return []
-  return question.default !== '' && !unique.includes(question.default) ? [question.default, ...unique] : unique
+  return [...new Set(question.options)]
+}
+
+function startAnswer(question: PlanQuestion): string {
+  return optionsOf(question).includes(question.default) ? question.default : ''
 }
 
 export function QuestionCard({ questions, onSubmit, disabled }: QuestionCardProps) {
   const t = useT()
   const base = useId()
-  const [answers, setAnswers] = useState<string[]>(() => questions.map((question) => question.default))
+  const [answers, setAnswers] = useState<string[]>(() => questions.map(startAnswer))
   const blank = answers.some((answer) => answer.trim() === '')
 
   function set(index: number, value: string): void {
@@ -56,15 +58,26 @@ export function QuestionCard({ questions, onSubmit, disabled }: QuestionCardProp
               <ClampedText text={question.text} max={240} />
             </legend>
             {options.length === 0 ? (
-              <textarea
-                className={styles.text}
-                aria-label={t('chat.questions.freeText')}
-                rows={2}
-                maxLength={MAX_FREE_TEXT}
-                disabled={disabled}
-                value={answers[index]}
-                onChange={(event) => set(index, event.target.value)}
-              />
+              <>
+                <textarea
+                  className={styles.text}
+                  aria-label={t('chat.questions.freeText')}
+                  rows={2}
+                  maxLength={MAX_FREE_TEXT}
+                  disabled={disabled}
+                  value={answers[index]}
+                  onChange={(event) => set(index, event.target.value)}
+                />
+                {question.default === '' ? null : (
+                  <div className={styles.suggestion}>
+                    <span className={styles.mark}>{t('chat.questions.suggested')}</span>
+                    <ClampedText text={question.default} max={160} />
+                    <button type="button" className={styles.use} disabled={disabled || answers[index] === question.default} onClick={() => set(index, question.default)}>
+                      {t('chat.questions.useSuggestion')}
+                    </button>
+                  </div>
+                )}
+              </>
             ) : (
               options.map((option, at) => {
                 const id = `${base}-${index}-${at}`

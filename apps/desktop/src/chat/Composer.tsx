@@ -6,7 +6,7 @@ import { EffortSlider } from './EffortSlider'
 import { ExternalTransferNotice, type TransferItem } from './ExternalTransferNotice'
 import { ATTACHMENT_LIMITS, attachmentReasonKey, checkAttachment } from './model/attachments'
 import { markHidden } from './model/clamp'
-import type { ConversationState } from './model/conversation'
+import { memoryInUse, type ConversationState } from './model/conversation'
 import type { EffortHint } from './model/effort'
 import { planErrorKey } from './model/errors'
 import styles from './Composer.module.css'
@@ -22,7 +22,7 @@ export interface ComposerProps {
   state: ComposerState
   model: LlmModelInfo | undefined
   models: LlmModelsResult | undefined
-  memoryCount: number
+  memoryCount: number | undefined
   editContext?: { workflowId: string; nodeId?: string }
   port: AttachmentPort
   busy: boolean
@@ -49,6 +49,12 @@ function hasFiles(event: DragEvent): boolean {
   return Array.from(event.dataTransfer?.types ?? []).includes('Files')
 }
 
+function droppedFiles(transfer: DataTransfer | null): File[] {
+  const files = Array.from(transfer?.files ?? [])
+  const items = Array.from(transfer?.items ?? []).filter((item) => item.kind === 'file')
+  return files.filter((_, index) => items[index]?.webkitGetAsEntry?.()?.isDirectory !== true)
+}
+
 export function Composer(props: ComposerProps) {
   const { state, model, models, memoryCount, editContext, port, busy, disabled = false, conversationAttachments = 0, hints } = props
   const t = useT()
@@ -56,6 +62,8 @@ export function Composer(props: ComposerProps) {
   const [failures, setFailures] = useState<Failure[]>([])
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const text = useRef<HTMLTextAreaElement>(null)
+  const wasBusy = useRef(false)
   const mounted = useRef(true)
   const latest = useRef(props)
   const attachments = useRef<AttachmentRef[]>(state.attachments)
@@ -76,6 +84,11 @@ export function Composer(props: ComposerProps) {
       mounted.current = false
     }
   }, [])
+
+  useEffect(() => {
+    if (wasBusy.current && !busy && (document.activeElement === null || document.activeElement === document.body)) text.current?.focus()
+    wasBusy.current = busy
+  }, [busy])
 
   const tooLong = state.draft.length > MAX_TEXT
   const canSend = !busy && !disabled && model !== undefined && state.draft.trim() !== '' && !tooLong && pending.length === 0
@@ -104,7 +117,10 @@ export function Composer(props: ComposerProps) {
       port.add(file).then(
         (ref) => {
           pendingCount.current -= 1
-          if (!mounted.current) return
+          if (!mounted.current) {
+            port.remove?.(ref.id)?.catch(() => undefined)
+            return
+          }
           setPending((previous) => previous.filter((item) => item.key !== key))
           attachments.current = [...attachments.current, ref]
           latest.current.onChange({ attachments: attachments.current })
@@ -139,20 +155,23 @@ export function Composer(props: ComposerProps) {
   }
 
   function onDragOver(event: DragEvent): void {
-    if (busy || !hasFiles(event)) return
+    if (!hasFiles(event)) return
     event.preventDefault()
-    setDragging(true)
+    const blocked = busy || disabled
+    if (event.dataTransfer !== null) event.dataTransfer.dropEffect = blocked ? 'none' : 'copy'
+    setDragging(!blocked)
   }
 
   function onDrop(event: DragEvent): void {
     event.preventDefault()
     setDragging(false)
-    addFiles(Array.from(event.dataTransfer?.files ?? []))
+    addFiles(droppedFiles(event.dataTransfer))
   }
 
   const transfer: TransferItem[] = ['request']
   if (state.attachments.length > 0) transfer.push('attachments')
-  if (state.useMemory && memoryCount > 0) transfer.push('memory')
+  const memoryOn = memoryInUse(state.useMemory, memoryCount)
+  if (memoryOn) transfer.push('memory')
   const attachCount = state.attachments.length + pending.length
 
   return (
@@ -176,6 +195,7 @@ export function Composer(props: ComposerProps) {
         onRemove={remove}
       />
       <textarea
+        ref={text}
         className={styles.text}
         aria-label={t('chat.composer.label')}
         placeholder={t('chat.composer.placeholder')}
@@ -210,8 +230,8 @@ export function Composer(props: ComposerProps) {
         />
         {attachCount > 0 ? <span className={styles.meta}>{t('chat.attach.counter', { count: attachCount, max: ATTACHMENT_LIMITS.perMessage })}</span> : null}
         <label className={styles.memory}>
-          <input type="checkbox" checked={state.useMemory && memoryCount > 0} disabled={busy || memoryCount === 0} onChange={(event) => props.onChange({ useMemory: event.target.checked })} />
-          <span>{memoryCount === 0 ? t('chat.composer.memoryNone') : t('chat.composer.memory', { count: memoryCount })}</span>
+          <input type="checkbox" checked={memoryOn} disabled={busy || memoryCount === undefined || memoryCount === 0} onChange={(event) => props.onChange({ useMemory: event.target.checked })} />
+          <span>{memoryCount === undefined ? t('chat.composer.memoryUnknown') : memoryCount === 0 ? t('chat.composer.memoryNone') : t('chat.composer.memory', { count: memoryCount })}</span>
         </label>
         {state.draft.length >= SHOW_COUNTER_FROM ? <span className={styles.meta}>{t('chat.composer.counter', { count: state.draft.length, max: MAX_TEXT })}</span> : null}
       </div>

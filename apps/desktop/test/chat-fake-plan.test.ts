@@ -42,6 +42,23 @@ async function rejection(promise: Promise<unknown>): Promise<RillError> {
   throw new Error('expected a rejection')
 }
 
+describe('withPlanMethods: seeded plans', () => {
+  it('deploys a plan that was seeded, with exactly its flag keys, and answers a plan with the same id as already used', async () => {
+    const flagged = results.flagged as Extract<typeof results.flagged, { kind: 'workflow' }>
+    const { client } = setup({ seed: [{ planId: 'seeded-1', result: flagged }, { planId: 'seeded-2', result: results.workflow }] })
+    expect((await rejection(client.request('deployPlan', { planId: 'seeded-1', confirmed: [] }))).code).toBe('PLAN_NOT_CONFIRMED')
+    await expect(client.request('deployPlan', { planId: 'seeded-1', confirmed: flagged.flags.map(flagKey) })).resolves.toEqual({ workflowId: expect.any(String) })
+    await expect(client.request('deployPlan', { planId: 'seeded-2', confirmed: [] })).resolves.toEqual({ workflowId: expect.any(String) })
+    expect((await rejection(client.request('deployPlan', { planId: 'seeded-2', confirmed: [] }))).code).toBe('PLAN_DEPLOYED')
+    expect((await rejection(client.request('plan', params({ planId: 'seeded-1' })))).code).toBe('PLAN_EXISTS')
+  })
+
+  it('does not know a plan that was not seeded', async () => {
+    const { client } = setup({ seed: [] })
+    expect((await rejection(client.request('deployPlan', { planId: 'plan-9', confirmed: [] }))).code).toBe('NOT_FOUND')
+  })
+})
+
 describe('withPlanMethods: results follow the protocol', () => {
   it('answers every handled method with data that passes the result schema', async () => {
     const { client } = setup({ memory: [...memoryFixtures.three] })

@@ -8,6 +8,7 @@ import {
   canSubmit,
   conversationReducer,
   initialConversation,
+  memoryInUse,
   planParams,
   type ConversationAction,
   type ConversationEntry,
@@ -226,6 +227,17 @@ describe('canDeploy', () => {
 
   it('does not trust needsConfirmation alone when flags exist', () => {
     expect(canDeploy(assistant('p', workflowResult([flag('n1')], false)), [])).toBe(false)
+  })
+})
+
+describe('memoryInUse', () => {
+  it('is true only when the switch is on and the engine reported at least one note', () => {
+    expect(memoryInUse(true, 3)).toBe(true)
+    expect(memoryInUse(true, 1)).toBe(true)
+    expect(memoryInUse(true, 0)).toBe(false)
+    expect(memoryInUse(true, undefined)).toBe(false)
+    expect(memoryInUse(false, 3)).toBe(false)
+    expect(memoryInUse(false, undefined)).toBe(false)
   })
 })
 

@@ -34,7 +34,7 @@ interface DemoProps {
   initial?: Partial<Initial>
   model?: LlmModelInfo
   models?: LlmModelsResult
-  memoryCount?: number
+  memoryCount?: number | null
   editContext?: ComposerProps['editContext']
   busy?: boolean
   port?: AttachmentPort
@@ -67,7 +67,7 @@ function Demo({ initial, model = opus, models: table = models, memoryCount = 3, 
         state={state}
         model={model}
         models={table}
-        memoryCount={memoryCount}
+        memoryCount={memoryCount === null ? undefined : memoryCount}
         editContext={edit}
         port={port}
         busy={busy}
@@ -165,6 +165,8 @@ export const EditContext: Story = { name: 'Edit context', args: unused, render: 
 export const MemoryOn: Story = { name: 'Memory on', args: unused, render: () => <Demo memoryCount={memoryFixtures.three.length} initial={{ draft: 'x', useMemory: true }} /> }
 
 export const MemoryOff: Story = { name: 'Memory off', args: unused, render: () => <Demo memoryCount={memoryFixtures.three.length} initial={{ draft: 'x', useMemory: false }} /> }
+
+export const NotesNotLoaded: Story = { name: 'Notes not loaded', args: unused, render: () => <Demo memoryCount={null} initial={{ draft: 'x', useMemory: true }} /> }
 
 export const NoNotes: Story = { name: 'No saved notes', args: unused, render: () => <Demo memoryCount={0} initial={{ draft: 'x' }} /> }
 

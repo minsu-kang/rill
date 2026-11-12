@@ -243,6 +243,27 @@ describe('WorkflowGraph', () => {
   })
 })
 
+describe('WorkflowGraph: hidden characters in a condition', () => {
+  it('shows an invisible or direction-changing character of a condition as a visible marker, in the drawing and in the name', async () => {
+    const hostile = workflowOf('hostile', [node('a', 'trigger.manual@1', {}), node('b', 'transform@1', {})], [edge('a', 'b', 'x\u202Ey\u200Bz')])
+    const { container } = renderThemed(<Harness workflow={hostile} />, { locale: 'en' })
+    await ready(container, 1)
+    const drawn = [...container.querySelectorAll('.react-flow__edge-text')].map((label) => label.textContent)
+    expect(drawn).toEqual(['x‹U+202E›y‹U+200B›z'])
+    expect(container.querySelector('.react-flow__edge')!.getAttribute('aria-label')).toBe('Connection from a to b, when x‹U+202E›y‹U+200B›z')
+    expect(container.textContent).not.toMatch(/[\u202E\u200B]/u)
+  })
+
+  it('caps a condition after the markers are written, so the drawn label stays short', async () => {
+    const hostile = workflowOf('hostile', [node('a', 'trigger.manual@1', {}), node('b', 'transform@1', {})], [edge('a', 'b', '\u202E'.repeat(40))])
+    const { container } = renderThemed(<Harness workflow={hostile} />, { locale: 'en' })
+    await ready(container, 1)
+    const drawn = container.querySelector('.react-flow__edge-text')!.textContent!
+    expect(drawn.length).toBeLessThanOrEqual(24)
+    expect(drawn.endsWith('…')).toBe(true)
+  })
+})
+
 describe('WorkflowGraph edges and states', () => {
   const trigger = node('a', 'trigger.manual@1', {})
   const action = node('b', 'transform@1', {})

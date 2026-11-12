@@ -56,6 +56,39 @@ describe('PlanResultCard: a workflow with no flags', () => {
   })
 })
 
+describe('PlanResultCard: a newer plan', () => {
+  it('says a superseded plan was replaced, and cannot be deployed or re-confirmed', () => {
+    const flagged = results.flagged as Extract<PlanResultBody, { kind: 'workflow' }>
+    const { props } = show(flagged, { superseded: true, confirmed: flagged.flags.map(flagKey) })
+    expect(screen.getByText('A newer plan replaced this one.')).toBeTruthy()
+    expect(deployButton().disabled).toBe(true)
+    fireEvent.click(deployButton())
+    expect(props.onDeploy).not.toHaveBeenCalled()
+    for (const box of screen.getAllByRole('checkbox')) expect((box as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('does not call a deployed plan superseded', () => {
+    show(results.workflow, { entry: entryOf(results.workflow, 'wf-9'), superseded: true })
+    expect(screen.queryByText('A newer plan replaced this one.')).toBeNull()
+    expect(screen.getByText('Deployed. Workflow wf-9')).toBeTruthy()
+  })
+
+  it('keeps deploy disabled with a reason while another plan is being made', () => {
+    const { props } = show(results.workflow, { planning: true })
+    expect(deployButton().disabled).toBe(true)
+    expect(screen.getByText('Deploy is available when the new plan is ready.')).toBeTruthy()
+    fireEvent.click(deployButton())
+    expect(props.onDeploy).not.toHaveBeenCalled()
+  })
+
+  it('shows neither note for a plan that is the latest and nothing is planning', () => {
+    show(results.workflow, { superseded: false, planning: false })
+    expect(screen.queryByText('A newer plan replaced this one.')).toBeNull()
+    expect(screen.queryByText('Deploy is available when the new plan is ready.')).toBeNull()
+    expect(deployButton().disabled).toBe(false)
+  })
+})
+
 describe('PlanResultCard: a patch', () => {
   it('lists each of the five operations in words, with node ids as text', () => {
     show(results.patch)
@@ -203,13 +236,27 @@ describe('PlanResultCard: text from the model', () => {
       ],
     }
     const { container } = show(hostile)
-    const outside = [...container.querySelectorAll('img, a, script, strong, b')].filter((element) => element.closest('.react-flow') === null)
+    const outside = [...container.querySelectorAll('img, a, script, strong, b')].filter((element) => element.closest('.react-flow__attribution') === null)
     expect(outside).toEqual([])
     expect(container.textContent).toContain('<img src=x onerror=alert(1)>')
     expect(container.textContent).toContain('‹U+202E›exe.txt')
     expect(container.textContent).toContain('**bold**')
     expect(container.textContent).toContain('Remove node <img src=x onerror=alert(1)>')
     expect(container.textContent).toContain('Change the settings of n‹U+202E›1 (<script>)')
+  })
+
+  it('draws a hostile condition of the preview as text with its hidden characters marked', async () => {
+    const hostile: PlanResultBody = {
+      ...base,
+      workflow: { ...base.workflow, edges: base.workflow.edges.map((link) => ({ ...link, when: '\u202E<img src=x>' })) },
+    }
+    const { container } = show(hostile)
+    await waitFor(() => expect(container.querySelectorAll('.react-flow__edge-text').length).toBeGreaterThan(0))
+    const preview = screen.getByRole('region', { name: 'Workflow preview' })
+    expect([...preview.querySelectorAll('img, script, strong, b')]).toEqual([])
+    expect([...preview.querySelectorAll('a')].filter((link) => link.closest('.react-flow__attribution') === null)).toEqual([])
+    expect(preview.textContent).toContain('‹U+202E›')
+    expect(preview.textContent).not.toContain('\u202E')
   })
 
   it('caps a very long summary and a very long flag message behind a show more button', () => {

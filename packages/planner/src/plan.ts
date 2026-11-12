@@ -103,6 +103,10 @@ export function answerFromOptions(answer: string, options: readonly string[]): b
     .some((option) => option !== '' && (value === option || (option.length >= MIN_CONTAINED_OPTION && value.includes(option))))
 }
 
+function offeredBy(question: PlanQuestion): string[] {
+  return [...question.options, question.default]
+}
+
 /** The texts the user wrote: the turn texts, free-text answers and the current request; never a chosen option. */
 export function userTexts(request: PlanRequest): string[] {
   const texts: string[] = []
@@ -112,7 +116,7 @@ export function userTexts(request: PlanRequest): string[] {
     const answers = Object.entries(turn.answers ?? {})
       .filter(([id, answer]) => {
         const question = asked.find((candidate) => candidate.id === id)
-        return !answerFromOptions(answer, question === undefined ? asked.flatMap((candidate) => candidate.options) : question.options)
+        return !answerFromOptions(answer, question === undefined ? asked.flatMap(offeredBy) : offeredBy(question))
       })
       .map(([, answer]) => answer)
     texts.push(turn.text, ...answers)

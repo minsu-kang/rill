@@ -33,13 +33,20 @@ const BY_EXTENSION: Readonly<Record<string, MediaType>> = {
   markdown: 'text/markdown',
 }
 
+const TEXT: ReadonlySet<string> = new Set<MediaType>(['text/plain', 'text/csv', 'text/markdown'])
+
+function extensionOf(name: string): string | undefined {
+  const dot = name.lastIndexOf('.')
+  return dot < 0 || dot === name.length - 1 ? undefined : name.slice(dot + 1).toLowerCase()
+}
+
 export function mediaTypeOf(file: { name: string; type: string }): MediaType | undefined {
   const declared = file.type.split(';')[0]!.trim().toLowerCase()
-  if (ALLOWED.has(declared)) return declared as MediaType
-  const dot = file.name.lastIndexOf('.')
-  if (dot < 0) return undefined
-  const extension = file.name.slice(dot + 1).toLowerCase()
-  return Object.hasOwn(BY_EXTENSION, extension) ? BY_EXTENSION[extension] : undefined
+  const extension = extensionOf(file.name)
+  const byExtension = extension !== undefined && Object.hasOwn(BY_EXTENSION, extension) ? BY_EXTENSION[extension] : undefined
+  if (!ALLOWED.has(declared)) return byExtension
+  if (extension === undefined || byExtension === declared) return declared as MediaType
+  return TEXT.has(declared) && (byExtension === undefined || TEXT.has(byExtension)) ? (declared as MediaType) : undefined
 }
 
 export type AttachmentReason = 'unsupported_type' | 'too_large' | 'too_many_in_message' | 'too_many_in_conversation' | 'empty'

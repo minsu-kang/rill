@@ -1,5 +1,5 @@
-import { MEMORY_MAX_ITEMS, type MemoryItem } from '@rill/protocol'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { MEMORY_MAX_INPUT_CHARS, MEMORY_MAX_ITEMS, type MemoryItem } from '@rill/protocol'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import type { EngineClient } from '../engine/client'
 import { useT, type MessageKey } from '../i18n'
 import { ClampedText } from './ClampedText'
@@ -17,6 +17,7 @@ type Load = { status: 'loading' } | { status: 'ready'; items: MemoryItem[] } | {
 
 export function MemoryPanel({ client }: MemoryPanelProps) {
   const t = useT()
+  const titleId = useId()
   const [load, setLoad] = useState<Load>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
   const [draft, setDraft] = useState('')
@@ -48,6 +49,7 @@ export function MemoryPanel({ client }: MemoryPanelProps) {
     }
   }, [client, attempt])
 
+  const ready = load.status === 'ready'
   const items = load.status === 'ready' ? load.items : []
   const full = items.length >= MEMORY_MAX_ITEMS
 
@@ -70,7 +72,7 @@ export function MemoryPanel({ client }: MemoryPanelProps) {
 
   function add(event: FormEvent): void {
     event.preventDefault()
-    if (draft.trim() === '' || full) return
+    if (!ready || draft.trim() === '' || full) return
     void run(async () => {
       const { item } = await client.request('saveMemory', { text: draft })
       if (!alive.current) return
@@ -100,9 +102,9 @@ export function MemoryPanel({ client }: MemoryPanelProps) {
   }
 
   return (
-    <section className={styles.root} aria-labelledby="chat-memory-title">
+    <section className={styles.root} aria-labelledby={titleId}>
       <header className={styles.header}>
-        <h3 id="chat-memory-title" className={styles.title}>
+        <h3 id={titleId} className={styles.title}>
           {t('chat.memory.title')}
         </h3>
         {load.status === 'ready' ? <span className={styles.count}>{t('chat.memory.count', { count: items.length, max: MEMORY_MAX_ITEMS })}</span> : null}
@@ -117,10 +119,12 @@ export function MemoryPanel({ client }: MemoryPanelProps) {
           className={styles.input}
           aria-label={t('chat.memory.inputLabel')}
           placeholder={t('chat.memory.placeholder')}
+          maxLength={MEMORY_MAX_INPUT_CHARS}
+          disabled={!ready}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <button type="submit" className={styles.primary} disabled={busy || full || draft.trim() === ''}>
+        <button type="submit" className={styles.primary} disabled={!ready || busy || full || draft.trim() === ''}>
           {t('chat.memory.save')}
         </button>
       </form>
@@ -153,6 +157,7 @@ export function MemoryPanel({ client }: MemoryPanelProps) {
                     type="text"
                     className={styles.input}
                     aria-label={t('chat.memory.editLabel')}
+                    maxLength={MEMORY_MAX_INPUT_CHARS}
                     value={editing.text}
                     onChange={(event) => setEditing({ id: item.id, text: event.target.value })}
                   />

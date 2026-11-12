@@ -20,7 +20,7 @@ import {
 import { useCallback, useId, useMemo, useState } from 'react'
 import { useT, type Translate } from '../i18n'
 import { displayState, type NodeRunState, type NodeStatus, type RunStates } from '../model/status'
-import { truncate } from '../model/text'
+import { escapeInvisible, truncate } from '../model/text'
 import { layoutWorkflow } from './layout'
 import { CARD_SIZE, NodeCard } from './NodeCard'
 import styles from './WorkflowGraph.module.css'
@@ -63,6 +63,10 @@ function FlowNode({ data, selected }: NodeProps<StepNode>) {
   )
 }
 
+function shownWhen(when: string): string {
+  return truncate(escapeInvisible(when), MAX_LABEL)
+}
+
 function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, style, data }: EdgeProps<LinkEdge>) {
   const [path, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 12 })
   const when = data?.when
@@ -72,7 +76,7 @@ function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
       path={path}
       markerEnd={markerEnd}
       style={style}
-      label={when === undefined ? undefined : truncate(when, MAX_LABEL)}
+      label={when === undefined ? undefined : shownWhen(when)}
       labelX={labelX}
       labelY={labelY}
       labelShowBg
@@ -101,7 +105,7 @@ function ariaLabels(t: Translate): Partial<AriaLabelConfig> {
 
 function edgeLabel(t: Translate, link: Workflow['edges'][number]): string {
   const ends = { from: truncate(link.from, MAX_ID), to: truncate(link.to, MAX_ID) }
-  return link.when === undefined ? t('graph.edgeLabel', ends) : t('graph.edgeLabelWhen', { ...ends, when: truncate(link.when, MAX_LABEL) })
+  return link.when === undefined ? t('graph.edgeLabel', ends) : t('graph.edgeLabelWhen', { ...ends, when: shownWhen(link.when) })
 }
 
 function structureKey(workflow: Workflow): string {

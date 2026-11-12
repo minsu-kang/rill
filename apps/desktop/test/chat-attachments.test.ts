@@ -43,8 +43,37 @@ describe('mediaTypeOf', () => {
     expect(mediaTypeOf({ name: '', type: '' })).toBeUndefined()
   })
 
-  it('lets the declared type win over the extension', () => {
-    expect(mediaTypeOf({ name: 'a.pdf', type: 'image/png' })).toBe('image/png')
+  it('refuses a binary type whose extension says something else, or that the extension does not know', () => {
+    expect(mediaTypeOf({ name: 'a.pdf', type: 'image/png' })).toBeUndefined()
+    expect(mediaTypeOf({ name: 'tool.exe', type: 'image/png' })).toBeUndefined()
+    expect(mediaTypeOf({ name: 'tool.exe', type: 'application/pdf' })).toBeUndefined()
+    expect(mediaTypeOf({ name: 'a.png', type: 'application/pdf' })).toBeUndefined()
+    expect(mediaTypeOf({ name: 'a.txt', type: 'image/png' })).toBeUndefined()
+  })
+
+  it('accepts a binary type when the extension agrees, in any case, and when there is no extension', () => {
+    expect(mediaTypeOf({ name: 'a.PNG', type: 'image/png' })).toBe('image/png')
+    expect(mediaTypeOf({ name: 'a.jpg', type: 'image/jpeg' })).toBe('image/jpeg')
+    expect(mediaTypeOf({ name: 'a.jpeg', type: 'image/jpeg' })).toBe('image/jpeg')
+    expect(mediaTypeOf({ name: 'scan.pdf', type: 'application/pdf' })).toBe('application/pdf')
+    expect(mediaTypeOf({ name: 'photo', type: 'image/png' })).toBe('image/png')
+    expect(mediaTypeOf({ name: 'photo.', type: 'image/png' })).toBe('image/png')
+  })
+
+  it('lets a declared text type stand for any text extension and for an extension it does not know', () => {
+    expect(mediaTypeOf({ name: 'a.md', type: 'text/plain' })).toBe('text/plain')
+    expect(mediaTypeOf({ name: 'a.csv', type: 'text/plain' })).toBe('text/plain')
+    expect(mediaTypeOf({ name: 'a.txt', type: 'text/csv' })).toBe('text/csv')
+    expect(mediaTypeOf({ name: 'server.log', type: 'text/plain' })).toBe('text/plain')
+  })
+
+  it('refuses a declared text type on a binary extension', () => {
+    expect(mediaTypeOf({ name: 'a.pdf', type: 'text/plain' })).toBeUndefined()
+    expect(mediaTypeOf({ name: 'a.png', type: 'text/csv' })).toBeUndefined()
+  })
+
+  it('checkAttachment refuses a mismatched pair as an unsupported type', () => {
+    expect(checkAttachment({ name: 'tool.exe', type: 'image/png', size: 10 }, NONE)).toEqual({ ok: false, reason: 'unsupported_type' })
   })
 })
 

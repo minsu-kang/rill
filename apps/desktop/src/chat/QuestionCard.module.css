@@ -54,6 +54,30 @@
   font: inherit;
 }
 
+.suggestion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+}
+
+.use {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.use:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

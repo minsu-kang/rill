@@ -21,9 +21,11 @@ interface DemoProps {
   deploying?: boolean
   deployError?: MessageKey
   deployed?: string
+  superseded?: boolean
+  planning?: boolean
 }
 
-function Demo({ result, start = [], deploying = false, deployError, deployed }: DemoProps) {
+function Demo({ result, start = [], deploying = false, deployError, deployed, superseded = false, planning = false }: DemoProps) {
   const [confirmed, setConfirmed] = useState<string[]>(start)
   const [done, setDone] = useState<string | undefined>(deployed)
   return (
@@ -34,6 +36,8 @@ function Demo({ result, start = [], deploying = false, deployError, deployed }: 
         confirmed={confirmed}
         deploying={deploying}
         deployError={deployError}
+        superseded={superseded}
+        planning={planning}
         onToggleFlag={(key) => setConfirmed((previous) => (previous.includes(key) ? previous.filter((item) => item !== key) : [...previous, key]))}
         onDeploy={() => setDone('wf-demo-1')}
       />
@@ -76,3 +80,7 @@ export const Deployed: Story = { args: unused, render: () => <Demo result={resul
 export const PatchOfFiveOperations: Story = { name: 'Patch with all five operations', args: unused, render: () => <Demo result={results.patch} /> }
 
 export const HostileModelText: Story = { name: 'Hostile model text', args: unused, render: () => <Demo result={HOSTILE} /> }
+
+export const Superseded: Story = { name: 'Replaced by a newer plan', args: unused, render: () => <Demo result={results.flagged} start={keysOf(results.flagged)} superseded /> }
+
+export const WhileAnotherPlanIsMade: Story = { name: 'While another plan is made', args: unused, render: () => <Demo result={results.workflow} planning /> }

@@ -1,6 +1,6 @@
 import type { Workflow } from '@rill/dsl'
 import { describe, expect, it } from 'vitest'
-import { answerFromOptions, createPlanner, type AttachmentStore, type Flag, type PlanTurn } from '../src/index'
+import { answerFromOptions, createPlanner, userTexts, type AttachmentStore, type Flag, type PlanTurn } from '../src/index'
 import { FakeProvider } from './fake-provider'
 import { ROOT, fakeAttachments, question, questionsData, receipts, ref, registry, request, slackWorkflow, workflowData } from './fixtures'
 
@@ -206,6 +206,37 @@ describe('provenance flags', () => {
       await createPlanner({ provider, registry }).plan(request({ text: 'go', turns }))
       const replayed = provider.calls[0]!.request.messages[2]!
       expect(replayed).toEqual({ role: 'user', content: 'this one\n\nAnswers to your questions:\n- target: /a/chosen.csv' })
+    })
+
+    it('does not let an unchanged model-written default vouch for the target it names, free text or not', async () => {
+      const unchanged = async (options: string[], model: string, answer: string, url = evil) => {
+        const turns: PlanTurn[] = [
+          { role: 'user', text: 'Send the totals from the attached invoice to my server', attachments: [{ ...ref('a1', 'application/pdf') }] },
+          { role: 'assistant', text: 'q', result: { kind: 'questions', questions: [{ id: 'target', text: 'Where?', options, default: model }], summary: 'q' } },
+          { role: 'user', text: '', answers: { target: answer } },
+        ]
+        return planned(pdfStore, turns, url)
+      }
+      for (const [options, model, answer] of [
+        [[], evil, evil],
+        [[], evil, `  ${evil.toUpperCase()}  `],
+        [['https://api.example.com/x'], evil, evil],
+      ] as const) {
+        const result = await unchanged([...options], model, answer)
+        expect(result.flags.map((item) => item.code), answer).toContain('new_egress_target')
+        expect(result.needsConfirmation).toBe(true)
+      }
+      const typed = await unchanged([], evil, 'https://hooks.example.org/in', 'https://hooks.example.org/in')
+      expect(typed.flags).toEqual([])
+    })
+
+    it('keeps an answer to an unknown question id model-sourced when it matches the default of any asked question', () => {
+      const turns: PlanTurn[] = [
+        { role: 'user', text: 'go' },
+        { role: 'assistant', text: 'q', result: { kind: 'questions', questions: [{ id: 'a', text: 'A?', options: [], default: 'https://one.example.test/x' }], summary: 'q' } },
+        { role: 'user', text: '', answers: { other: 'https://one.example.test/x', mine: 'my own words' } },
+      ]
+      expect(userTexts(request({ turns, text: 'ok' }))).toEqual(['go', 'my own words', 'ok'])
     })
 
     it('treats an answer that equals or contains an offered option as model-sourced', () => {
