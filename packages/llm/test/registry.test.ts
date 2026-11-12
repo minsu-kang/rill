@@ -119,8 +119,8 @@ describe('createRegistry', () => {
     expect(calls).toEqual(['http://anthropic.test/v1/messages'])
   })
 
-  it('stubs fail loudly until the adapters land', () => {
-    expect(() => createProvider('openai:gpt-6-luna', { env })).toThrow(/not implemented/)
+  it('creates the OpenAI provider now that its adapter has landed', () => {
+    expect(createProvider('openai:gpt-6-luna', { env })).toMatchObject({ name: 'openai' })
   })
 })
 
