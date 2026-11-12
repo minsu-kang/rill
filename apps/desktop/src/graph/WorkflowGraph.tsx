@@ -1,5 +1,5 @@
 import '@xyflow/react/dist/style.css'
-import { isTrigger, type Workflow, type WorkflowNode } from '@rill/dsl'
+import type { Workflow, WorkflowNode } from '@rill/dsl'
 import type { NodeInfo } from '@rill/protocol'
 import {
   BaseEdge,
@@ -19,7 +19,7 @@ import {
 } from '@xyflow/react'
 import { useCallback, useId, useMemo, useState } from 'react'
 import { useT, type Translate } from '../i18n'
-import { stateOf, type NodeRunState, type NodeStatus, type RunStates } from '../model/status'
+import { displayState, type NodeRunState, type NodeStatus, type RunStates } from '../model/status'
 import { truncate } from '../model/text'
 import { layoutWorkflow } from './layout'
 import { CARD_SIZE, NodeCard } from './NodeCard'
@@ -51,7 +51,6 @@ type Size = { width: number; height: number }
 
 const MAX_LABEL = 24
 const FLOWING: ReadonlySet<NodeStatus> = new Set(['running', 'succeeded', 'failed', 'abandoned', 'continued'])
-const TRIGGER_FIRED: NodeRunState = { status: 'succeeded', attempt: 1, retrying: false, error: null }
 
 function FlowNode({ data, selected }: NodeProps<StepNode>) {
   return (
@@ -97,12 +96,6 @@ function ariaLabels(t: Translate): Partial<AriaLabelConfig> {
     'controls.fitView.ariaLabel': t('graph.fitView'),
     'handle.ariaLabel': t('graph.handle'),
   }
-}
-
-function displayState(node: WorkflowNode, states: RunStates, hasRun: boolean): NodeRunState | undefined {
-  const state = stateOf(states, node.id)
-  if (state !== undefined) return state
-  return hasRun && isTrigger(node.type) ? TRIGGER_FIRED : undefined
 }
 
 function structureKey(workflow: Workflow): string {

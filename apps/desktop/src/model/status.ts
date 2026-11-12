@@ -1,3 +1,5 @@
+import { isTrigger, type WorkflowNode } from '@rill/dsl'
+
 export const NODE_STATUSES = ['idle', 'running', 'succeeded', 'failed', 'abandoned', 'skipped', 'continued'] as const
 
 export type NodeStatus = (typeof NODE_STATUSES)[number]
@@ -34,4 +36,12 @@ export function visualStatusOfRun(status: RunStatusName): NodeStatus {
     default:
       return status
   }
+}
+
+const TRIGGER_FIRED: NodeRunState = Object.freeze({ status: 'succeeded', attempt: 1, retrying: false, error: null })
+
+export function displayState(node: Pick<WorkflowNode, 'id' | 'type'>, states: RunStates, hasRun: boolean = Object.keys(states).length > 0): NodeRunState | undefined {
+  const state = stateOf(states, node.id)
+  if (state !== undefined) return state
+  return hasRun && isTrigger(node.type) ? TRIGGER_FIRED : undefined
 }

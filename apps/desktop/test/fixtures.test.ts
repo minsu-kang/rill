@@ -1,12 +1,15 @@
 // @vitest-environment node
 import { isTrigger } from '@rill/dsl'
 import { createCoreRegistry, validateWorkflow } from '@rill/nodes-core'
-import { METHODS, type StepDetail } from '@rill/protocol'
+import { EngineEventSchema, METHODS, type EngineEvent, type StepDetail } from '@rill/protocol'
 import Value from 'typebox/value'
 import { describe, expect, it } from 'vitest'
 import { fakeData, FIXTURE_NOW, ids, workflows } from '../src/fixtures'
 import { hostileValue } from '../src/fixtures/hostile'
 import { largeStates, largeWorkflow } from '../src/fixtures/large'
+import { branchingEvents, failingReceiptEvents, liveFakeData, liveIds } from '../src/fixtures/live'
+import { reduceEvent } from '../src/model/reduce-events'
+import { NO_STATES } from '../src/model/status'
 
 const registry = createCoreRegistry()
 const STRICT = { registry, allowedRoots: ['/Users/demo'], connections: ['slack-ops'] }
@@ -171,5 +174,42 @@ describe('large generated workflow', () => {
     const statuses = new Set(Object.values(states).map((s) => s.status))
     for (const status of ['running', 'succeeded', 'failed', 'skipped', 'continued']) expect(statuses.has(status as never), status).toBe(true)
     for (const key of Object.keys(states)) expect(workflow.nodes.some((n) => n.id === key), key).toBe(true)
+  })
+})
+
+describe('live event scripts', () => {
+  const scripts = [
+    ['branching', liveIds.branching, branchingEvents(liveIds.branching), 'wf-branching'],
+    ['failing receipt', liveIds.receiptFails, failingReceiptEvents(liveIds.receiptFails), 'wf-receipt'],
+  ] as const
+
+  it('are valid engine events of their own run', () => {
+    for (const [name, runId, events] of scripts) {
+      expect(events.length, name).toBeGreaterThan(5)
+      for (const event of events) {
+        expect(Value.Check(EngineEventSchema, event), `${name} ${event.type}`).toBe(true)
+        if ('runId' in event) expect(event.runId).toBe(runId)
+      }
+      expect(events[0]?.type).toBe('run.started')
+      expect(events.at(-1)?.type).toBe('run.finished')
+    }
+  })
+
+  it('end in the states a person should see, through the same reducer the hooks use', () => {
+    const finalStates = (runId: string, events: readonly EngineEvent[]) => events.reduce((states, event) => reduceEvent(states, event, runId), NO_STATES)
+    const branching = finalStates(liveIds.branching, branchingEvents(liveIds.branching))
+    expect(Object.values(branching).map((s) => s.status).sort()).toEqual(['continued', 'skipped', 'succeeded', 'succeeded'])
+    const failing = finalStates(liveIds.receiptFails, failingReceiptEvents(liveIds.receiptFails))
+    expect(failing.extract).toMatchObject({ status: 'failed', attempt: 3 })
+  })
+
+  it('belong to a run that the live fake data lists as running and that has no steps yet', () => {
+    const data = liveFakeData()
+    for (const [, runId, , workflowId] of scripts) {
+      const found = data.runs.find((r) => r.id === runId)!
+      expect(found).toMatchObject({ workflowId, status: 'running', finishedAt: null })
+      expect(Value.Check(METHODS.listRuns.result, { runs: data.runs })).toBe(true)
+      expect(data.steps[runId]).toBeUndefined()
+    }
   })
 })
