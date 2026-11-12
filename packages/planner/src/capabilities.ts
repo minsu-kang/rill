@@ -40,7 +40,7 @@ export function checkAttachmentSupport(provider: string, capabilities: LlmCapabi
       fail(
         'unsupported_media',
         ref,
-        `attachment "${name}" is ${ref.mediaType}, and the ${provider} provider only takes ${capabilities.images.join(', ')}`,
+        `attachment "${name}" is ${sanitiseAttachmentName(ref.mediaType)}, and the ${provider} provider only takes ${capabilities.images.join(', ')}`,
       )
     }
   }
