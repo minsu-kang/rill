@@ -1,5 +1,5 @@
 import { ATTACHMENT_EXTENSIONS, AttachmentError, type AttachmentStore } from './attachments'
-import { ConfigError, type ConfigStore } from './config-store'
+import { ConfigError, normalizeFolder, type ConfigStore } from './config-store'
 import type { EngineSupervisor } from './engine-supervisor'
 import { SecretStoreError, type SecretStore } from './secret-store'
 import {
@@ -29,8 +29,8 @@ export interface AppLike {
 export interface IpcDeps {
   config: ConfigStore
   secrets: SecretStore
-  supervisor: Pick<EngineSupervisor, 'info' | 'restart'>
-  attachments: AttachmentStore
+  supervisor: Pick<EngineSupervisor, 'info' | 'restart' | 'status'>
+  attachments: Pick<AttachmentStore, 'addFromPath' | 'addFromBytes'>
   dialog: DialogLike
   app: AppLike
   loginItem: { set(enabled: boolean): void }
@@ -54,8 +54,22 @@ export function toHostError(error: unknown): HostError {
   return new HostError('INTERNAL')
 }
 
+function remember(set: Set<string>, value: string): void {
+  if (set.size >= MAX_PICKED && !set.has(value)) set.delete(set.values().next().value as string)
+  set.add(value)
+}
+
+function pickedFolder(path: string): string | undefined {
+  try {
+    return normalizeFolder(path)
+  } catch {
+    return undefined
+  }
+}
+
 export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
   const picked = new Set<string>()
+  const pickedFolders = new Set<string>()
 
   function restartEngine(): void {
     deps.supervisor.restart().catch(() => deps.log?.('engine restart failed'))
@@ -85,11 +99,19 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
 
   const run: Record<Channel, (args: never) => Promise<unknown>> = {
     [CHANNELS.engineInfo]: () => deps.supervisor.info(),
+    [CHANNELS.engineStatus]: async () => deps.supervisor.status(),
     [CHANNELS.engineRestart]: async () => {
       await deps.supervisor.restart()
     },
     [CHANNELS.settingsGet]: currentSettings,
     [CHANNELS.settingsUpdate]: async (patch: SettingsPatch) => {
+      if (patch.allowedFolders !== undefined) {
+        const known = new Set((await deps.config.get()).allowedFolders)
+        for (const folder of patch.allowedFolders) {
+          const normalized = normalizeFolder(folder)
+          if (!known.has(normalized) && !pickedFolders.has(normalized)) throw new HostError('INVALID_SETTINGS')
+        }
+      }
       const { before, after } = await deps.config.update(patch)
       if (before.openAtLogin !== after.openAtLogin) deps.loginItem.set(after.openAtLogin)
       const engineChanged =
@@ -112,13 +134,15 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
     [CHANNELS.secretsRemoveConnection]: async ({ name }: { name: string }) => {
       if (await deps.secrets.removeConnection(name)) restartEngine()
     },
-    [CHANNELS.dialogsPickFolder]: () => pick(['openDirectory', 'createDirectory']),
+    [CHANNELS.dialogsPickFolder]: async () => {
+      const path = await pick(['openDirectory', 'createDirectory'])
+      const folder = path === undefined ? undefined : pickedFolder(path)
+      if (folder !== undefined) remember(pickedFolders, folder)
+      return path
+    },
     [CHANNELS.dialogsPickFile]: async ({ kind }: { kind: 'any' | 'attachment' }) => {
       const path = await pick(['openFile'], kind === 'attachment' ? [{ name: 'Attachments', extensions: [...ATTACHMENT_EXTENSIONS] }] : undefined)
-      if (path !== undefined) {
-        if (picked.size >= MAX_PICKED) picked.delete(picked.values().next().value as string)
-        picked.add(path)
-      }
+      if (path !== undefined) remember(picked, path)
       return path
     },
     [CHANNELS.attachmentsAddFromPath]: async ({ path }: { path: string }) => {

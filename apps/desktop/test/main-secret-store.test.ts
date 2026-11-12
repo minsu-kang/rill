@@ -218,6 +218,42 @@ describe('secret store: unreadable file', () => {
   })
 })
 
+describe('secret store: an unreadable file is never destroyed', () => {
+  it('keeps the first bad file and every later one under a new name instead of overwriting the backup', async () => {
+    writeFileSync(file(), 'first bad file')
+    const { store } = setup()
+    expect(await store.setProviderKey('anthropic', KEY)).toBe(true)
+    writeFileSync(file(), 'second bad file')
+    expect(await store.setProviderKey('openai', OTHER_KEY)).toBe(true)
+    writeFileSync(file(), 'third bad file')
+    expect(await store.clearProviderKey('openai')).toBe(false)
+    expect(readFileSync(join(dir, 'secrets.bin.bak'), 'utf8')).toBe('first bad file')
+    expect(readFileSync(join(dir, 'secrets.bin.bak.1'), 'utf8')).toBe('second bad file')
+    expect(readFileSync(join(dir, 'secrets.bin.bak.2'), 'utf8')).toBe('third bad file')
+    expect(readdirSync(dir).sort()).toEqual(['secrets.bin', 'secrets.bin.bak', 'secrets.bin.bak.1', 'secrets.bin.bak.2'])
+  })
+
+  it('refuses to write when the bad file cannot be kept, and leaves it where it is', async () => {
+    writeFileSync(file(), 'bad file')
+    const { safeStorage } = setup()
+    const failing = createSecretStore({ dir, safeStorage, fs: { ...fsp, rename: (async (from: string, to: string) => { if (to.includes('.bak')) throw new Error('no permission'); return fsp.rename(from, to) }) as FsLike['rename'] } })
+    expect((await errorOf(failing.setProviderKey('anthropic', KEY)))?.reason).toBe('write_failed')
+    expect(readFileSync(file(), 'utf8')).toBe('bad file')
+    expect(readdirSync(dir)).toEqual(['secrets.bin'])
+  })
+
+  it('refuses to write when ten backups already exist, and overwrites none of them', async () => {
+    writeFileSync(file(), 'newest bad file')
+    writeFileSync(join(dir, 'secrets.bin.bak'), 'backup 0')
+    for (let i = 1; i < 10; i++) writeFileSync(join(dir, `secrets.bin.bak.${i}`), `backup ${i}`)
+    const { store } = setup()
+    expect((await errorOf(store.setProviderKey('anthropic', KEY)))?.reason).toBe('write_failed')
+    expect(readFileSync(file(), 'utf8')).toBe('newest bad file')
+    expect(readFileSync(join(dir, 'secrets.bin.bak'), 'utf8')).toBe('backup 0')
+    expect(readFileSync(join(dir, 'secrets.bin.bak.9'), 'utf8')).toBe('backup 9')
+  })
+})
+
 describe('secret store: failures and logging', () => {
   it('keeps the old file and throws a fixed error when the rename fails', async () => {
     const { store, safeStorage } = setup()

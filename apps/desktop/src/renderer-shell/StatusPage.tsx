@@ -50,7 +50,24 @@ function Connected({ host, connect, now }: { host: Pick<HostApi, 'engine'>; conn
   const restarts = status?.restarts ?? 0
   const key = `${running ? 'run' : 'wait'}:${restarts}`
 
-  useEffect(() => host.engine.onStatus(setStatus), [host])
+  useEffect(() => {
+    let current = true
+    let heard = false
+    const off = host.engine.onStatus((next) => {
+      heard = true
+      setStatus(next)
+    })
+    host.engine.status().then(
+      (known) => {
+        if (current && !heard) setStatus(known)
+      },
+      () => undefined,
+    )
+    return () => {
+      current = false
+      off()
+    }
+  }, [host])
 
   useEffect(() => {
     if (!running) return

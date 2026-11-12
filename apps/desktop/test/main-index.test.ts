@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -99,6 +99,11 @@ interface Harness {
   window: () => FakeBrowserWindow
   senderEvent: () => { sender: unknown; senderFrame: { url: string } }
   rendererUrl: string
+  registerScheme: ReturnType<typeof vi.fn>
+  protocolHandlers: Map<string, (request: { url: string; method: string }) => Promise<Response>>
+  netFetch: ReturnType<typeof vi.fn>
+  setApplicationMenu: ReturnType<typeof vi.fn>
+  ready: ReturnType<typeof vi.fn>
   restore: () => void
 }
 
@@ -152,12 +157,18 @@ async function load(options: { lock?: boolean; smoke?: boolean; packaged?: boole
   const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => (stdout.push(String(chunk)), true)) as never)
   vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as never)
   ;(app.exit as ReturnType<typeof vi.fn>).mockImplementation((code: number) => exits.push(code))
+  const registerScheme = vi.fn()
+  const protocolHandlers = new Map<string, (request: { url: string; method: string }) => Promise<Response>>()
+  const netFetch = vi.fn(async (url: string) => new Response(`served ${url}`))
+  const setApplicationMenu = vi.fn()
   vi.doMock('electron', () => ({
     app,
+    net: { fetch: netFetch },
+    protocol: { registerSchemesAsPrivileged: registerScheme, handle: (scheme: string, handler: (request: { url: string; method: string }) => Promise<Response>) => protocolHandlers.set(scheme, handler) },
     BrowserWindow: FakeBrowserWindow,
     dialog: { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) },
     ipcMain: { handle: (channel: string, fn: (event: unknown, args: unknown) => Promise<unknown>) => handlers.set(channel, fn) },
-    Menu: { buildFromTemplate: (template: unknown) => ({ template }) },
+    Menu: { buildFromTemplate: (template: unknown) => ({ template }), setApplicationMenu },
     nativeImage: { createFromDataURL: () => ({ setTemplateImage: vi.fn() }) },
     safeStorage: {
       isEncryptionAvailable: () => true,
@@ -171,7 +182,7 @@ async function load(options: { lock?: boolean; smoke?: boolean; packaged?: boole
   const module = await import('../src/main/index')
   await module.whenStarted
   const window = () => FakeBrowserWindow.instances[first]!
-  const rendererUrl = pathToFileURL(join(import.meta.dirname, '../src/main/../renderer/index.html')).href
+  const rendererUrl = 'app://rill/index.html'
   return {
     app,
     children,
@@ -185,6 +196,11 @@ async function load(options: { lock?: boolean; smoke?: boolean; packaged?: boole
     window,
     senderEvent: () => ({ sender: window().webContents, senderFrame: { url: rendererUrl } }),
     rendererUrl,
+    registerScheme,
+    protocolHandlers,
+    netFetch,
+    setApplicationMenu,
+    ready: app.whenReady as ReturnType<typeof vi.fn>,
     restore: () => stdoutSpy.mockRestore(),
   }
 }
@@ -219,6 +235,39 @@ describe('app entry: normal start', () => {
     expect(args).toContain(join(h.userData, 'attachments'))
     expect(Object.keys(options.env).sort()).toEqual(expect.arrayContaining(['RILL_TOKEN']))
     expect(options.env.RILL_CONNECTIONS).toBeUndefined()
+  })
+
+  it('registers the app scheme before the app is ready, serves the renderer files through it, and loads the window from it', async () => {
+    const h = await load()
+    expect(h.registerScheme).toHaveBeenCalledExactlyOnceWith([{ scheme: 'app', privileges: { standard: true, secure: true } }])
+    expect(h.registerScheme.mock.invocationCallOrder[0]!).toBeLessThan(h.ready.mock.invocationCallOrder[0]!)
+    expect(h.window().loadURL).toHaveBeenCalledExactlyOnceWith('app://rill/index.html')
+    expect(h.window().loadFile).not.toHaveBeenCalled()
+    const serve = h.protocolHandlers.get('app')!
+    expect(await (await serve({ url: 'app://rill/assets/a.js', method: 'GET' })).text()).toBe(`served ${pathToFileURL(join(import.meta.dirname, '../src/renderer/assets/a.js')).href}`)
+    expect((await serve({ url: 'app://rill/..%2fmain%2findex.mjs', method: 'GET' })).status).toBe(404)
+    expect((await serve({ url: 'file:///etc/passwd', method: 'GET' })).status).toBe(404)
+    expect(h.netFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('turns the developer tools and the menu with the reload and tools items off when packaged, and leaves both on in development', async () => {
+    const packaged = await load({ packaged: true })
+    expect(packaged.window().options.webPreferences).toMatchObject({ devTools: false })
+    expect(packaged.setApplicationMenu).toHaveBeenCalledTimes(1)
+    const menu = packaged.setApplicationMenu.mock.calls[0]![0] as { template: Array<{ role?: string; submenu?: unknown }> }
+    expect(menu.template.map((item) => item.role)).toEqual(['appMenu', 'editMenu'])
+    expect(JSON.stringify(menu.template)).not.toMatch(/dev|reload|viewMenu|inspect/i)
+    const dev = await load()
+    expect(dev.window().options.webPreferences).toMatchObject({ devTools: true })
+    expect(dev.setApplicationMenu).not.toHaveBeenCalled()
+  })
+
+  it('removes leftover partial attachment files before the engine starts', async () => {
+    mkdirSync(join(userData, 'attachments'), { recursive: true })
+    writeFileSync(join(userData, 'attachments', '.partial-abcdefgh1234'), 'half')
+    writeFileSync(join(userData, 'attachments', 'abcdefgh1234.txt'), 'kept')
+    const h = await load()
+    expect(readdirSync(join(h.userData, 'attachments'))).toEqual(['abcdefgh1234.txt'])
   })
 
   it('registers a handler for every channel and nothing else', async () => {

@@ -18,13 +18,14 @@ function themed(ui: ReactElement, locale: Locale) {
   )
 }
 
-function fakeHost(options: { info?: () => Promise<EngineInfo> } = {}) {
+function fakeHost(options: { info?: () => Promise<EngineInfo>; status?: () => Promise<EngineStatus> } = {}) {
   const listeners = new Set<(status: EngineStatus) => void>()
   const unsubscribed: number[] = []
   const host: Pick<HostApi, 'engine'> = {
     engine: {
       info: vi.fn(options.info ?? (async () => INFO)),
       restart: vi.fn(async () => undefined),
+      status: vi.fn(options.status ?? (async () => ({ state: 'running', restarts: 0 }) as EngineStatus)),
       onStatus: (listener) => {
         listeners.add(listener)
         return () => {
@@ -135,6 +136,34 @@ describe('renderer shell: with the app', () => {
     expect(view.container.textContent).toContain('Stopped')
     expect(view.container.textContent?.toLowerCase()).toContain(text)
     expect(view.container.querySelector('[data-rill-ping="ok"]')).toBeNull()
+  })
+
+  it('shows the state the engine already has when the page loads, without waiting for an event', async () => {
+    const { host } = fakeHost({ status: async () => ({ state: 'stopped', error: 'crashed', restarts: 5 }) })
+    const { connect } = fakeConnect()
+    const view = themed(<StatusPage host={host} connect={connect} now={now} />, 'en')
+    await waitFor(() => expect(view.container.textContent).toContain('Stopped'))
+    expect(view.container.textContent?.toLowerCase()).toContain('stopped after repeated crashes')
+    expect(view.container.textContent).toContain('5')
+    expect(view.container.querySelector('[data-rill-ping="ok"]')).toBeNull()
+  })
+
+  it('keeps a newer event when the answer to the status question arrives after it', async () => {
+    let answer: (status: EngineStatus) => void = () => undefined
+    const { host, emit } = fakeHost({ status: () => new Promise<EngineStatus>((resolve) => (answer = resolve)) })
+    const view = themed(<StatusPage host={host} connect={fakeConnect().connect} now={now} />, 'en')
+    act(() => emit({ state: 'restarting', restarts: 2 }))
+    await act(async () => {
+      answer({ state: 'stopped', error: 'crashed', restarts: 1 })
+      await Promise.resolve()
+    })
+    expect(view.container.querySelector('[aria-live="polite"]')!.getAttribute('data-state')).toBe('restarting')
+  })
+
+  it('keeps going when the status question fails', async () => {
+    const { host } = fakeHost({ status: () => Promise.reject(new HostError('INTERNAL')) })
+    const view = themed(<StatusPage host={host} connect={fakeConnect().connect} now={now} />, 'en')
+    await waitFor(() => expect(view.container.querySelector('[data-rill-ping="ok"]')).not.toBeNull())
   })
 
   it('shows an error when the engine cannot be reached', async () => {

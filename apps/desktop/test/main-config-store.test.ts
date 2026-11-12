@@ -1,8 +1,8 @@
 // @vitest-environment node
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import * as fsp from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ConfigError, createConfigStore, type FsLike } from '../src/main/config-store'
 
@@ -81,6 +81,56 @@ describe('config store: folders', () => {
   it('keeps a folder name that merely contains two dots', async () => {
     const { after } = await createConfigStore({ dir }).update({ allowedFolders: ['/a/b..c', '/a/..d'] })
     expect(after.allowedFolders).toEqual(['/a/b..c', '/a/..d'])
+  })
+})
+
+describe('config store: folders that would widen access too far', () => {
+  let home: string
+  let data: string
+
+  beforeEach(() => {
+    home = join(dir, 'home')
+    data = join(home, 'Library', 'Application Support', 'Rill')
+    mkdirSync(data, { recursive: true })
+  })
+
+  const store = () => createConfigStore({ dir: data, homeDir: home })
+
+  it.each([['/'], ['/System'], ['/Library'], ['/usr'], ['/bin'], ['/etc'], ['/Users'], ['/Applications'], ['/Volumes']])('refuses the system folder %s', async (folder) => {
+    expect(await reason(store().update({ allowedFolders: [folder] }))).toBe('invalid_folder')
+  })
+
+  it('refuses the home folder, a folder above it, and the folders that hold or are the data folder', async () => {
+    for (const folder of [home, dirname(home), join(home, 'Library'), join(home, 'Library', 'Application Support'), data]) {
+      expect(await reason(store().update({ allowedFolders: [folder] })), folder).toBe('invalid_folder')
+    }
+    expect((await store().get()).allowedFolders).toEqual([])
+  })
+
+  it('refuses a link that leads to one of them', async () => {
+    const link = join(dir, 'looks-harmless')
+    symlinkSync(join(home, 'Library'), link)
+    expect(await reason(store().update({ allowedFolders: [link] }))).toBe('invalid_folder')
+    const toRoot = join(dir, 'to-root')
+    symlinkSync('/', toRoot)
+    expect(await reason(store().update({ allowedFolders: [toRoot] }))).toBe('invalid_folder')
+  })
+
+  it('refuses a folder that holds the data folder even when it does not exist yet', async () => {
+    const fresh = createConfigStore({ dir: join(dir, 'not-there', 'data'), homeDir: join(dir, 'other-home') })
+    expect(await reason(fresh.update({ allowedFolders: [join(dir, 'not-there')] }))).toBe('invalid_folder')
+  })
+
+  it('keeps the other folders of home, the attachment folder and folders that merely look similar', async () => {
+    const folders = [join(home, 'Documents'), join(home, 'Library', 'Application Support', 'Rill', 'attachments'), `${data}-other`, join(home, 'Library', 'Application Support', 'Rill2'), '/usr/local/share/data']
+    expect((await store().update({ allowedFolders: folders })).after.allowedFolders).toEqual(folders)
+  })
+
+  it('falls back to the defaults, keeping the file, when the saved file holds such a folder', async () => {
+    const text = JSON.stringify({ version: 1, allowedFolders: ['/ok', '/'], provider: 'anthropic', openAtLogin: false })
+    writeFileSync(join(data, 'config.json'), text)
+    expect((await store().get()).allowedFolders).toEqual([])
+    expect(readFileSync(join(data, 'config.json.bak'), 'utf8')).toBe(text)
   })
 })
 

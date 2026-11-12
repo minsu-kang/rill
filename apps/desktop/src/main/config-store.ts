@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto'
 import * as fsp from 'node:fs/promises'
-import { isAbsolute, join, normalize, sep } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path'
 import Value from 'typebox/value'
 import { MAX_FOLDERS, MAX_PATH_LENGTH, ModelSchema, PROVIDER_IDS, type ProviderId, type SettingsPatch } from '../shared/host-api'
 
-export type FsLike = Pick<typeof fsp, 'mkdir' | 'readFile' | 'writeFile' | 'rename' | 'rm' | 'chmod' | 'lstat' | 'open'>
+export type FsLike = Pick<typeof fsp, 'mkdir' | 'readFile' | 'writeFile' | 'rename' | 'rm' | 'chmod' | 'lstat' | 'open' | 'realpath' | 'readdir'>
 
 export interface AppConfig {
   allowedFolders: string[]
@@ -55,7 +56,9 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function normalizeFolder(value: unknown): string {
+const SYSTEM_FOLDERS = ['/', '/System', '/Library', '/usr', '/bin', '/sbin', '/etc', '/var', '/private', '/opt', '/dev', '/Applications', '/Volumes', '/cores', '/tmp', '/home', '/Users']
+
+export function normalizeFolder(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0 || value.length > MAX_PATH_LENGTH || value.includes('\u0000') || !isAbsolute(value)) {
     throw new ConfigError('invalid_folder')
   }
@@ -114,9 +117,39 @@ function copy(config: AppConfig): AppConfig {
   return { ...config, allowedFolders: [...config.allowedFolders] }
 }
 
-export function createConfigStore(deps: { dir: string; fs?: FsLike }): ConfigStore {
+async function resolveReal(fs: FsLike, path: string): Promise<string> {
+  const rest: string[] = []
+  let current = path
+  for (;;) {
+    try {
+      return join(await fs.realpath(current), ...rest.reverse())
+    } catch {
+      const parent = dirname(current)
+      if (parent === current) return path
+      rest.push(basename(current))
+      current = parent
+    }
+  }
+}
+
+function holds(folder: string, inner: string): boolean {
+  const way = relative(folder, inner)
+  return way === '' || (way !== '..' && !way.startsWith(`..${sep}`) && !isAbsolute(way))
+}
+
+export function createConfigStore(deps: { dir: string; fs?: FsLike; homeDir?: string }): ConfigStore {
   const fs = deps.fs ?? fsp
   const path = join(deps.dir, 'config.json')
+  const homeDir = deps.homeDir ?? homedir()
+
+  async function assertSafeFolders(folders: readonly string[]): Promise<void> {
+    if (folders.length === 0) return
+    const [data, home, ...system] = await Promise.all([deps.dir, homeDir, ...SYSTEM_FOLDERS].map((entry) => resolveReal(fs, entry)))
+    for (const folder of folders) {
+      const real = await resolveReal(fs, folder)
+      if (holds(real, data!) || holds(real, home!) || system.includes(real) || SYSTEM_FOLDERS.includes(folder)) throw new ConfigError('invalid_folder')
+    }
+  }
   let cache: AppConfig | undefined
   let queue: Promise<unknown> = Promise.resolve()
 
@@ -130,7 +163,9 @@ export function createConfigStore(deps: { dir: string; fs?: FsLike }): ConfigSto
       return cache
     }
     try {
-      cache = fromStored(JSON.parse(text))
+      const stored = fromStored(JSON.parse(text))
+      await assertSafeFolders(stored.allowedFolders)
+      cache = stored
     } catch {
       await fs.rename(path, `${path}.bak`).catch(() => undefined)
       cache = defaults()
@@ -158,6 +193,7 @@ export function createConfigStore(deps: { dir: string; fs?: FsLike }): ConfigSto
         if (patch.model !== undefined) next.model = patch.model === null ? undefined : patch.model
         if (patch.openAtLogin !== undefined) next.openAtLogin = patch.openAtLogin
         validated(next)
+        if (patch.allowedFolders !== undefined) await assertSafeFolders(next.allowedFolders)
         if (same(before, next)) return { before: copy(before), after: copy(before) }
         await ensurePrivateDir(fs, deps.dir)
         await writeFileAtomic(fs, path, serialize(next), 0o600)

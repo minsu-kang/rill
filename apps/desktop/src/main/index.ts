@@ -1,7 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, Tray, utilityProcess } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, protocol, safeStorage, Tray, utilityProcess } from 'electron'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { applicationMenuTemplate } from './app-menu'
+import { APP_SCHEME, APP_SCHEME_PRIVILEGES, createAppProtocolHandler } from './app-protocol'
 import { createAttachmentStore } from './attachments'
 import { createConfigStore } from './config-store'
 import { createEngineSupervisor, type ForkLike } from './engine-supervisor'
@@ -38,16 +40,21 @@ async function start(): Promise<void> {
     app.quit()
     return
   }
+  protocol.registerSchemesAsPrivileged([{ scheme: APP_SCHEME, privileges: { ...APP_SCHEME_PRIVILEGES } }])
   await app.whenReady()
 
   const userData = app.getPath('userData')
   const devUrl = app.isPackaged ? undefined : process.env['ELECTRON_RENDERER_URL']
-  const rendererFile = join(import.meta.dirname, '../renderer/index.html')
+  const rendererRoot = join(import.meta.dirname, '../renderer')
   const bundlePath = app.isPackaged ? join(process.resourcesPath, 'engine', 'rill-engine.mjs') : join(import.meta.dirname, '../engine/rill-engine.mjs')
+
+  protocol.handle(APP_SCHEME, createAppProtocolHandler({ root: rendererRoot, fetchFile: (fileUrl) => net.fetch(fileUrl) }))
+  if (app.isPackaged) Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate() as never))
 
   const config = createConfigStore({ dir: userData })
   const secrets = createSecretStore({ dir: userData, safeStorage: smoke ? smokeStorage : safeStorage, log })
   const attachments = createAttachmentStore({ dir: join(userData, 'attachments') })
+  await attachments.sweepPartials().catch(() => undefined)
   const supervisor = createEngineSupervisor({
     fork: utilityProcess.fork as unknown as ForkLike,
     bundlePath,
@@ -86,7 +93,7 @@ async function start(): Promise<void> {
 
   for (const channel of Object.values(CHANNELS)) {
     ipcMain.handle(channel, async (event, args: unknown) => {
-      const trusted = shell.window !== undefined && event.sender === (shell.window.window.webContents as unknown) && isAppUrl(event.senderFrame?.url ?? '', rendererFile, devUrl)
+      const trusted = shell.window !== undefined && event.sender === (shell.window.window.webContents as unknown) && isAppUrl(event.senderFrame?.url ?? '', devUrl)
       if (!trusted) throw new Error('INVALID_ARGUMENTS')
       return handlers[channel](args).catch((error: unknown) => {
         throw new Error(hostErrorCode(error))
@@ -98,7 +105,7 @@ async function start(): Promise<void> {
   const window = createMainWindow({
     BrowserWindow: BrowserWindow as unknown as new (options: Record<string, unknown>) => BrowserWindowLike,
     preloadPath: join(import.meta.dirname, '../preload/index.cjs'),
-    rendererFile,
+    devTools: !app.isPackaged,
     ...(devUrl === undefined ? {} : { devUrl }),
     startHidden: smoke || launchedHidden(app, process.argv),
     isQuitting: () => quitting,

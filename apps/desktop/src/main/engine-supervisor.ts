@@ -125,6 +125,8 @@ export function createEngineSupervisor(deps: EngineSupervisorDeps): EngineSuperv
   let sleeper: { handle: unknown; resolve: (slept: boolean) => void } | undefined
   let chain: Promise<void> = Promise.resolve()
   let restartPromise: Promise<void> | undefined
+  let settingsRead = false
+  let restartAgain = false
   let stopPromise: Promise<void> | undefined
 
   function setStatus(next: EngineStatus): void {
@@ -159,6 +161,7 @@ export function createEngineSupervisor(deps: EngineSupervisorDeps): EngineSuperv
   }
 
   async function buildSpawn(): Promise<{ args: string[]; env: Record<string, string>; token: string }> {
+    settingsRead = true
     const config = await deps.config.get()
     const key = await deps.secrets.getProviderKey(config.provider)
     const connections = await deps.secrets.getConnections()
@@ -167,7 +170,7 @@ export function createEngineSupervisor(deps: EngineSupervisorDeps): EngineSuperv
       'serve', '--db', join(deps.userData, 'rill.db'), '--port', '0', '--attachments-dir', attachmentsDir,
       '--shutdown-timeout', String(ENGINE_SHUTDOWN_MS), '--llm-provider', config.provider,
       ...(config.model === undefined ? [] : ['--llm-model', config.model]),
-      ...[...config.allowedFolders, attachmentsDir].flatMap((folder) => ['--allow', folder]),
+      ...[attachmentsDir, ...config.allowedFolders].flatMap((folder) => ['--allow', folder]),
     ]
     const env: Record<string, string> = {}
     for (const name of PASSED_VARIABLES) {
@@ -333,13 +336,20 @@ export function createEngineSupervisor(deps: EngineSupervisorDeps): EngineSuperv
       return chain
     },
     restart() {
-      if (restartPromise !== undefined) return restartPromise
-      const e = begin()
-      const old = current
-      setStatus({ state: 'restarting', restarts: status.restarts + 1 })
+      if (restartPromise !== undefined) {
+        if (settingsRead) restartAgain = true
+        return restartPromise
+      }
       restartPromise = (async () => {
-        await terminate(old)
-        await run(e)
+        do {
+          restartAgain = false
+          settingsRead = false
+          const e = begin()
+          const old = current
+          setStatus({ state: 'restarting', restarts: status.restarts + 1 })
+          await terminate(old)
+          await run(e)
+        } while (restartAgain)
       })().finally(() => {
         restartPromise = undefined
       })
@@ -348,6 +358,7 @@ export function createEngineSupervisor(deps: EngineSupervisorDeps): EngineSuperv
     },
     stop() {
       if (stopPromise !== undefined) return stopPromise
+      restartAgain = false
       begin()
       const old = current
       stopPromise = (async () => {

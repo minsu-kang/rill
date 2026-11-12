@@ -3,11 +3,11 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createAttachmentStore } from '../src/main/attachments'
+import { AttachmentError, createAttachmentStore } from '../src/main/attachments'
 import { createConfigStore } from '../src/main/config-store'
 import { createIpcHandlers, type DialogLike } from '../src/main/ipc-handlers'
 import { createSecretStore, type SafeStorageLike } from '../src/main/secret-store'
-import { CHANNELS, HostError, hostErrorCode, validateResult, type Channel, type EngineInfo } from '../src/shared/host-api'
+import { CHANNELS, HostError, hostErrorCode, validateResult, type Channel, type EngineInfo, type EngineStatus } from '../src/shared/host-api'
 
 const MARKER = 'IPC-MARKER'
 const KEY = `sk-ant-${MARKER}-key`
@@ -37,7 +37,7 @@ function harness(options: { available?: boolean; picks?: string[] } = {}) {
   const secrets = createSecretStore({ dir: join(dir, 'data'), safeStorage })
   const attachments = createAttachmentStore({ dir: join(dir, 'data', 'attachments') })
   const info: EngineInfo = { url: 'ws://127.0.0.1:1/', token: 'engine-token-0123456789', protocol: 1 }
-  const supervisor = { info: vi.fn(async () => info), restart: vi.fn(async () => undefined) }
+  const supervisor = { info: vi.fn(async () => info), restart: vi.fn(async () => undefined), status: vi.fn((): EngineStatus => ({ state: 'running', restarts: 0 })) }
   const picks = [...(options.picks ?? [])]
   const showOpenDialog = vi.fn(async (options: unknown) => (options === undefined || picks.length === 0 ? { canceled: true, filePaths: [] } : { canceled: false, filePaths: [picks.shift()!] }))
   const dialog: DialogLike = { showOpenDialog: showOpenDialog as DialogLike['showOpenDialog'] }
@@ -45,7 +45,13 @@ function harness(options: { available?: boolean; picks?: string[] } = {}) {
   const loginItem = { set: vi.fn() }
   const handlers = createIpcHandlers({ config, secrets, supervisor, attachments, dialog, app, loginItem })
   const call = (channel: Channel, args?: unknown) => handlers[channel](args)
-  return { handlers, call, supervisor, dialog, showOpenDialog, app, loginItem, safeStorage, config, secrets }
+  const allow = async (...folders: string[]) => {
+    for (const folder of folders) {
+      picks.push(folder)
+      await call(CHANNELS.dialogsPickFolder)
+    }
+  }
+  return { handlers, call, allow, picks, supervisor, dialog, showOpenDialog, app, loginItem, safeStorage, config, secrets }
 }
 
 async function failure(promise: Promise<unknown>): Promise<Error> {
@@ -67,6 +73,7 @@ describe('ipc handlers: shape', () => {
     const h = harness()
     const bad: Array<[Channel, unknown]> = [
       [CHANNELS.engineInfo, { x: 1 }],
+      [CHANNELS.engineStatus, 'now'],
       [CHANNELS.settingsUpdate, { extra: true }],
       [CHANNELS.settingsUpdate, 'text'],
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic' }],
@@ -95,6 +102,7 @@ describe('ipc handlers: shape', () => {
     writeFileSync(join(userFiles, 'a.txt'), 'hello')
     const checks: Array<[Channel, unknown]> = [
       [CHANNELS.engineInfo, undefined],
+      [CHANNELS.engineStatus, undefined],
       [CHANNELS.engineRestart, undefined],
       [CHANNELS.settingsGet, undefined],
       [CHANNELS.settingsUpdate, { openAtLogin: true }],
@@ -120,6 +128,7 @@ describe('ipc handlers: settings', () => {
     const h = harness()
     await h.call(CHANNELS.secretsSetProviderKey, { provider: 'openai', value: KEY })
     await h.call(CHANNELS.secretsSetConnection, { name: 'team', kind: 'slack', secret: HOOK })
+    await h.allow('/Users/a/Docs')
     await h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/Users/a/Docs'], provider: 'openai', model: 'gpt-6.1-sol' })
     const settings = await h.call(CHANNELS.settingsGet)
     expect(settings).toEqual({
@@ -143,6 +152,7 @@ describe('ipc handlers: settings', () => {
 
   it('restarts the engine once when the folders, the provider or the model change, and not when they do not', async () => {
     const h = harness()
+    await h.allow('/a', '/b')
     await h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/a'] })
     expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
     await h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/a/'] })
@@ -152,6 +162,44 @@ describe('ipc handlers: settings', () => {
     expect(h.supervisor.restart).toHaveBeenCalledTimes(2)
     await h.call(CHANNELS.settingsUpdate, { provider: 'openai', model: 'gpt-6.1-sol', allowedFolders: ['/b'] })
     expect(h.supervisor.restart).toHaveBeenCalledTimes(3)
+  })
+
+  it('refuses a folder the folder dialog never returned, even a harmless one, and changes nothing', async () => {
+    const h = harness({ picks: ['/Users/a/Docs'] })
+    for (const folder of ['/', '/Users/a/Docs', '/etc', '/Users/a/Other']) {
+      expect(hostErrorCode(await failure(h.call(CHANNELS.settingsUpdate, { allowedFolders: [folder] }))), folder).toBe('INVALID_SETTINGS')
+    }
+    expect(((await h.call(CHANNELS.settingsGet)) as { allowedFolders: string[] }).allowedFolders).toEqual([])
+    expect(h.supervisor.restart).not.toHaveBeenCalled()
+  })
+
+  it('accepts a folder the dialog returned, in any spelling of the same path, and then keeps it without a new pick', async () => {
+    const h = harness()
+    await h.allow('/Users/a/Docs/')
+    await h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/Users/a/Docs'] })
+    await h.allow('/Users/a/Receipts')
+    await h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/Users/a/Receipts', '/Users/a/Docs'] })
+    await h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/Users/a/Docs'] })
+    await h.call(CHANNELS.settingsUpdate, { allowedFolders: [] })
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(4)
+  })
+
+  it('refuses a mixed list when one folder was never picked, and keeps the old list', async () => {
+    const h = harness()
+    await h.allow('/Users/a/Docs')
+    await h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/Users/a/Docs'] })
+    expect(hostErrorCode(await failure(h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/Users/a/Docs', '/Users/a/.ssh'] })))).toBe('INVALID_SETTINGS')
+    expect(((await h.call(CHANNELS.settingsGet)) as { allowedFolders: string[] }).allowedFolders).toEqual(['/Users/a/Docs'])
+  })
+
+  it('does not remember a folder from the file dialog, and forgets the oldest of the folders after 100', async () => {
+    const h = harness()
+    h.picks.push('/Users/a/Docs')
+    await h.call(CHANNELS.dialogsPickFile, { kind: 'any' })
+    expect(hostErrorCode(await failure(h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/Users/a/Docs'] })))).toBe('INVALID_SETTINGS')
+    for (let i = 0; i < 101; i++) await h.allow(`/f${i}`)
+    expect(hostErrorCode(await failure(h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/f0'] })))).toBe('INVALID_SETTINGS')
+    await h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/f1', '/f100'] })
   })
 
   it('applies the login item without restarting the engine', async () => {
@@ -167,6 +215,7 @@ describe('ipc handlers: settings', () => {
 
   it('maps a bad folder or a missing model to INVALID_SETTINGS, without a restart', async () => {
     const h = harness()
+    await h.allow('relative')
     expect(hostErrorCode(await failure(h.call(CHANNELS.settingsUpdate, { allowedFolders: ['relative'] })))).toBe('INVALID_SETTINGS')
     expect(hostErrorCode(await failure(h.call(CHANNELS.settingsUpdate, { provider: 'grok' })))).toBe('INVALID_SETTINGS')
     expect(h.supervisor.restart).not.toHaveBeenCalled()
@@ -177,6 +226,13 @@ describe('ipc handlers: settings', () => {
     await h.call(CHANNELS.engineRestart)
     await h.call(CHANNELS.engineRestart)
     expect(h.supervisor.restart).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns the current engine state with every call, so a page that loads late still sees it', async () => {
+    const h = harness()
+    expect(await h.call(CHANNELS.engineStatus)).toEqual({ state: 'running', restarts: 0 })
+    h.supervisor.status.mockReturnValue({ state: 'stopped', error: 'crashed', restarts: 5 })
+    expect(await h.call(CHANNELS.engineStatus)).toEqual({ state: 'stopped', error: 'crashed', restarts: 5 })
   })
 
   it('returns the engine address and maps a missing engine to ENGINE_UNAVAILABLE', async () => {
@@ -301,6 +357,20 @@ describe('ipc handlers: dialogs and attachments', () => {
     const tooBig = await failure(h.call(CHANNELS.attachmentsAddFromBytes, { name: 'a.txt', bytes: new Uint8Array(1024 * 1024 + 1) }))
     expect(tooBig).toMatchObject({ message: 'ATTACHMENT_REJECTED' })
     expect(await failure(h.call(CHANNELS.attachmentsAddFromBytes, { name: 'a.exe', bytes: new Uint8Array(1) }))).toMatchObject({ message: 'ATTACHMENT_REJECTED' })
+  })
+
+  it('maps a full attachment folder to ATTACHMENT_REJECTED, not to INTERNAL', async () => {
+    const h = harness()
+    const full = createIpcHandlers({
+      config: h.config,
+      secrets: h.secrets,
+      supervisor: h.supervisor,
+      attachments: { addFromPath: async () => { throw new AttachmentError('quota') }, addFromBytes: async () => { throw new AttachmentError('quota') } },
+      dialog: h.dialog,
+      app: h.app,
+      loginItem: h.loginItem,
+    })
+    expect(await failure(full[CHANNELS.attachmentsAddFromBytes]({ name: 'a.txt', bytes: new Uint8Array([1]) }))).toMatchObject({ message: 'ATTACHMENT_REJECTED' })
   })
 
   it('accepts bytes and returns a reference without the path', async () => {

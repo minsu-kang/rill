@@ -11,9 +11,10 @@ import { ensurePrivateDir, type FsLike } from './config-store'
 export interface AttachmentStore {
   addFromPath(path: string): Promise<AttachmentRef>
   addFromBytes(input: { name: string; bytes: Uint8Array }): Promise<AttachmentRef>
+  sweepPartials(): Promise<void>
 }
 
-export type AttachmentErrorReason = 'invalid_path' | 'unsupported_type' | 'too_large' | 'empty' | 'not_a_file' | 'symlink' | 'io'
+export type AttachmentErrorReason = 'invalid_path' | 'unsupported_type' | 'too_large' | 'empty' | 'not_a_file' | 'symlink' | 'quota' | 'io'
 
 export class AttachmentError extends Error {
   readonly reason: AttachmentErrorReason
@@ -29,6 +30,9 @@ const MIB = 1024 * 1024
 export const MAX_PDF_BYTES = 20 * MIB
 export const MAX_IMAGE_BYTES = 3_932_160
 export const MAX_TEXT_BYTES = 1 * MIB
+export const MAX_FILES = 500
+export const MAX_TOTAL_BYTES = 512 * MIB
+const PARTIAL_PREFIX = '.partial-'
 
 interface TypeInfo {
   mediaType: AttachmentRef['mediaType']
@@ -69,9 +73,28 @@ function displayName(raw: string): { name: string; type: TypeInfo } {
   return { name, type }
 }
 
-export function createAttachmentStore(deps: { dir: string; fs?: FsLike; randomId?: () => string }): AttachmentStore {
+export function createAttachmentStore(deps: { dir: string; fs?: FsLike; randomId?: () => string; maxFiles?: number; maxTotalBytes?: number }): AttachmentStore {
   const fs = deps.fs ?? fsp
   const randomId = deps.randomId ?? (() => randomBytes(16).toString('base64url'))
+  const maxFiles = deps.maxFiles ?? MAX_FILES
+  const maxTotalBytes = deps.maxTotalBytes ?? MAX_TOTAL_BYTES
+  let queue: Promise<unknown> = Promise.resolve()
+
+  function serial<T>(work: () => Promise<T>): Promise<T> {
+    const run = queue.then(work, work)
+    queue = run.catch(() => undefined)
+    return run
+  }
+
+  async function assertRoom(incoming: number): Promise<void> {
+    const names = await fs.readdir(deps.dir).catch(() => [] as string[])
+    let bytes = 0
+    for (const name of names) {
+      const entry = await fs.lstat(join(deps.dir, name)).catch(() => undefined)
+      if (entry?.isFile()) bytes += entry.size
+    }
+    if (names.length >= maxFiles || bytes + incoming > maxTotalBytes) throw new AttachmentError('quota')
+  }
 
   function newId(): string {
     const id = randomId()
@@ -97,6 +120,11 @@ export function createAttachmentStore(deps: { dir: string; fs?: FsLike; randomId
   }
 
   return {
+    async sweepPartials() {
+      const names = await fs.readdir(deps.dir).catch(() => [] as string[])
+      await Promise.all(names.filter((name) => name.startsWith(PARTIAL_PREFIX)).map((name) => fs.rm(join(deps.dir, name), { force: true }).catch(() => undefined)))
+    },
+
     async addFromBytes(input) {
       if (typeof input.name !== 'string') throw new AttachmentError('invalid_path')
       const { name, type } = displayName(input.name)
@@ -104,12 +132,15 @@ export function createAttachmentStore(deps: { dir: string; fs?: FsLike; randomId
       if (size === 0) throw new AttachmentError('empty')
       if (size > type.limit) throw new AttachmentError('too_large')
       const id = newId()
-      const temp = join(deps.dir, `.partial-${id}`)
-      return guarded(temp, async () => {
-        await ensurePrivateDir(fs, deps.dir)
-        await fs.writeFile(temp, input.bytes, { mode: 0o600, flag: 'wx' })
-        return finish(id, type, temp, name, size)
-      })
+      const temp = join(deps.dir, `${PARTIAL_PREFIX}${id}`)
+      return serial(() =>
+        guarded(temp, async () => {
+          await assertRoom(size)
+          await ensurePrivateDir(fs, deps.dir)
+          await fs.writeFile(temp, input.bytes, { mode: 0o600, flag: 'wx' })
+          return finish(id, type, temp, name, size)
+        }),
+      )
     },
 
     async addFromPath(path) {
@@ -118,47 +149,50 @@ export function createAttachmentStore(deps: { dir: string; fs?: FsLike; randomId
       }
       const { name, type } = displayName(basename(path))
       const id = newId()
-      const temp = join(deps.dir, `.partial-${id}`)
-      return guarded(temp, async () => {
-        const entry = await fs.lstat(path)
-        if (entry.isSymbolicLink()) throw new AttachmentError('symlink')
-        if (!entry.isFile()) throw new AttachmentError('not_a_file')
-        let source: Awaited<ReturnType<FsLike['open']>>
-        try {
-          source = await fs.open(path, OPEN_FLAGS)
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === 'ELOOP') throw new AttachmentError('symlink')
-          throw error
-        }
-        try {
-          const stat = await source.stat()
-          if (!stat.isFile()) throw new AttachmentError('not_a_file')
-          if (stat.size === 0) throw new AttachmentError('empty')
-          if (stat.size > type.limit) throw new AttachmentError('too_large')
-          await ensurePrivateDir(fs, deps.dir)
-          const target = await fs.open(temp, 'wx', 0o600)
-          let total = 0
+      const temp = join(deps.dir, `${PARTIAL_PREFIX}${id}`)
+      return serial(() =>
+        guarded(temp, async () => {
+          const entry = await fs.lstat(path)
+          if (entry.isSymbolicLink()) throw new AttachmentError('symlink')
+          if (!entry.isFile()) throw new AttachmentError('not_a_file')
+          let source: Awaited<ReturnType<FsLike['open']>>
           try {
-            await pipeline(
-              source.createReadStream(),
-              new Transform({
-                transform(chunk: Buffer, _encoding, callback) {
-                  total += chunk.length
-                  if (total > type.limit) callback(new AttachmentError('too_large'))
-                  else callback(null, chunk)
-                },
-              }),
-              target.createWriteStream(),
-            )
-          } finally {
-            await target.close().catch(() => undefined)
+            source = await fs.open(path, OPEN_FLAGS)
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ELOOP') throw new AttachmentError('symlink')
+            throw error
           }
-          if (total === 0) throw new AttachmentError('empty')
-          return await finish(id, type, temp, name, total)
-        } finally {
-          await source.close().catch(() => undefined)
-        }
-      })
+          try {
+            const stat = await source.stat()
+            if (!stat.isFile()) throw new AttachmentError('not_a_file')
+            if (stat.size === 0) throw new AttachmentError('empty')
+            if (stat.size > type.limit) throw new AttachmentError('too_large')
+            await assertRoom(stat.size)
+            await ensurePrivateDir(fs, deps.dir)
+            const target = await fs.open(temp, 'wx', 0o600)
+            let total = 0
+            try {
+              await pipeline(
+                source.createReadStream(),
+                new Transform({
+                  transform(chunk: Buffer, _encoding, callback) {
+                    total += chunk.length
+                    if (total > type.limit) callback(new AttachmentError('too_large'))
+                    else callback(null, chunk)
+                  },
+                }),
+                target.createWriteStream(),
+              )
+            } finally {
+              await target.close().catch(() => undefined)
+            }
+            if (total === 0) throw new AttachmentError('empty')
+            return await finish(id, type, temp, name, total)
+          } finally {
+            await source.close().catch(() => undefined)
+          }
+        }),
+      )
     },
   }
 }

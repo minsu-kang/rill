@@ -61,6 +61,7 @@ interface Loaded {
 }
 
 const UNREADABLE_LOG = 'the secrets file could not be read'
+const MAX_BACKUPS = 10
 
 function emptyState(): State {
   return { providerKeys: new Map(), connections: [] }
@@ -136,6 +137,16 @@ export function createSecretStore(deps: { dir: string; safeStorage: SafeStorageL
     }
   }
 
+  async function keepUnreadable(): Promise<void> {
+    for (let index = 0; index < MAX_BACKUPS; index++) {
+      const backup = index === 0 ? `${path}.bak` : `${path}.bak.${index}`
+      if (await fs.lstat(backup).then(() => true, () => false)) continue
+      await fs.rename(path, backup)
+      return
+    }
+    throw new Error('no free backup name')
+  }
+
   async function mutate(change: (state: State) => boolean): Promise<boolean> {
     if (!safeStorage.isEncryptionAvailable()) throw new SecretStoreError('no_keychain')
     return serial(async () => {
@@ -144,7 +155,7 @@ export function createSecretStore(deps: { dir: string; safeStorage: SafeStorageL
       if (!changed && !loaded.unreadable) return false
       try {
         await ensurePrivateDir(fs, deps.dir)
-        if (loaded.unreadable) await fs.rename(path, `${path}.bak`).catch(() => undefined)
+        if (loaded.unreadable) await keepUnreadable()
         await writeFileAtomic(fs, path, safeStorage.encryptString(serializeState(loaded.state)), 0o600)
       } catch {
         throw new SecretStoreError('write_failed')

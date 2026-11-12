@@ -1,5 +1,4 @@
 // @vitest-environment node
-import { pathToFileURL } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { CSP, injectCsp } from '../src/main/csp'
 import {
@@ -108,14 +107,14 @@ class FakeWindow implements BrowserWindowLike {
   }
 }
 
-const RENDERER = '/app/dist/renderer/index.html'
+const APP_URL = 'app://rill/index.html'
 
-function make(options: { devUrl?: string; startHidden?: boolean; quitting?: boolean } = {}) {
+function make(options: { devUrl?: string; startHidden?: boolean; quitting?: boolean; devTools?: boolean } = {}) {
   const state = { quitting: options.quitting ?? false }
   const created = createMainWindow({
     BrowserWindow: FakeWindow as unknown as new (options: Record<string, unknown>) => BrowserWindowLike,
     preloadPath: '/app/dist/preload/index.cjs',
-    rendererFile: RENDERER,
+    devTools: options.devTools ?? true,
     ...(options.devUrl === undefined ? {} : { devUrl: options.devUrl }),
     startHidden: options.startHidden ?? false,
     isQuitting: () => state.quitting,
@@ -125,7 +124,7 @@ function make(options: { devUrl?: string; startHidden?: boolean; quitting?: bool
 
 describe('window: web preferences', () => {
   it('sets every hardening flag, and nothing else that widens access', () => {
-    expect(WEB_PREFERENCES('/p/preload.cjs')).toEqual({
+    expect(WEB_PREFERENCES('/p/preload.cjs', true)).toEqual({
       preload: '/p/preload.cjs',
       contextIsolation: true,
       sandbox: true,
@@ -136,20 +135,29 @@ describe('window: web preferences', () => {
       webSecurity: true,
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
+      devTools: true,
     })
+  })
+
+  it('turns the developer tools off when asked, which the packaged app does', () => {
+    expect(WEB_PREFERENCES('/p/preload.cjs', false).devTools).toBe(false)
+    expect(make({ devTools: false }).window.options.webPreferences).toMatchObject({ devTools: false })
+    expect(make({ devTools: true }).window.options.webPreferences).toMatchObject({ devTools: true })
   })
 
   it('passes them to the window together with show false', () => {
     const { window } = make()
-    expect(window.options.webPreferences).toEqual(WEB_PREFERENCES('/app/dist/preload/index.cjs'))
+    expect(window.options.webPreferences).toEqual(WEB_PREFERENCES('/app/dist/preload/index.cjs', true))
     expect(window.options.show).toBe(false)
     expect(window.options.title).toBe('Rill')
   })
 })
 
 describe('window: loading and showing', () => {
-  it('loads the built file, or the dev server address when one is given', () => {
-    expect(make().window.loadedFile).toBe(RENDERER)
+  it('loads the app address, or the dev server address when one is given, and never a file', () => {
+    const built = make().window
+    expect(built.loadedUrl).toBe(APP_URL)
+    expect(built.loadedFile).toBeUndefined()
     const dev = make({ devUrl: 'http://localhost:5173/' }).window
     expect(dev.loadedUrl).toBe('http://localhost:5173/')
     expect(dev.loadedFile).toBeUndefined()
@@ -199,13 +207,13 @@ describe('window: navigation and new windows', () => {
 
   it('blocks navigation and redirects to anything except the app file', () => {
     const { window } = make()
-    const appUrl = pathToFileURL(RENDERER).href
+    const appUrl = APP_URL
     for (const event of ['will-navigate', 'will-redirect']) {
       const blocked: string[] = []
-      for (const url of ['https://example.com/', 'file:///etc/passwd', `${appUrl}.evil`, 'file:///app/dist/renderer/other.html', 'http://127.0.0.1:1/', 'data:text/html,x', 'javascript:alert(1)']) {
+      for (const url of ['https://example.com/', 'file:///etc/passwd', `${appUrl}.evil`, 'app://rill/other.html', 'app://evil/index.html', 'file:///app/dist/renderer/index.html', 'http://127.0.0.1:1/', 'data:text/html,x', 'javascript:alert(1)']) {
         window.webContents.emit(event, { url, preventDefault: () => blocked.push(url) })
       }
-      expect(blocked, event).toHaveLength(7)
+      expect(blocked, event).toHaveLength(9)
       const allowed: string[] = []
       window.webContents.emit(event, { url: appUrl, preventDefault: () => allowed.push(appUrl) })
       window.webContents.emit(event, { url: `${appUrl}#section`, preventDefault: () => allowed.push('hash') })
@@ -233,13 +241,13 @@ describe('window: navigation and new windows', () => {
   })
 
   it('recognises the app url exactly', () => {
-    const appUrl = pathToFileURL(RENDERER).href
-    expect(isAppUrl(appUrl, RENDERER, undefined)).toBe(true)
-    expect(isAppUrl(`${appUrl}?a=1#b`, RENDERER, undefined)).toBe(true)
-    expect(isAppUrl('file:///app/dist/renderer/', RENDERER, undefined)).toBe(false)
-    expect(isAppUrl('not a url', RENDERER, undefined)).toBe(false)
-    expect(isAppUrl('http://localhost:5173/x', RENDERER, 'http://localhost:5173/')).toBe(true)
-    expect(isAppUrl('http://localhost.evil.test:5173/x', RENDERER, 'http://localhost:5173/')).toBe(false)
+    expect(isAppUrl(APP_URL, undefined)).toBe(true)
+    expect(isAppUrl(`${APP_URL}?a=1#b`, undefined)).toBe(true)
+    for (const other of ['app://rill/', 'app://rill/assets/a.js', 'app://rill.evil/index.html', 'app://user@rill/index.html', 'app://rill:1/index.html', 'file:///app/dist/renderer/index.html', 'http://rill/index.html', 'not a url']) {
+      expect(isAppUrl(other, undefined), other).toBe(false)
+    }
+    expect(isAppUrl('http://localhost:5173/x', 'http://localhost:5173/')).toBe(true)
+    expect(isAppUrl('http://localhost.evil.test:5173/x', 'http://localhost:5173/')).toBe(false)
   })
 })
 
@@ -258,8 +266,11 @@ describe('window: session', () => {
   it('adds the content security policy to responses of the built app, and not in development', () => {
     const built = make().window.webContents.session
     let headers: Record<string, string[]> | undefined
-    built.headersReceived?.({ url: pathToFileURL(RENDERER).href, responseHeaders: { 'X-Test': ['1'] } }, (response) => (headers = response.responseHeaders))
+    built.headersReceived?.({ url: APP_URL, responseHeaders: { 'X-Test': ['1'] } }, (response) => (headers = response.responseHeaders))
     expect(headers).toEqual({ 'X-Test': ['1'], 'Content-Security-Policy': [CSP] })
+    let other: Record<string, string[]> | undefined
+    built.headersReceived?.({ url: 'app://rill/assets/a.js', responseHeaders: { 'X-Test': ['1'] } }, (response) => (other = response.responseHeaders))
+    expect(other).toEqual({ 'X-Test': ['1'] })
     const dev = make({ devUrl: 'http://localhost:5173/' }).window.webContents.session
     expect(dev.headersReceived).toBeUndefined()
   })
@@ -275,7 +286,7 @@ describe('window: session', () => {
 
   it('can guard a session on its own', () => {
     const session = new FakeSession()
-    guardSession(session, { appFile: RENDERER, devUrl: undefined })
+    guardSession(session, { devUrl: undefined })
     expect(session.permissionRequest).toBeDefined()
     expect(session.beforeSend).toBeDefined()
   })

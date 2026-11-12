@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Value from 'typebox/value'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { AttachmentError, createAttachmentStore } from '../src/main/attachments'
+import { AttachmentError, MAX_FILES, MAX_TOTAL_BYTES, createAttachmentStore } from '../src/main/attachments'
 import type { FsLike } from '../src/main/config-store'
 
 const MIB = 1024 * 1024
@@ -254,5 +254,67 @@ describe('attachments: streaming and cleanup', () => {
     const store = createAttachmentStore({ dir, fs: lying })
     expect(await reason(store.addFromPath(path))).toBe('too_large')
     expect(listing()).toEqual([])
+  })
+})
+
+describe('attachments: the folder has a size and a count limit', () => {
+  const bytes = (n: number) => new Uint8Array(n).fill(7)
+
+  it('refuses a new file that would take the folder over the total size, and keeps what is there', async () => {
+    const store = createAttachmentStore({ dir, maxTotalBytes: 100 })
+    await store.addFromBytes({ name: 'a.txt', bytes: bytes(60) })
+    await store.addFromBytes({ name: 'b.txt', bytes: bytes(40) })
+    expect(await reason(store.addFromBytes({ name: 'c.txt', bytes: bytes(1) }))).toBe('quota')
+    expect(await reason(store.addFromPath(sparse('d.txt', 1)))).toBe('quota')
+    expect(listing()).toHaveLength(2)
+  })
+
+  it('accepts a file that brings the folder exactly to the limit', async () => {
+    const store = createAttachmentStore({ dir, maxTotalBytes: 100 })
+    await store.addFromBytes({ name: 'a.txt', bytes: bytes(99) })
+    await store.addFromBytes({ name: 'b.txt', bytes: bytes(1) })
+    expect(listing()).toHaveLength(2)
+  })
+
+  it('refuses a new file when the folder holds the most files', async () => {
+    const store = createAttachmentStore({ dir, maxFiles: 3 })
+    for (const name of ['a.txt', 'b.txt', 'c.txt']) await store.addFromBytes({ name, bytes: bytes(1) })
+    expect(await reason(store.addFromBytes({ name: 'd.txt', bytes: bytes(1) }))).toBe('quota')
+    expect(listing()).toHaveLength(3)
+  })
+
+  it('counts every file in the folder, also files that were not made by this store', async () => {
+    mkdirSync(dir)
+    writeFileSync(join(dir, 'foreign.bin'), bytes(95))
+    const store = createAttachmentStore({ dir, maxTotalBytes: 100 })
+    expect(await reason(store.addFromBytes({ name: 'a.txt', bytes: bytes(6) }))).toBe('quota')
+    await store.addFromBytes({ name: 'a.txt', bytes: bytes(5) })
+  })
+
+  it('does not let parallel adds slip past the limit together', async () => {
+    const store = createAttachmentStore({ dir, maxTotalBytes: 100 })
+    const results = await Promise.allSettled(Array.from({ length: 5 }, (_, i) => store.addFromBytes({ name: `p${i}.txt`, bytes: bytes(30) })))
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(3)
+    expect(listing()).toHaveLength(3)
+  })
+
+  it('has defaults of 500 files and 512 MiB', () => {
+    expect(MAX_FILES).toBe(500)
+    expect(MAX_TOTAL_BYTES).toBe(512 * MIB)
+  })
+
+  it('removes leftover .partial files at start, and nothing else', async () => {
+    mkdirSync(dir)
+    writeFileSync(join(dir, '.partial-abcdefgh1234'), 'half')
+    writeFileSync(join(dir, '.partial-zzzzzzzz9999'), 'half')
+    writeFileSync(join(dir, 'abcdefgh1234.txt'), 'kept')
+    writeFileSync(join(dir, '.keep'), 'kept')
+    await createAttachmentStore({ dir }).sweepPartials()
+    expect(readdirSync(dir).sort()).toEqual(['.keep', 'abcdefgh1234.txt'])
+  })
+
+  it('does not fail when the folder does not exist yet', async () => {
+    await createAttachmentStore({ dir }).sweepPartials()
+    expect(existsSync(dir)).toBe(false)
   })
 })

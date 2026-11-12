@@ -62,6 +62,7 @@ describe('preload bridge: calls', () => {
   it('invokes only channel constants, with the argument shapes of the contract', async () => {
     const { ipc, calls } = fakeIpc({
       [CHANNELS.engineInfo]: { url: 'ws://127.0.0.1:1/', token: 't', protocol: 1 },
+      [CHANNELS.engineStatus]: { state: 'running', restarts: 0 },
       [CHANNELS.settingsGet]: SETTINGS,
       [CHANNELS.settingsUpdate]: SETTINGS,
       [CHANNELS.attachmentsAddFromPath]: REF,
@@ -70,6 +71,7 @@ describe('preload bridge: calls', () => {
     const api = createHostApi(ipc)
     await api.engine.info()
     await api.engine.restart()
+    expect(await api.engine.status()).toEqual({ state: 'running', restarts: 0 })
     await api.settings.get()
     await api.settings.update({ openAtLogin: true })
     await api.secrets.setProviderKey('anthropic', 'k')
@@ -84,6 +86,7 @@ describe('preload bridge: calls', () => {
     expect(calls).toEqual([
       [CHANNELS.engineInfo],
       [CHANNELS.engineRestart],
+      [CHANNELS.engineStatus],
       [CHANNELS.settingsGet],
       [CHANNELS.settingsUpdate, { openAtLogin: true }],
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k' }],

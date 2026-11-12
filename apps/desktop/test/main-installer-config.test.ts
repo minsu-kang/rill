@@ -9,7 +9,19 @@ const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { ma
 
 function scalar(key: string, indent = ''): string | undefined {
   const match = new RegExp(`^${indent}${key}:\\s*(.+?)\\s*$`, 'm').exec(text)
-  return match?.[1]
+  return match?.[1]?.replace(/^['"]|['"]$/g, '')
+}
+
+function block(key: string): Record<string, string> {
+  const lines = text.split('\n')
+  const start = lines.findIndex((line) => line.trimEnd() === `${key}:`)
+  const entries: Array<[string, string]> = []
+  for (const line of start === -1 ? [] : lines.slice(start + 1)) {
+    if (/^\S/.test(line)) break
+    const entry = /^\s+(\w+):\s*(.+?)\s*$/.exec(line)
+    if (entry) entries.push([entry[1]!, entry[2]!])
+  }
+  return Object.fromEntries(entries)
 }
 
 function list(key: string): string[] {
@@ -32,9 +44,9 @@ describe('electron-builder configuration', () => {
     expect(text).toMatch(/placeholder/i)
   })
 
-  it('builds a dmg and a zip for macOS, unsigned, without the hardened runtime, with asar', () => {
+  it('builds a dmg and a zip for macOS, ad hoc signed so the signature verifies, without the hardened runtime, with asar', () => {
     expect(text).toMatch(/target:\s*\n\s+- dmg\n\s+- zip/)
-    expect(scalar('identity', '  ')).toBe('null')
+    expect(scalar('identity', '  ')).toBe('-')
     expect(scalar('hardenedRuntime', '  ')).toBe('false')
     expect(scalar('asar')).toBe('true')
     expect(scalar('output', '  ')).toBe('release')
@@ -49,6 +61,17 @@ describe('electron-builder configuration', () => {
       expect(pattern, pattern).not.toMatch(/docs|test|scripts|src|\.env|node_modules|packages|stories/i)
     }
     expect(files.some((pattern) => pattern.includes('dist/engine'))).toBe(false)
+  })
+
+  it('sets the Electron fuses: nothing can run the binary as plain Node or attach an inspector, and only the checked asar loads', () => {
+    expect(block('electronFuses')).toEqual({
+      runAsNode: 'false',
+      enableNodeOptionsEnvironmentVariable: 'false',
+      enableNodeCliInspectArguments: 'false',
+      enableEmbeddedAsarIntegrityValidation: 'true',
+      onlyLoadAppFromAsar: 'true',
+      grantFileProtocolExtraPrivileges: 'false',
+    })
   })
 
   it('keeps only English and Korean locale folders of Electron', () => {

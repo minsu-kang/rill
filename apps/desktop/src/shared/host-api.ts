@@ -103,6 +103,7 @@ export type EngineState = EngineStatus['state']
 export interface HostApi {
   engine: {
     info(): Promise<EngineInfo>
+    status(): Promise<EngineStatus>
     restart(): Promise<void>
     onStatus(listener: (status: EngineStatus) => void): () => void
   }
@@ -128,7 +129,7 @@ export interface HostApi {
 }
 
 export const HOST_API_METHODS = {
-  engine: { info: true, restart: true, onStatus: true },
+  engine: { info: true, status: true, restart: true, onStatus: true },
   settings: { get: true, update: true },
   secrets: { setProviderKey: true, clearProviderKey: true, setConnection: true, removeConnection: true },
   dialogs: { pickFolder: true, pickFile: true },
@@ -138,6 +139,7 @@ export const HOST_API_METHODS = {
 
 export const CHANNELS = {
   engineInfo: 'rill:engine:info',
+  engineStatus: 'rill:engine:get-status',
   engineRestart: 'rill:engine:restart',
   settingsGet: 'rill:settings:get',
   settingsUpdate: 'rill:settings:update',
@@ -160,6 +162,7 @@ const OptionalPath = Type.Union([PathSchema, Type.Undefined()])
 
 export const CONTRACTS: Record<Channel, { args: Type.TSchema; result: Type.TSchema }> = {
   [CHANNELS.engineInfo]: { args: Type.Undefined(), result: EngineInfoSchema },
+  [CHANNELS.engineStatus]: { args: Type.Undefined(), result: EngineStatusSchema },
   [CHANNELS.engineRestart]: { args: Type.Undefined(), result: Type.Undefined() },
   [CHANNELS.settingsGet]: { args: Type.Undefined(), result: SettingsSchema },
   [CHANNELS.settingsUpdate]: { args: SettingsPatchSchema, result: SettingsSchema },

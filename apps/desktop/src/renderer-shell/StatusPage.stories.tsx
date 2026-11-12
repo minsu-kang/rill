@@ -9,6 +9,7 @@ function host(options: { status?: EngineStatus; info?: 'ready' | 'never' }): Pic
     engine: {
       info: () => (options.info === 'never' ? new Promise<EngineInfo>(() => undefined) : Promise.resolve(INFO)),
       restart: () => Promise.resolve(),
+      status: () => Promise.resolve(options.status ?? { state: 'running', restarts: 0 }),
       onStatus: (listener) => {
         if (options.status !== undefined) {
           const status = options.status

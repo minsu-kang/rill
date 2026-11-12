@@ -61,6 +61,7 @@ describe('argument schemas', () => {
   it('accept valid arguments for every channel', () => {
     const valid: Array<[string, unknown]> = [
       [CHANNELS.engineInfo, undefined],
+      [CHANNELS.engineStatus, undefined],
       [CHANNELS.engineRestart, undefined],
       [CHANNELS.settingsGet, undefined],
       [CHANNELS.settingsUpdate, { allowedFolders: ['/a'], provider: 'openai', model: 'gpt-6.1-sol', openAtLogin: true }],
@@ -82,6 +83,7 @@ describe('argument schemas', () => {
   it('reject extra fields, wrong types and missing fields', () => {
     const invalid: Array<[string, unknown]> = [
       [CHANNELS.engineInfo, {}],
+      [CHANNELS.engineStatus, {}],
       [CHANNELS.settingsUpdate, { openAtLogin: 'yes' }],
       [CHANNELS.settingsUpdate, { extra: 1 }],
       [CHANNELS.settingsUpdate, { provider: 'azure' }],
@@ -144,6 +146,9 @@ describe('argument schemas', () => {
 describe('result schemas', () => {
   it('accept the results the handlers return', () => {
     expect(validateResult(CHANNELS.engineInfo, { url: 'ws://127.0.0.1:1/', token: 't', protocol: 1 })).toBe(true)
+    expect(validateResult(CHANNELS.engineStatus, { state: 'stopped', error: 'crashed', restarts: 5 })).toBe(true)
+    expect(validateResult(CHANNELS.engineStatus, { state: 'stopped', error: 'crashed', restarts: 5, token: 't' })).toBe(false)
+    expect(validateResult(CHANNELS.engineStatus, { state: 'paused', restarts: 0 })).toBe(false)
     expect(validateResult(CHANNELS.settingsGet, SETTINGS)).toBe(true)
     expect(validateResult(CHANNELS.settingsGet, { ...SETTINGS, model: undefined })).toBe(true)
     expect(validateResult(CHANNELS.attachmentsAddFromPath, REF)).toBe(true)

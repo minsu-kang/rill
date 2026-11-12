@@ -1,4 +1,4 @@
-import { pathToFileURL } from 'node:url'
+import { APP_HOST, APP_INDEX_URL, APP_SCHEME } from './app-protocol'
 import { CSP } from './csp'
 
 export interface NavigationEventLike {
@@ -33,7 +33,6 @@ export interface WebContentsLike {
 
 export interface BrowserWindowLike {
   webContents: WebContentsLike
-  loadFile(path: string): Promise<void>
   loadURL(url: string): Promise<void>
   on(event: string, listener: (event: { preventDefault(): void }) => void): unknown
   once(event: string, listener: () => void): unknown
@@ -48,7 +47,7 @@ export interface BrowserWindowLike {
 export interface MainWindowDeps {
   BrowserWindow: new (options: Record<string, unknown>) => BrowserWindowLike
   preloadPath: string
-  rendererFile: string
+  devTools: boolean
   devUrl?: string
   startHidden: boolean
   isQuitting: () => boolean
@@ -61,7 +60,7 @@ export interface MainWindow {
 
 export const ENGINE_REQUEST_FILTER = { urls: ['ws://127.0.0.1/*', 'ws://localhost/*'] }
 
-export function WEB_PREFERENCES(preloadPath: string) {
+export function WEB_PREFERENCES(preloadPath: string, devTools: boolean) {
   return {
     preload: preloadPath,
     contextIsolation: true,
@@ -73,10 +72,11 @@ export function WEB_PREFERENCES(preloadPath: string) {
     webSecurity: true,
     allowRunningInsecureContent: false,
     experimentalFeatures: false,
+    devTools,
   }
 }
 
-export function isAppUrl(url: string, appFile: string, devUrl: string | undefined): boolean {
+export function isAppUrl(url: string, devUrl: string | undefined): boolean {
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -84,16 +84,22 @@ export function isAppUrl(url: string, appFile: string, devUrl: string | undefine
     return false
   }
   if (devUrl !== undefined && parsed.origin === new URL(devUrl).origin) return true
-  const app = pathToFileURL(appFile)
-  return parsed.protocol === 'file:' && parsed.host === '' && parsed.pathname === app.pathname
+  return (
+    parsed.protocol === `${APP_SCHEME}:` &&
+    parsed.hostname === APP_HOST &&
+    parsed.port === '' &&
+    parsed.username === '' &&
+    parsed.password === '' &&
+    parsed.pathname === new URL(APP_INDEX_URL).pathname
+  )
 }
 
-export function guardSession(session: SessionLike, options: { appFile: string; devUrl: string | undefined }): void {
+export function guardSession(session: SessionLike, options: { devUrl: string | undefined }): void {
   session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
   session.setPermissionCheckHandler(() => false)
   if (options.devUrl === undefined) {
     session.webRequest.onHeadersReceived((details, callback) => {
-      if (!isAppUrl(details.url, options.appFile, undefined)) return callback({ ...(details.responseHeaders === undefined ? {} : { responseHeaders: details.responseHeaders }) })
+      if (!isAppUrl(details.url, undefined)) return callback({ ...(details.responseHeaders === undefined ? {} : { responseHeaders: details.responseHeaders }) })
       callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [CSP] } })
     })
   }
@@ -111,14 +117,14 @@ export function createMainWindow(deps: MainWindowDeps): MainWindow {
     minHeight: 560,
     show: false,
     title: 'Rill',
-    webPreferences: WEB_PREFERENCES(deps.preloadPath),
+    webPreferences: WEB_PREFERENCES(deps.preloadPath, deps.devTools),
   })
   const contents = window.webContents
-  guardSession(contents.session, { appFile: deps.rendererFile, devUrl: deps.devUrl })
+  guardSession(contents.session, { devUrl: deps.devUrl })
   contents.setWindowOpenHandler(() => ({ action: 'deny' }))
   for (const event of ['will-navigate', 'will-redirect']) {
     contents.on(event, (navigation) => {
-      if (!isAppUrl(navigation.url, deps.rendererFile, deps.devUrl)) navigation.preventDefault()
+      if (!isAppUrl(navigation.url, deps.devUrl)) navigation.preventDefault()
     })
   }
   contents.on('will-attach-webview', (event) => event.preventDefault())
@@ -128,7 +134,7 @@ export function createMainWindow(deps: MainWindowDeps): MainWindow {
     window.hide()
   })
   if (!deps.startHidden) window.once('ready-to-show', () => window.show())
-  void (deps.devUrl === undefined ? window.loadFile(deps.rendererFile) : window.loadURL(deps.devUrl))
+  void window.loadURL(deps.devUrl ?? APP_INDEX_URL)
   return {
     window,
     show() {

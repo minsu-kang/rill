@@ -35,6 +35,7 @@ export function createHostApi(ipc: IpcLike): HostApi {
   return {
     engine: {
       info: () => call(CHANNELS.engineInfo),
+      status: () => call(CHANNELS.engineStatus),
       restart: () => call(CHANNELS.engineRestart),
       onStatus(listener: (status: EngineStatus) => void) {
         const handler: StatusHandler = (_event, payload) => {

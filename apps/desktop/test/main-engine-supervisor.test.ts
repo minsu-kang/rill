@@ -172,14 +172,14 @@ async function running(options: Setup = {}, port = 41000) {
 }
 
 describe('engine supervisor: arguments and environment', () => {
-  it('forks the bundle with the exact arguments, the attachment folder allowed last, and a private folder as working directory', async () => {
+  it('forks the bundle with the exact arguments, the attachment folder allowed first, and a private folder as working directory', async () => {
     const { forks } = await started({ config: { allowedFolders: ['/Users/test/Docs', '/Users/test/Receipts'], provider: 'anthropic', model: 'claude-haiku-5-5' } })
     expect(forks).toHaveLength(1)
     expect(forks[0]!.path).toBe('/app/resources/engine/rill-engine.mjs')
     expect(forks[0]!.args).toEqual([
       'serve', '--db', `${USER_DATA}/rill.db`, '--port', '0', '--attachments-dir', `${USER_DATA}/attachments`, '--shutdown-timeout', '8000',
       '--llm-provider', 'anthropic', '--llm-model', 'claude-haiku-5-5',
-      '--allow', '/Users/test/Docs', '--allow', '/Users/test/Receipts', '--allow', `${USER_DATA}/attachments`,
+      '--allow', `${USER_DATA}/attachments`, '--allow', '/Users/test/Docs', '--allow', '/Users/test/Receipts',
     ])
     expect(forks[0]!.options).toMatchObject({ cwd: USER_DATA, stdio: 'pipe', serviceName: 'rill-engine' })
   })
@@ -398,6 +398,73 @@ describe('engine supervisor: restart', () => {
     expect(forks).toHaveLength(2)
     expect(statuses.filter((status) => status.state === 'restarting')).toHaveLength(1)
     expect(supervisor.status().restarts).toBe(1)
+  })
+
+  it('runs one more restart when settings change after the first restart read them, so the new settings apply', async () => {
+    const { supervisor, forks, config, statuses } = await running({ config: { allowedFolders: ['/old'] } })
+    const first = supervisor.restart()
+    await settle()
+    expect(forks).toHaveLength(2)
+    expect(forks[1]!.args).toContain('/old')
+    config.allowedFolders = []
+    const second = supervisor.restart()
+    expect(second).toBe(first)
+    forks[1]!.child.listen(41001)
+    await settle()
+    expect(forks[1]!.child.killCalls).toBe(1)
+    expect(forks).toHaveLength(3)
+    expect(forks[2]!.args).not.toContain('/old')
+    forks[2]!.child.listen(41002)
+    await first
+    expect((await supervisor.info()).url).toBe('ws://127.0.0.1:41002/')
+    expect(statuses.filter((status) => status.state === 'restarting').map((status) => status.restarts)).toEqual([1, 2])
+    expect(supervisor.status()).toEqual({ state: 'running', restarts: 2 })
+  })
+
+  it('runs one more restart even when the engine of the first one has not printed its address yet', async () => {
+    const { supervisor, forks, config } = await running({ config: { allowedFolders: ['/old'] } })
+    const first = supervisor.restart()
+    await settle()
+    config.allowedFolders = ['/new']
+    void supervisor.restart()
+    await settle()
+    forks[1]!.child.listen(41001)
+    await settle()
+    expect(forks).toHaveLength(3)
+    expect(forks[2]!.args).toContain('/new')
+    expect(forks[2]!.args).not.toContain('/old')
+    forks[2]!.child.listen(41002)
+    await first
+  })
+
+  it('does not start an engine after stop() when one more restart was waiting', async () => {
+    const { supervisor, forks } = await running()
+    const first = supervisor.restart()
+    await settle()
+    void supervisor.restart()
+    const stopped = supervisor.stop()
+    await Promise.all([first, stopped])
+    await settle()
+    expect(forks).toHaveLength(2)
+    expect(supervisor.status().state).toBe('stopped')
+  })
+
+  it('makes a second restart() one restart with the first while the old engine is still stopping, and reads the settings once', async () => {
+    const { supervisor, forks, config } = await running({ config: { allowedFolders: ['/old'] } })
+    forks[0]!.child.exitOnKill = false
+    const first = supervisor.restart()
+    await settle()
+    config.allowedFolders = ['/new']
+    const second = supervisor.restart()
+    expect(second).toBe(first)
+    forks[0]!.child.exit(0)
+    await settle()
+    expect(forks).toHaveLength(2)
+    expect(forks[1]!.args).toContain('/new')
+    forks[1]!.child.listen(41001)
+    await first
+    expect(forks).toHaveLength(2)
+    expect(supervisor.status()).toEqual({ state: 'running', restarts: 1 })
   })
 
   it('can restart again after a restart finished', async () => {
