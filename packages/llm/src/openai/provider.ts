@@ -29,6 +29,16 @@ export interface OpenAiProviderOptions {
   maxTokens?: number
 }
 
+const OWN_HEADERS = /^(?:accept|authorization|content-type|user-agent|x-stainless-[a-z-]+)$/
+
+function ownHeadersOnly(inner: FetchFn | undefined): FetchFn {
+  return (input, init) => {
+    const headers = new Headers(init?.headers)
+    for (const name of [...headers.keys()]) if (!OWN_HEADERS.test(name)) headers.delete(name)
+    return (inner ?? globalThis.fetch)(input, { ...init, headers })
+  }
+}
+
 export function createOpenAiClient(options: { apiKey: string; fetch?: FetchFn; baseURL?: string; timeoutMs?: number }): OpenAI {
   return new OpenAI({
     apiKey: options.apiKey,
@@ -39,7 +49,8 @@ export function createOpenAiClient(options: { apiKey: string; fetch?: FetchFn; b
     project: null,
     webhookSecret: null,
     adminAPIKey: null,
-    ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    logLevel: 'off',
+    fetch: ownHeadersOnly(options.fetch),
   })
 }
 

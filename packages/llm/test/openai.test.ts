@@ -8,6 +8,7 @@ import {
   openaiDescriptor,
   providerDescriptor,
   startCall,
+  type FetchFn,
   type ImageMediaType,
   type LlmProvider,
   type LlmRequest,
@@ -692,6 +693,42 @@ describe('the SDK client', () => {
     expect(client.baseURL).toBe('https://api.openai.com/v1')
     expect(client.organization).toBeNull()
     expect(client.project).toBeNull()
+  })
+
+  it('sends only the headers it owns when the environment asks the SDK for more', async () => {
+    vi.stubEnv('OPENAI_CUSTOM_HEADERS', 'x-injected: yes\nOpenAI-Organization: org-other\nOpenAI-Project: proj-other')
+    for (const size of [1000, 20_000]) {
+      const { transport, provider } = setup(ok(size > 16_000))
+      await provider.generate({ ...requests.text, maxTokens: size })
+      const names = Object.keys(transport.requests[0]!.headers).map((name) => name.toLowerCase())
+      expect(names).toContain('authorization')
+      expect(names).toContain('content-type')
+      expect(names.filter((name) => !name.startsWith('x-stainless-'))).toEqual(['accept', 'authorization', 'content-type', 'user-agent'])
+    }
+  })
+
+  it('keeps the SDK quiet even when the environment turns on debug logging', async () => {
+    vi.stubEnv('OPENAI_LOG', 'debug')
+    const spies = (['debug', 'info', 'warn', 'error'] as const).map((level) => vi.spyOn(console, level).mockImplementation(() => undefined))
+    const { provider } = setup(ok())
+    await provider.generate(requests.text)
+    expect(spies.map((spy) => spy.mock.calls.length)).toEqual([0, 0, 0, 0])
+    expect(createOpenAiClient({ apiKey: CONFORMANCE_API_KEY }).logLevel).toBe('off')
+    vi.restoreAllMocks()
+  })
+
+  it('filters the headers of an injected fetch too and still reaches it', async () => {
+    vi.stubEnv('OPENAI_CUSTOM_HEADERS', 'x-injected: yes')
+    const seen: string[][] = []
+    const fetch: FetchFn = async (_input, init) => {
+      seen.push([...new Headers(init?.headers).keys()])
+      return new Response(JSON.stringify(responseBody('completed', OK_TEXT)), { headers: { 'content-type': 'application/json' } })
+    }
+    const provider = new OpenAiProvider({ model: OPENAI_MODEL, apiKey: CONFORMANCE_API_KEY, fetch })
+    await provider.generate(requests.text)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).not.toContain('x-injected')
+    expect(seen[0]).toContain('authorization')
   })
 
   it('uses a base URL that is passed in', () => {
