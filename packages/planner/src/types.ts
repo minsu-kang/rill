@@ -57,6 +57,7 @@ export interface PlanContext {
   allowedRoots: string[]
   existingWorkflow?: Workflow
   attachmentsRoot: string
+  memory?: readonly string[]
 }
 
 export interface PlanRequest {
@@ -106,6 +107,8 @@ export interface PlanProviderMeta {
   effort: PlanEffortMeta
   reasoningCapped: boolean
   costNote?: string
+  memoryUsed: number
+  memoryDropped: number
 }
 
 export type PlanErrorKind = 'invalid_request' | 'invalid_after_repair' | 'provider' | 'aborted' | 'attachment'

@@ -22,7 +22,7 @@ export function fakeResult(body: PlanResultBody, rounds: PlanRound[] = [fakeRoun
     model: 'fake-planner',
     effort: 'low',
     fallbackUsed: false,
-    meta: { provider: 'fake', effort: { requested: 'low', effective: 'low', native: 'low', collapsed: false }, reasoningCapped: true },
+    meta: { provider: 'fake', effort: { requested: 'low', effective: 'low', native: 'low', collapsed: false }, reasoningCapped: true, memoryUsed: 0, memoryDropped: 0 },
   }
 }
 

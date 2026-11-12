@@ -1,6 +1,7 @@
 import type { PlanIssue, Workflow } from '@rill/dsl'
 import type { JsonSchema, LlmPart, LlmProvider } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
+import type { RandomHex } from './attachments/prepare'
 import type { ProvenanceCache } from './attachments/provenance'
 import type { AttachmentRef, Flag, PatchOp, PlanRequest, PlanResult, PlanResultBody } from './types'
 
@@ -38,6 +39,7 @@ export interface RedactInput {
 }
 
 export interface AttachmentModule {
+  randomHex?: RandomHex
   prepare(input: { store: AttachmentStore; refs: AttachmentRef[]; cacheLast?: boolean }): Promise<PreparedAttachments>
   provenance(input: ProvenanceInput): Flag[]
   redactIssues(issues: PlanIssue[], input: RedactInput): PlanIssue[]

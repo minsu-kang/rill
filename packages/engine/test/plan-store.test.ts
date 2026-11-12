@@ -485,6 +485,8 @@ describe('plannedRecord', () => {
         provider: 'anthropic',
         effort: { requested: 'medium' as const, effective: 'medium' as const, native: 'medium', collapsed: false },
         reasoningCapped: false,
+        memoryUsed: 0,
+        memoryDropped: 0,
       },
     }
     const { record } = plannedRecord({ planId: 'p-1', text: 'x', attachments: [], effort: 'medium' }, planned, 1)

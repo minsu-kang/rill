@@ -13,6 +13,7 @@ export interface AttachmentModuleOptions {
 export function createAttachmentModule(options: AttachmentModuleOptions = {}): AttachmentModule {
   const randomHex = options.randomHex ?? defaultRandomHex
   return {
+    randomHex,
     prepare: (input) => prepareAttachments({ ...input, randomHex }),
     provenance: (input) =>
       computeProvenance(input, {

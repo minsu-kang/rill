@@ -5,6 +5,7 @@ import { catalogText } from './catalog'
 import { encodeGeneration } from './generation'
 import { HIDDEN_FIELDS, withoutHiddenValues } from './hidden'
 import { MASK } from './mask'
+import type { MemoryPlacement } from './memory'
 import { MAX_QUESTION_TURNS, MAX_QUESTIONS } from './questions'
 import type { PlanEffort, PlanRequest, PlanTurn } from './types'
 
@@ -45,9 +46,17 @@ export const PLANNER_RULES = [
   'Repair: when a user message is JSON {"round": n, "issues": [...]}, your previous answer was rejected. Each issue has a JSON pointer into the workflow (for example /nodes/2/config/row/1 is workflow.nodes[2].config.row[1]; in patch mode it points into the workflow after your patch, and the message names the node id), a code, a message and maybe a hint. Return the whole corrected answer in the same output format, changing only what the issues require.',
 ].join('\n')
 
-export function systemBlocks(registry: NodeRegistry, attachmentRules?: string): LlmSystemBlock[] {
+export interface MemorySystemInput {
+  text: string
+  placement: MemoryPlacement
+}
+
+export function systemBlocks(registry: NodeRegistry, attachmentRules?: string, memory?: MemorySystemInput): LlmSystemBlock[] {
   const rules = attachmentRules === undefined || attachmentRules === '' ? PLANNER_RULES : `${PLANNER_RULES}\n\n${attachmentRules}`
-  return [{ text: rules }, { text: catalogText(registry), cache: true }]
+  const catalog = catalogText(registry)
+  if (memory === undefined || memory.text === '') return [{ text: rules }, { text: catalog, cache: true }]
+  if (memory.placement === 'merged') return [{ text: rules }, { text: `${catalog}\n\n${memory.text}`, cache: true }]
+  return [{ text: rules }, { text: catalog, cache: true }, memory.placement === 'marked' ? { text: memory.text, cache: true } : { text: memory.text }]
 }
 
 export function renderAnswers(answers: Readonly<Record<string, string>> | undefined): string {

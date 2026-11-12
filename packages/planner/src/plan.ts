@@ -4,6 +4,7 @@ import type { NodeRegistry } from '@rill/nodes-core'
 import { ATTACHMENT_RULES, attachmentModule } from './attachments'
 import { createNameGuard } from './attachments/names'
 import { fold } from './attachments/normalize'
+import { defaultRandomHex } from './attachments/prepare'
 import { createProvenanceCache, userSourcedTest } from './attachments/provenance'
 import { SOFT_CAP_HEADROOM, SOFT_CAP_NOTE, checkAttachmentSupport, checkRequestBytes, resolveEffort, type ResolvedEffort } from './capabilities'
 import { maskConfig, unmaskConfig } from './mask'
@@ -12,6 +13,7 @@ import { decodeGeneration, type DecodeContext, type Decoded } from './decode'
 import { AttachmentError } from './errors'
 import { generationSchema, type Envelope, type GenerationMode } from './generation'
 import { hiddenValues, withoutHiddenFields } from './hidden'
+import { buildMemoryPrompt, memoryPlacement, type MemoryPrompt } from './memory'
 import { MAX_ATTACHMENTS_PER_CONVERSATION, MAX_ATTACHMENTS_PER_MESSAGE, type AttachmentModule, type Planner, type PlannerDeps, type ProvenanceInput } from './ports'
 import {
   EFFORT_BUDGETS,
@@ -119,6 +121,14 @@ export function userTexts(request: PlanRequest): string[] {
   return texts.filter((text) => text.trim() !== '')
 }
 
+export function trustedTexts(request: PlanRequest): string[] {
+  return [...userTexts(request), ...(request.context.memory ?? [])]
+}
+
+function cachedParts(messages: readonly LlmMessage[]): number {
+  return messages.reduce((sum, message) => sum + (typeof message.content === 'string' ? 0 : message.content.filter((part) => part.cache === true).length), 0)
+}
+
 class Run {
   private readonly rounds: PlanRound[] = []
   private readonly attachments: AttachmentModule
@@ -128,6 +138,8 @@ class Run {
   private readonly ctx: DecodeContext
   private readonly capabilities: LlmCapabilities
   private readonly effort: ResolvedEffort
+  private readonly memory: MemoryPrompt
+  private readonly trusted: string[]
   private attachmentTexts: string[] = []
   private readonly provenanceCache = createProvenanceCache()
   private totalUsage: LlmUsage = ZERO
@@ -144,6 +156,8 @@ class Run {
     this.registry = deps.registry
     this.capabilities = capabilitiesOf(deps.provider)
     this.effort = resolveEffort(this.capabilities, request.effort)
+    this.memory = buildMemoryPrompt(request.context.memory, this.attachments.randomHex ?? defaultRandomHex)
+    this.trusted = trustedTexts(request)
     this.mode = request.selection === undefined ? 'create' : 'patch'
     this.allowQuestions = questionTurnsSinceLastWorkflow(request.turns) < MAX_QUESTION_TURNS
     this.ctx = {
@@ -299,8 +313,9 @@ class Run {
   }
 
   private baseRequest(messages: LlmMessage[], schema: Record<string, unknown>): LlmRequest {
+    const memory = this.memory.text === '' ? undefined : { text: this.memory.text, placement: memoryPlacement(this.capabilities, cachedParts(messages)) }
     return {
-      system: systemBlocks(this.registry, this.hasAttachments() ? ATTACHMENT_RULES : undefined),
+      system: systemBlocks(this.registry, this.hasAttachments() ? ATTACHMENT_RULES : undefined, memory),
       messages,
       schema,
       maxTokens: EFFORT_BUDGETS[this.effort.effective].maxTokens,
@@ -312,7 +327,7 @@ class Run {
     const existing = this.request.context.existingWorkflow
     return {
       registry: this.registry,
-      userTexts: userTexts(this.request),
+      userTexts: this.trusted,
       cache: this.provenanceCache,
       ...(existing === undefined ? {} : { existingWorkflow: existing }),
       attachmentTexts: this.attachmentTexts,
@@ -333,7 +348,7 @@ class Run {
       registry: this.registry,
       attachmentTexts: this.attachmentTexts,
       flags,
-      userTexts: userTexts(this.request),
+      userTexts: this.trusted,
       ...(existing === undefined ? {} : { existingWorkflow: existing }),
       ...(patch === undefined ? {} : { patch }),
     })
@@ -359,6 +374,8 @@ class Run {
       effort: { requested: this.request.effort, ...this.effort },
       reasoningCapped: capped,
       ...(capped ? {} : { costNote: SOFT_CAP_NOTE }),
+      memoryUsed: this.memory.used.length,
+      memoryDropped: this.memory.dropped,
     }
   }
 
@@ -372,7 +389,7 @@ class Run {
     const names = createNameGuard({
       attachmentTexts: this.attachmentTexts,
       registry: this.registry,
-      userTexts: userTexts(this.request),
+      userTexts: this.trusted,
       ...(existing === undefined ? {} : { existingWorkflow: existing }),
     })
     for (const index of indexes) {
@@ -500,6 +517,6 @@ class Run {
 
 export function createPlanner(deps: PlannerDeps): Planner {
   return {
-    plan: (request) => new Run(deps, request).run(),
+    plan: async (request) => new Run(deps, request).run(),
   }
 }

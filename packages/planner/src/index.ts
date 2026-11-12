@@ -13,6 +13,7 @@ export * from './prompt'
 export * from './questions'
 export * from './connections'
 export * from './mask'
+export * from './memory'
 export {
   attachmentModule,
   createAttachmentModule,
