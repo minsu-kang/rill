@@ -9,6 +9,7 @@ import { WorkflowGraph } from '../src/graph/WorkflowGraph'
 import { ko } from '../src/i18n/ko'
 import { NO_STATES, type RunStates } from '../src/model/status'
 import { statesFromSteps } from '../src/model/steps'
+import { violations } from './axe'
 import { renderThemed } from './render'
 
 function Harness({ workflow, states = NO_STATES, onSelect }: { workflow: Workflow; states?: RunStates; onSelect?: (id: string | undefined) => void }) {
@@ -37,7 +38,7 @@ describe('WorkflowGraph', () => {
   it('renders one card per node and one label per edge that has a when', async () => {
     const { container } = renderThemed(<Harness workflow={branchingWorkflow} />)
     await ready(container, branchingWorkflow.edges.length)
-    expect(screen.getAllByRole('treeitem')).toHaveLength(branchingWorkflow.nodes.length)
+    expect(screen.getAllByRole('button', { name: /\(.+\), / })).toHaveLength(branchingWorkflow.nodes.length)
     const labels = [...container.querySelectorAll('.react-flow__edge-text')].map((label) => label.textContent)
     expect(labels.sort()).toEqual(['false', 'true'])
   })
@@ -69,10 +70,10 @@ describe('WorkflowGraph', () => {
     await ready(container, branchingWorkflow.edges.length)
     fireEvent.click(screen.getByTestId('rf__node-check'))
     expect(onSelect).toHaveBeenLastCalledWith('check')
-    await waitFor(() => expect(screen.getByTestId('rf__node-check').querySelector('[role="treeitem"]')!.getAttribute('aria-selected')).toBe('true'))
+    await waitFor(() => expect(screen.getByTestId('rf__node-check').getAttribute('aria-pressed')).toBe('true'))
     fireEvent.click(screen.getByTestId('rf__node-alert'))
     expect(onSelect).toHaveBeenLastCalledWith('alert')
-    await waitFor(() => expect(screen.getByTestId('rf__node-check').querySelector('[role="treeitem"]')!.getAttribute('aria-selected')).toBe('false'))
+    await waitFor(() => expect(screen.getByTestId('rf__node-check').getAttribute('aria-pressed')).toBe('false'))
   })
 
   it('calls onSelect on Enter and on Space for a focused card', async () => {
@@ -116,7 +117,7 @@ describe('WorkflowGraph', () => {
     fireEvent.click(screen.getByTestId('rf__node-check'))
     await user.keyboard('{Delete}')
     await user.keyboard('{Backspace}')
-    expect(screen.getAllByRole('treeitem')).toHaveLength(branchingWorkflow.nodes.length)
+    expect(screen.getAllByRole('button', { name: /\(.+\), / })).toHaveLength(branchingWorkflow.nodes.length)
     expect(container.querySelectorAll('.react-flow__edge')).toHaveLength(branchingWorkflow.edges.length)
     expect(container.querySelectorAll('.react-flow__edge.selectable')).toHaveLength(0)
   })
@@ -152,7 +153,7 @@ describe('WorkflowGraph', () => {
     )
     const { container } = renderThemed(<Harness workflow={odd} />)
     await ready(container, 1)
-    expect(screen.getAllByRole('treeitem')).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: /\(.+\), / })).toHaveLength(2)
     expect(container.querySelectorAll('.react-flow__edge-text')).toHaveLength(0)
   })
 
@@ -166,7 +167,7 @@ describe('WorkflowGraph', () => {
     for (const [name, workflow] of Object.entries(workflows)) {
       const { container, unmount } = renderThemed(<Harness workflow={workflow} />)
       await ready(container, workflow.edges.length)
-      expect(screen.getAllByRole('treeitem'), name).toHaveLength(workflow.nodes.length)
+      expect(screen.getAllByRole('button', { name: /\(.+\), / }), name).toHaveLength(workflow.nodes.length)
       unmount()
     }
   })
@@ -185,5 +186,58 @@ describe('WorkflowGraph', () => {
     const handles = [...container.querySelectorAll('.react-flow__handle')]
     expect(handles.length).toBeGreaterThan(0)
     for (const handle of handles) expect(handle.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('has no accessibility violation with a selected card and the states of a run', async () => {
+    const states = statesFromSteps(fixtureSteps[ids.runs.branchingContinued]!)
+    const { container } = renderThemed(<Harness workflow={branchingWorkflow} states={states} />)
+    await ready(container, branchingWorkflow.edges.length)
+    fireEvent.click(screen.getByTestId('rf__node-check'))
+    await waitFor(() => expect(screen.getByTestId('rf__node-check').getAttribute('aria-pressed')).toBe('true'))
+    expect(await violations(container)).toEqual([])
+  })
+
+  it('exposes the selection of a card as a pressed button named with its title, id and status', async () => {
+    const { container } = renderThemed(<Harness workflow={branchingWorkflow} />)
+    await ready(container, branchingWorkflow.edges.length)
+    const check = screen.getByTestId('rf__node-check')
+    expect(check.getAttribute('role')).toBe('button')
+    expect(check.getAttribute('aria-pressed')).toBe('false')
+    expect(check.getAttribute('aria-label')).toBe('HTTP request (check), 대기')
+    expect(container.querySelector('[role="treeitem"], [aria-selected]')).toBeNull()
+    fireEvent.click(check)
+    await waitFor(() => expect(check.getAttribute('aria-pressed')).toBe('true'))
+    expect(screen.getByTestId('rf__node-alert').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('names every connection in the current language, with its condition, and never in the default English', async () => {
+    const first = renderThemed(<Harness workflow={branchingWorkflow} />)
+    await ready(first.container, branchingWorkflow.edges.length)
+    const labels = (container: HTMLElement) => [...container.querySelectorAll('.react-flow__edge')].map((item) => item.getAttribute('aria-label'))
+    expect(labels(first.container)).toEqual([
+      'schedule에서 check까지 연결',
+      'check에서 healthy까지 연결',
+      'healthy에서 log까지 연결, 조건 true',
+      'healthy에서 alert까지 연결, 조건 false',
+    ])
+    first.unmount()
+    const second = renderThemed(<Harness workflow={branchingWorkflow} />, { locale: 'en' })
+    await ready(second.container, branchingWorkflow.edges.length)
+    expect(labels(second.container)).toEqual([
+      'Connection from schedule to check',
+      'Connection from check to healthy',
+      'Connection from healthy to log, when true',
+      'Connection from healthy to alert, when false',
+    ])
+    expect(second.container.querySelector('[aria-label^="Edge from"]')).toBeNull()
+  })
+
+  it('shortens a long id or condition in the name of a connection', async () => {
+    const longId = `n${'x'.repeat(80)}`
+    const long = workflowOf('long', [node('a', 'trigger.manual@1', {}), node(longId, 'transform@1', {})], [edge('a', longId, 'w'.repeat(80))])
+    const { container } = renderThemed(<Harness workflow={long} />, { locale: 'en' })
+    await ready(container, 1)
+    const label = container.querySelector('.react-flow__edge')!.getAttribute('aria-label')!
+    expect(label).toBe(`Connection from a to n${'x'.repeat(30)}…, when ${'w'.repeat(23)}…`)
   })
 })

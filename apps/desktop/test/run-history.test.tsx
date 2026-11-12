@@ -88,6 +88,15 @@ describe('RunHistory', () => {
     expect(container.querySelector('img, script, a')).toBeNull()
   })
 
+  it('writes a hidden character of an error as a visible code point in the text and in the title', () => {
+    const tricky: RunSummary = { ...run(ids.runs.receiptFailed), error: 'cannot open invoice \u202etxt.exe' }
+    const { container } = renderThemed(<RunHistory runs={[tricky]} now={FIXTURE_NOW} />)
+    expect(container.textContent).toContain('cannot open invoice ‹U+202E›txt.exe')
+    expect(container.textContent).not.toContain('\u202e')
+    expect(container.querySelector('[title]:not([title^="run"])')).not.toBeNull()
+    for (const item of container.querySelectorAll('[title]')) expect(item.getAttribute('title')).not.toContain('\u202e')
+  })
+
   it('works in English', () => {
     renderThemed(<RunHistory runs={[run(ids.runs.receiptQueued)]} now={FIXTURE_NOW} />, { locale: 'en' })
     expect(screen.getByText('Queued')).toBeTruthy()

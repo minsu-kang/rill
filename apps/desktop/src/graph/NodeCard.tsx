@@ -35,7 +35,7 @@ export function NodeCard({ node, info, state, selected }: NodeCardProps) {
   const badges = badgesOf(node.type, info)
 
   return (
-    <div className={styles.card} role="treeitem" aria-selected={selected} data-selected={selected} style={{ width: CARD_SIZE.width }}>
+    <div className={styles.card} data-selected={selected} style={{ width: CARD_SIZE.width }}>
       <div className={styles.header}>
         <span className={styles.title} title={title}>
           {truncate(title, MAX_TITLE)}

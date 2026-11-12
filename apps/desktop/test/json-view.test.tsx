@@ -5,7 +5,8 @@ import { JsonView } from '../src/inspector/JsonView'
 import { ko } from '../src/i18n/ko'
 import { renderThemed } from './render'
 
-const more = (count: number) => ko['json.more'].replace('{count}', String(count))
+const more = (count: number) => ko['json.more'].replace('{count}', count.toLocaleString('en-US'))
+const moreCharacters = (count: number) => ko['json.moreCharacters.other'].replace('{count}', count.toLocaleString('en-US'))
 const entries = (container: HTMLElement) => container.querySelectorAll('[data-entry]')
 
 describe('JsonView', () => {
@@ -48,10 +49,10 @@ describe('JsonView', () => {
     const { container } = renderThemed(<JsonView value={long} maxString={30} />)
     expect(container.textContent).toContain('a'.repeat(30))
     expect(container.textContent).not.toContain('b')
-    expect(screen.getByText(ko['json.moreCharacters'].replace('{count}', '70'))).toBeTruthy()
+    expect(screen.getByText(moreCharacters(70))).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: ko['json.showMore'] }))
     expect(container.textContent).toContain(long)
-    expect(screen.queryByText(ko['json.moreCharacters'].replace('{count}', '70'))).toBeNull()
+    expect(screen.queryByText(moreCharacters(70))).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: ko['json.showLess'] }))
     expect(container.textContent).not.toContain('b')
   })
@@ -128,5 +129,45 @@ describe('JsonView', () => {
   it('shows English markers when the language is English', () => {
     renderThemed(<JsonView value={Array.from({ length: 10 }, (_, index) => index)} maxItems={3} />, { locale: 'en' })
     expect(screen.getByText('7 more')).toBeTruthy()
+  })
+})
+
+describe('JsonView with hidden characters', () => {
+  it('writes a bidi override of a string value as a visible code point and keeps the raw character out of the page', () => {
+    const { container } = renderThemed(<JsonView value={{ file: 'invoice ‮txt.exe' }} />)
+    expect(container.textContent).toContain('invoice ‹U+202E›txt.exe')
+    expect(container.textContent).not.toContain('‮')
+    const mark = container.querySelector('[data-invisible]')!
+    expect(mark.textContent).toBe('‹U+202E›')
+    expect(mark.getAttribute('title')).toBe('U+202E')
+  })
+
+  it('does the same for zero width characters, a key and the hostile fixture', () => {
+    const { container } = renderThemed(<JsonView value={{ 'pa​ss': 'a​b', again: hostileValue() }} maxString={200} />)
+    expect(container.textContent).not.toMatch(/\p{Cf}/u)
+    expect(container.textContent).toContain('pa‹U+200B›ss')
+    expect(container.textContent).toContain('a‹U+200B›b')
+    expect(container.textContent).toContain('invoice ‹U+202E›txt.exe')
+  })
+
+  it('isolates a string value so that its direction cannot reach the text around it', () => {
+    const { container } = renderThemed(<JsonView value={{ name: 'שלום' }} />)
+    const isolated = [...container.querySelectorAll('bdi')].map((item) => item.textContent)
+    expect(isolated).toContain('שלום')
+    expect(isolated).toContain('name')
+  })
+
+  it('still highlights a template reference next to a hidden character', () => {
+    const { container } = renderThemed(<JsonView value={'​{{extract.output.amount}}​'} />)
+    expect(container.querySelectorAll('span[data-template-ref]')).toHaveLength(1)
+    expect(container.querySelectorAll('[data-invisible]')).toHaveLength(2)
+  })
+
+  it('also covers the part of a long string that is revealed by show more', () => {
+    const long = `${'a'.repeat(30)}${'‮'}${'b'.repeat(70)}`
+    const { container } = renderThemed(<JsonView value={long} maxString={30} />)
+    fireEvent.click(screen.getByRole('button', { name: ko['json.showMore'] }))
+    expect(container.textContent).toContain('‹U+202E›')
+    expect(container.textContent).not.toContain('‮')
   })
 })

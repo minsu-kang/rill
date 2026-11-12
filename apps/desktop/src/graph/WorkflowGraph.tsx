@@ -50,6 +50,7 @@ type LinkEdge = Edge<LinkData, 'link'>
 type Size = { width: number; height: number }
 
 const MAX_LABEL = 24
+const MAX_ID = 32
 const FLOWING: ReadonlySet<NodeStatus> = new Set(['running', 'succeeded', 'failed', 'abandoned', 'continued'])
 
 function FlowNode({ data, selected }: NodeProps<StepNode>) {
@@ -98,6 +99,11 @@ function ariaLabels(t: Translate): Partial<AriaLabelConfig> {
   }
 }
 
+function edgeLabel(t: Translate, link: Workflow['edges'][number]): string {
+  const ends = { from: truncate(link.from, MAX_ID), to: truncate(link.to, MAX_ID) }
+  return link.when === undefined ? t('graph.edgeLabel', ends) : t('graph.edgeLabelWhen', { ...ends, when: truncate(link.when, MAX_LABEL) })
+}
+
 function structureKey(workflow: Workflow): string {
   return `${workflow.nodes.map((item) => item.id).join('|')}#${workflow.edges.map((link) => `${link.from}>${link.to}`).join('|')}`
 }
@@ -140,13 +146,15 @@ function GraphCanvas({ workflow, catalog, states, selectedNodeId, onSelect }: Wo
         position: { x: place.x, y: place.y },
         data: { node: item, info, state },
         selected: item.id === selectedNodeId,
+        ariaRole: 'button',
+        domAttributes: { 'aria-pressed': item.id === selectedNodeId },
         draggable: false,
         connectable: false,
         deletable: false,
         initialWidth: CARD_SIZE.width,
         initialHeight: CARD_SIZE.height,
         measured: measured.get(item.id),
-        ariaLabel: t('graph.nodeLabel', { title: truncate(info?.title ?? item.type, 40), id: truncate(item.id, 32), status: t(`status.${state?.status ?? 'idle'}`) }),
+        ariaLabel: t('graph.nodeLabel', { title: truncate(info?.title ?? item.type, 40), id: truncate(item.id, MAX_ID), status: t(`status.${state?.status ?? 'idle'}`) }),
       })
     }
     return result
@@ -169,6 +177,7 @@ function GraphCanvas({ workflow, catalog, states, selectedNodeId, onSelect }: Wo
         focusable: false,
         deletable: false,
         reconnectable: false,
+        ariaLabel: edgeLabel(t, link),
         markerEnd: `url(#${markerId}-${flowing ? 'active' : 'idle'})`,
         style: {
           stroke: flowing ? 'var(--edge-active)' : 'var(--edge-default)',
@@ -179,7 +188,7 @@ function GraphCanvas({ workflow, catalog, states, selectedNodeId, onSelect }: Wo
       })
     })
     return result
-  }, [workflow, nodes, markerId])
+  }, [workflow, nodes, markerId, t])
 
   const onNodesChange = useCallback(
     (changes: NodeChange<StepNode>[]) => {

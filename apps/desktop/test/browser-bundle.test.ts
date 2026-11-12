@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 
 const ROOT = join(import.meta.dirname, '..')
 const SRC = join(ROOT, 'src')
+const PREVIEW = join(ROOT, '.storybook/preview.tsx')
 const BUILTINS = new Set(builtinModules)
 
 function entries(dir: string): string[] {
@@ -30,7 +31,7 @@ function forbidNode(found: string[]): Plugin {
 }
 
 describe('renderer bundle', () => {
-  it('pulls no node module into a browser build of every source file', async () => {
+  it('pulls no node module into a browser build of every source file and of the Storybook preview', async () => {
     const found: string[] = []
     const result = await build({
       root: ROOT,
@@ -40,7 +41,7 @@ describe('renderer bundle', () => {
       build: {
         write: false,
         minify: false,
-        lib: { entry: entries(SRC), formats: ['es'] },
+        lib: { entry: [...entries(SRC), PREVIEW], formats: ['es'] },
         rolldownOptions: { external: [/^@storybook\//, /^storybook/] },
       },
     })

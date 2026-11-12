@@ -1,9 +1,11 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { builtinModules } from 'node:module'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const SRC = join(import.meta.dirname, '../src/')
+const ROOT = join(import.meta.dirname, '..')
+const SRC = join(ROOT, 'src/')
+const PREVIEW = join(ROOT, '.storybook/preview.tsx')
 const BANNED = ['@rill/engine', '@rill/planner', '@rill/llm', '@rill/recipes', '@rill/eval']
 const TYPE_ONLY = ['@rill/nodes-core']
 const SPECIFIER = /\b(import|export)(\s+type)?\b([^'";]*?)\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]|\bimport\s*['"]([^'"]+)['"]|\brequire\s*\(\s*['"]([^'"]+)['"]/g
@@ -22,15 +24,19 @@ interface Found {
   typeOnly: boolean
 }
 
+function browserFiles(): string[] {
+  return [...sources(SRC), PREVIEW]
+}
+
 function imports(): Found[] {
   const found: Found[] = []
-  for (const file of sources(SRC)) {
+  for (const file of browserFiles()) {
     const text = readFileSync(file, 'utf8')
     for (const match of text.matchAll(SPECIFIER)) {
       const specifier = match[4] ?? match[5] ?? match[6] ?? match[7]
       if (specifier === undefined) continue
       const typeOnly = match[4] !== undefined && match[2] !== undefined
-      found.push({ file: file.slice(SRC.length), specifier, typeOnly })
+      found.push({ file: relative(ROOT, file), specifier, typeOnly })
     }
   }
   return found
@@ -39,8 +45,10 @@ function imports(): Found[] {
 describe('renderer sources stay browser-safe', () => {
   const found = imports()
 
-  it('finds the imports it is meant to check', () => {
+  it('finds the imports it is meant to check, including those of the Storybook preview', () => {
     expect(found.length).toBeGreaterThan(0)
+    expect(found.some((f) => f.file === '.storybook/preview.tsx' && f.specifier === '../src/theme/ThemeProvider')).toBe(true)
+    expect(found.some((f) => f.file === 'src/graph/layout.ts' && f.specifier === '@dagrejs/dagre')).toBe(true)
   })
 
   it('import no node: module and no node built-in', () => {
@@ -61,10 +69,10 @@ describe('renderer sources stay browser-safe', () => {
 
   it('never use innerHTML, dangerouslySetInnerHTML, eval or new Function', () => {
     const bad: string[] = []
-    for (const file of sources(SRC)) {
+    for (const file of browserFiles()) {
       const text = readFileSync(file, 'utf8')
       for (const pattern of [/dangerouslySetInnerHTML/, /\.innerHTML\b/, /\.outerHTML\s*=/, /\beval\s*\(/, /new\s+Function\s*\(/, /insertAdjacentHTML/]) {
-        if (pattern.test(text)) bad.push(`${file.slice(SRC.length)}: ${pattern.source}`)
+        if (pattern.test(text)) bad.push(`${relative(ROOT, file)}: ${pattern.source}`)
       }
     }
     expect(bad).toEqual([])

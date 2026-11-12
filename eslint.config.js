@@ -17,7 +17,7 @@ export default defineConfig(
     rules: { 'react-hooks/exhaustive-deps': 'error' },
   },
   {
-    files: ['apps/desktop/src/**/*.{ts,tsx}'],
+    files: ['apps/desktop/src/**/*.{ts,tsx}', 'apps/desktop/.storybook/preview.tsx'],
     rules: {
       'no-restricted-imports': 'off',
       '@typescript-eslint/no-restricted-imports': [

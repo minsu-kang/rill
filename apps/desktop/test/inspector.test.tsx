@@ -39,7 +39,7 @@ describe('Inspector', () => {
 
   it('shows the retry setting and what happens on error', () => {
     view(check, [])
-    expect(screen.getByText(ko['inspector.retryValue'].replace('{count}', '2'))).toBeTruthy()
+    expect(screen.getByText(ko['inspector.retryValue.other'].replace('{count}', '2'))).toBeTruthy()
     expect(screen.getByText(ko['inspector.onError.continue'])).toBeTruthy()
   })
 
@@ -112,6 +112,15 @@ describe('Inspector', () => {
     expect(container.querySelector('img, script, a, iframe, svg[onload]')).toBeNull()
     expect(container.textContent).toContain('<img src=x onerror="window.__pwned = 1">')
     expect(container.textContent).toContain('<script>window.__pwned = 1</script>')
+  })
+
+  it('writes a hidden character of an error and of an input value as a visible code point', () => {
+    const row: StepDetail = { nodeId: 'extract', attempt: 1, status: 'failed', input: { file: 'a\u202eb' }, output: null, startedAt: 0, finishedAt: 1, error: 'bad \u200bname' }
+    const { container } = view(extract, [row], { status: 'failed', attempt: 1, retrying: false, error: 'live \u202ename' })
+    expect(container.textContent).toContain('bad ‹U+200B›name')
+    expect(container.textContent).toContain('a‹U+202E›b')
+    expect(container.textContent).toContain('live ‹U+202E›name')
+    expect(container.textContent).not.toMatch(/\p{Cf}/u)
   })
 
   it('lets the person reveal a long error through show more', () => {

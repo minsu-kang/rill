@@ -9,6 +9,7 @@ import {
   type RunSummary,
   type StepDetail,
 } from '@rill/protocol'
+import { reduceRunSummary } from '../model/reduce-events'
 import type { EngineClient } from './client'
 
 export interface FakeWorkflow {
@@ -46,10 +47,102 @@ function notFound(kind: string, id: string): RillError {
   return new RillError('NOT_FOUND', `${kind} not found: ${id}`)
 }
 
+function openRow(nodeId: string, attempt: number, at: number): StepDetail {
+  return { nodeId, attempt, status: 'running', input: null, output: null, error: null, startedAt: at, finishedAt: null }
+}
+
+function rowOf(rows: StepDetail[], nodeId: string, attempt: number, at: number): StepDetail {
+  const found = rows.find((row) => row.nodeId === nodeId && row.attempt === attempt)
+  if (found !== undefined) return found
+  const created = openRow(nodeId, attempt, at)
+  rows.push(created)
+  return created
+}
+
+function applyStep(rows: StepDetail[], event: EngineEvent): void {
+  switch (event.type) {
+    case 'step.started': {
+      const at = rows.findIndex((row) => row.nodeId === event.nodeId && row.attempt === event.attempt)
+      if (at >= 0) rows.splice(at, 1, openRow(event.nodeId, event.attempt, event.at))
+      else rows.push(openRow(event.nodeId, event.attempt, event.at))
+      return
+    }
+    case 'step.succeeded': {
+      const row = rowOf(rows, event.nodeId, event.attempt, event.at)
+      row.status = 'succeeded'
+      row.error = null
+      row.finishedAt = event.at
+      return
+    }
+    case 'step.failed': {
+      const row = rowOf(rows, event.nodeId, event.attempt, event.at)
+      row.status = 'failed'
+      row.error = event.error
+      row.finishedAt = event.at
+      return
+    }
+    case 'step.continued': {
+      const row = rowOf(rows, event.nodeId, event.attempt, event.at)
+      row.status = 'continued'
+      row.error = event.error
+      row.finishedAt ??= event.at
+      return
+    }
+    case 'step.skipped': {
+      const last = rows.filter((row) => row.nodeId === event.nodeId).reduce<StepDetail | undefined>((best, row) => (best === undefined || row.attempt > best.attempt ? row : best), undefined)
+      if (last?.status === 'skipped') return
+      rows.push({ ...openRow(event.nodeId, (last?.attempt ?? 0) + 1, event.at), status: 'skipped', finishedAt: event.at })
+      return
+    }
+    default:
+      return
+  }
+}
+
 export function createFakeClient(data: FakeData): FakeClient {
   const workflows = new Map(data.workflows.map((entry) => [entry.id, entry]))
-  const runs = new Map(data.runs.map((run) => [run.id, run]))
+  const runs = new Map(data.runs.map((run) => [run.id, structuredClone(run)]))
+  const order = data.runs.map((run) => run.id)
+  const steps = new Map(Object.entries(data.steps).map(([runId, rows]) => [runId, structuredClone([...rows])]))
   const listeners = new Set<(event: EngineEvent) => void>()
+
+  function ensureRun(runId: string, workflowId: string, at: number): RunSummary {
+    const known = runs.get(runId)
+    if (known !== undefined) return known
+    const created: RunSummary = { id: runId, workflowId, status: 'queued', dryRun: false, error: null, createdAt: at, startedAt: null, finishedAt: null }
+    runs.set(runId, created)
+    order.unshift(runId)
+    return created
+  }
+
+  function apply(event: EngineEvent): void {
+    switch (event.type) {
+      case 'trigger.fired':
+        ensureRun(event.runId, event.workflowId, event.at)
+        return
+      case 'run.started':
+        runs.set(event.runId, reduceRunSummary(ensureRun(event.runId, event.workflowId, event.at), event))
+        return
+      case 'run.finished': {
+        const run = runs.get(event.runId)
+        if (run !== undefined) runs.set(event.runId, reduceRunSummary(run, event))
+        return
+      }
+      case 'step.started':
+      case 'step.succeeded':
+      case 'step.failed':
+      case 'step.skipped':
+      case 'step.continued': {
+        if (!runs.has(event.runId)) return
+        const rows = steps.get(event.runId) ?? []
+        steps.set(event.runId, rows)
+        applyStep(rows, event)
+        return
+      }
+      default:
+        return
+    }
+  }
 
   const handlers: Handlers = {
     listWorkflows: () => ({
@@ -69,17 +162,19 @@ export function createFakeClient(data: FakeData): FakeClient {
     listRuns: ({ workflowId, limit }) => {
       const requested = Number.isFinite(limit) ? Math.trunc(limit as number) : DEFAULT_LIMIT
       const size = Math.min(Math.max(requested, 1), MAX_LIMIT)
-      return { runs: data.runs.filter((run) => workflowId === undefined || run.workflowId === workflowId).slice(0, size) }
+      const all = order.map((id) => runs.get(id)!)
+      return { runs: all.filter((run) => workflowId === undefined || run.workflowId === workflowId).slice(0, size) }
     },
     getRun: ({ runId }) => {
       const run = runs.get(runId)
       if (run === undefined) throw notFound('run', runId)
-      return { run, steps: Object.hasOwn(data.steps, runId) ? [...data.steps[runId]!] : [] }
+      return { run, steps: [...(steps.get(runId) ?? [])] }
     },
     nodeCatalog: () => ({ nodes: [...data.catalog] }),
   }
 
   function emit(event: EngineEvent): void {
+    apply(event)
     for (const listener of [...listeners]) {
       try {
         listener(event)

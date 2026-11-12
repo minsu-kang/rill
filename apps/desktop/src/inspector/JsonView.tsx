@@ -1,5 +1,6 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useT } from '../i18n'
+import { SafeText, VisibleText } from '../ui/SafeText'
 import { summarize, TEMPLATE_REF, type JsonNode } from './json-model'
 import styles from './JsonView.module.css'
 
@@ -47,7 +48,7 @@ function pieces(text: string): ReactNode[] {
   let last = 0
   for (const match of text.matchAll(TEMPLATE_REF)) {
     const at = match.index
-    if (at > last) out.push(<Fragment key={`t${last}`}>{text.slice(last, at)}</Fragment>)
+    if (at > last) out.push(<VisibleText key={`t${last}`} text={text.slice(last, at)} />)
     out.push(
       <span key={`r${at}`} className={styles.ref} data-template-ref="">
         {match[0]}
@@ -55,7 +56,7 @@ function pieces(text: string): ReactNode[] {
     )
     last = at + match[0].length
   }
-  if (last < text.length) out.push(<Fragment key={`t${last}`}>{text.slice(last)}</Fragment>)
+  if (last < text.length) out.push(<VisibleText key={`t${last}`} text={text.slice(last)} />)
   return out
 }
 
@@ -66,7 +67,9 @@ function StringView({ full, shown, hidden, plain }: { full: string; shown: strin
   const text = open ? full : shown
   return (
     <span className={plain ? styles.plainText : styles.string}>
-      <span className={plain ? undefined : styles.quoted}>{plain ? text : pieces(text)}</span>
+      <span className={plain ? undefined : styles.quoted}>
+        <bdi>{plain ? <VisibleText text={text} /> : pieces(text)}</bdi>
+      </span>
       {hidden > 0 && !open && <span className={styles.more}> {t('json.moreCharacters', { count: hidden })}</span>}
       {hidden > 0 && (
         <button type="button" className={styles.toggle} onClick={() => setExpanded(!open)}>
@@ -95,7 +98,9 @@ function ContainerView({ node }: { node: Extract<JsonNode, { kind: 'container' }
       <span className={styles.children}>
         {node.entries.map((entry) => (
           <span key={entry.key} className={styles.entry} data-entry="">
-            <span className={styles.key}>{entry.key}</span>
+            <span className={styles.key}>
+              <SafeText text={entry.key} />
+            </span>
             <span className={styles.punct}>: </span>
             <NodeView node={entry.value} />
           </span>

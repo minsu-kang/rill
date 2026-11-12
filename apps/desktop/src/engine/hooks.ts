@@ -8,6 +8,7 @@ import type { EngineClient } from './client'
 const RUN_LIMIT = 50
 const NO_STEPS: StepDetail[] = []
 const NO_RUNS: RunSummary[] = []
+const REFETCH_ON: ReadonlySet<EngineEvent['type']> = new Set(['step.succeeded', 'step.failed', 'step.continued', 'step.skipped', 'run.finished'])
 
 export interface RunStatesResult {
   run: RunSummary | undefined
@@ -92,7 +93,7 @@ export function useRunStates(client: EngineClient, runId: string | undefined): R
                 ...previous,
                 run,
                 steps,
-                states: previous.error === undefined ? previous.states : statesFromSteps(steps),
+                states: previous.error === undefined ? previous.states : statesFromSteps(steps, run.status),
                 error: undefined,
               },
         )
@@ -117,16 +118,17 @@ export function useRunStates(client: EngineClient, runId: string | undefined): R
               run: previous.run === undefined ? undefined : reduceRunSummary(previous.run, event),
             },
       )
-      refresh()
+      if (REFETCH_ON.has(event.type)) refresh()
     })
 
     void (async () => {
       try {
         const first = await client.request('getRun', { runId })
         if (!active) return
-        let states = statesFromSteps(first.steps)
+        let states = statesFromSteps(first.steps, first.run.status)
         let run = first.run
         for (const event of buffered) {
+          if (event.type === 'run.started' && run.status !== 'queued') continue
           states = reduceEvent(states, event, runId)
           run = reduceRunSummary(run, event)
         }

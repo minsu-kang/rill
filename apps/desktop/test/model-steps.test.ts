@@ -41,6 +41,24 @@ describe('statesFromSteps', () => {
     expect(stateOf(states, 'b')).toMatchObject({ status: 'running', attempt: 1, retrying: false })
   })
 
+  it('shows a failed last row of a running run as a running retry with its error', () => {
+    const states = statesFromSteps([step('a', 1, 'failed', 'x'), step('a', 2, 'failed', 'HTTP 503'), step('b', 1, 'succeeded')], 'running')
+    expect(stateOf(states, 'a')).toEqual({ status: 'running', attempt: 2, retrying: true, error: 'HTTP 503' })
+    expect(stateOf(states, 'b')).toEqual({ status: 'succeeded', attempt: 1, retrying: false, error: null })
+  })
+
+  it('keeps a failed last row failed unless the run is running', () => {
+    for (const runStatus of ['queued', 'succeeded', 'failed', 'cancelled', undefined] as const) {
+      expect(stateOf(statesFromSteps([step('a', 1, 'failed', 'x')], runStatus), 'a'), String(runStatus)).toEqual({ status: 'failed', attempt: 1, retrying: false, error: 'x' })
+    }
+  })
+
+  it('does not touch the other statuses of a running run', () => {
+    const statuses: StepDetail['status'][] = ['running', 'succeeded', 'abandoned', 'skipped', 'continued']
+    const states = statesFromSteps(statuses.map((status) => step(`n_${status}`, 1, status)), 'running')
+    for (const status of statuses) expect(stateOf(states, `n_${status}`)).toMatchObject({ status, retrying: false })
+  })
+
   it('leaves a node without a row out', () => {
     const states = statesFromSteps([step('a', 1, 'succeeded')])
     expect(stateOf(states, 'b')).toBeUndefined()

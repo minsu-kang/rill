@@ -91,6 +91,28 @@ describe('layoutWorkflow', () => {
     expectNoOverlap(result.nodes)
   })
 
+  it('finishes a 300 node graph with one node fanning out to all others plus a chain through them within half a second', () => {
+    const names = ids(300)
+    const nodes = names.map((id, index) => node(id, index === 0 ? 'trigger.manual@1' : 'transform@1', {}))
+    const edges = [...names.slice(1).map((id) => edge('n0', id)), ...names.slice(1, -1).map((id, index) => edge(id, names[index + 2]!))]
+    const started = performance.now()
+    const result = layoutWorkflow(workflowOf('fan', nodes, edges), SIZE)
+    expect(performance.now() - started).toBeLessThan(500)
+    expect(result.nodes).toHaveLength(300)
+    expectNoOverlap(result.nodes)
+  })
+
+  it('finishes a 500 node graph with 1,500 edges within half a second', () => {
+    const names = ids(500)
+    const nodes = names.map((id, index) => node(id, index === 0 ? 'trigger.manual@1' : 'transform@1', {}))
+    const edges = names.flatMap((id, index) => [1, 2, 3].filter((step) => index + step < 500).map((step) => edge(id, names[index + step]!)))
+    const started = performance.now()
+    const result = layoutWorkflow(workflowOf('dense', nodes, edges), SIZE)
+    expect(performance.now() - started).toBeLessThan(500)
+    expect(result.nodes).toHaveLength(500)
+    expectNoOverlap(result.nodes)
+  })
+
   it('ignores an edge to an unknown node, a self edge and a duplicate edge without throwing', () => {
     const odd = workflowOf(
       'odd',
@@ -136,5 +158,94 @@ describe('layoutWorkflow', () => {
     const placed = byId(layoutWorkflow(names, SIZE).nodes)
     expect([...placed.keys()]).toEqual(['constructor', 'toString', '__proto__'])
     expect(placed.get('constructor')!.x).toBeLessThan(placed.get('__proto__')!.x)
+  })
+
+  describe('for a graph too big for the careful layout', () => {
+    function fan(count: number, extra: Array<[number, number]> = []): Workflow {
+      const names = ids(count)
+      const nodes = names.map((id, index) => node(id, index === 0 ? 'trigger.manual@1' : 'transform@1', {}))
+      const edges = [...names.slice(1).map((id) => edge('n0', id)), ...extra.map(([from, to]) => edge(names[from]!, names[to]!))]
+      return workflowOf('fan', nodes, edges)
+    }
+
+    it('uses the careful layout for 80 nodes and the plain one for 81', () => {
+      const careful = byId(layoutWorkflow(fan(80), SIZE).nodes)
+      expect(careful.get('n0')!.y).toBeGreaterThan(24)
+      const plain = byId(layoutWorkflow(fan(81), SIZE).nodes)
+      expect(plain.get('n0')!.y).toBe(24)
+    })
+
+    function crowded(edgeCount: number): Workflow {
+      const names = ids(60)
+      const pairs: Array<[number, number]> = []
+      for (let from = 1; from < 60 && pairs.length < edgeCount - 59; from += 1) {
+        for (let step = 1; step <= 5 && from + step < 60 && pairs.length < edgeCount - 59; step += 1) pairs.push([from, from + step])
+      }
+      const base = fan(60, pairs)
+      expect(base.edges).toHaveLength(edgeCount)
+      expect(base.nodes).toHaveLength(names.length)
+      return base
+    }
+
+    it('uses the careful layout for 240 edges and the plain one for 241', () => {
+      expect(byId(layoutWorkflow(crowded(240), SIZE).nodes).get('n0')!.y).toBeGreaterThan(24)
+      expect(byId(layoutWorkflow(crowded(241), SIZE).nodes).get('n0')!.y).toBe(24)
+    })
+
+    it('ranks by the longest path and stacks each rank in node order on a grid', () => {
+      const names = ids(90)
+      const nodes = names.map((id, index) => node(id, index === 0 ? 'trigger.manual@1' : 'transform@1', {}))
+      const edges = [edge('n0', 'n1'), edge('n0', 'n2'), edge('n1', 'n3'), edge('n2', 'n3'), edge('n0', 'n3'), edge('n3', 'n4'), edge('n3', 'n5')]
+      const result = layoutWorkflow(workflowOf('grid', nodes, edges), SIZE)
+      const placed = byId(result.nodes)
+      const x = (rank: number) => 24 + rank * (SIZE.width + 88)
+      const y = (row: number) => 24 + row * (SIZE.height + 36)
+      expect([placed.get('n0')!.x, placed.get('n0')!.y]).toEqual([x(0), y(0)])
+      expect([placed.get('n1')!.x, placed.get('n1')!.y]).toEqual([x(1), y(0)])
+      expect([placed.get('n2')!.x, placed.get('n2')!.y]).toEqual([x(1), y(1)])
+      expect([placed.get('n3')!.x, placed.get('n3')!.y]).toEqual([x(2), y(0)])
+      expect([placed.get('n4')!.x, placed.get('n4')!.y]).toEqual([x(3), y(0)])
+      expect([placed.get('n5')!.x, placed.get('n5')!.y]).toEqual([x(3), y(1)])
+      for (const id of names.slice(6)) expect([placed.get(id)!.x, placed.get(id)!.y], id).toEqual([x(0), y(Number(id.slice(1)) - 5)])
+      expect(result.nodes.map((p) => p.id)).toEqual(names)
+      expect(result.width).toBe(24 * 2 + 4 * SIZE.width + 3 * 88)
+      expect(result.height).toBe(24 * 2 + 85 * SIZE.height + 84 * 36)
+    })
+
+    it('reports the size of a single column', () => {
+      const names = ids(81)
+      const nodes = names.map((id) => node(id, 'transform@1', {}))
+      const result = layoutWorkflow(workflowOf('column', nodes, []), SIZE)
+      expect(result.width).toBe(24 * 2 + SIZE.width)
+      expect(result.height).toBe(24 * 2 + 81 * SIZE.height + 80 * 36)
+    })
+
+    it('ignores unknown, self and repeated edges and a repeated node id', () => {
+      const names = ids(85)
+      const nodes = [...names.map((id, index) => node(id, index === 0 ? 'trigger.manual@1' : 'transform@1', {})), node('n3', 'transform@1', {})]
+      const edges = [edge('n0', 'n1'), edge('n0', 'n1'), edge('n0', 'ghost'), edge('ghost', 'n1'), edge('n1', 'n1'), edge('n1', 'n2')]
+      const result = layoutWorkflow(workflowOf('odd', nodes, edges), SIZE)
+      expect(result.nodes.map((p) => p.id)).toEqual(names)
+      const placed = byId(result.nodes)
+      expect(placed.get('n2')!.x).toBe(24 + 2 * (SIZE.width + 88))
+    })
+
+    it('places a cycle without throwing, once, and without overlap', () => {
+      const names = ids(90)
+      const nodes = names.map((id, index) => node(id, index === 0 ? 'trigger.manual@1' : 'transform@1', {}))
+      const edges = [edge('n0', 'n1'), edge('n1', 'n2'), edge('n2', 'n1'), edge('n2', 'n3'), edge('n10', 'n11'), edge('n11', 'n10')]
+      const result = layoutWorkflow(workflowOf('cycle', nodes, edges), SIZE)
+      expect(result.nodes.map((p) => p.id)).toEqual(names)
+      expectNoOverlap(result.nodes)
+      const placed = byId(result.nodes)
+      expect(placed.get('n1')!.x).toBeLessThan(placed.get('n2')!.x)
+      expect(placed.get('n2')!.x).toBeLessThan(placed.get('n3')!.x)
+      expect(placed.get('n10')!.x).toBeLessThan(placed.get('n11')!.x)
+    })
+
+    it('gives the same output for the same input', () => {
+      const workflow = large(150)
+      expect(layoutWorkflow(structuredClone(workflow), SIZE)).toEqual(layoutWorkflow(workflow, SIZE))
+    })
   })
 })

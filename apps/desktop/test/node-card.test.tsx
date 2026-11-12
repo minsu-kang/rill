@@ -107,12 +107,16 @@ describe('NodeCard', () => {
     expect(titleElement.textContent!.endsWith('…')).toBe(true)
   })
 
-  it('exposes the selection with aria-selected', () => {
+  it('marks the selection with data-selected and adds no role of its own', () => {
     const first = renderThemed(<NodeCard node={transform} info={info('transform@1')} state={undefined} selected />)
-    expect(screen.getByRole('treeitem').getAttribute('aria-selected')).toBe('true')
+    expect(first.container.querySelector('[data-selected="true"]')).not.toBeNull()
+    const card = first.container.querySelector('[data-selected]')!
+    expect(card.hasAttribute('role')).toBe(false)
+    expect(card.hasAttribute('aria-selected')).toBe(false)
     first.unmount()
-    renderThemed(<NodeCard node={transform} info={info('transform@1')} state={undefined} selected={false} />)
-    expect(screen.getByRole('treeitem').getAttribute('aria-selected')).toBe('false')
+    const second = renderThemed(<NodeCard node={transform} info={info('transform@1')} state={undefined} selected={false} />)
+    expect(second.container.querySelector('[data-selected="false"]')).not.toBeNull()
+    expect(second.container.querySelector('[data-selected="true"]')).toBeNull()
   })
 
   it('renders hostile ids and titles as text only', () => {

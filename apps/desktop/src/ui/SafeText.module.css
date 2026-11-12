@@ -1,0 +1,11 @@
+.mark {
+  padding: 0 2px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  unicode-bidi: isolate;
+  white-space: nowrap;
+}

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { join } from 'node:path'
 import { contrastRatio } from './contrast'
+import { colorRules, moduleColorRules } from './css-colors'
 import { readTokenBlocks, type TokenBlock } from './tokens-css'
 
 const blocks = readTokenBlocks()
@@ -126,6 +128,76 @@ describe('contrast', () => {
         for (const surface of names(block, '--surface-')) {
           expect(contrastRatio(block.get(token)!, block.get(surface)!), `${theme} ${token} on ${surface}`).toBeGreaterThanOrEqual(3)
         }
+      }
+    }
+  })
+})
+
+describe('colors used by the component styles', () => {
+  const rules = moduleColorRules(join(import.meta.dirname, '../src'))
+
+  it('reads the color and background tokens of a rule and nothing else', () => {
+    const found = colorRules(`
+      /* color: var(--commented-out); */
+      .a { color: var(--text-primary); background: var(--surface-raised); border-color: var(--border-default); }
+      .b, .c:hover { background-color: var(--accent-subtle); outline-color: var(--focus-ring) }
+      .d { color: #fff; background: linear-gradient(red, blue); }
+      @media (prefers-reduced-motion: reduce) { .e { color: var(--text-muted) } }
+    `)
+    expect(found).toEqual([
+      { selector: '.a', text: ['--text-primary'], background: ['--surface-raised'] },
+      { selector: '.b, .c:hover', text: [], background: ['--accent-subtle'] },
+      { selector: '.e', text: ['--text-muted'], background: [] },
+    ])
+  })
+
+  it('finds the rules of the component modules, including the ones this check exists for', () => {
+    expect(rules.length).toBeGreaterThan(30)
+    const has = (file: string, text: string, background?: string) =>
+      rules.some((rule) => rule.file === file && rule.text.includes(text) && (background === undefined || rule.background.includes(background)))
+    expect(has('JsonView.module.css', '--text-accent', '--accent-subtle')).toBe(true)
+    expect(has('RunHistory.module.css', '--status-failed-text')).toBe(true)
+    expect(has('JsonView.module.css', '--status-running-text')).toBe(true)
+    expect(has('NodeCard.module.css', '--badge-external-text', '--badge-external-bg')).toBe(true)
+  })
+
+  it('keeps the text of a rule with its own background at 4.5:1 on that background', () => {
+    for (const [theme, block] of themes) {
+      for (const rule of rules) {
+        for (const text of rule.text) {
+          for (const background of rule.background) {
+            expect(contrastRatio(block.get(text)!, block.get(background)!), `${theme} ${rule.file} ${rule.selector}: ${text} on ${background}`).toBeGreaterThanOrEqual(4.5)
+          }
+        }
+      }
+    }
+  })
+
+  it('keeps the text of a rule without a background at 4.5:1 on every surface and on the selected row', () => {
+    for (const [theme, block] of themes) {
+      const grounds = [...names(block, '--surface-'), '--accent-subtle']
+      for (const rule of rules.filter((item) => item.background.length === 0)) {
+        for (const text of rule.text) {
+          for (const ground of grounds) {
+            expect(contrastRatio(block.get(text)!, block.get(ground)!), `${theme} ${rule.file} ${rule.selector}: ${text} on ${ground}`).toBeGreaterThanOrEqual(4.5)
+          }
+        }
+      }
+    }
+  })
+
+  it('keeps every --text-* token at 4.5:1 on the selected row color too', () => {
+    for (const [theme, block] of themes) {
+      for (const text of names(block, '--text-')) {
+        expect(contrastRatio(block.get(text)!, block.get('--accent-subtle')!), `${theme} ${text} on --accent-subtle`).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  })
+
+  it('only uses tokens that both themes define', () => {
+    for (const [theme, block] of themes) {
+      for (const rule of rules) {
+        for (const token of [...rule.text, ...rule.background]) expect(block.has(token), `${theme} ${rule.file} ${token}`).toBe(true)
       }
     }
   })

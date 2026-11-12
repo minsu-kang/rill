@@ -2,7 +2,8 @@ import type { RunSummary } from '@rill/protocol'
 import { useLocale, useT } from '../i18n'
 import { visualStatusOfRun } from '../model/status'
 import { formatTimestamp, relativeTime } from '../model/time'
-import { truncate } from '../model/text'
+import { escapeInvisible, truncate } from '../model/text'
+import { SafeText } from '../ui/SafeText'
 import { StatusChip } from '../ui/StatusChip'
 import styles from './RunHistory.module.css'
 
@@ -46,8 +47,8 @@ export function RunHistory({ runs, selectedRunId, now, onSelect, timeZone }: Run
                     {truncate(run.id, MAX_ID)}
                   </span>
                   {run.error !== null && (
-                    <span className={styles.error} title={run.error}>
-                      {truncate(run.error, MAX_ERROR)}
+                    <span className={styles.error} title={escapeInvisible(run.error)}>
+                      <SafeText text={truncate(run.error, MAX_ERROR)} />
                     </span>
                   )}
                 </button>

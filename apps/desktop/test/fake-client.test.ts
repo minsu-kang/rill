@@ -1,8 +1,10 @@
 import { METHODS, RillError, type EngineEvent } from '@rill/protocol'
 import Value from 'typebox/value'
+import type { StepDetail } from '@rill/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeClient } from '../src/engine/fake-client'
-import { fakeData } from '../src/fixtures'
+import { fakeData, ids } from '../src/fixtures'
+import { branchingEvents, failingReceiptEvents, liveFakeData, liveIds } from '../src/fixtures/live'
 
 function manualScheduler() {
   const queue: Array<{ fn: () => void; ms: number }> = []
@@ -203,5 +205,204 @@ describe('createFakeClient play', () => {
     expect(seen).toHaveLength(2)
     vi.advanceTimersByTime(100)
     expect(seen).toHaveLength(3)
+  })
+})
+
+describe('createFakeClient keeps its answers in step with the events it emits', () => {
+  const at = 5_000
+  const row = (nodeId: string, attempt: number, status: StepDetail['status'], extra: Partial<StepDetail> = {}): StepDetail => ({
+    nodeId,
+    attempt,
+    status,
+    input: null,
+    output: null,
+    error: null,
+    startedAt: at,
+    finishedAt: null,
+    ...extra,
+  })
+
+  async function stepsOf(client: ReturnType<typeof createFakeClient>, runId: string): Promise<StepDetail[]> {
+    return (await client.request('getRun', { runId })).steps
+  }
+
+  it('answers getRun with a running row after step.started and finishes it on step.succeeded', async () => {
+    const client = createFakeClient(liveFakeData())
+    const runId = liveIds.branching
+    client.emit({ type: 'step.started', at, runId, nodeId: 'healthy', attempt: 1 })
+    expect(await stepsOf(client, runId)).toEqual([row('healthy', 1, 'running')])
+    client.emit({ type: 'step.succeeded', at: at + 10, runId, nodeId: 'healthy', attempt: 1 })
+    expect(await stepsOf(client, runId)).toEqual([row('healthy', 1, 'succeeded', { finishedAt: at + 10 })])
+  })
+
+  it('keeps each attempt as its own row and writes the error of a failed one', async () => {
+    const client = createFakeClient(liveFakeData())
+    const runId = liveIds.receiptFails
+    client.emit({ type: 'step.started', at, runId, nodeId: 'extract', attempt: 1 })
+    client.emit({ type: 'step.failed', at: at + 1, runId, nodeId: 'extract', attempt: 1, error: 'HTTP 503', willRetry: true })
+    client.emit({ type: 'step.started', at: at + 2, runId, nodeId: 'extract', attempt: 2 })
+    expect(await stepsOf(client, runId)).toEqual([
+      row('extract', 1, 'failed', { error: 'HTTP 503', finishedAt: at + 1 }),
+      row('extract', 2, 'running', { startedAt: at + 2 }),
+    ])
+  })
+
+  it('marks a continued attempt with the error text and a skipped node with one finished row', async () => {
+    const client = createFakeClient(liveFakeData())
+    const runId = liveIds.branching
+    client.emit({ type: 'step.started', at, runId, nodeId: 'check', attempt: 1 })
+    client.emit({ type: 'step.continued', at: at + 3, runId, nodeId: 'check', attempt: 1, error: 'timed out' })
+    client.emit({ type: 'step.skipped', at: at + 4, runId, nodeId: 'log' })
+    client.emit({ type: 'step.skipped', at: at + 5, runId, nodeId: 'log' })
+    expect(await stepsOf(client, runId)).toEqual([
+      row('check', 1, 'continued', { error: 'timed out', finishedAt: at + 3 }),
+      row('log', 1, 'skipped', { startedAt: at + 4, finishedAt: at + 4 }),
+    ])
+  })
+
+  it('numbers a skipped row after the attempts the node already has', async () => {
+    const client = createFakeClient(liveFakeData())
+    const runId = liveIds.branching
+    client.emit({ type: 'step.started', at, runId, nodeId: 'log', attempt: 1 })
+    client.emit({ type: 'step.started', at, runId, nodeId: 'log', attempt: 2 })
+    client.emit({ type: 'step.skipped', at: at + 1, runId, nodeId: 'log' })
+    expect((await stepsOf(client, runId)).map((r) => [r.attempt, r.status])).toEqual([
+      [1, 'running'],
+      [2, 'running'],
+      [3, 'skipped'],
+    ])
+  })
+
+  it('skips a node again after a later attempt but not twice in a row', async () => {
+    const client = createFakeClient(liveFakeData())
+    const runId = liveIds.branching
+    client.emit({ type: 'step.skipped', at, runId, nodeId: 'log' })
+    client.emit({ type: 'step.started', at: at + 1, runId, nodeId: 'log', attempt: 2 })
+    client.emit({ type: 'step.skipped', at: at + 2, runId, nodeId: 'log' })
+    expect((await stepsOf(client, runId)).map((r) => [r.attempt, r.status])).toEqual([
+      [1, 'skipped'],
+      [2, 'running'],
+      [3, 'skipped'],
+    ])
+  })
+
+  it('creates the row when the start event was never seen, for every ending event', async () => {
+    const client = createFakeClient(liveFakeData())
+    const runId = liveIds.branching
+    client.emit({ type: 'step.succeeded', at, runId, nodeId: 'a', attempt: 1 })
+    client.emit({ type: 'step.failed', at: at + 1, runId, nodeId: 'b', attempt: 1, error: 'x', willRetry: false })
+    client.emit({ type: 'step.continued', at: at + 2, runId, nodeId: 'c', attempt: 1, error: 'y' })
+    expect(await stepsOf(client, runId)).toEqual([
+      row('a', 1, 'succeeded', { finishedAt: at }),
+      row('b', 1, 'failed', { error: 'x', startedAt: at + 1, finishedAt: at + 1 }),
+      row('c', 1, 'continued', { error: 'y', startedAt: at + 2, finishedAt: at + 2 }),
+    ])
+  })
+
+  it('starts the same attempt again from a clean row', async () => {
+    const client = createFakeClient(liveFakeData())
+    const runId = liveIds.branching
+    client.emit({ type: 'step.started', at, runId, nodeId: 'a', attempt: 1 })
+    client.emit({ type: 'step.failed', at: at + 1, runId, nodeId: 'a', attempt: 1, error: 'x', willRetry: false })
+    client.emit({ type: 'step.started', at: at + 2, runId, nodeId: 'a', attempt: 1 })
+    expect(await stepsOf(client, runId)).toEqual([row('a', 1, 'running', { startedAt: at + 2 })])
+  })
+
+  it('keeps the steps of one run apart from another run and ignores an unknown run', async () => {
+    const client = createFakeClient(liveFakeData())
+    client.emit({ type: 'step.started', at, runId: liveIds.branching, nodeId: 'a', attempt: 1 })
+    client.emit({ type: 'step.started', at, runId: 'unknown-run', nodeId: 'a', attempt: 1 })
+    expect(await stepsOf(client, liveIds.receiptFails)).toEqual([])
+    expect(await stepsOf(client, liveIds.branching)).toHaveLength(1)
+    await expect(client.request('getRun', { runId: 'unknown-run' })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('adds to the rows a run already has', async () => {
+    const client = createFakeClient(fakeData)
+    const before = (await stepsOf(client, ids.runs.branchingRunning)).length
+    client.emit({ type: 'step.started', at, runId: ids.runs.branchingRunning, nodeId: 'log', attempt: 1 })
+    expect(await stepsOf(client, ids.runs.branchingRunning)).toHaveLength(before + 1)
+  })
+
+  it('updates the run on run.started and run.finished, and listRuns shows it', async () => {
+    const client = createFakeClient(liveFakeData())
+    const runId = liveIds.branching
+    client.emit({ type: 'run.started', at: at + 1, runId, workflowId: ids.workflows.branching, dryRun: true })
+    expect((await client.request('getRun', { runId })).run).toMatchObject({ status: 'running', dryRun: true, startedAt: at + 1, finishedAt: null, error: null })
+    client.emit({ type: 'run.finished', at: at + 9, runId, status: 'failed', error: 'node check failed: x' })
+    const finished = (await client.request('getRun', { runId })).run
+    expect(finished).toMatchObject({ status: 'failed', error: 'node check failed: x', finishedAt: at + 9 })
+    const listed = (await client.request('listRuns', { workflowId: ids.workflows.branching })).runs.find((r) => r.id === runId)
+    expect(listed).toEqual(finished)
+  })
+
+  it('adds a queued run at the front on trigger.fired and a running run on an unknown run.started', async () => {
+    const client = createFakeClient(fakeData)
+    client.emit({ type: 'trigger.fired', at, workflowId: ids.workflows.receipt, runId: 'fresh' })
+    client.emit({ type: 'trigger.fired', at: at + 1, workflowId: ids.workflows.receipt, runId: 'fresh' })
+    const first = await client.request('listRuns', { workflowId: ids.workflows.receipt })
+    expect(first.runs[0]).toEqual({ id: 'fresh', workflowId: ids.workflows.receipt, status: 'queued', dryRun: false, error: null, createdAt: at, startedAt: null, finishedAt: null })
+    expect(first.runs.filter((r) => r.id === 'fresh')).toHaveLength(1)
+    client.emit({ type: 'run.started', at: at + 2, runId: 'direct', workflowId: ids.workflows.webhook, dryRun: false })
+    const second = await client.request('listRuns', { workflowId: ids.workflows.webhook })
+    expect(second.runs[0]).toMatchObject({ id: 'direct', status: 'running', createdAt: at + 2, startedAt: at + 2 })
+    expect((await client.request('listRuns', { workflowId: ids.workflows.receipt })).runs.some((r) => r.id === 'direct')).toBe(false)
+  })
+
+  it('moves a queued run to running when its run.started arrives after trigger.fired', async () => {
+    const client = createFakeClient(fakeData)
+    client.emit({ type: 'trigger.fired', at, workflowId: ids.workflows.receipt, runId: 'fresh' })
+    client.emit({ type: 'run.started', at: at + 1, runId: 'fresh', workflowId: ids.workflows.receipt, dryRun: false })
+    const runs = (await client.request('listRuns', { workflowId: ids.workflows.receipt })).runs
+    expect(runs.filter((r) => r.id === 'fresh')).toEqual([expect.objectContaining({ status: 'running', createdAt: at, startedAt: at + 1 })])
+  })
+
+  it('has applied an event before a listener hears about it', async () => {
+    const client = createFakeClient(liveFakeData())
+    const seen: number[] = []
+    client.onEvent(() => {
+      void client.request('getRun', { runId: liveIds.branching }).then((result) => seen.push(result.steps.length))
+    })
+    client.emit({ type: 'step.started', at, runId: liveIds.branching, nodeId: 'a', attempt: 1 })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(seen).toEqual([1])
+  })
+
+  it('does not change the data it was given, and a second client starts from the original data', async () => {
+    const data = liveFakeData()
+    const snapshot = structuredClone(data)
+    const client = createFakeClient(data)
+    for (const event of branchingEvents(liveIds.branching)) client.emit(event)
+    expect(data).toEqual(snapshot)
+    const other = createFakeClient(data)
+    expect((await other.request('getRun', { runId: liveIds.branching })).steps).toEqual([])
+  })
+
+  it('plays a whole script into answers that pass the protocol schema and match what the events said', async () => {
+    const client = createFakeClient(liveFakeData())
+    const scheduler = manualScheduler()
+    client.play(liveIds.receiptFails, failingReceiptEvents(liveIds.receiptFails), scheduler.schedule)
+    while (scheduler.pending() > 0) scheduler.runNext()
+    const result = await client.request('getRun', { runId: liveIds.receiptFails })
+    expect(Value.Check(METHODS.getRun.result, result)).toBe(true)
+    expect(result.run).toMatchObject({ status: 'failed', error: expect.stringContaining('node extract failed') })
+    expect(result.steps.map((r) => [r.nodeId, r.attempt, r.status])).toEqual([
+      ['extract', 1, 'failed'],
+      ['extract', 2, 'failed'],
+      ['extract', 3, 'failed'],
+      ['append', 1, 'skipped'],
+    ])
+    expect(Value.Check(METHODS.listRuns.result, await client.request('listRuns', {}))).toBe(true)
+  })
+
+  it('does not apply workflow or trigger notices to any run', async () => {
+    const client = createFakeClient(liveFakeData())
+    const before = await client.request('listRuns', {})
+    client.emit({ type: 'trigger.skipped', at, workflowId: ids.workflows.receipt, reason: 'busy' })
+    client.emit({ type: 'trigger.error', at, workflowId: ids.workflows.receipt, error: 'x' })
+    client.emit({ type: 'workflow.activated', at, workflowId: ids.workflows.receipt })
+    client.emit({ type: 'workflow.deactivated', at, workflowId: ids.workflows.receipt })
+    expect(await client.request('listRuns', {})).toEqual(before)
   })
 })

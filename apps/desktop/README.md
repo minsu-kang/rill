@@ -8,7 +8,7 @@ This package holds the screens only. There is no Electron main process, no engin
 
 | Screen | Files | What it shows |
 | --- | --- | --- |
-| Workflow graph | `src/graph/` | A read-only React Flow canvas with a dagre layout from left to right. Each node card shows its status as an icon plus a word, the attempt count, a retry mark, and badges for external transfer, file writes and network calls. Click or Enter selects a node. |
+| Workflow graph | `src/graph/` | A read-only React Flow canvas with a dagre layout from left to right (above 80 nodes or 240 edges it switches to a plain layered grid, because dagre takes seconds on such graphs). Each node card shows its status as an icon plus a word, the attempt count, a retry mark, and badges for external transfer, file writes and network calls. Click or Enter selects a node. |
 | Inspector | `src/inspector/` | The settings of the selected node and every attempt of its last run: input, output, error and times. `JsonView` caps depth, rows and string length, so a large value cannot freeze the page. |
 | Run history | `src/runs/` | The runs of a workflow with a status, a relative time, a dry-run tag and the start of the error. Picking a run draws its states on the graph. |
 | Workspace | `src/workspace/` | The three screens together as in the design: graph in the middle, inspector on the right, history below. Live events from the client change the node cards as they arrive. |
@@ -67,7 +67,7 @@ Every text a person reads goes through `useT()`. Add the key to both `src/i18n/k
 
     pnpm --filter @rill/desktop exec vitest run
 
-or `pnpm test` from the root. The desktop tests use Vitest with jsdom and Testing Library, in a project of their own. React Flow needs `ResizeObserver`, `DOMMatrixReadOnly` and a few size getters, which `test/setup.ts` stubs in one place. The logic tests (layout, run state, JSON model, time) run in the node environment.
+or `pnpm test` from the root. The desktop tests use Vitest with jsdom and Testing Library, in a project of their own. React Flow needs `ResizeObserver`, `DOMMatrixReadOnly` and a few size getters, which `test/setup.ts` stubs in one place. The logic tests (layout, run state, JSON model, time) run in the node environment. The graph test also runs axe-core on a selected card with run states.
 
 ## Not built yet
 

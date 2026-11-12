@@ -81,6 +81,7 @@ describe.each(MODES)('every story renders without an error or a warning ($name)'
         await new Promise((resolve) => setTimeout(resolve, 40))
       })
       const text = view.container.textContent ?? ''
+      const attributes = [...view.container.querySelectorAll('[aria-label], [title]')].map((item) => `${item.getAttribute('aria-label') ?? ''}\n${item.getAttribute('title') ?? ''}`).join('\n')
       const wrapper = view.container.querySelector('[data-theme]')
       const drawn = wrapper?.querySelectorAll('*').length ?? 0
       view.unmount()
@@ -88,6 +89,8 @@ describe.each(MODES)('every story renders without an error or a warning ($name)'
       expect(wrapper?.getAttribute('data-theme')).toBe(mode.globals.theme)
       expect(wrapper?.getAttribute('lang')).toBe(mode.globals.locale)
       expect(untranslated(text)).toEqual([])
+      expect(untranslated(attributes)).toEqual([])
+      expect(attributes).not.toMatch(/Edge from|Node from/)
       expect([...errors.mock.calls, ...warnings.mock.calls].map((call) => String(call[0]).slice(0, 300))).toEqual([])
     })
   }

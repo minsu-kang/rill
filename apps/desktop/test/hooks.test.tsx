@@ -1,4 +1,4 @@
-import type { EngineEvent, MethodName, MethodParams, MethodResult } from '@rill/protocol'
+import type { EngineEvent, MethodName, MethodParams, MethodResult, RunSummary, StepDetail } from '@rill/protocol'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { EngineClient } from '../src/engine/client'
@@ -40,6 +40,33 @@ function deferredClient(inner: EngineClient) {
   }
   return { client, release: () => waiting.splice(0).forEach((fn) => fn()), pending: () => waiting.length }
 }
+
+function heldClient(inner: EngineClient) {
+  const waiting: Array<() => void> = []
+  const client: EngineClient = {
+    request: <M extends MethodName>(method: M, params: MethodParams<M>) => {
+      const answer = inner.request(method, params)
+      return new Promise<MethodResult<M>>((resolve, reject) => {
+        waiting.push(() => answer.then(resolve, reject))
+      })
+    },
+    onEvent: (listener) => inner.onEvent(listener),
+  }
+  return { client, release: () => waiting.splice(0).forEach((fn) => fn()) }
+}
+
+const run = (status: RunSummary['status'], id = 'r1'): RunSummary => ({ id, workflowId: 'w1', status, dryRun: false, error: null, createdAt: 1, startedAt: status === 'queued' ? null : 2, finishedAt: null })
+const row = (nodeId: string, attempt: number, status: StepDetail['status'], error: string | null = null): StepDetail => ({
+  nodeId,
+  attempt,
+  status,
+  input: null,
+  output: null,
+  error,
+  startedAt: attempt,
+  finishedAt: status === 'running' ? null : attempt + 1,
+})
+const tiny = (runs: RunSummary[], steps: Record<string, StepDetail[]>) => createFakeClient({ workflows: [], runs, steps, catalog: [] })
 
 const at = 9000
 const ev = {
@@ -122,12 +149,141 @@ describe('useRunStates', () => {
 
   it('does not let an old buffered event undo the loaded state', async () => {
     const fake = createFakeClient(fakeData)
-    const { client, release } = deferredClient(fake)
+    const { client, release } = heldClient(fake)
     const { result } = renderHook(() => useRunStates(client, ids.runs.receiptOk))
     act(() => fake.emit(ev.started(ids.runs.receiptOk, 'extract')))
     act(() => release())
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(stateOf(result.current.states, 'extract')?.status).toBe('succeeded')
+  })
+
+  it('shows the node as running when the event came first and the answer, taken afterwards, agrees', async () => {
+    const fake = createFakeClient(fakeData)
+    const { client, release } = deferredClient(fake)
+    const { result } = renderHook(() => useRunStates(client, ids.runs.receiptOk))
+    act(() => fake.emit(ev.started(ids.runs.receiptOk, 'extract')))
+    act(() => release())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(stateOf(result.current.states, 'extract')?.status).toBe('running')
+    expect(result.current.steps.find((item) => item.nodeId === 'extract')?.status).toBe('running')
+  })
+
+  it('keeps the states of the loaded rows when a run.started that is older than the answer was buffered', async () => {
+    const fake = tiny([run('running')], { r1: [row('a', 1, 'succeeded'), row('b', 1, 'running')] })
+    const { client, release } = deferredClient(fake)
+    const { result } = renderHook(() => useRunStates(client, 'r1'))
+    act(() => fake.emit({ type: 'run.started', at, runId: 'r1', workflowId: 'w1', dryRun: false }))
+    act(() => release())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(stateOf(result.current.states, 'a')?.status).toBe('succeeded')
+    expect(stateOf(result.current.states, 'b')?.status).toBe('running')
+    expect(result.current.run?.status).toBe('running')
+  })
+
+  it('does not let an old run.started turn a finished run back into a running one', async () => {
+    const fake = tiny([{ ...run('succeeded'), finishedAt: 5 }], { r1: [row('a', 1, 'succeeded')] })
+    const { client, release } = heldClient(fake)
+    const { result } = renderHook(() => useRunStates(client, 'r1'))
+    act(() => fake.emit({ type: 'run.started', at, runId: 'r1', workflowId: 'w1', dryRun: false }))
+    act(() => release())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.run).toMatchObject({ status: 'succeeded', finishedAt: 5 })
+  })
+
+  it('still starts a queued run from a buffered run.started and the step events after it', async () => {
+    const fake = tiny([run('queued')], { r1: [] })
+    const { client, release } = heldClient(fake)
+    const { result } = renderHook(() => useRunStates(client, 'r1'))
+    act(() => fake.emit({ type: 'run.started', at, runId: 'r1', workflowId: 'w1', dryRun: false }))
+    act(() => fake.emit(ev.started('r1', 'a')))
+    act(() => release())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.run).toMatchObject({ status: 'running', startedAt: at })
+    expect(stateOf(result.current.states, 'a')?.status).toBe('running')
+  })
+
+  it('shows a node whose last row failed in a running run as running and retrying', async () => {
+    const fake = tiny([run('running')], { r1: [row('a', 1, 'failed', 'HTTP 503')] })
+    const { result } = renderHook(() => useRunStates(fake, 'r1'))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(stateOf(result.current.states, 'a')).toEqual({ status: 'running', attempt: 1, retrying: true, error: 'HTTP 503' })
+  })
+
+  it('shows the same failed row as failed once the run is not running', async () => {
+    const fake = tiny([{ ...run('failed'), finishedAt: 5 }], { r1: [row('a', 1, 'failed', 'HTTP 503')] })
+    const { result } = renderHook(() => useRunStates(fake, 'r1'))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(stateOf(result.current.states, 'a')).toEqual({ status: 'failed', attempt: 1, retrying: false, error: 'HTTP 503' })
+  })
+
+  it('refetches only when a step ends or the run finishes', async () => {
+    const fake = createFakeClient(fakeData)
+    const { client, calls } = spied(fake)
+    const { result } = renderHook(() => useRunStates(client, ids.runs.branchingRunning))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    const requests = () => calls.filter((call) => call.method === 'getRun').length
+    const runId = ids.runs.branchingRunning
+    const quiet: EngineEvent[] = [
+      { type: 'run.started', at, runId, workflowId: ids.workflows.branching, dryRun: false },
+      ev.started(runId, 'log', 1),
+      { type: 'trigger.fired', at, workflowId: ids.workflows.branching, runId },
+    ]
+    const before = requests()
+    for (const event of quiet) act(() => fake.emit(event))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(requests()).toBe(before)
+    const ending: EngineEvent[] = [
+      ev.succeeded(runId, 'log'),
+      { type: 'step.failed', at, runId, nodeId: 'alert', attempt: 1, error: 'x', willRetry: false },
+      { type: 'step.continued', at, runId, nodeId: 'check', attempt: 1, error: 'x' },
+      { type: 'step.skipped', at, runId, nodeId: 'other' },
+      { type: 'run.finished', at, runId, status: 'succeeded', error: null },
+    ]
+    let expected = before
+    for (const event of ending) {
+      act(() => fake.emit(event))
+      expected += 1
+      await waitFor(() => expect(requests(), event.type).toBe(expected))
+    }
+  })
+
+  it('does not refetch for a step that will be retried while the rows are about to change again', async () => {
+    const fake = createFakeClient(fakeData)
+    const { client, calls } = spied(fake)
+    const { result } = renderHook(() => useRunStates(client, ids.runs.branchingRunning))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    const before = calls.length
+    act(() => fake.emit({ type: 'step.started', at, runId: ids.runs.branchingRunning, nodeId: 'healthy', attempt: 2 }))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(calls.length).toBe(before)
+  })
+
+  it('recovers from a failed first request on the next ending event with the states read from the rows', async () => {
+    let calls = 0
+    const rows = [row('a', 1, 'failed', 'HTTP 503')]
+    const listeners = new Set<(event: EngineEvent) => void>()
+    const client: EngineClient = {
+      request: <M extends MethodName>(): Promise<MethodResult<M>> => {
+        calls += 1
+        if (calls === 1) return Promise.reject(new Error('socket closed'))
+        return Promise.resolve({ run: run('running'), steps: rows } as MethodResult<M>)
+      },
+      onEvent: (listener) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+    }
+    const { result } = renderHook(() => useRunStates(client, 'r1'))
+    await waitFor(() => expect(result.current.error).toBe('socket closed'))
+    act(() => listeners.forEach((listener) => listener(ev.succeeded('r1', 'b'))))
+    await waitFor(() => expect(result.current.error).toBeUndefined())
+    expect(result.current.run?.status).toBe('running')
+    expect(stateOf(result.current.states, 'a')).toEqual({ status: 'running', attempt: 1, retrying: true, error: 'HTTP 503' })
+    expect(stateOf(result.current.states, 'b')).toBeUndefined()
   })
 
   it('reports the message of a rejected request', async () => {

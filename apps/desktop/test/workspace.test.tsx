@@ -1,6 +1,6 @@
 import type { MethodName, MethodParams, MethodResult } from '@rill/protocol'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { EngineClient } from '../src/engine/client'
 import { createFakeClient } from '../src/engine/fake-client'
 import { fakeData, FIXTURE_NOW, ids } from '../src/fixtures'
@@ -36,7 +36,7 @@ describe('Workspace', () => {
     show(createFakeClient(fakeData), ids.workflows.receipt)
     expect(screen.getByText(ko['workspace.loading'])).toBeTruthy()
     await loaded('watch', 2)
-    expect(screen.getAllByRole('treeitem')).toHaveLength(3)
+    expect(screen.getAllByRole('button', { name: /\(.+\), / })).toHaveLength(3)
     expect(screen.getByRole('heading', { name: ko['inspector.heading'] })).toBeTruthy()
     expect(screen.getByRole('heading', { name: ko['history.heading'] })).toBeTruthy()
     await waitFor(() => expect(within(screen.getByRole('region', { name: ko['history.heading'] })).getAllByRole('button')).toHaveLength(4))
@@ -71,7 +71,7 @@ describe('Workspace', () => {
     const inspector = await screen.findByRole('complementary', { name: ko['inspector.heading'] })
     await waitFor(() => expect(inspector.textContent).toContain('Cafe Mori'))
     expect(within(inspector).getByRole('heading', { name: 'Extract fields with AI' })).toBeTruthy()
-    expect(screen.getByTestId('rf__node-extract').querySelector('[role="treeitem"]')!.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('rf__node-extract').getAttribute('aria-pressed')).toBe('true')
   })
 
   it('starts with a node selected when asked to', async () => {
@@ -135,6 +135,44 @@ describe('Workspace', () => {
     await loaded('watch', 2)
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe(ko['workspace.loadError'].replace('{message}', 'socket closed'))
+  })
+
+  it('shows one message, and no duplicate key warning, when every request fails with the same text', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const client: EngineClient = { request: () => Promise.reject(new Error('connection is not open')), onEvent: () => () => undefined }
+    show(client, ids.workflows.receipt, { initialRunId: ids.runs.receiptOk })
+    const alert = await screen.findByRole('alert')
+    await waitFor(() => expect(alert.querySelectorAll('p').length).toBeGreaterThan(0))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+    expect(alert.querySelectorAll('p')).toHaveLength(1)
+    expect(alert.textContent).toBe(ko['workspace.loadError'].replace('{message}', 'connection is not open'))
+    expect(error.mock.calls.map((call) => String(call[0]))).toEqual([])
+    error.mockRestore()
+  })
+
+  it('keeps two different messages apart and in order', async () => {
+    const inner = createFakeClient(fakeData)
+    const client: EngineClient = {
+      request: <M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> =>
+        method === 'listRuns' ? Promise.reject(new Error('runs are gone')) : method === 'getRun' ? Promise.reject(new Error('run is gone')) : inner.request(method, params),
+      onEvent: (listener) => inner.onEvent(listener),
+    }
+    show(client, ids.workflows.receipt, { initialRunId: ids.runs.receiptOk })
+    const alert = await screen.findByRole('alert')
+    await waitFor(() => expect([...alert.querySelectorAll('p')].map((item) => item.textContent)).toEqual([
+      ko['workspace.loadError'].replace('{message}', 'runs are gone'),
+      ko['workspace.loadError'].replace('{message}', 'run is gone'),
+    ]))
+  })
+
+  it('writes a hidden character of an error message as a visible code point', async () => {
+    const client: EngineClient = { request: () => Promise.reject(new Error('bad \u202ename')), onEvent: () => () => undefined }
+    show(client, ids.workflows.receipt)
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('bad ‹U+202E›name')
+    expect(alert.textContent).not.toContain('\u202e')
   })
 
   it('shows the empty message and an empty history when there is no workflow', () => {
