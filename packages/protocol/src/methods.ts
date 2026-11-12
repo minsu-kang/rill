@@ -1,5 +1,6 @@
 import { WorkflowSchema } from '@rill/dsl'
 import Type from 'typebox'
+import { ExplainEffortSchema, ExplainResultSchema } from './explain'
 import { LlmModelsResultSchema } from './llm'
 import { MEMORY_MAX_INPUT_CHARS, MEMORY_MAX_ITEMS, MemoryItemSchema } from './memory'
 import {
@@ -158,6 +159,10 @@ export const METHODS = {
     params: Type.Object({ id }, closed),
     result: Type.Object({ deleted: Type.Boolean() }),
   },
+  explainRun: {
+    params: Type.Object({ runId: id, effort: Type.Optional(ExplainEffortSchema) }, closed),
+    result: ExplainResultSchema,
+  },
   llmModels: { params: noParams, result: LlmModelsResultSchema },
   ping: { params: noParams, result: Type.Object({ time: Type.Number() }) },
 } as const
@@ -185,4 +190,8 @@ export const ERROR_CODES = [
   'MEMORY_INVALID',
   'MEMORY_FULL',
   'MEMORY_DUPLICATE',
+  'RUN_NOT_EXPLAINABLE',
+  'EXPLAIN_BUSY',
+  'EXPLAIN_PROVIDER',
+  'EXPLAIN_INVALID',
 ] as const

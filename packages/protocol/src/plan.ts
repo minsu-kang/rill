@@ -98,7 +98,7 @@ export const PlanTurnSchema = Type.Object(
   closed,
 )
 
-const UsageSchema = Type.Object(
+export const UsageSchema = Type.Object(
   {
     inputTokens: Type.Number(),
     outputTokens: Type.Number(),

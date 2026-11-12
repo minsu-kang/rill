@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
 import type { PlanIssue } from '@rill/dsl'
 import { LlmError } from '@rill/llm'
-import { AttachmentError, PlanError } from '@rill/planner'
+import { AttachmentError, ExplainError, PlanError } from '@rill/planner'
 import {
   PROTOCOL_VERSION,
   SUBPROTOCOL,
@@ -22,6 +22,7 @@ import {
 } from '@rill/protocol'
 import { WebSocketServer, type RawData, type WebSocket } from 'ws'
 import { WorkflowValidationError, type Engine } from '../engine'
+import { ExplainBusyError, RunNotExplainableError } from '../explain'
 import { MemoryDuplicateError, MemoryFullError, MemoryInvalidError } from '../memory'
 import {
   LlmUnavailableError,
@@ -37,7 +38,7 @@ const OPEN = 1
 const CLOSED = 3
 const TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]{16,}$/
 const MAX_PROBLEMS = 20
-const NAME_ONLY_ERROR_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan', 'saveMemory'])
+const NAME_ONLY_ERROR_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan', 'saveMemory', 'explainRun'])
 
 export interface RillServerOptions {
   engine: Engine
@@ -107,12 +108,26 @@ function planErrorBody(error: PlanError): ErrorBody {
   }
 }
 
+function explainErrorBody(error: ExplainError): ErrorBody {
+  switch (error.kind) {
+    case 'provider':
+      return error.cause instanceof LlmError && error.cause.kind === 'auth' ? authBody(error.cause) : { code: 'EXPLAIN_PROVIDER', message: 'the model provider failed' }
+    case 'invalid':
+      return { code: 'EXPLAIN_INVALID', message: 'the model did not return a usable explanation' }
+    case 'aborted':
+      return { code: 'EXPLAIN_PROVIDER', message: 'the explanation was cancelled' }
+  }
+}
+
 function toErrorBody(method: string, error: unknown): ErrorBody {
   if (error instanceof WorkflowValidationError) {
     const problems = method === 'deployPlan' ? issueProblems(error.problemIssues) : error.problems
     return { code: 'INVALID_WORKFLOW', message: 'the workflow is not valid', problems }
   }
   if (error instanceof PlanError) return planErrorBody(error)
+  if (error instanceof ExplainError) return explainErrorBody(error)
+  if (error instanceof RunNotExplainableError) return { code: 'RUN_NOT_EXPLAINABLE', message: error.message }
+  if (error instanceof ExplainBusyError) return { code: 'EXPLAIN_BUSY', message: error.message }
   if (error instanceof MemoryInvalidError) return { code: 'MEMORY_INVALID', message: 'the note is not valid', problems: error.problems }
   if (error instanceof MemoryFullError) return { code: 'MEMORY_FULL', message: error.message }
   if (error instanceof MemoryDuplicateError) return { code: 'MEMORY_DUPLICATE', message: error.message }
@@ -402,6 +417,18 @@ export class RillServer {
       saveMemory: (params) => ({ item: engine.saveMemory({ text: params.text, ...(params.id === undefined ? {} : { id: params.id }) }) }),
       deleteMemory: (params) => ({ deleted: engine.deleteMemory(params.id) }),
       llmModels: () => engine.llmModels(),
+      explainRun: async (params) => {
+        const result = await engine.explainRun({ runId: params.runId, ...(params.effort === undefined ? {} : { effort: params.effort }) })
+        return {
+          runId: params.runId,
+          explanation: result.explanation,
+          likelyCause: result.likelyCause,
+          suggestedActions: result.suggestedActions,
+          ...(result.fixProposal === undefined ? {} : { fixProposal: result.fixProposal }),
+          signals: result.signals,
+          meta: result.meta,
+        }
+      },
       plan: (params) => engine.plan(params),
       cancelPlan: (params) => ({ cancelled: engine.cancelPlan(params.planId) }),
       getPlan: (params) => ({ plan: engine.getPlan(params.planId) }),

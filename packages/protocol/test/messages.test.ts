@@ -140,6 +140,7 @@ describe('METHODS', () => {
         'deleteMemory',
         'deploy',
         'deployPlan',
+        'explainRun',
         'getPlan',
         'getRun',
         'getWorkflow',

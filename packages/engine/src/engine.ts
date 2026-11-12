@@ -1,7 +1,18 @@
 import { isTrigger, isWarningIssue, type PlanIssue, type Workflow } from '@rill/dsl'
 import { assertPathAllowed, validateWorkflow, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
 import type { LlmProvider } from '@rill/llm'
-import { createPlanner, scrubResultText, trustedTexts, type AttachmentStore, type PlanConnection, type PlanRequest, type PlanResult } from '@rill/planner'
+import {
+  createExplainer,
+  createPlanner,
+  scrubResultText,
+  trustedTexts,
+  type AttachmentStore,
+  type ExplainEffort,
+  type ExplainResult,
+  type PlanConnection,
+  type PlanRequest,
+  type PlanResult,
+} from '@rill/planner'
 import type {
   AttachmentRef,
   LlmModelsResult,
@@ -19,6 +30,7 @@ import { createFsAttachmentStore, recordReads } from './attachments'
 import { systemClock, type Clock } from './clock'
 import type { Db } from './db'
 import { EventBus, type EngineListener } from './events'
+import { ExplainBusyError, MAX_CONCURRENT_EXPLAINS, RunNotExplainableError, connectionSecrets, isExplainable } from './explain'
 import { RunExecutor, type RunResult } from './executor'
 import { llmModelsResult, type EngineLlmInfo } from './llm-models'
 import {
@@ -57,6 +69,7 @@ export interface EngineOptions {
   attachmentsRoot?: string
   planConnections?: PlanConnection[]
   maxConcurrentPlans?: number
+  maxConcurrentExplains?: number
   maxRepairRounds?: number
 }
 
@@ -74,6 +87,12 @@ export interface EnginePlanInput {
 interface PendingPlan {
   controller: AbortController
   done: Promise<void>
+}
+
+export interface EngineExplainInput {
+  runId: string
+  effort?: ExplainEffort
+  signal?: AbortSignal
 }
 
 export class WorkflowValidationError extends Error {
@@ -105,8 +124,11 @@ export class Engine {
   private readonly attachmentStore: AttachmentStore | undefined
   private readonly planConnections: PlanConnection[]
   private readonly maxConcurrentPlans: number
+  private readonly maxConcurrentExplains: number
+  private readonly connections: ConnectionResolver
   private readonly maxRepairRounds: number | undefined
   private readonly pendingPlans = new Map<string, PendingPlan>()
+  private readonly pendingExplains = new Set<PendingPlan>()
 
   constructor(options: EngineOptions) {
     if (options.attachmentsRoot !== undefined && options.allowedRoots !== undefined) {
@@ -133,6 +155,8 @@ export class Engine {
     this.attachmentStore = options.attachmentsRoot === undefined ? undefined : createFsAttachmentStore(options.attachmentsRoot)
     this.planConnections = options.planConnections ?? []
     this.maxConcurrentPlans = options.maxConcurrentPlans ?? 2
+    this.maxConcurrentExplains = options.maxConcurrentExplains ?? MAX_CONCURRENT_EXPLAINS
+    this.connections = connections
     this.maxRepairRounds = options.maxRepairRounds
     this.bus = new EventBus(now)
     this.queue = new RunQueue(options.maxConcurrentRuns ?? 4)
@@ -339,6 +363,50 @@ export class Engine {
     return { run: this.store.getRunSummary(runId), steps: this.store.listStepDetails(runId) }
   }
 
+  async explainRun(input: EngineExplainInput): Promise<ExplainResult> {
+    const run = this.store.getRunSummary(input.runId)
+    const steps = this.store.listStepDetails(input.runId)
+    if (!isExplainable(run, steps)) throw new RunNotExplainableError()
+    const llm = this.llm
+    if (llm === undefined) throw new LlmUnavailableError('explaining')
+    if (this.pendingExplains.size >= this.maxConcurrentExplains) throw new ExplainBusyError(this.maxConcurrentExplains)
+    const workflow = this.store.getWorkflow(run.workflowId)
+    const secrets = connectionSecrets(workflow, steps, this.registry, this.connections)
+    const controller = new AbortController()
+    const pending: PendingPlan = { controller, done: Promise.resolve() }
+    this.pendingExplains.add(pending)
+    const forward = () => controller.abort(input.signal?.reason)
+    if (input.signal?.aborted === true) forward()
+    else input.signal?.addEventListener('abort', forward, { once: true })
+    const result = createExplainer({ provider: llm, registry: this.registry }).explain({
+      run: {
+        id: run.id,
+        status: run.status,
+        dryRun: run.dryRun,
+        error: run.error,
+        createdAt: run.createdAt,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
+      },
+      steps,
+      workflow,
+      registry: this.registry,
+      secrets,
+      ...(input.effort === undefined ? {} : { effort: input.effort }),
+      signal: controller.signal,
+    })
+    pending.done = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    try {
+      return await result
+    } finally {
+      input.signal?.removeEventListener('abort', forward)
+      this.pendingExplains.delete(pending)
+    }
+  }
+
   listMemory(): MemoryItem[] {
     return this.store.listMemory()
   }
@@ -400,7 +468,7 @@ export class Engine {
   }
 
   async shutdown(): Promise<void> {
-    const pending = [...this.pendingPlans.values()]
+    const pending = [...this.pendingPlans.values(), ...this.pendingExplains]
     for (const plan of pending) plan.controller.abort()
     await Promise.all(pending.map((plan) => plan.done))
     await this.triggers.shutdown()

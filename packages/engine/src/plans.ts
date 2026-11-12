@@ -61,8 +61,8 @@ export class PlanDeployedError extends Error {
 }
 
 export class LlmUnavailableError extends Error {
-  constructor() {
-    super('no model provider is configured for planning')
+  constructor(purpose: 'planning' | 'explaining' = 'planning') {
+    super(`no model provider is configured for ${purpose}`)
     this.name = 'LlmUnavailableError'
   }
 }
