@@ -167,7 +167,7 @@ describe('createFsAttachmentStore: ids', () => {
     const store = createFsAttachmentStore(root)
     expect(await store.read(undefined as unknown as string)).toBeUndefined()
     expect(await store.read(12345678 as unknown as string)).toBeUndefined()
-    expect(await store.read({ toString: () => ID } as unknown as string)).toBeUndefined()
+    expect(await store.read(Object(ID) as unknown as string)).toBeUndefined()
     expect(await store.read([ID] as unknown as string)).toBeUndefined()
     expect(spies.opened).toEqual([])
   })
