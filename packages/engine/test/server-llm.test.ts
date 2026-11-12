@@ -98,7 +98,7 @@ describe('llmModels over the websocket', () => {
     expect((await failure(client.request('llmModels', { provider: 'openai' } as never))).code).toBe('INVALID_PARAMS')
   })
 
-  it('never sends a key, a header or any part of a key, in a result, an event or a log line', async () => {
+  it('reports configured providers and the active model without any environment value', async () => {
     const env = { ...MARKER_KEYS, ANTHROPIC_AUTH_TOKEN: 'sk-ant-MARKER-token-77' }
     const { client, frames, logs } = await start({ llmInfo: { configured: configuredProviders(env), active: { provider: 'anthropic', model: 'claude-opus-5-5' } } })
     const result = await client.request('llmModels', {})
@@ -139,6 +139,35 @@ describe('LLM_UNAVAILABLE for a provider authentication failure', () => {
     const error = await failure(client.request('plan', planParams()))
     expect(error).toMatchObject({ code: 'LLM_UNAVAILABLE', message: 'the model provider rejected the credentials' })
     expect(mentionsAny([...frames, ...logs, JSON.stringify(error)].join('\n'), [UPSTREAM_SECRET, MARKER_VALUES[0]!])).toBeUndefined()
+  })
+
+  it.each([
+    ['a 402', { status: 402 }, 'the model provider reports a billing or quota problem'],
+    ['a 429 the adapter classified as auth', { status: 429, category: 'insufficient_quota' }, 'the model provider reports a billing or quota problem'],
+    ['a payment_required category without a status', { category: 'payment_required' }, 'the model provider reports a billing or quota problem'],
+    ['a 403', { status: 403 }, 'the model provider refused account access'],
+    ['a 401', { status: 401 }, 'the model provider rejected the credentials'],
+    ['no status at all', {}, 'the model provider rejected the credentials'],
+  ])('words %s for the user without passing the vendor text through', async (_name, options, message) => {
+    const scripted = new ScriptedProvider([{ error: new LlmError('auth', `vendor says ${UPSTREAM_SECRET}`, options) }])
+    const { client } = await start({ llm: scripted })
+    const error = await failure(client.request('plan', planParams()))
+    expect(error).toMatchObject({ code: 'LLM_UNAVAILABLE', message })
+    expect(JSON.stringify(error)).not.toContain(UPSTREAM_SECRET)
+  })
+
+  it('words an OpenAI insufficient_quota reply as a billing problem, not as a rejected key', async () => {
+    const model = MODEL_TABLE.find((entry) => entry.provider === 'openai')!
+    const quota: FetchFn = async () =>
+      new Response(JSON.stringify({ error: { type: 'insufficient_quota', code: 'insufficient_quota', message: `You exceeded your current quota ${UPSTREAM_SECRET}` } }), {
+        status: 429,
+        headers: { 'content-type': 'application/json' },
+      })
+    const llm = providerDescriptor('openai').create({ model: model.id, apiKey: MARKER_VALUES[0]!, fetch: quota, maxRetries: 0, sleep: async () => undefined, random: () => 0 })
+    const { client } = await start({ llm })
+    const error = await failure(client.request('plan', planParams()))
+    expect(error).toMatchObject({ code: 'LLM_UNAVAILABLE', message: 'the model provider reports a billing or quota problem' })
+    expect(JSON.stringify(error)).not.toContain(UPSTREAM_SECRET)
   })
 
   it.each(PROVIDER_IDS)('keeps other %s failures as PLAN_PROVIDER', async (id) => {

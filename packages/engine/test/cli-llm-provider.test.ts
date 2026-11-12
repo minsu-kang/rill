@@ -110,11 +110,14 @@ describe('chooseLlm', () => {
       () => chooseLlm({ provider: 'meta', model: 'muse-spark-1.3-contributor', env: { ...MARKER_KEYS } }),
     ]
     for (const act of results) {
+      let message = ''
       try {
         act()
       } catch (error) {
-        expect(mentionsAny(String((error as Error).message), [...MARKER_VALUES, 'MARKER'])).toBeUndefined()
+        message = String((error as Error).message)
       }
+      expect(message).not.toBe('')
+      expect(mentionsAny(message, [...MARKER_VALUES, 'MARKER'])).toBeUndefined()
     }
     const info = JSON.stringify(chooseLlm({ provider: 'gemini', model: 'gemini-3.8-flash', env: { ...MARKER_KEYS } }).info)
     expect(mentionsAny(info, [...MARKER_VALUES, 'MARKER'])).toBeUndefined()
@@ -204,6 +207,7 @@ describe('rill-engine serve with a chosen provider', () => {
   it('starts with no model provider when the key of a non-Anthropic provider is missing: llmModels says so and plan is LLM_UNAVAILABLE', async () => {
     const { client, output } = await startServe(['--llm-provider', 'grok', '--llm-model', 'grok-4.7'], { ANTHROPIC_API_KEY: MARKER_KEYS.ANTHROPIC_API_KEY })
     const models = await client.request('llmModels', {})
+    expect(output()).toContain('XAI_API_KEY is not set; planning and llm.extract are unavailable')
     expect(models.active).toBeNull()
     expect(models.providers.filter((entry) => entry.configured).map((entry) => entry.id)).toEqual(['anthropic'])
     const error = await client.request('plan', planParams()).then(
@@ -215,8 +219,9 @@ describe('rill-engine serve with a chosen provider', () => {
   })
 
   it('keeps the Anthropic behaviour without a key: the provider exists, the model is active, nothing is configured', async () => {
-    const { client } = await startServe([])
+    const { client, output } = await startServe([])
     const models = await client.request('llmModels', {})
+    expect(output()).not.toContain('is not set')
     expect(models.active).toEqual({ provider: 'anthropic', model: DEFAULT_MODEL })
     expect(models.providers.every((entry) => !entry.configured)).toBe(true)
   })

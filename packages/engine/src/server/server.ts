@@ -82,14 +82,19 @@ function issueProblems(issues: readonly PlanIssue[]): string[] {
   return issues.slice(0, MAX_PROBLEMS).map((issue) => `${issue.code} at ${issue.pointer === '' ? '/' : issue.pointer}`)
 }
 
-const isAuthFailure = (error: unknown): boolean => error instanceof LlmError && error.kind === 'auth'
+const BILLING_CATEGORY = /quota|credit|payment|billing|limit_exceeded/i
 
-const REJECTED_CREDENTIALS: ErrorBody = { code: 'LLM_UNAVAILABLE', message: 'the model provider rejected the credentials' }
+function authBody(error: LlmError): ErrorBody {
+  const billing = error.status === 402 || error.status === 429 || (error.category !== undefined && BILLING_CATEGORY.test(error.category))
+  if (billing) return { code: 'LLM_UNAVAILABLE', message: 'the model provider reports a billing or quota problem' }
+  if (error.status === 403) return { code: 'LLM_UNAVAILABLE', message: 'the model provider refused account access' }
+  return { code: 'LLM_UNAVAILABLE', message: 'the model provider rejected the credentials' }
+}
 
 function planErrorBody(error: PlanError): ErrorBody {
   switch (error.kind) {
     case 'provider':
-      return isAuthFailure(error.cause) ? REJECTED_CREDENTIALS : { code: 'PLAN_PROVIDER', message: 'the model provider failed' }
+      return error.cause instanceof LlmError && error.cause.kind === 'auth' ? authBody(error.cause) : { code: 'PLAN_PROVIDER', message: 'the model provider failed' }
     case 'invalid_after_repair':
       return { code: 'PLAN_INVALID', message: 'no valid plan after the repair rounds', problems: issueProblems(error.lastIssues) }
     case 'invalid_request':
@@ -107,7 +112,7 @@ function toErrorBody(method: string, error: unknown): ErrorBody {
     return { code: 'INVALID_WORKFLOW', message: 'the workflow is not valid', problems }
   }
   if (error instanceof PlanError) return planErrorBody(error)
-  if (isAuthFailure(error)) return REJECTED_CREDENTIALS
+  if (error instanceof LlmError && error.kind === 'auth') return authBody(error)
   if (error instanceof AttachmentError) return { code: 'ATTACHMENT_REJECTED', message: error.message }
   if (error instanceof LlmUnavailableError) return { code: 'LLM_UNAVAILABLE', message: error.message }
   if (error instanceof PlanBusyError) return { code: 'PLAN_BUSY', message: error.message }

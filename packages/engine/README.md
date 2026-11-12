@@ -46,7 +46,7 @@ The key comes from the environment, in the variable of the chosen provider:
 
 - An unknown provider, an unknown model of a provider other than `anthropic`, and any model id that ends in `-contributor` stop the command with a usage error (exit 2) that lists the known values. This happens before the key is looked at.
 - `anthropic` keeps its earlier behaviour: the provider is always built, and a missing key shows up as an authentication failure when a call is made.
-- For any other provider a missing or blank key is not an error and the engine never asks for one. The engine starts with no model provider: `plan` fails with `LLM_UNAVAILABLE`, and an `llm.extract` step fails with `llm.extract needs an LLM provider; start the engine with --llm-provider and its key variable`.
+- For any other provider a missing or blank key is not an error and the engine never asks for one. The CLI prints one line on stderr that names only the variable (for example `XAI_API_KEY is not set; planning and llm.extract are unavailable`). The engine starts with no model provider: `plan` fails with `LLM_UNAVAILABLE`, and an `llm.extract` step fails with `llm.extract needs an LLM provider; start the engine with --llm-provider and its key variable`.
 - The CLI passes the process environment to the registry once at start and hands the engine only which providers have a key and which model is active (`EngineOptions.llmInfo`, built with `chooseLlm` and `configuredProviders`). The engine keeps no key outside the provider object.
 
 ### Planning
@@ -69,7 +69,9 @@ The planner only proposes file paths inside the `--allow` folders. With no `--al
 - `providers`: one entry per provider with `id`, `label`, `keyEnv` (the name of the variable, never its value) and `configured` (a key is present in the environment the engine was started with).
 - `active`: `{ provider, model }` of the model the engine uses, or `null` when the engine has no model provider. For `anthropic` without a key it is still set, and `configured` for `anthropic` is `false`.
 
-No key, header or part of a key appears in the result, in an event or in a log line. An engine started without `llmInfo` reports every provider as not configured and `active` as `null`.
+No key, header or part of a key appears in the result, in an event or in a log line. An engine started without `llmInfo` reports every provider as not configured and `active` as `null`, even when it was given a ready `llm` provider that plans fine; an embedder that wants `llmModels` to be accurate passes `llmInfo` too.
+
+`PROTOCOL_VERSION` is still 1 and the result schemas are closed, so a client and an engine have to be built from the same commit: a client from before the optional `PlanMeta` fields (`provider`, `effortDetail`, `reasoningCapped`, `costNote`) rejects `plan` and `getPlan` results that carry them. Nothing ships yet that mixes versions.
 
 ## Planner methods
 
@@ -122,7 +124,7 @@ All four are optional in the protocol schema. A plan stored before they existed 
 
 | Code | Meaning |
 | --- | --- |
-| `LLM_UNAVAILABLE` | No model provider, or the provider rejected the credentials: an authentication error from any provider, whether it reaches the server as a plan failure or on its own. The message is fixed and never carries the provider's text |
+| `LLM_UNAVAILABLE` | No model provider, or the provider refused access: an authentication error from any provider, whether it reaches the server as a plan failure or on its own. The message is one of three fixed texts and never carries the provider's text: `the model provider rejected the credentials`, `the model provider refused account access` (HTTP 403) and `the model provider reports a billing or quota problem` (HTTP 402, a quota or payment category, or the 429 that OpenAI sends for an exhausted quota) |
 | `PLAN_INVALID` | No valid plan after the repair rounds; `problems` lists `<code> at <pointer>` |
 | `PLAN_PROVIDER` | The model provider failed |
 | `PLAN_CANCELLED` | The plan was cancelled |

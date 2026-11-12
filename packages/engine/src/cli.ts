@@ -107,6 +107,10 @@ async function main(argv: string[]): Promise<number> {
       noFallback: values['llm-no-fallback'] ?? false,
       env: process.env,
     })
+    const unconfigured = chosen.llm === undefined ? PROVIDER_IDS.find((id) => id === values['llm-provider']) : undefined
+    if (unconfigured !== undefined) {
+      console.error(`${providerDescriptor(unconfigured).keyEnv} is not set; planning and llm.extract are unavailable`)
+    }
     const connections = loadConnections(values.connections)
     if (values['attachments-dir'] !== undefined && command !== 'serve') {
       throw new UsageError('--attachments-dir is only used by serve')
