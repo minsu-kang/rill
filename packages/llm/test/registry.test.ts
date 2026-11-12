@@ -60,9 +60,9 @@ describe('createRegistry', () => {
     const sleep = async () => undefined
     const random = () => 0.1
     const client = { marker: true }
-    const provider = registry.createProvider('openai:gpt-6.1-sol', { env, fetch, sleep, random, client, baseURL: 'http://x.test' })
+    const provider = registry.createProvider('openai:gpt-6.1-sol', { env, fetch, sleep, random, client, baseURL: 'http://x.test', maxRetries: 0 })
     expect(provider.name).toBe('openai')
-    expect(seen).toEqual([{ model: 'gpt-6.1-sol', apiKey: 'sk-from-env', fetch, sleep, random, client, baseURL: 'http://x.test' }])
+    expect(seen).toEqual([{ model: 'gpt-6.1-sol', apiKey: 'sk-from-env', fetch, sleep, random, client, baseURL: 'http://x.test', maxRetries: 0 }])
   })
 
   it('names the missing variable, and never the value of another one', () => {

@@ -71,7 +71,7 @@ export function createRegistry(descriptors: readonly ProviderDescriptor[]): Regi
     if (apiKey === undefined || apiKey.trim() === '') {
       throw new LlmError('auth', `no API key for ${chosen.label}; set ${chosen.keyEnv}`)
     }
-    const { fetch, client, baseURL, sleep, random } = options
+    const { fetch, client, baseURL, sleep, random, maxRetries } = options
     return chosen.create({
       model,
       apiKey,
@@ -80,6 +80,7 @@ export function createRegistry(descriptors: readonly ProviderDescriptor[]): Regi
       ...(baseURL === undefined ? {} : { baseURL }),
       ...(sleep === undefined ? {} : { sleep }),
       ...(random === undefined ? {} : { random }),
+      ...(maxRetries === undefined ? {} : { maxRetries }),
     })
   }
 
