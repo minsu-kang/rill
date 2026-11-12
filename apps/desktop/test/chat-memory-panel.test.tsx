@@ -1,0 +1,235 @@
+import { RillError, type MemoryItem } from '@rill/protocol'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
+import { MemoryPanel } from '../src/chat/MemoryPanel'
+import { en } from '../src/i18n/en'
+import { memoryFixtures } from '../src/fixtures/plan'
+import { makeWorld, type WorldOptions } from './chat-world'
+import { renderThemed } from './render'
+
+function show(memory: MemoryItem[], intercept?: WorldOptions['intercept']) {
+  const world = makeWorld({ memory, intercept })
+  const view = renderThemed(<MemoryPanel client={world.client} />, { locale: 'en' })
+  return { world, ...view }
+}
+
+const input = (): HTMLInputElement => screen.getByRole('textbox', { name: 'New note' }) as HTMLInputElement
+const save = (): HTMLButtonElement => within(input().closest('form')!).getByRole('button', { name: 'Save' }) as HTMLButtonElement
+const editorSave = (): HTMLButtonElement => within(screen.getByRole('textbox', { name: 'Edit note' }).closest('li')!).getByRole('button', { name: 'Save' }) as HTMLButtonElement
+
+async function loaded(): Promise<void> {
+  await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull())
+}
+
+async function add(text: string): Promise<void> {
+  fireEvent.change(input(), { target: { value: text } })
+  fireEvent.click(save())
+}
+
+describe('MemoryPanel: list and counts', () => {
+  it('lists the notes with a count out of twenty', async () => {
+    show([...memoryFixtures.three])
+    expect(screen.getByText('Loading…')).toBeTruthy()
+    const list = await screen.findByRole('list', { name: 'Saved notes' })
+    expect(within(list).getAllByRole('listitem')).toHaveLength(3)
+    expect(list.textContent).toContain(memoryFixtures.three[0]!.text)
+    expect(screen.getByText('3/20')).toBeTruthy()
+  })
+
+  it('shows an empty state with 0/20', async () => {
+    show([])
+    expect(await screen.findByText('No notes saved yet.')).toBeTruthy()
+    expect(screen.getByText('0/20')).toBeTruthy()
+    expect(save().disabled).toBe(true)
+  })
+
+  it('shows 20/20 with a message, and cannot add', async () => {
+    show([...memoryFixtures.full])
+    expect(await screen.findByText('All 20 notes are used. Delete one to save another.')).toBeTruthy()
+    expect(screen.getByText('20/20')).toBeTruthy()
+    fireEvent.change(input(), { target: { value: 'one more' } })
+    expect(save().disabled).toBe(true)
+  })
+
+  it('shows the one-line rule and the transfer notice before anything is saved', async () => {
+    show([])
+    await loaded()
+    expect(screen.getByText('A note is one line of at most 300 characters. You can save up to 20.')).toBeTruthy()
+    expect(screen.getByText('Saved notes are sent to the AI provider with every plan request.')).toBeTruthy()
+    expect(screen.getByRole('note').textContent).toContain('External transfer')
+  })
+
+  it('shows a load error with a retry, and the notes after the retry', async () => {
+    let fail = true
+    const { world } = show([...memoryFixtures.three], (method) => {
+      if (method === 'listMemory' && fail) {
+        fail = false
+        return Promise.reject(new RillError('INTERNAL', 'SECRET-LOAD-TEXT'))
+      }
+      return undefined
+    })
+    expect((await screen.findByRole('alert')).textContent).toContain('The engine reported an error')
+    expect(document.body.textContent).not.toContain('SECRET-LOAD-TEXT')
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('list', { name: 'Saved notes' })).toBeTruthy()
+    expect(world.callsOf('listMemory')).toHaveLength(2)
+  })
+})
+
+describe('MemoryPanel: add, edit, delete', () => {
+  it('adds a note, clears the field and counts it', async () => {
+    const { world } = show([...memoryFixtures.three])
+    await loaded()
+    await add('  Weekly reports go to ~/Reports  ')
+    expect(await screen.findByText('Weekly reports go to ~/Reports')).toBeTruthy()
+    expect(screen.getByText('4/20')).toBeTruthy()
+    expect(input().value).toBe('')
+    expect(world.callsOf('saveMemory')[0]!.params).toEqual({ text: '  Weekly reports go to ~/Reports  ' })
+  })
+
+  it('does not send an empty or blank note', async () => {
+    const { world } = show([])
+    await loaded()
+    fireEvent.change(input(), { target: { value: '   ' } })
+    expect(save().disabled).toBe(true)
+    expect(world.callsOf('saveMemory')).toHaveLength(0)
+  })
+
+  it('adds with the Enter key of the form', async () => {
+    show([])
+    await loaded()
+    fireEvent.change(input(), { target: { value: 'by enter' } })
+    fireEvent.submit(input().closest('form')!)
+    expect(await screen.findByText('by enter')).toBeTruthy()
+  })
+
+  it('edits a note in place and keeps its id', async () => {
+    const { world } = show([...memoryFixtures.three])
+    await loaded()
+    const first = memoryFixtures.three[0]!
+    fireEvent.click(screen.getByRole('button', { name: `Edit note: ${first.text}` }))
+    const field = screen.getByRole('textbox', { name: 'Edit note' }) as HTMLInputElement
+    expect(field.value).toBe(first.text)
+    fireEvent.change(field, { target: { value: 'Receipts are in ~/Inbox' } })
+    fireEvent.click(editorSave())
+    expect(await screen.findByText('Receipts are in ~/Inbox')).toBeTruthy()
+    expect(world.callsOf('saveMemory').at(-1)!.params).toEqual({ id: first.id, text: 'Receipts are in ~/Inbox' })
+    expect(screen.queryByRole('textbox', { name: 'Edit note' })).toBeNull()
+    expect(screen.getByText('3/20')).toBeTruthy()
+  })
+
+  it('cancels an edit without saving', async () => {
+    const { world } = show([...memoryFixtures.three])
+    await loaded()
+    fireEvent.click(screen.getByRole('button', { name: `Edit note: ${memoryFixtures.three[0]!.text}` }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit note' }), { target: { value: 'changed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByText('changed')).toBeNull()
+    expect(world.callsOf('saveMemory')).toHaveLength(0)
+  })
+
+  it('asks before deleting, and keeps the note when the person cancels', async () => {
+    const { world } = show([...memoryFixtures.three])
+    await loaded()
+    const target = memoryFixtures.three[1]!
+    fireEvent.click(screen.getByRole('button', { name: `Delete note: ${target.text}` }))
+    expect(screen.getByText('Delete this note?')).toBeTruthy()
+    expect(world.callsOf('deleteMemory')).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByText('Delete this note?')).toBeNull()
+    expect(screen.getByText(target.text)).toBeTruthy()
+  })
+
+  it('deletes after the confirmation', async () => {
+    const { world } = show([...memoryFixtures.three])
+    await loaded()
+    const target = memoryFixtures.three[1]!
+    fireEvent.click(screen.getByRole('button', { name: `Delete note: ${target.text}` }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(screen.queryByText(target.text)).toBeNull())
+    expect(world.callsOf('deleteMemory')[0]!.params).toEqual({ id: target.id })
+    expect(screen.getByText('2/20')).toBeTruthy()
+  })
+
+  it('shows hostile note text as text', async () => {
+    const hostile: MemoryItem = { id: 'h1', text: '<img src=x onerror=alert(1)> <a href="https://evil.example">x</a> **bold** ‮txt', createdAt: 1, updatedAt: 1 }
+    const { container } = show([hostile])
+    await loaded()
+    expect(container.querySelector('img, a, strong')).toBeNull()
+    expect(container.textContent).toContain('<img src=x onerror=alert(1)>')
+    expect(container.textContent).toContain('‹U+202E›txt')
+  })
+})
+
+describe('MemoryPanel: the error codes', () => {
+  it('shows a localized message for an invalid note, by rule, and keeps the text in the field', async () => {
+    show([])
+    await loaded()
+    const cases: Array<[string, string]> = [
+      ['x'.repeat(301), 'A note is at most 300 characters.'],
+      ['bell\u0007', 'A note is one line without control characters.'],
+      ['dir‮ect', 'Invisible characters that change the text direction are not allowed.'],
+      ['zero​width', 'Invisible formatting characters are not allowed.'],
+    ]
+    for (const [text, message] of cases) {
+      await add(text)
+      expect((await screen.findByRole('alert')).textContent).toContain(message)
+      expect(input().value).toBe(text)
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    }
+  })
+
+  it('shows a localized message for a duplicate', async () => {
+    show([...memoryFixtures.three])
+    await loaded()
+    await add(memoryFixtures.three[0]!.text.toUpperCase())
+    expect((await screen.findByRole('alert')).textContent).toContain('That note already exists.')
+  })
+
+  it('shows a localized message when the engine says the store is full', async () => {
+    show([...memoryFixtures.three], (method) => (method === 'saveMemory' ? Promise.reject(new RillError('MEMORY_FULL', 'at most 20 notes can be saved')) : undefined))
+    await loaded()
+    await add('one more')
+    expect((await screen.findByRole('alert')).textContent).toBe(`${en['chat.error.MEMORY_FULL']}Dismiss`)
+  })
+
+  it('never puts the text of a note in an error', async () => {
+    const SECRET = 'my-private-note-77'
+    show([{ id: 'm1', text: SECRET, createdAt: 1, updatedAt: 1 }], (method, params) =>
+      method === 'saveMemory' ? Promise.reject(new RillError('MEMORY_INVALID', `bad note ${(params as { text: string }).text}`, [`too_long: ${SECRET}`])) : undefined,
+    )
+    await loaded()
+    await add(`${SECRET} new`)
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).not.toContain(SECRET)
+    expect(alert.textContent).toContain('A note is at most 300 characters.')
+  })
+
+  it('shows an error when an edit fails and keeps the editor open', async () => {
+    show([...memoryFixtures.three], (method) => (method === 'saveMemory' ? Promise.reject(new RillError('NOT_FOUND', 'x')) : undefined))
+    await loaded()
+    fireEvent.click(screen.getByRole('button', { name: `Edit note: ${memoryFixtures.three[0]!.text}` }))
+    fireEvent.click(editorSave())
+    expect((await screen.findByRole('alert')).textContent).toContain('Not found')
+    expect(screen.getByRole('textbox', { name: 'Edit note' })).toBeTruthy()
+  })
+
+  it('shows an error when a delete fails', async () => {
+    show([...memoryFixtures.three], (method) => (method === 'deleteMemory' ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined))
+    await loaded()
+    fireEvent.click(screen.getByRole('button', { name: `Delete note: ${memoryFixtures.three[0]!.text}` }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('The engine reported an error')
+    expect(screen.getByText(memoryFixtures.three[0]!.text)).toBeTruthy()
+  })
+})
+
+describe('MemoryPanel: lifecycle', () => {
+  it('sets no state and leaves no listener after it is unmounted', async () => {
+    const world = makeWorld({ memory: [...memoryFixtures.three] })
+    const view = renderThemed(<MemoryPanel client={world.client} />, { locale: 'en' })
+    view.unmount()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(world.onEvent).not.toHaveBeenCalled()
+  })
+})

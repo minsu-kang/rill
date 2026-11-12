@@ -181,7 +181,7 @@ export function Composer(props: ComposerProps) {
         placeholder={t('chat.composer.placeholder')}
         rows={3}
         value={state.draft}
-        disabled={busy}
+        disabled={busy || disabled}
         onChange={(event) => props.onChange({ draft: event.target.value })}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
