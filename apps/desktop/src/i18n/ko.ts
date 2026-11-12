@@ -1,3 +1,5 @@
+import { explainKo } from './explain.ko'
+
 export const ko = {
   'app.name': 'Rill',
   'status.idle': '대기',
@@ -71,4 +73,5 @@ export const ko = {
   'workspace.replay': '다시 재생',
   'workspace.loading': '불러오는 중…',
   'workspace.loadError': '불러오지 못했어요: {message}',
+  ...explainKo,
 }

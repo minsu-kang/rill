@@ -1,4 +1,5 @@
 import type { ko } from './ko'
+import { explainEn } from './explain.en'
 
 export const en: Record<keyof typeof ko, string> = {
   'app.name': 'Rill',
@@ -73,4 +74,5 @@ export const en: Record<keyof typeof ko, string> = {
   'workspace.replay': 'Replay',
   'workspace.loading': 'Loading…',
   'workspace.loadError': 'Could not load: {message}',
+  ...explainEn,
 }
