@@ -97,6 +97,7 @@ describe('the explainRun result', () => {
     expect(valid({ ...result, explanation: 'x'.repeat(1501) })).toBe(false)
     expect(valid({ ...result, fixProposal: { nodeId: 'n1', requestText: 'x'.repeat(400) } })).toBe(true)
     expect(valid({ ...result, fixProposal: { nodeId: 'n1', requestText: 'x'.repeat(401) } })).toBe(false)
+    expect(valid({ ...result, fixProposal: { nodeId: 'n1', requestText: '' } })).toBe(false)
     expect(valid({ ...result, suggestedActions: ['retry_run', 'edit_node', 'none'] })).toBe(true)
     expect(valid({ ...result, suggestedActions: ['retry_run', 'edit_node', 'none', 'wait_and_retry'] })).toBe(false)
     expect(valid({ ...result, likelyCause: 'bad_luck' })).toBe(false)

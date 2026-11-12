@@ -207,6 +207,22 @@ describe('simultaneous explanations', () => {
     expect(Date.now() - started).toBeLessThan(2000)
   })
 
+  it('waits for the explanation to settle before shutdown returns', async () => {
+    const env = await start([{ wait: true, abortDelayMs: 150 }])
+    const runId = await env.run([http(env.base, '/status/404')])
+    let settled = false
+    const pending = env.engine.explainRun({ runId }).then(
+      () => undefined,
+      () => {
+        settled = true
+      },
+    )
+    await env.provider.calls(1)
+    await env.engine.shutdown()
+    expect(settled).toBe(true)
+    await pending
+  })
+
   it('honours the signal of a direct caller', async () => {
     const env = await start([{ wait: true }])
     const runId = await env.run([http(env.base, '/status/404')])

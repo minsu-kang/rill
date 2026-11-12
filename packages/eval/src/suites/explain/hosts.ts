@@ -16,7 +16,7 @@ function hostOf(raw: string): string | undefined {
   const ascii = domainToASCII(authority.toLowerCase())
   const labels = ascii.split('.')
   const last = labels[labels.length - 1] ?? ''
-  if (ascii === '' || labels.length < 2 || labels.some((label) => label === '') || !TLD.test(last) || FILE_LIKE.test(last)) return undefined
+  if (ascii === '' || labels.some((label) => label === '') || !TLD.test(last) || FILE_LIKE.test(last)) return undefined
   return ascii
 }
 

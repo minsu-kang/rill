@@ -26,7 +26,7 @@ const workflow = {
   edges: [],
 }
 
-const SECRETS: Record<string, string> = { 'hook-secret': 'HOOK-1111', api: 'API-2222', other: 'OTHER-3333', team: 'https://hooks.example.com/T/B/X', unused: 'UNUSED-4444', ghost: 'GHOST-5555', 'https://api.example.com': 'URL-LOOKALIKE-6666' }
+const SECRETS: Record<string, string> = { 'sc-only': 'SC-7777', 'hook-secret': 'HOOK-1111', api: 'API-2222', other: 'OTHER-3333', team: 'https://hooks.example.com/T/B/X', unused: 'UNUSED-4444', ghost: 'GHOST-5555', 'https://api.example.com': 'URL-LOOKALIKE-6666' }
 
 describe('connectionSecrets', () => {
   const resolver = { get: (name: string) => SECRETS[name] }
@@ -69,11 +69,11 @@ describe('connectionSecrets', () => {
       ...workflow,
       nodes: [
         ...workflow.nodes,
-        { id: 'n6', type: 'future.thing@1', config: { nested: { list: [{ secretConnection: 'hook-secret' }], Connection: 'other' }, note: 'unused' } },
+        { id: 'n6', type: 'future.thing@1', config: { nested: { list: [{ secretConnection: 'sc-only' }], Connection: 'other' }, note: 'unused' } },
       ],
     }
     const found = connectionSecrets(odd, [step('n6', { auth: { connection: 'unused' }, other: ['x', { CONNECTION: 'api' }] })], registry, resolver)
-    expect(found).toEqual(expect.arrayContaining(['GHOST-5555', 'HOOK-1111', 'OTHER-3333', 'UNUSED-4444', 'API-2222']))
+    expect(found).toEqual(expect.arrayContaining(['GHOST-5555', 'SC-7777', 'OTHER-3333', 'UNUSED-4444', 'API-2222']))
     expect(found).not.toContain('URL-LOOKALIKE-6666')
   })
 
@@ -99,6 +99,11 @@ describe('isExplainable', () => {
 
   it('accepts a finished run that has a failed, abandoned or continued step', () => {
     for (const status of ['failed', 'abandoned', 'continued'] as const) expect(isExplainable(run('succeeded'), steps('succeeded', status))).toBe(true)
+  })
+
+  it('refuses a queued or running run even when a step of it failed, and says yes to a finished run with the same step', () => {
+    for (const status of ['queued', 'running']) expect(isExplainable(run(status), steps('failed')), status).toBe(false)
+    expect(isExplainable(run('succeeded'), steps('failed'))).toBe(true)
   })
 
   it('refuses a clean success and a cancelled run without a failed step', () => {

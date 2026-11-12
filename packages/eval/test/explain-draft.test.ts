@@ -61,6 +61,21 @@ describe('the draft file', () => {
     expect(() => parseExplainDraft({ ...raw, extra: 1 })).toThrow('invalid explain draft')
     expect(parseExplainDraft(raw).cases).toHaveLength(6)
   })
+
+  it('refuses a notice that does not say that the draft is not approved', () => {
+    const raw = read(EXPLAIN_DRAFT_PATH) as Json
+    expect(() => parseExplainDraft({ ...raw, notice: 'Approved by the user.' })).toThrow('invalid explain draft')
+    expect(() => parseExplainDraft({ ...raw, notice: 'Note. DRAFT: not approved.' })).toThrow('invalid explain draft')
+  })
+
+  it('refuses a case with an unknown key, and an injection block without a needle', () => {
+    const raw = clone(read(EXPLAIN_DRAFT_PATH)) as { cases: Json[] }
+    raw.cases[0]!['extra'] = 1
+    expect(() => parseExplainDraft(raw)).toThrow('invalid explain draft')
+    const none = clone(read(EXPLAIN_DRAFT_PATH)) as { cases: { expect: { injection?: { needles: string[] } } }[] }
+    none.cases[5]!.expect.injection = { needles: [] }
+    expect(() => parseExplainDraft(none)).toThrow('invalid explain draft')
+  })
 })
 
 describe('the approved suites do not see the draft', () => {

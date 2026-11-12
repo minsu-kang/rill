@@ -1,8 +1,11 @@
 import { LlmError } from '@rill/llm'
-import { ERROR_CODES, METHODS } from '@rill/protocol'
+import { ExplainError } from '@rill/planner'
+import { ERROR_CODES, METHODS, RillClient } from '@rill/protocol'
 import Value from 'typebox/value'
 import { describe, expect, it, vi } from 'vitest'
-import { GOOD, RUN_MARKER, failure, http, startEnv, useCleanups, useTempDir } from './explain-helpers'
+import type { Engine } from '../src/engine'
+import { RillServer } from '../src/server/server'
+import { GOOD, RUN_MARKER, TOKEN, failure, http, startEnv, useCleanups, useTempDir } from './explain-helpers'
 import { waitFor } from './process'
 import type { Step } from './plan-helpers'
 
@@ -218,6 +221,21 @@ describe('EXPLAIN_PROVIDER, EXPLAIN_INVALID and EXPLAIN_BUSY', () => {
     const runId = await env.run([http(env.base, '/status/404')])
     for (let index = 0; index < 3; index++) expect((await failure(env.client.request('explainRun', { runId }))).code).toBe('EXPLAIN_PROVIDER')
     expect((await env.client.request('explainRun', { runId })).explanation).toBe(GOOD.explanation)
+  })
+})
+
+describe('an explanation that was cancelled', () => {
+  it('is answered with the provider code and a fixed text', async () => {
+    const thrown = { on: () => () => undefined, explainRun: () => Promise.reject(new ExplainError('aborted', 'the explanation was cancelled')) } as unknown as Engine
+    const server = new RillServer({ engine: thrown, token: TOKEN, log: () => undefined })
+    const port = await server.listen()
+    const client = await RillClient.connect(`ws://127.0.0.1:${port}/`, TOKEN)
+    try {
+      expect(await failure(client.request('explainRun', { runId: 'run-1' }))).toMatchObject({ code: 'EXPLAIN_PROVIDER', message: 'the explanation was cancelled' })
+    } finally {
+      client.close()
+      await server.close()
+    }
   })
 })
 
