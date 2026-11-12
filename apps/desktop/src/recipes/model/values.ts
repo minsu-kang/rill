@@ -42,7 +42,7 @@ export function toRequestValues(params: readonly RecipeParamInfo[], values: Form
   const entries: Array<[string, string | number]> = []
   const errors: Array<[string, ValueError]> = []
   for (const param of params) {
-    const raw = Object.hasOwn(values, param.id) ? values[param.id]! : ''
+    const raw = valueOf(values, param.id)
     if (raw.trim() === '') {
       if (param.default === undefined) errors.push([param.id, 'required'])
       continue
@@ -72,4 +72,8 @@ const ERROR_KEYS: Readonly<Record<ValueError, MessageKey>> = {
 
 export function valueErrorKey(error: ValueError): MessageKey {
   return ERROR_KEYS[error]
+}
+
+export function valueOf(values: FormValues, id: string): string {
+  return Object.hasOwn(values, id) ? values[id]! : ''
 }

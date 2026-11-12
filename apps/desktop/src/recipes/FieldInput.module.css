@@ -1,0 +1,113 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--text-primary);
+}
+
+.labelRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.label {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.marker {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.help,
+.hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.hint {
+  font-size: var(--font-size-xs);
+}
+
+.inputRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.control {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.control[aria-invalid='true'] {
+  border-color: var(--status-failed-text);
+}
+
+.control:focus-visible,
+.button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.button {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--surface-sunken);
+}
+
+.presetRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.presetLabel {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.notice {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--status-abandoned-border);
+  border-radius: var(--radius-md);
+  background: var(--status-abandoned-bg);
+  color: var(--status-abandoned-text);
+  font-size: var(--font-size-sm);
+}
+
+.error {
+  margin: 0;
+  color: var(--status-failed-text);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.raw {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
