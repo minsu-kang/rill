@@ -18,6 +18,7 @@ export default defineConfig(
   },
   {
     files: ['apps/desktop/src/**/*.{ts,tsx}', 'apps/desktop/.storybook/preview.tsx'],
+    ignores: ['apps/desktop/src/main/**', 'apps/desktop/src/preload/**'],
     rules: {
       'no-restricted-imports': 'off',
       '@typescript-eslint/no-restricted-imports': [

@@ -31,7 +31,7 @@ const MODEL_PATTERN = '^[a-z0-9][a-z0-9._-]{1,63}$'
 const NO_CONTROL = '^[^\\u0000-\\u001f\\u007f]+$'
 
 export const ConnectionNameSchema = Type.String({ minLength: 1, maxLength: MAX_NAME_LENGTH, pattern: NO_CONTROL })
-export const SecretValueSchema = Type.String({ minLength: 1, maxLength: MAX_SECRET_LENGTH })
+export const SecretValueSchema = Type.String({ minLength: 1, maxLength: MAX_SECRET_LENGTH, pattern: '^[^\\u0000]+$' })
 export const PathSchema = Type.String({ minLength: 1, maxLength: MAX_PATH_LENGTH })
 export const ModelSchema = Type.String({ pattern: MODEL_PATTERN })
 const FileNameSchema = Type.String({ minLength: 1, maxLength: MAX_FILE_NAME_LENGTH })
@@ -209,6 +209,7 @@ export const HOST_ERROR_CODES = [
   'NO_KEYCHAIN',
   'NAME_COLLISION',
   'SECRETS_UNREADABLE',
+  'ENGINE_UNAVAILABLE',
   'ATTACHMENT_REJECTED',
   'INTERNAL',
 ] as const

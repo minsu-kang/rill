@@ -42,6 +42,15 @@ describe('eslint import restrictions for the renderer', () => {
     expect(await problems("import { x } from '@rill/engine'\nexport { x }\n", 'apps/desktop/scripts/probe.ts')).toEqual([])
   })
 
+  it('leave the main process and the preload free to use node modules, and keep shared and the renderer shell restricted', async () => {
+    for (const file of ['apps/desktop/src/main/probe.ts', 'apps/desktop/src/preload/probe.ts']) {
+      expect(await problems("import { x } from 'node:fs'\nexport { x }\n", file), file).toEqual([])
+    }
+    for (const file of ['apps/desktop/src/shared/probe.ts', 'apps/desktop/src/renderer-shell/probe.ts']) {
+      expect(await problems("import { x } from 'node:fs'\nexport { x }\n", file), file).toContain('@typescript-eslint/no-restricted-imports')
+    }
+  })
+
   it('check the rules of hooks', async () => {
     const rules = await problems("import { useState } from 'react'\nexport function f(on: boolean) {\n  if (on) useState(0)\n}\n", 'apps/desktop/src/probe.tsx')
     expect(rules).toContain('react-hooks/rules-of-hooks')

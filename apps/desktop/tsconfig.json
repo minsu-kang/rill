@@ -6,5 +6,6 @@
     "resolveJsonModule": true,
     "types": []
   },
-  "include": ["src/**/*", ".storybook/**/*"]
+  "include": ["src/**/*", ".storybook/**/*"],
+  "exclude": ["src/main/**", "src/preload/**"]
 }

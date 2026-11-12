@@ -93,6 +93,8 @@ describe('argument schemas', () => {
       [CHANNELS.settingsUpdate, null],
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic' }],
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 5 }],
+      [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'a\u0000b' }],
+      [CHANNELS.secretsSetConnection, { name: 'team', kind: 'http', secret: 'a\u0000b' }],
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', extra: true }],
       [CHANNELS.secretsClearProviderKey, { provider: 'anthropic', value: 'k' }],
       [CHANNELS.secretsSetConnection, { name: 'team', kind: 'discord', secret: 's' }],

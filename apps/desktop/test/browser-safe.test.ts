@@ -10,9 +10,12 @@ const BANNED = ['@rill/engine', '@rill/planner', '@rill/llm', '@rill/recipes', '
 const TYPE_ONLY = ['@rill/nodes-core']
 const SPECIFIER = /\b(import|export)(\s+type)?\b([^'";]*?)\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]|\bimport\s*['"]([^'"]+)['"]|\brequire\s*\(\s*['"]([^'"]+)['"]/g
 
+const NODE_SIDE = [join(SRC, 'main'), join(SRC, 'preload')]
+
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name)
+    if (NODE_SIDE.includes(path)) return []
     if (entry.isDirectory()) return sources(path)
     return /\.(ts|tsx)$/.test(entry.name) ? [path] : []
   })
@@ -55,6 +58,13 @@ describe('renderer sources stay browser-safe', () => {
     const builtins = new Set(builtinModules)
     const bad = found.filter((f) => f.specifier.startsWith('node:') || builtins.has(f.specifier) || builtins.has(f.specifier.split('/')[0]!))
     expect(bad.map((f) => `${f.file}: ${f.specifier}`)).toEqual([])
+  })
+
+  it('import nothing from the main process or the preload, and keep their code out of these checks only', () => {
+    const bad = found.filter((f) => /(^|\/)(main|preload)(\/|$)/.test(f.specifier) && f.specifier.startsWith('.'))
+    expect(bad.map((f) => `${f.file}: ${f.specifier}`)).toEqual([])
+    expect(found.some((f) => f.file.startsWith('src/main/') || f.file.startsWith('src/preload/'))).toBe(false)
+    expect(found.some((f) => f.file.startsWith('src/shared/'))).toBe(true)
   })
 
   it('import none of the engine side packages', () => {

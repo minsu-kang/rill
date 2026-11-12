@@ -7,7 +7,7 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "fixtures": "node --import tsx scripts/make-catalog-fixture.ts",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json && tsc -p tsconfig.main.json",
     "bundle-engine": "node --import tsx scripts/bundle-engine.ts"
   },
   "dependencies": {

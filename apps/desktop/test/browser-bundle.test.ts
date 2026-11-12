@@ -11,9 +11,12 @@ const SRC = join(ROOT, 'src')
 const PREVIEW = join(ROOT, '.storybook/preview.tsx')
 const BUILTINS = new Set(builtinModules)
 
+const NODE_SIDE = [join(SRC, 'main'), join(SRC, 'preload')]
+
 function entries(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name)
+    if (NODE_SIDE.includes(path)) return []
     if (entry.isDirectory()) return entries(path)
     return /\.(ts|tsx)$/.test(entry.name) && !entry.name.endsWith('.d.ts') ? [path] : []
   })
