@@ -34,6 +34,36 @@ const writing = (output: number) => {
   return jsonReply(responseBody('completed', '{"word":"rill","count":3,"note":null}', { model: 'gpt-6-astra', usage }))
 }
 
+describe('check-provider budget guard at the boundary', () => {
+  it('runs the first call when the budget is exactly its worst case', async () => {
+    const worst = estimateWorstCallUsd(SPEC, FIRST_CALL_TOKENS, 2000)!
+    const { code, out, transport } = await run(['--budget-usd', String(worst), '--yes'], [writing(100), writing(100)])
+    expect(code).toBe(0)
+    expect(transport.requests).toHaveLength(1)
+    expect(out).toContain('call 1 of 4: text + schema with an optional field: ok')
+    expect(out).toContain('call 2 of 4: the same call again, to see a cache read: not run')
+  })
+
+  it('refuses a budget one cent below the first worst case before sending anything', async () => {
+    const worst = estimateWorstCallUsd(SPEC, FIRST_CALL_TOKENS, 2000)!
+    const { code, err, transport } = await run(['--budget-usd', String(worst - 0.01), '--yes'], [writing(100)])
+    expect(code).not.toBe(0)
+    expect(err).toContain('below the worst case of the first call')
+    expect(transport.requests).toHaveLength(0)
+  })
+
+  it('reserves twice the output for a model whose reasoning the cap does not cover', async () => {
+    const soft = estimateWorstCallUsd('grok:grok-4.7', FIRST_CALL_TOKENS, 2000 * 2)!
+    const plain = estimateWorstCallUsd('grok:grok-4.7', FIRST_CALL_TOKENS, 2000)!
+    expect(soft).toBeGreaterThan(plain)
+    const out: string[] = []
+    const io: CliIo = { stdout: (text) => void out.push(text), stderr: () => undefined, env: { XAI_API_KEY: 'xai-12345678' }, now: () => Date.UTC(2026, 10, 13) }
+    await main(['check-provider', '--provider', 'grok', '--model', 'grok-4.7', '--dry'], io)
+    expect(out.join('')).toContain('worst case $' + soft.toFixed(4))
+    expect(out.join('')).not.toContain('worst case $' + plain.toFixed(4))
+  })
+})
+
 describe('check-provider budget guard', () => {
   const worstFirst = estimateWorstCallUsd(SPEC, FIRST_CALL_TOKENS, 2000)!
 

@@ -36,8 +36,10 @@ describe('resolveModelSpecs', () => {
     expect(() => resolveModelSpecs('--models', ['openai:gpt-9'])).toThrow(/unknown model 'gpt-9' for OpenAI; known models: gpt-6-astra/)
   })
 
-  it('refuses a Meta contributor id', () => {
-    expect(() => resolveModelSpecs('--models', ['meta:muse-spark-1.3-contributor'])).toThrow(/contributor/)
+  it('refuses a contributor id of any provider, a bare Claude id included, before looking for the model', () => {
+    for (const spec of ['meta:muse-spark-1.3-contributor', 'openai:gpt-6-luna-contributor', 'grok:grok-4.7-contributor', 'claude-sonnet-5-5-contributor']) {
+      expect(() => resolveModelSpecs('--models', [spec]), spec).toThrow(/contributor model that trains on your content/)
+    }
   })
 
   it('refuses an id with odd characters and an empty model', () => {
@@ -126,6 +128,28 @@ describe('createSpecProvider', () => {
     await provider.generate({ messages: [{ role: 'user', content: 'hi' }], schema, effort: 'high' })
     expect((transport.requests[0]!.json as { reasoning: { effort: string } }).reasoning.effort).toBe('low')
     expect(provider.capabilities?.cache).toBe('explicit')
+  })
+
+  it('asks every provider for the run default of 16000 output tokens when the caller names none', async () => {
+    for (const { spec, reply, key, maxField } of CASES) {
+      const transport = createFakeTransport()
+      transport.script(reply)
+      const { provider } = createSpecProvider({ model: spec, apiKey: key, fetch: transport.fetch })
+      await provider.generate({ messages: [{ role: 'user', content: 'hi' }], schema })
+      expect(maxField(transport.requests[0]!.json as Record<string, unknown>), spec).toBe(16_000)
+    }
+  })
+
+  it('hands the run signal to every non-Anthropic provider, so an abort stops the call before any request', async () => {
+    for (const { spec, reply, key } of CASES.filter((entry) => !entry.spec.startsWith('claude'))) {
+      const transport = createFakeTransport()
+      transport.script(reply)
+      const controller = new AbortController()
+      controller.abort()
+      const { provider } = createSpecProvider({ model: spec, apiKey: key, fetch: transport.fetch, signal: controller.signal })
+      await expect(provider.generate({ messages: [{ role: 'user', content: 'hi' }], schema }), spec).rejects.toMatchObject({ kind: 'aborted' })
+      expect(transport.requests, spec).toHaveLength(0)
+    }
   })
 
   it('declares the model capabilities on the provider it hands out', () => {

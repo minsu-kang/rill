@@ -1,7 +1,7 @@
 import { ANTHROPIC_CAPABILITIES } from '@rill/llm'
 import { describe, expect, it } from 'vitest'
 import { costUsd, estimateCallUsd, priceFor } from '../src/pricing'
-import { SOFT_CAP_RESERVE_FACTOR, capabilitiesOfSpec, modelIdOf, providerOfSpec, softCapFactor } from '../src/spec'
+import { SOFT_CAP_RESERVE_FACTOR, capabilitiesOfSpec, modelIdOf, providerOfSpec, softCapFactor, unsupportedMediaReason } from '../src/spec'
 
 describe('model specs', () => {
   it('takes the model id out of a provider:model spec and leaves a bare id alone', () => {
@@ -36,6 +36,20 @@ describe('model specs', () => {
     expect(softCapFactor('grok:grok-4.7')).toBe(SOFT_CAP_RESERVE_FACTOR)
     expect(softCapFactor('grok:grok-4.3')).toBe(SOFT_CAP_RESERVE_FACTOR)
     for (const spec of ['claude-sonnet-5-5', 'openai:gpt-6.1-sol', 'gemini:gemini-3.8-flash', 'meta:muse-spark-1.3']) expect(softCapFactor(spec)).toBe(1)
+  })
+})
+
+describe('unsupportedMediaReason', () => {
+  it('names a PDF for a model that reads none and an image type outside its list', () => {
+    expect(unsupportedMediaReason('grok:grok-4.7', ['application/pdf'])).toBe('grok:grok-4.7 reads no PDF files')
+    expect(unsupportedMediaReason('gemini:gemini-3.8-flash', ['image/gif'])).toBe('gemini:gemini-3.8-flash does not take image/gif images')
+    expect(unsupportedMediaReason('grok:grok-4.7', ['image/png', 'image/webp'])).toBe('grok:grok-4.7 does not take image/webp images')
+  })
+
+  it('says nothing about types the model takes, or about types that are neither PDF nor image', () => {
+    expect(unsupportedMediaReason('openai:gpt-6.1-sol', ['application/pdf', 'image/gif', 'image/webp'])).toBeUndefined()
+    expect(unsupportedMediaReason('grok:grok-4.7', ['image/png', 'image/jpeg', 'text/plain'])).toBeUndefined()
+    expect(unsupportedMediaReason('claude-sonnet-5-5', [])).toBeUndefined()
   })
 })
 
