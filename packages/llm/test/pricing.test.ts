@@ -208,3 +208,56 @@ describe('vendor prices', () => {
     }
   })
 })
+
+describe('long-context thresholds', () => {
+  const THRESHOLDS: Record<string, number> = {
+    'claude-haiku-5-5': 100_000,
+    'gpt-6-astra': 272_000,
+    'gpt-6.1-sol': 272_000,
+    'gpt-6.1-terra': 272_000,
+    'gpt-6-luna': 272_000,
+    'gpt-5.6-terra': 272_000,
+    'gemini-3.1-pro-preview': 200_000,
+    'grok-4.7': 199_999,
+    'grok-4.6': 199_999,
+    'grok-4.5': 199_999,
+    'grok-4.3': 199_999,
+    'grok-4.20-0309-reasoning': 199_999,
+    'grok-4.20-0309-non-reasoning': 199_999,
+    'grok-build-0.1': 199_999,
+    'muse-ember-1.0': 200_000,
+  }
+
+  it('lists exactly the models that have a long-context tier, with the threshold the vendor states', () => {
+    const found = Object.fromEntries(Object.entries(PRICE_TABLE).flatMap(([id, entry]) => (entry.longContext === undefined ? [] : [[id, entry.longContext.aboveInputTokens]])))
+    expect(found).toEqual(THRESHOLDS)
+  })
+
+  it.each(Object.entries(THRESHOLDS))('%s switches to the long tier one token past %i', (model, above) => {
+    const base = priceFor(model)!
+    const tier = base.longContext!
+    const at = costUsd(model, usage(above, 1000))!
+    const past = costUsd(model, usage(above + 1, 1000))!
+    expect(at).toBeCloseTo((above * base.input + 1000 * base.output) / 1e6, 9)
+    expect(past).toBeCloseTo(((above + 1) * tier.input + 1000 * tier.output) / 1e6, 9)
+    expect(past).toBeGreaterThan(at)
+  })
+
+  it('counts cached tokens toward the prompt size', () => {
+    const base = priceFor('gpt-6-astra')!
+    expect(costUsd('gpt-6-astra', usage(100_000, 0, 172_001, 0))!).toBeCloseTo((100_000 * base.longContext!.input + 172_001 * base.longContext!.cacheRead) / 1e6, 9)
+    expect(costUsd('gpt-6-astra', usage(100_000, 0, 0, 172_001))!).toBeCloseTo((100_000 * base.longContext!.input + 172_001 * base.longContext!.cacheWrite) / 1e6, 9)
+  })
+})
+
+describe('price ids', () => {
+  it('has no id that is a dash-prefix of another, so the longest-match rule never has two candidates', () => {
+    const ids = Object.keys(PRICE_SCHEDULE)
+    for (const id of ids) expect(ids.filter((other) => other !== id && id.startsWith(`${other}-`)), id).toEqual([])
+  })
+
+  it('matches a dated snapshot of a known id and nothing that merely starts with it', () => {
+    expect(priceFor('claude-sonnet-5-5-20261001')).toBe(priceFor('claude-sonnet-5-5'))
+    expect(priceFor('claude-sonnet-5-55')).toBeUndefined()
+  })
+})

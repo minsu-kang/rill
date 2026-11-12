@@ -77,6 +77,35 @@ describe('readSse', () => {
     expect(state.cancelled).toBe(true)
   })
 
+  it('drops a byte order mark at the very start of the stream, and only there', async () => {
+    expect(new SseParser().push('\ufeffdata: a\n\n')).toEqual([{ data: 'a' }])
+    const parser = new SseParser()
+    expect(parser.push('data: a\n\n')).toEqual([{ data: 'a' }])
+    expect(parser.push('\ufeffdata: b\n\n')).toEqual([])
+    const late = new SseParser()
+    expect(late.push('')).toEqual([])
+    expect(late.push('\ufeffdata: c\n\n')).toEqual([{ data: 'c' }])
+  })
+
+  it('waits for the next chunk when a chunk ends on a lone CR, so CR then LF is one line end', () => {
+    const parser = new SseParser()
+    expect(parser.push('data: x\r')).toEqual([])
+    expect(parser.push('\ndata: y\r\n\r\n')).toEqual([{ data: 'x\ny' }])
+  })
+
+  it('treats a CR at the very end of the stream as a line end', () => {
+    const parser = new SseParser()
+    expect(parser.push('data: a\r\r')).toEqual([])
+    expect(parser.end()).toEqual([{ data: 'a' }])
+  })
+
+  it('allows exactly the size limit for an unfinished event and refuses one byte more', () => {
+    const exact = new SseParser()
+    expect(() => exact.push(`data: ${'a'.repeat(MAX_SSE_EVENT_BYTES - 6)}`)).not.toThrow()
+    const over = new SseParser()
+    expect(() => over.push(`data: ${'a'.repeat(MAX_SSE_EVENT_BYTES - 5)}`)).toThrow(LlmError)
+  })
+
   it('treats a [DONE] marker inside a longer data value as ordinary data', async () => {
     expect(await collect(['data: x [DONE]\n\n'])).toEqual([{ data: 'x [DONE]' }])
   })

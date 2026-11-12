@@ -27,6 +27,11 @@ describe('retryDelayMs', () => {
     expect(retryDelayMs(fail('overloaded'), 1, () => 1)).toBe(1000)
   })
 
+  it('keeps doubling for a third retry when the caller allows one', () => {
+    expect(retryDelayMs(fail('overloaded'), 2, () => 0)).toBe(1000)
+    expect(retryDelayMs(fail('overloaded'), 2, () => 1)).toBe(2000)
+  })
+
   it('waits at least as long as retry-after asks, plus a little jitter', () => {
     expect(retryDelayMs(fail('rate_limit', 3000), 0, () => 0)).toBe(3000)
     expect(retryDelayMs(fail('rate_limit', 3000), 0, () => 1)).toBeGreaterThan(3000)

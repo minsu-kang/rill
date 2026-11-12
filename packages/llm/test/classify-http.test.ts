@@ -14,6 +14,11 @@ describe('parseRetryAfterMs', () => {
     expect(parseRetryAfterMs({ 'Retry-After': '3' }, now)).toBe(3000)
   })
 
+  it('treats a zero millisecond wait as a real value, not as missing', () => {
+    expect(parseRetryAfterMs(new Headers({ 'retry-after-ms': '0' }), now)).toBe(0)
+    expect(parseRetryAfterMs(new Headers({ 'retry-after-ms': '0', 'retry-after': '9' }), now)).toBe(0)
+  })
+
   it('reads an HTTP date and never returns a negative wait', () => {
     expect(parseRetryAfterMs(new Headers({ 'retry-after': 'Thu, 12 Nov 2026 10:00:30 GMT' }), now)).toBe(30_000)
     expect(parseRetryAfterMs(new Headers({ 'retry-after': 'Thu, 12 Nov 2026 09:00:00 GMT' }), now)).toBe(0)
@@ -110,5 +115,24 @@ describe('classifyHttp', () => {
   it('handles an empty or unparseable body without throwing', () => {
     expect(classifyHttp(400, '', new Headers()).kind).toBe('invalid_request')
     expect(classifyHttp(500, '<html>oops</html>', new Headers()).kind).toBe('overloaded')
+  })
+})
+
+describe('classifyHttp details', () => {
+  it('reads the request id from either header name', () => {
+    expect(classifyHttp(500, '{}', new Headers({ 'x-request-id': 'req_x' })).requestId).toBe('req_x')
+    expect(classifyHttp(500, '{}', new Headers({ 'request-id': 'req_plain' })).requestId).toBe('req_plain')
+    expect(classifyHttp(500, '{}', new Headers({ 'x-request-id': 'req_x', 'request-id': 'req_plain' })).requestId).toBe('req_x')
+  })
+
+  it('keeps no more than 64 characters of a vendor code or type as the category', () => {
+    expect(classifyHttp(400, body({ code: 'c'.repeat(100), message: 'm' })).category).toBe('c'.repeat(64))
+    expect(classifyHttp(400, body({ type: 't'.repeat(100), message: 'm' })).category).toBe('t'.repeat(64))
+  })
+
+  it('redacts a secret of four characters but not one of three', async () => {
+    const { redactSecrets } = await import('../src/index')
+    expect(redactSecrets('the key abcd leaked', ['abcd'])).toBe('the key [redacted] leaked')
+    expect(redactSecrets('the key abc leaked', ['abc'])).toBe('the key abc leaked')
   })
 })

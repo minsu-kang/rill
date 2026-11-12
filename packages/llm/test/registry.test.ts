@@ -134,6 +134,19 @@ describe('model lookups', () => {
     expect(findModel('')).toBeUndefined()
   })
 
+  it('does not see a contributor model even when a descriptor lists one, and refuses to create it', () => {
+    const base = DEFAULT_DESCRIPTORS.find((entry) => entry.id === 'meta') as ProviderDescriptor
+    const spark = base.models[1]!
+    const listed: ProviderDescriptor = { ...base, models: [spark, { ...spark, id: 'muse-spark-1.3-contributor' }, { ...spark, id: 'muse-spark-1.3-Contributor' }] }
+    const registry = createRegistry([listed])
+    expect(registry.findModel('meta:muse-spark-1.3')).toBeDefined()
+    expect(registry.findModel('meta:muse-spark-1.3-contributor')).toBeUndefined()
+    expect(registry.findModel('meta:muse-spark-1.3-Contributor')).toBeUndefined()
+    for (const id of ['muse-spark-1.3-contributor', 'muse-spark-1.3-Contributor']) {
+      expect(() => registry.createProvider(`meta:${id}`, { env: { META_API_KEY: 'k-123456' } })).toThrow(/contributor model that trains on your content/)
+    }
+  })
+
   it('lists every model once, Anthropic first, in a stable order', () => {
     const models = listModels()
     expect(models).toEqual([...MODEL_TABLE])
