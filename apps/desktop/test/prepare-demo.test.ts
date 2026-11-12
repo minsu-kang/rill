@@ -265,6 +265,16 @@ describe('formatNextSteps', () => {
     for (const file of DEMO_FILES) expect(text).toContain(file.name)
   })
 
+  it('sends the request that carries the values first and offers the answers only as a fallback', () => {
+    const lines = formatNextSteps(prepareDemo({ home }))
+    const send = lines.findIndex((line) => line.includes('send the request in docs/demo.md that names the folder, the CSV file and the connection'))
+    const fallback = lines.findIndex((line) => line.includes('If the planner asks questions anyway, answer with:'))
+    const folder = lines.findIndex((line) => line.includes(`folder      ${join(home, 'Rill-Demo', 'Inbox')}`))
+    expect(send).toBeGreaterThan(-1)
+    expect(fallback).toBe(send + 1)
+    expect(folder).toBeGreaterThan(fallback)
+  })
+
   it('reports files that were already there', () => {
     prepareDemo({ home })
     const text = formatNextSteps(prepareDemo({ home })).join('\n')

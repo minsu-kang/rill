@@ -11,8 +11,8 @@ Rill is an independent project and has no affiliation with any workflow-automati
 ## The demo scene
 
 1. In the chat: "When a receipt PDF arrives in the folder, have the model read the amount and the date, add them to a CSV, and tell me on Slack" (typed in Korean in the recording).
-2. Rill asks the few questions it cannot guess: which folder, which CSV file, which Slack connection.
-3. It shows the workflow as a graph with a plain summary and marks every value that did not come from your own words. You confirm those, then deploy.
+2. If the request leaves a gap, Rill asks the few questions it cannot guess: which folder, which CSV file, which Slack connection. A request that already names them skips this step.
+3. It shows the workflow as a graph with a plain summary. A value that did not come from your own words carries a flag, and deploy waits until you confirm each one. Then you deploy.
 4. A dry run reads the sample receipt and skips the CSV write and the Slack message. You activate the workflow.
 5. You copy a receipt into the watched folder. The nodes light up one by one, a row appears in the CSV, and the Slack message goes out.
 6. A run that fails (a Slack address that does not work) gets a "why did it fail" button that explains the cause in plain words and offers the next step.
@@ -23,16 +23,16 @@ Rill is an independent project and has no affiliation with any workflow-automati
 
 | Feature | What it does |
 | --- | --- |
-| Planner | Turns a request into a typed workflow, a short list of questions, or a refusal. Generation is constrained by the workflow schema, checked in four stages (schema, graph, meaning, missing information) and repaired for up to three rounds. A request about an existing workflow produces a patch instead of a rewrite. |
+| Planner | Turns a request into a typed workflow, a short list of questions, or a refusal. Generation is constrained by the workflow schema, checked in four stages (schema, graph, meaning, missing information) and repaired for up to three rounds. With a node selected, a request about an existing workflow produces a patch to that node instead of a rewrite. |
 | Questions and flags | When the request leaves a gap, the planner asks instead of guessing. Values that did not come from your own words (a folder from an attachment, a new send target, a path built from document content) are flagged, and deploying needs a confirmation for each flag. |
 | Graph | A read-only React Flow canvas with live node states, an inspector for the input and output of every attempt, and a run history that replays any past run on the graph. |
-| Durable engine | SQLite in WAL mode. Each step is written down before it runs, so a run killed with `kill -9` resumes after restart. Retries use exponential backoff with jitter and cover network errors, 5xx and 429. Folder watching waits for a file to stop changing and deduplicates by fingerprint. Cron has a missed-run policy. A dry run skips the external side effects. |
+| Durable engine | SQLite in WAL mode. Each step is written down before it runs, so a run killed with `kill -9` resumes after restart. A node with a retry policy is retried with exponential backoff and jitter on network errors, 5xx and 429. Folder watching waits for a file to stop changing and deduplicates by fingerprint. Cron has a missed-run policy. A dry run skips the external side effects. |
 | Recipes | Six ready-made workflows (receipts to CSV, large receipt alert, daily health check, webhook to Slack, monthly reminder, failure alert) filled in from a short form. No model, no key and no network are needed. |
 | Failure explanation | For a failed run, one button asks the model to explain the cause. The step record is sent with secrets masked, the answer comes back as a closed schema, and nothing is stored or executed. Suggested actions are buttons that the app owns. |
-| Five providers | Anthropic (the default), OpenAI, Gemini, Grok and Meta behind one interface that declares what each model can do. Keys live in the system keychain. |
+| Five providers | Anthropic (the default), OpenAI, Gemini, Grok and Meta behind one interface that declares what each model can do. Keys are encrypted with Electron `safeStorage`, whose key is in the macOS keychain. |
 | Memory | Up to 20 short notes that you write yourself ("my receipts live in ~/Receipts"). The planner reads them on each request. Nothing else can create or change a note. |
 | Storybook | Every screen is a story with fixtures and a fake engine. Look at all of it without an API key, an engine or Electron. |
-| Desktop shell | Tray icon, open at login, secrets in the keychain, a hardened window, and a macOS installer built with electron-builder. |
+| Desktop shell | Tray icon, open at login, secrets encrypted with `safeStorage`, a hardened window, and a macOS installer built with electron-builder. |
 
 ## Architecture
 
@@ -44,7 +44,7 @@ flowchart LR
       client["RillClient from @rill/protocol"]
     end
     preload["Preload: window.rill host API"]
-    main["Main process: settings, keychain, tray, engine supervisor"]
+    main["Main process: settings, secrets, tray, engine supervisor"]
     subgraph engine["Engine child process (utilityProcess)"]
       server["WebSocket server on 127.0.0.1 with a token"]
       runner["Executor, scheduler, folder watch, webhook listener"]
@@ -54,7 +54,7 @@ flowchart LR
     end
   end
   db[("SQLite: rill.db")]
-  keychain[("OS keychain: safeStorage")]
+  keychain[("macOS keychain: the key of safeStorage")]
   files["Allowed folders and attachments"]
   providers["Model providers: Anthropic, OpenAI, Gemini, Grok, Meta"]
   ui --> preload
@@ -109,7 +109,7 @@ pnpm check
 | Run the engine without the app | `pnpm --filter @rill/engine cli serve`, see [packages/engine](packages/engine/README.md) |
 | Check the evaluation harness without a key or a network | `pnpm eval extract --baselines` and `pnpm eval planner --dry` |
 
-Add a model key in the app under Settings, Keys. It goes to the system keychain. The command line reads `ANTHROPIC_API_KEY` and the other provider variables from the environment instead.
+Add a model key in the app under Settings, Keys. It is stored encrypted with `safeStorage`, whose key is in the macOS keychain. The command line reads `ANTHROPIC_API_KEY` and the other provider variables from the environment instead.
 
 The installer is signed ad hoc and not notarized, so macOS blocks a downloaded copy. [apps/desktop](apps/desktop/README.md) explains the one-time unblock step.
 
@@ -117,16 +117,16 @@ The installer is signed ad hoc and not notarized, so macOS blocks a downloaded c
 
 The short version. [docs/security.md](docs/security.md) has the threat model, the place in the code where each control lives, and what is not covered.
 
-1. Keys and connection secrets are stored with Electron `safeStorage` (the OS keychain). They are never written to the database, a workflow or a log, and the window never receives one. Without a keychain, saving is refused.
+1. Keys and connection secrets are encrypted with Electron `safeStorage`, whose key is in the macOS keychain. They are never written to the database, a workflow or a log, and the window never receives one. Without a keychain, saving is refused.
 2. The engine listens on `127.0.0.1` only and requires a random token that is new on every start. It also checks the `Host` and `Origin` headers.
 3. Files are limited to the folders you picked in the system dialog. The validator rejects a workflow that names a path outside them, and the nodes check the real path again at run time.
 4. The model chooses the graph only while planning. A running `llm.extract` returns fields limited by a schema, so an instruction hidden in a PDF cannot add or reorder nodes.
 5. A plan value that did not come from your own words (an attachment, a new send or write target, a path built from document content) carries a flag. The plan cannot be deployed until you confirm each flag.
 6. Everything that sends content to a model provider is marked "external transfer": attachments, notes, failure explanations and the receipt recipe.
-7. Attachments, run data, web responses and model output are untrusted. They are wrapped in random tags before a model sees them, shown only as plain text, and hidden-character tricks are made visible.
+7. Attachments, run data, web responses and model output are untrusted. Attachments, notes and run data are wrapped in random tags before a model sees them. Model output is shown only as plain text, and hidden-character tricks are made visible.
 8. A memory note is created only by your explicit save. A plan, an attachment or a model answer has no way to write one, and invisible formatting characters are refused.
 9. Failure explanations mask secrets in several encodings, and new URLs, hosts and email addresses in the model's answer are replaced before they can become your next request.
-10. The window runs with context isolation and the sandbox on, Node integration off, a strict content security policy, denied permissions and navigation, and a custom `app://` scheme. The packed app flips the Electron fuses and turns the developer tools off.
+10. The window runs with context isolation and the sandbox on, Node integration off, denied permissions and navigation, and a custom `app://` scheme. The built app adds a strict content security policy. The packed app flips the Electron fuses and turns the developer tools off. Development mode (`dev`) has no content security policy and keeps the developer tools on.
 
 ## Evaluation
 
@@ -170,8 +170,8 @@ Not run yet. The suite has 48 approved cases: 20 easy, 10 ambiguous (the right a
 
 ## Known limitations
 
-- macOS first. The installer is unsigned, and the smoke check of the packed app runs on macOS only. Windows and Linux are untested.
-- The graph is read-only. You change a workflow by asking in the chat (patch mode) or with a recipe. Editing node settings in forms is not built. There is no delete for a workflow.
+- macOS first. The installer is signed ad hoc and not notarized, and the smoke check of the packed app runs on macOS only. Windows and Linux are untested.
+- The graph is read-only. You change a workflow by selecting a node and asking in the chat (patch mode), or with a recipe. Editing node settings in forms is not built. There is no delete for a workflow.
 - The delivery guarantee is at least once. A crash between sending a Slack message and recording it can send the message twice. CSV rows are deduplicated by an idempotency key.
 - A dry run still reads the file and calls the model, because reading is not a side effect. It skips the CSV write, the Slack message and HTTP requests.
 - Webhook triggers listen on `localhost` only. There is no tunnel and no cloud sync.

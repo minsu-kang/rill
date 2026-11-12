@@ -23,7 +23,7 @@ Do this once, off camera.
    - Provider and model, then Keys: add the key of your model provider. Pick a model that answers quickly, because the planning step must fit in a few seconds of video. The planner evaluation has not been run yet, so try the exact request once before you record.
    - Connections: add a connection named `demo-slack` of kind `slack`. For the failure scene, use the placeholder address `https://hooks.example.invalid/placeholder`, which cannot be reached, so the Slack step fails. To show a real message instead, use the incoming webhook address of a channel of your own, and read the note after step 11.
 4. The first-run card in the workspace lists three items (a folder, a provider key, a Slack connection) with a button for each. It disappears when they are done.
-5. Optional: in the notes tab (메모) of the chat panel, save the note `영수증 PDF는 ~/Rill-Demo/Inbox 폴더에 들어와요`. The planner then asks fewer questions. Notes are sent to the model provider with every request, and the screen says so.
+5. Optional, only for the plainer request that leaves the values out: in the notes tab (메모) of the chat panel, save the note `영수증 PDF는 ~/Rill-Demo/Inbox 폴더에 들어와요`. The planner then has less to ask. Notes are sent to the model provider with every request, and the screen says so.
 6. Arrange two Finder windows, `~/Rill-Demo/Receipts` and `~/Rill-Demo/Inbox`, next to the app. Have `~/Rill-Demo/ledger.csv` ready to open once it exists.
 
 ## The script
@@ -31,9 +31,9 @@ Do this once, off camera.
 | Time | Do | Say or show |
 | --- | --- | --- |
 | 0:00 | Show the empty window. | One sentence: you describe an automation, Rill builds it, and it runs on this Mac. |
-| 0:08 | Type the request in the chat (text below) and press Cmd+Enter, or the send button (보내기). | The effort slider stays on normal (보통). The notice under the input says what goes to the provider (AI 제공자에게 전송돼요). |
-| 0:20 | Answer the questions card (몇 가지 물어볼게요) with the values below, then press 답하기. | Rill asks instead of guessing. |
-| 0:35 | Read the plan card: the graph preview and the plain summary. Read each item under "확인이 필요한 항목" and tick 확인했어요 for it. | Each flag says why the value needs a look. A path or an address that is not in your own words gets a flag. |
+| 0:08 | Type the request in the chat (the first text below, with the three values in it) and press Cmd+Enter, or the send button (보내기). | The effort slider stays on normal (보통). The notice under the input says what goes to the provider (AI 제공자에게 전송돼요). |
+| 0:20 | Wait for the plan card. If a questions card (몇 가지 물어볼게요) comes first, answer it with the values below and press 답하기. | Rill asks instead of guessing. With the values in the request it usually has nothing to ask, so skip this row then. |
+| 0:35 | Read the plan card: the graph preview and the plain summary. If the card lists items under "확인이 필요한 항목", read each one and tick 확인했어요 for it. | Each flag says why the value needs a look. A path or an address that is not in your own words gets a flag. Values you typed yourself do not, so with the first text the list is usually empty and deploy is already on. |
 | 0:50 | Press 배포하기. | The graph appears in the workspace. The extract node carries the "외부 전송" badge, because the file content goes to the model. |
 | 0:58 | Press 시험 실행. Replace the sample payload with the JSON below and run it. | The dry run reads the receipt and calls the model. It skips the CSV write and the Slack message. The nodes turn green. |
 | 1:08 | Select the extract node. | The inspector shows what the model read: amount 14500 and date 2026-11-11. |
@@ -47,13 +47,19 @@ Do this once, off camera.
 
 ## The texts
 
-The request (the demo sentence of the project):
+The request. It carries the folder, the CSV file and the connection, so the planner should have nothing to ask:
+
+```
+~/Rill-Demo/Inbox 폴더에 영수증 PDF가 들어오면 LLM이 금액과 날짜를 뽑아 ~/Rill-Demo/ledger.csv에 쌓고 demo-slack 연결로 슬랙에 알려줘
+```
+
+The plainer demo sentence of the project, to show the questions card. The planner suite has no approved case for this sentence, and with two allowed folders (the attachment folder and `~/Rill-Demo`) it may ask or may guess, so try it before you record:
 
 ```
 폴더에 영수증 PDF가 들어오면 LLM이 금액과 날짜를 뽑아 CSV에 쌓고 슬랙으로 알려줘
 ```
 
-The answers to the questions. The wording of the questions depends on the model, so match each one by meaning:
+The answers to the questions of the plainer sentence. The wording of the questions depends on the model, so match each one by meaning:
 
 | Question about | Answer |
 | --- | --- |
@@ -61,11 +67,7 @@ The answers to the questions. The wording of the questions depends on the model,
 | The CSV file | `~/Rill-Demo/ledger.csv` |
 | The Slack connection | `demo-slack` |
 
-A shorter variant puts the values in the request, so the planner has less to ask. Values you wrote yourself are not flagged as foreign, so the plan has fewer items to confirm:
-
-```
-~/Rill-Demo/Inbox 폴더에 영수증 PDF가 들어오면 LLM이 금액과 날짜를 뽑아 ~/Rill-Demo/ledger.csv에 쌓고 demo-slack 연결로 슬랙에 알려줘
-```
+Optional, to show the flag gate on purpose: drop a small text file into the chat that says where the receipts arrive (for example the line `영수증은 ~/Rill-Demo/Inbox 폴더에 들어와요`) and use the plainer sentence without naming the folder. A folder that the planner takes from an attachment gets a flag, and deploy waits for your confirmation. Whether the model takes it from the file is not certain, so try it first. The file goes to the model provider like the rest of the request.
 
 The payload of the dry run. The folder trigger sends these fields. Point `file` at the receipt in `Receipts`:
 
