@@ -22,7 +22,7 @@ interface Item {
 export function firstRunItems(settings: Settings): Item[] {
   return [
     { id: 'folders', done: settings.allowedFolders.length > 0, optional: false, label: 'app.firstRun.folder', action: 'app.firstRun.folder.action' },
-    { id: 'keys', done: settings.configuredProviders.length > 0, optional: false, label: 'app.firstRun.key', action: 'app.firstRun.key.action' },
+    { id: 'keys', done: settings.configuredProviders.includes(settings.provider), optional: false, label: 'app.firstRun.key', action: 'app.firstRun.key.action' },
     { id: 'connections', done: settings.connections.some((entry) => entry.kind === 'slack'), optional: true, label: 'app.firstRun.slack', action: 'app.firstRun.slack.action' },
   ]
 }

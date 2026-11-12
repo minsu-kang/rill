@@ -1,14 +1,13 @@
 import type { NodeInfo, WorkflowSummary } from '@rill/protocol'
-import type { Workflow } from '@rill/dsl'
 import { useEffect, useRef, useState } from 'react'
 import type { EngineClient } from '../../engine/client'
 import { useT } from '../../i18n'
-import { badgesOf } from '../../model/badges'
 import { escapeInvisible, truncate } from '../../model/text'
 import controls from '../controls.module.css'
 import { useAction } from '../settings/useAction'
 import { ConfirmDialog } from './ConfirmDialog'
 import { PayloadDialog } from './PayloadDialog'
+import { SideEffects, useSideEffects } from './SideEffects'
 import { engineErrorKey } from './errors'
 import { needsPayload, triggerKind } from './samples'
 import styles from './Workflows.module.css'
@@ -24,8 +23,6 @@ export interface WorkflowActionsProps {
 }
 
 type Dialog = { kind: 'payload'; mode: 'dry' | 'live' } | { kind: 'confirmRun'; payload: unknown } | { kind: 'deactivate' }
-
-const MAX_TITLE = 60
 
 export function WorkflowActions({ client, workflowId, summary, catalog, onRunStarted, disabled = false, focusAction }: WorkflowActionsProps) {
   const t = useT()
@@ -138,62 +135,17 @@ export function WorkflowActions({ client, workflowId, summary, catalog, onRunSta
   )
 }
 
-type Loaded = { status: 'loading' } | { status: 'ready'; workflow: Workflow } | { status: 'error' }
-
 function RunConfirm({ client, workflowId, catalog, busy, error, onCancel, onConfirm }: { client: EngineClient; workflowId: string; catalog: readonly NodeInfo[]; busy: boolean; error: string | undefined; onCancel(): void; onConfirm(): void }) {
   const t = useT()
-  const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
-
-  useEffect(() => {
-    let live = true
-    client.request('getWorkflow', { workflowId }).then(
-      ({ workflow }) => {
-        if (live) setLoaded({ status: 'ready', workflow })
-      },
-      () => {
-        if (live) setLoaded({ status: 'error' })
-      },
-    )
-    return () => {
-      live = false
-    }
-  }, [client, workflowId])
-
-  const effects =
-    loaded.status === 'ready'
-      ? loaded.workflow.nodes.flatMap((node) => {
-          const info = catalog.find((entry) => entry.type === node.type)
-          const badges = badgesOf(node.type, info)
-          return badges.length === 0 ? [] : [{ id: node.id, title: info?.title ?? node.type, badges }]
-        })
-      : []
-
-  const details = (
-    <div>
-      <strong>{t('app.run.sideEffects')}</strong>
-      {loaded.status === 'loading' ? <p className={controls.note}>{t('app.run.loadingEffects')}</p> : null}
-      {loaded.status === 'error' ? <p className={controls.error}>{t('app.run.effectsError')}</p> : null}
-      {loaded.status === 'ready' && effects.length === 0 ? <p className={controls.note}>{t('app.run.noSideEffects')}</p> : null}
-      {effects.length > 0 ? (
-        <ul className={styles.effects}>
-          {effects.map((effect) => (
-            <li key={effect.id}>
-              {truncate(escapeInvisible(effect.title), MAX_TITLE)} ({truncate(escapeInvisible(effect.id), MAX_TITLE)}): {effect.badges.map((badge) => t(`badge.${badge}`)).join(', ')}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  )
-
+  const state = useSideEffects(client, workflowId, catalog)
   return (
     <ConfirmDialog
       title={t('app.run.confirmTitle')}
       message={t('app.run.confirmMessage')}
-      details={details}
+      details={<SideEffects state={state} />}
       confirmLabel={t('app.run.confirmAction')}
       cancelLabel={t('app.common.cancel')}
-      confirmDisabled={loaded.status !== 'ready'}
+      confirmDisabled={state.status !== 'ready'}
       busy={busy}
       error={error}
       onCancel={onCancel}

@@ -10,7 +10,7 @@ import { createEngineSupervisor, type ForkLike } from './engine-supervisor'
 import { createIpcHandlers, type DialogLike } from './ipc-handlers'
 import { applyLoginItem, launchedHidden } from './login-item'
 import { createSecretStore, type SafeStorageLike } from './secret-store'
-import { runSmoke } from './smoke'
+import { runSmoke, watchCspConsole } from './smoke'
 import { TRAY_ICON_DATA_URL, createTray, type MenuItemLike, type RillTray, type TrayLike } from './tray'
 import { createMainWindow, isAppUrl, type BrowserWindowLike } from './window'
 import { CHANNELS, ENGINE_STATUS_EVENT, hostErrorCode, type Settings } from '../shared/host-api'
@@ -111,6 +111,7 @@ async function start(): Promise<void> {
     isQuitting: () => quitting,
   })
   shell.window = window
+  const cspConsole = watchCspConsole(window.window.webContents as unknown as Parameters<typeof watchCspConsole>[0])
   supervisor.onStatus((status) => window.window.webContents.send(ENGINE_STATUS_EVENT, status))
   window.window.webContents.on('did-finish-load', () => window.window.webContents.send(ENGINE_STATUS_EVENT, supervisor.status()))
 
@@ -132,6 +133,7 @@ async function start(): Promise<void> {
       contents: window.window.webContents,
       loaded,
       supervisor,
+      cspConsole,
       print: (line) => process.stdout.write(`${line}\n`),
       exit: (code) => {
         if (smokeDir !== undefined) rmSync(smokeDir, { recursive: true, force: true })

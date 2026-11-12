@@ -1,5 +1,4 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
-import { createFakeHost } from '../engine/fake-host'
 import type { HostApi } from '../shared/host-api'
 import type { ConnectFn } from './connection'
 
@@ -13,7 +12,8 @@ export interface HostProviderProps {
 }
 
 export function HostProvider({ host, connect, children }: HostProviderProps) {
-  const chosen = useMemo(() => host ?? (typeof window === 'undefined' ? undefined : (window as { rill?: HostApi }).rill) ?? createFakeHost(), [host])
+  const chosen = useMemo(() => host ?? (typeof window === 'undefined' ? undefined : (window as { rill?: HostApi }).rill), [host])
+  if (chosen === undefined) throw new Error('HostProvider needs a host or window.rill')
   return (
     <HostContext.Provider value={chosen}>
       <ConnectContext.Provider value={connect}>{children}</ConnectContext.Provider>

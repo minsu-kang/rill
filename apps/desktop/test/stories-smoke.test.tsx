@@ -1,5 +1,5 @@
 import { composeStories, type Meta } from '@storybook/react-vite'
-import { act, render, within } from '@testing-library/react'
+import { act, render, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -60,6 +60,17 @@ const PLAYED: Readonly<Record<string, (t: Translate) => string[]>> = {
   'recipes/RecipePanel.stories.tsx ServerProblemsAtFields': (t) => [t('recipes.rule.not_absolute_path'), t('recipes.rule.wrong_extension'), t('recipes.form.submit')],
 }
 
+const APP_SCREEN = 'app/App.stories.tsx'
+const SHOWN: Readonly<Record<string, (t: Translate) => string[]>> = {
+  [`${APP_SCREEN} FirstRun`]: (t) => [t('app.top.engine.connected'), t('app.firstRun.title'), t('app.firstRun.folder.action'), t('app.wf.switcher.empty')],
+  [`${APP_SCREEN} Ready`]: (t) => [t('app.top.engine.connected'), t('app.wf.actions.dryRun'), t('app.wf.actions.runNow'), 'Extract fields with AI'],
+  [`${APP_SCREEN} FailedRunWithExplanation`]: (t) => [t('app.top.engine.connected'), t('explain.card.cause'), explainCases.configuration.explanation],
+  [`${APP_SCREEN} EngineRestarting`]: (t) => [t('app.top.engine.restarting'), t('app.chat.connecting'), t('app.main.connecting')],
+  [`${APP_SCREEN} EngineStopped`]: (t) => [t('app.top.engine.stopped'), t('app.engine.error.crashed'), t('app.top.engine.restart')],
+  [`${APP_SCREEN} NoKeychain`]: (t) => [t('app.top.engine.stopped'), t('app.engine.error.no_keychain'), t('app.settings.noKeychain.title'), t('app.keys.heading')],
+  [`${APP_SCREEN} NarrowWindow`]: (t) => [t('app.top.engine.connected'), t('app.top.chat.close'), t('app.wf.actions.dryRun')],
+}
+
 describe('story files', () => {
   it('can tell a message key that was never translated from ordinary text', () => {
     expect(untranslated('x status.nope y and workspace.loadError')).toEqual(['status.nope', 'workspace.loadError'])
@@ -76,6 +87,14 @@ describe('story files', () => {
       }
     }
     expect(missing).toEqual([])
+  })
+
+  it('name what every story of the app screen has to show, and every one of them is named', () => {
+    const named = stories(MODES[0].globals)
+      .filter((story) => story.file === APP_SCREEN)
+      .map((story) => `${story.file} ${story.name}`)
+      .sort()
+    expect(Object.keys(SHOWN).sort()).toEqual(named)
   })
 
   it('hold at least forty stories, and every story file has a title and at least one story', () => {
@@ -149,8 +168,19 @@ describe.each(MODES)('every story renders without an error or a warning ($name)'
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 40))
       })
+      const translate = createTranslator(mode.globals.locale as Locale)
+      const shown = SHOWN[`${file} ${name}`]?.(translate) ?? []
+      if (shown.length > 0) {
+        await waitFor(
+          () => {
+            const now = view.container.textContent ?? ''
+            for (const phrase of shown) expect(now, phrase).toContain(phrase)
+          },
+          { timeout: 8000 },
+        )
+      }
       const text = view.container.textContent ?? ''
-      const wanted = PLAYED[`${file} ${name}`]?.(createTranslator(mode.globals.locale as Locale)) ?? []
+      const wanted = PLAYED[`${file} ${name}`]?.(translate) ?? []
       const pressed = view.container.querySelectorAll('[aria-pressed="true"]').length
       const attributes = [...view.container.querySelectorAll('[aria-label], [title]')].map((item) => `${item.getAttribute('aria-label') ?? ''}\n${item.getAttribute('title') ?? ''}`).join('\n')
       const wrapper = view.container.querySelector('[data-theme]')

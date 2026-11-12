@@ -124,7 +124,7 @@ Every text a person reads goes through `useT()`. Add the key to both `src/i18n/k
 - The first click opens a notice: "the step record, with secrets hidden, is sent to the model provider", with the provider and model when `model` is given. "Do not ask again in this session" lives in component state only and is forgotten on remount; the notice comes back when `model` changes.
 - Effort is `low`, `medium` or `high` (default `medium`). It is not the planner slider.
 - While a request runs the panel can be closed. That does not cancel the request on the server, and the card says the answer is thrown away.
-- `retry_run` and `deactivate_workflow` ask for confirmation inside the card before `onAction` is called. `open_connections`, `edit_node`, `check_input_file` and `wait_and_retry` call it at once (they navigate or remind; `wait_and_retry` is only a text). `none` shows no button.
+- `retry_run` and `deactivate_workflow` ask for confirmation inside the card before `onAction` is called. `open_connections`, `edit_node`, `check_input_file` and `wait_and_retry` call it at once (they navigate or remind; `wait_and_retry` is only a text). `none` shows no button. In the app, `retry_run` and `deactivate_workflow` then ask a second time in a dialog of the app; for a real run the retry dialog lists what will happen, built from the steps and the node catalog, and stays off while the catalog or the steps are not known.
 - `onProposeFix` hands the text to the chat box. The host (the integration plan) puts it in the composer as an editable draft. `<hidden>` marks stay visible with a note that those parts were removed on purpose.
 - `nodeId` in the `onAction` context comes from the fix proposal or the first signal. It is model or engine text: the host must check that the node exists before it selects it.
 - Model text is plain text with a length cap and a "show more" button. A message key is shown for each error code; the server text never reaches the screen.
@@ -243,7 +243,7 @@ A folder can only be added when the folder dialog returned it in this run; `sett
     apps/desktop/release/mac-arm64/Rill.app/Contents/MacOS/Rill --smoke
     pnpm --filter @rill/desktop smoke
 
-`--smoke` starts a hidden window and the engine in a temporary data folder with its own stand-in for `safeStorage` (the real keychain is not touched), waits until the page has connected to the engine and sent `ping`, prints one JSON line such as `{"ok":true,"windowApi":true,"engine":true,"ping":true,"pingMs":2,...}`, stops the engine and exits with 0 (1 on any failure or after 45 seconds). It is the only check of the real Electron chain; the unit tests use fakes. The token and the address are never printed.
+`--smoke` starts a hidden window and the engine in a temporary data folder with its own stand-in for `safeStorage` (the real keychain is not touched), waits until the page has connected to the engine and sent `ping`, prints one JSON line such as `{"ok":true,"windowApi":true,"engine":true,"ping":true,"pingMs":2,...}`, stops the engine and exits with 0 (1 on any failure or after 45 seconds). It is the only check of the real Electron chain; the unit tests use fakes. The token and the address are never printed. It counts Content Security Policy violations twice, in the page (`cspViolations`) and as console messages that the main process saw from the start of the load (`cspConsoleMessages`), and any count other than 0 fails the run.
 
 ### Known limits
 

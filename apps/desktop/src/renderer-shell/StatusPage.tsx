@@ -32,7 +32,7 @@ export function StatusPage({ host, connect, now = DEFAULT_NOW }: StatusPageProps
   return host === undefined ? <NoHost /> : <Connected host={host} connect={connect} now={now} />
 }
 
-function NoHost() {
+export function NoHost() {
   const t = useShellTranslator()
   return (
     <main className={styles.page}>

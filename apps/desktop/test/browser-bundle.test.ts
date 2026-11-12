@@ -54,4 +54,19 @@ describe('renderer bundle', () => {
     expect(code).toMatch(/class RillError|RillError = class/)
     expect(code).toContain('isTrigger')
   }, 120_000)
+
+  it('keeps the fake host and the fixture data out of the bundle of the real renderer entry', async () => {
+    const result = await build({
+      root: ROOT,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [react()],
+      build: { write: false, minify: false, lib: { entry: [join(SRC, 'renderer-shell/main.tsx')], formats: ['es'] } },
+    })
+    const outputs = (Array.isArray(result) ? result : [result]).flatMap((one) => ('output' in one ? one.output : []))
+    const code = outputs.map((chunk) => ('code' in chunk ? chunk.code : '')).join('\n')
+    expect(code).toMatch(/class RillError|RillError = class/)
+    expect(code).not.toContain('createFakeHost')
+    expect(code).not.toContain('/Users/demo/Receipts')
+  }, 120_000)
 })

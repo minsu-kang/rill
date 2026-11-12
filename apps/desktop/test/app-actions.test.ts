@@ -35,7 +35,7 @@ describe('handleExplainAction', () => {
   it('retry_run asks first and then starts the same workflow, selecting the new run', async () => {
     const { deps, calls, context } = setup()
     await handleExplainAction('retry_run', context, deps)
-    expect(deps.confirm).toHaveBeenCalledWith('app.confirm.retry')
+    expect(deps.confirm).toHaveBeenCalledWith('app.confirm.retry', { workflowId: ids.workflows.receipt })
     expect(calls.filter((call) => call.method === 'startRun')).toEqual([{ method: 'startRun', params: { workflowId: ids.workflows.receipt } }])
     expect(deps.selectRun).toHaveBeenCalledWith('run-new')
     expect(deps.notify).toHaveBeenCalledWith('app.notice.retryStarted')
@@ -45,6 +45,12 @@ describe('handleExplainAction', () => {
     const { deps, calls, context } = setup()
     await handleExplainAction('retry_run', { ...context, dryRun: true }, deps)
     expect(calls.find((call) => call.method === 'startRun')!.params).toEqual({ workflowId: ids.workflows.receipt, dryRun: true })
+  })
+
+  it('retry_run names no workflow for the confirmation when it is only a dry run', async () => {
+    const { deps, context } = setup()
+    await handleExplainAction('retry_run', { ...context, dryRun: true }, deps)
+    expect(deps.confirm).toHaveBeenCalledWith('app.confirm.retry', undefined)
   })
 
   it('retry_run does nothing when the confirmation is refused', async () => {
@@ -57,7 +63,7 @@ describe('handleExplainAction', () => {
   it('deactivate_workflow asks first and then deactivates', async () => {
     const { deps, calls, context } = setup()
     await handleExplainAction('deactivate_workflow', context, deps)
-    expect(deps.confirm).toHaveBeenCalledWith('app.confirm.deactivate')
+    expect(deps.confirm).toHaveBeenCalledWith('app.confirm.deactivate', undefined)
     expect(calls).toEqual([{ method: 'deactivate', params: { workflowId: ids.workflows.receipt } }])
     expect(deps.notify).toHaveBeenCalledWith('app.notice.deactivated')
   })
@@ -153,6 +159,7 @@ describe('fillChatDraft', () => {
   function chat(value = '', disabled = false) {
     const root = document.createElement('div')
     const field = document.createElement('textarea')
+    field.setAttribute('data-rill-composer', '')
     field.value = value
     field.disabled = disabled
     root.append(field)
@@ -174,6 +181,31 @@ describe('fillChatDraft', () => {
     const { root, field } = chat('first line')
     fillChatDraft(root, 'second')
     expect(field.value).toBe('first line\n\nsecond')
+  })
+
+  it('writes into the composer even when an answer field comes before it, and leaves that field alone', () => {
+    const { root, field, heard } = chat()
+    const answer = document.createElement('textarea')
+    root.prepend(answer)
+    expect(fillChatDraft(root, 'fix the node')).toBe(true)
+    expect(answer.value).toBe('')
+    expect(field.value).toBe('fix the node')
+    expect(heard).toEqual(['fix the node'])
+  })
+
+  it('does nothing when the only field is not the composer', () => {
+    const root = document.createElement('div')
+    root.append(document.createElement('textarea'))
+    expect(fillChatDraft(root, 'x')).toBe(false)
+  })
+
+  it('does not use a disabled answer field to decide the composer is unavailable', () => {
+    const { root, field } = chat()
+    const answer = document.createElement('textarea')
+    answer.disabled = true
+    root.prepend(answer)
+    expect(fillChatDraft(root, 'go')).toBe(true)
+    expect(field.value).toBe('go')
   })
 
   it('does nothing without a field, with a disabled field and without a root', () => {

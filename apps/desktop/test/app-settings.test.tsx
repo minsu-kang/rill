@@ -297,6 +297,17 @@ describe('KeysSection', () => {
     expect(host.state().settings.configuredProviders).toEqual(['anthropic'])
   })
 
+  it('still says saved when the settings cannot be read again right after the key was stored', async () => {
+    const { host, t, user } = await openKeys()
+    vi.spyOn(host.settings, 'get').mockRejectedValue(new HostError('ENGINE_UNAVAILABLE'))
+    const field = screen.getByLabelText(t('app.keys.input', { provider: 'Anthropic' })) as HTMLInputElement
+    await user.type(field, MARKER)
+    await user.click(within(field.closest('form')!).getByRole('button', { name: t('app.keys.save') }))
+    expect(await screen.findByText(t('app.keys.saved'))).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(host.state().settings.configuredProviders).toEqual(['anthropic'])
+  })
+
   it('saves with Enter, and the save button stays off while the field is empty', async () => {
     const { host, t, user } = await openKeys()
     const row = screen.getByLabelText(t('app.keys.input', { provider: 'OpenAI' })).closest('form')!
@@ -365,6 +376,15 @@ describe('ConnectionsSection', () => {
     await user.type(screen.getByLabelText(t('app.connections.secret')), secret)
     await user.click(screen.getByRole('button', { name: t('app.connections.add') }))
   }
+
+  it('still says added when the settings cannot be read again right after the connection was stored', async () => {
+    const { host, t, user } = await openConnections()
+    vi.spyOn(host.settings, 'get').mockRejectedValue(new HostError('ENGINE_UNAVAILABLE'))
+    await add(user, t, 'slack-ops', 'https://hooks.example.com/x')
+    expect(await screen.findByText(t('app.connections.added'))).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(host.state().settings.connections).toEqual([{ name: 'slack-ops', kind: 'slack' }])
+  })
 
   it('adds a connection with a name, a kind and a password field, and lists name and kind only', async () => {
     const { host, t, user } = await openConnections()

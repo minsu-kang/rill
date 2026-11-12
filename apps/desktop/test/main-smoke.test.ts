@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
-import { APP_QUERY, PING_QUERY, REFRESH_QUERY, SMOKE_WORKFLOW, WINDOW_API_QUERY, runSmoke, type SmokeDeps } from '../src/main/smoke'
+import { APP_QUERY, PING_QUERY, REFRESH_QUERY, SMOKE_WORKFLOW, WINDOW_API_QUERY, runSmoke, watchCspConsole, type SmokeDeps } from '../src/main/smoke'
 import { HOST_API_METHODS, type EngineInfo } from '../src/shared/host-api'
 
 const TOKEN = 'smoke-token-SECRET-0123456789'
@@ -14,6 +14,7 @@ interface Options {
   stopHangs?: boolean
   app?: Array<{ rendered: boolean; graph: boolean; violations: number } | null>
   seedFails?: boolean
+  cspConsole?: number
 }
 
 function setup(options: Options = {}) {
@@ -49,6 +50,7 @@ function setup(options: Options = {}) {
       seeded.push(info)
       if (options.seedFails === true) throw new Error(`seed failed ${TOKEN}`)
     },
+    cspConsole: () => options.cspConsole ?? 0,
     print: (line) => lines.push(line),
     exit: (code) => exits.push(code),
     versions: { electron: '45.3.0', node: '24.22.2' },
@@ -65,7 +67,7 @@ describe('smoke mode', () => {
     const { deps, lines, exits, stop } = setup()
     await runSmoke(deps)
     expect(lines).toHaveLength(1)
-    expect(JSON.parse(lines[0]!)).toEqual({ ok: true, windowApi: true, engine: true, ping: true, pingMs: 12, appRendered: true, graphRendered: true, cspViolations: 0, protocol: 1, electron: '45.3.0', node: '24.22.2' })
+    expect(JSON.parse(lines[0]!)).toEqual({ ok: true, windowApi: true, engine: true, ping: true, pingMs: 12, appRendered: true, graphRendered: true, cspViolations: 0, cspConsoleMessages: 0, protocol: 1, electron: '45.3.0', node: '24.22.2' })
     expect(exits).toEqual([0])
     expect(stop).toHaveBeenCalledTimes(1)
   })
@@ -218,5 +220,66 @@ describe('smoke mode', () => {
     expect(APP_QUERY).toContain('data-rill-app')
     for (const region of ['topbar', 'chat', 'workspace']) expect(APP_QUERY).toContain(`'${region}'`)
     expect(APP_QUERY).toContain('.react-flow__node')
+  })
+})
+
+describe('smoke mode: policy violations seen by the main process', () => {
+  it('fails when the main process saw a policy message that the page could not count, and reports the number', async () => {
+    const { deps, lines, exits } = setup({ cspConsole: 2 })
+    await runSmoke(deps)
+    expect(JSON.parse(lines[0]!)).toMatchObject({ ok: false, appRendered: true, graphRendered: true, cspViolations: 0, cspConsoleMessages: 2 })
+    expect(exits).toEqual([1])
+  })
+
+  it('reads the count after the page was observed for the last time', async () => {
+    const { deps, executed } = setup()
+    let observedBeforeRead = -1
+    deps.cspConsole = () => {
+      observedBeforeRead = executed.filter((code) => code === APP_QUERY).length
+      return 0
+    }
+    await runSmoke(deps)
+    expect(observedBeforeRead).toBe(executed.filter((code) => code === APP_QUERY).length)
+    expect(observedBeforeRead).toBeGreaterThanOrEqual(2)
+  })
+
+  it('fails closed when reading the count throws', async () => {
+    const { deps, lines, exits } = setup()
+    deps.cspConsole = () => {
+      throw new Error('gone')
+    }
+    await runSmoke(deps)
+    expect(JSON.parse(lines[0]!)).toMatchObject({ ok: false, cspConsoleMessages: -1 })
+    expect(exits).toEqual([1])
+  })
+})
+
+describe('watchCspConsole', () => {
+  function emitter() {
+    let listener: ((...args: unknown[]) => void) | undefined
+    return {
+      contents: { on: (event: string, next: (...args: unknown[]) => void) => (event === 'console-message' ? (listener = next) : undefined) },
+      emit: (...args: unknown[]) => listener?.(...args),
+    }
+  }
+  const REFUSED = "Refused to apply inline style because it violates the following Content Security Policy directive: \"style-src 'self'\"."
+
+  it('counts console messages about the content security policy, in the object form and in the old argument form', () => {
+    const { contents, emit } = emitter()
+    const count = watchCspConsole(contents)
+    emit({ message: REFUSED, level: 'error' })
+    emit({}, 3, REFUSED, 1, 'x')
+    expect(count()).toBe(2)
+  })
+
+  it('ignores every other message and malformed events', () => {
+    const { contents, emit } = emitter()
+    const count = watchCspConsole(contents)
+    emit({ message: 'hello' })
+    emit({}, 1, 'Download the React DevTools')
+    emit(undefined)
+    emit({ message: 42 })
+    emit()
+    expect(count()).toBe(0)
   })
 })

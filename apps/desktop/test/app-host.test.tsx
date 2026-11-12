@@ -36,12 +36,14 @@ describe('HostProvider', () => {
     expect(result.current).toBe(given)
   })
 
-  it('falls back to an in-memory fake host when there is neither, and keeps it across renders', async () => {
-    const { result, rerender } = renderHook(() => useHost(), { wrapper: wrapper() })
-    const first = result.current
-    rerender()
-    expect(result.current).toBe(first)
-    expect(await first.settings.get()).toMatchObject({ provider: 'anthropic', configuredProviders: [] })
+  it('never invents a fake host: with neither a host nor window.rill it fails loudly', () => {
+    const originalError = console.error
+    console.error = () => undefined
+    try {
+      expect(() => renderHook(() => useHost(), { wrapper: wrapper() })).toThrow(/window\.rill/)
+    } finally {
+      console.error = originalError
+    }
   })
 
   it('throws a clear error outside a provider', () => {

@@ -10,6 +10,7 @@ export interface SmokeDeps {
   exit(code: number): void
   versions: { electron?: string; node?: string }
   seed?: (info: EngineInfo) => Promise<void>
+  cspConsole: () => number
   timeoutMs?: number
   stopTimeoutMs?: number
   pollMs?: number
@@ -25,6 +26,7 @@ interface Report {
   appRendered: boolean
   graphRendered: boolean
   cspViolations: number
+  cspConsoleMessages: number
   protocol?: number
   electron?: string
   node?: string
@@ -62,10 +64,20 @@ async function defaultSeed(info: EngineInfo): Promise<void> {
   }
 }
 
+export function watchCspConsole(contents: { on(event: 'console-message', listener: (...args: unknown[]) => void): unknown }): () => number {
+  let count = 0
+  contents.on('console-message', (...args: unknown[]) => {
+    const first = args[0]
+    const message = typeof (first as { message?: unknown } | undefined)?.message === 'string' ? (first as { message: string }).message : args[2]
+    if (typeof message === 'string' && message.includes('Content Security Policy')) count += 1
+  })
+  return () => count
+}
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 export async function runSmoke(deps: SmokeDeps): Promise<void> {
-  const report: Report = { ok: false, windowApi: false, engine: false, ping: false, appRendered: false, graphRendered: false, cspViolations: -1 }
+  const report: Report = { ok: false, windowApi: false, engine: false, ping: false, appRendered: false, graphRendered: false, cspViolations: -1, cspConsoleMessages: -1 }
   const pollMs = deps.pollMs ?? 250
 
   async function work(): Promise<void> {
@@ -113,7 +125,12 @@ export async function runSmoke(deps: SmokeDeps): Promise<void> {
   const outcome = await Promise.race([work().then(() => 'done' as const, () => 'failed' as const), timeout])
   clearTimeout(timer)
   if (outcome !== 'done') report.error = outcome
-  report.ok = report.windowApi && report.engine && report.ping && report.appRendered && report.graphRendered && report.cspViolations === 0
+  try {
+    report.cspConsoleMessages = deps.cspConsole()
+  } catch {
+    report.cspConsoleMessages = -1
+  }
+  report.ok = report.windowApi && report.engine && report.ping && report.appRendered && report.graphRendered && report.cspViolations === 0 && report.cspConsoleMessages === 0
   if (deps.versions.electron !== undefined) report.electron = deps.versions.electron
   if (deps.versions.node !== undefined) report.node = deps.versions.node
   deps.print(JSON.stringify(report))

@@ -33,7 +33,11 @@ export function Modal({ title, onClose, children, footer, wide = false }: ModalP
     }
     if (event.key !== 'Tab') return
     const items = [...(root.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])]
-    if (items.length === 0) return
+    if (items.length === 0) {
+      event.preventDefault()
+      root.current?.focus()
+      return
+    }
     const firstItem = items[0]!
     const lastItem = items[items.length - 1]!
     const active = document.activeElement

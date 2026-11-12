@@ -4,11 +4,13 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { createFakeWorld, type FakeWorld } from '../src/app/fake-world'
+import { ActionConfirm } from '../src/app/ActionConfirm'
 import { PayloadDialog } from '../src/app/workflows/PayloadDialog'
 import { payloadSample, needsPayload, triggerKind } from '../src/app/workflows/samples'
 import { useWorkflowList } from '../src/app/workflows/useWorkflowList'
 import { WorkflowActions } from '../src/app/workflows/WorkflowActions'
 import { WorkflowSwitcher } from '../src/app/workflows/WorkflowSwitcher'
+import type { NodeInfo } from '@rill/protocol'
 import type { EngineClient } from '../src/engine/client'
 import { catalog, FIXTURE_NOW, fakeData, ids, workflowOf, node, edge } from '../src/fixtures'
 import { createTranslator } from '../src/i18n'
@@ -44,11 +46,23 @@ function world(extra: Partial<Parameters<typeof createFakeWorld>[0]> = {}): Fake
   })
 }
 
-function Actions({ client, workflowId, onRunStarted, focusAction }: { client: EngineClient; workflowId: string; onRunStarted?: (id: string) => void; focusAction?: 'dryRun' | 'activate' }) {
+function Actions({
+  client,
+  workflowId,
+  onRunStarted,
+  focusAction,
+  nodes = catalog,
+}: {
+  client: EngineClient
+  workflowId: string
+  onRunStarted?: (id: string) => void
+  focusAction?: 'dryRun' | 'activate'
+  nodes?: readonly NodeInfo[]
+}) {
   const list = useWorkflowList(client)
   const summary = list.workflows.find((item) => item.id === workflowId)
   if (summary === undefined) return <p>loading</p>
-  return <WorkflowActions client={client} workflowId={workflowId} summary={summary} catalog={catalog} onRunStarted={onRunStarted ?? (() => undefined)} focusAction={focusAction} />
+  return <WorkflowActions client={client} workflowId={workflowId} summary={summary} catalog={nodes} onRunStarted={onRunStarted ?? (() => undefined)} focusAction={focusAction} />
 }
 
 async function show(w: FakeWorld, workflowId: string, onRunStarted?: (id: string) => void, client: EngineClient = w.client, locale: 'ko' | 'en' = 'ko') {
@@ -127,6 +141,24 @@ describe('useWorkflowList and WorkflowSwitcher', () => {
     fail = false
     await userEvent.setup().click(screen.getByRole('button', { name: t('app.wf.switcher.retry') }))
     expect(await screen.findByLabelText(t('app.wf.switcher.label'))).toBeTruthy()
+  })
+
+  it('keeps the list on screen while a new client loads it again, and replaces it when that is done', async () => {
+    const first = createFakeWorld({ hostOptions: { restartDelayMs: 0 } })
+    const second = createFakeWorld({ hostOptions: { restartDelayMs: 0 }, workflows: [{ id: 'wf-only', workflow: quietWorkflow, active: false, createdAt: FIXTURE_NOW }] })
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const slow: EngineClient = { onEvent: second.client.onEvent, request: async (method, params) => (method === 'listWorkflows' ? (await gate, second.client.request(method, params)) : second.client.request(method, params)) }
+    const view = renderThemed(<Switcher client={first.client} />)
+    const label = t('app.wf.switcher.label')
+    await screen.findByLabelText(label)
+    view.rerender(<Switcher client={slow} />)
+    expect(screen.queryByText(t('app.wf.switcher.loading'))).toBeNull()
+    const texts = () => within(screen.getByLabelText(label)).getAllByRole('option').map((option) => option.textContent)
+    expect(texts()).toContain('영수증 정리 · 폴더 감시 · 활성')
+    release()
+    await waitFor(() => expect(texts()).toContain('조용한 흐름 · 수동 · 비활성'))
+    expect(texts()).not.toContain('영수증 정리 · 폴더 감시 · 활성')
   })
 
   it('refreshes when a workflow is activated or deactivated', async () => {
@@ -425,5 +457,131 @@ describe('WorkflowActions: activate and deactivate', () => {
     await screen.findByRole('dialog', { name: 'Run it now?' })
     expect(await violations(view.container)).toEqual([])
     expect(document.body.textContent).not.toMatch(/\bapp\.[a-z]+\./)
+  })
+})
+
+describe('WorkflowActions: run now without a complete catalog', () => {
+  async function openConfirm(nodes: readonly NodeInfo[], workflowId = 'wf-manual') {
+    const w = world()
+    const view = renderThemed(<Actions client={w.client} workflowId={workflowId} nodes={nodes} />)
+    await screen.findByRole('region', { name: t('app.wf.actions.label') })
+    await userEvent.setup().click(button(t('app.wf.actions.runNow')))
+    const dialog = await screen.findByRole('dialog', { name: t('app.run.confirmTitle') })
+    await within(dialog).findByText(t('app.run.effectsUnknown'))
+    return { w, view, dialog }
+  }
+
+  const confirmButton = (dialog: HTMLElement) => within(dialog).getByRole('button', { name: t('app.run.confirmAction') }) as HTMLButtonElement
+
+  it('does not say that nothing happens and keeps confirm off while the catalog is empty', async () => {
+    const { w, dialog } = await openConfirm([])
+    expect(within(dialog).queryByText(t('app.run.noSideEffects'))).toBeNull()
+    expect(confirmButton(dialog).disabled).toBe(true)
+    fireEvent.click(confirmButton(dialog))
+    expect(w.callsOf('startRun')).toHaveLength(0)
+  })
+
+  it('keeps confirm off when a single step type is missing from the catalog', async () => {
+    const { dialog } = await openConfirm(catalog.filter((entry) => entry.type !== 'http.request@1'))
+    expect(within(dialog).queryByText(t('app.run.noSideEffects'))).toBeNull()
+    expect(confirmButton(dialog).disabled).toBe(true)
+  })
+
+  it('lists the effects and turns confirm on once the catalog arrives while the dialog is open', async () => {
+    const w = world()
+    const view = renderThemed(<Actions client={w.client} workflowId="wf-manual" nodes={[]} />)
+    await screen.findByRole('region', { name: t('app.wf.actions.label') })
+    await userEvent.setup().click(button(t('app.wf.actions.runNow')))
+    const dialog = await screen.findByRole('dialog', { name: t('app.run.confirmTitle') })
+    await within(dialog).findByText(t('app.run.effectsUnknown'))
+    view.rerender(<Actions client={w.client} workflowId="wf-manual" nodes={catalog} />)
+    await waitFor(() => expect(within(dialog).getByText(/HTTP request/)).toBeTruthy())
+    expect(within(dialog).queryByText(t('app.run.effectsUnknown'))).toBeNull()
+    expect(confirmButton(dialog).disabled).toBe(false)
+  })
+})
+
+describe('WorkflowActions: switching workflows', () => {
+  it('does not carry the error of one workflow over to the next one', async () => {
+    const w = world({ control: { stepIntervalMs: 0, activationError: true } })
+    function Pair({ id }: { id: string }) {
+      return <Actions key={id} client={w.client} workflowId={id} />
+    }
+    const view = renderThemed(<Pair id={ids.workflows.webhook} />)
+    await screen.findByRole('region', { name: t('app.wf.actions.label') })
+    await userEvent.setup().click(button(t('app.wf.actions.activate')))
+    expect((await screen.findByRole('alert')).textContent).toBe(t('app.wf.error.ACTIVATION_FAILED'))
+    view.rerender(<Pair id={ids.workflows.receipt} />)
+    await screen.findByRole('region', { name: t('app.wf.actions.label') })
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('shows the steps of the new workflow only, and keeps confirm off until they are loaded', async () => {
+    const w = world()
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const slow: EngineClient = {
+      onEvent: w.client.onEvent,
+      request: async (method, params) => {
+        if (method === 'getWorkflow' && (params as { workflowId: string }).workflowId === 'wf-quiet') await gate
+        return w.client.request(method, params)
+      },
+    }
+    const view = renderThemed(<Actions client={slow} workflowId="wf-manual" />)
+    await screen.findByRole('region', { name: t('app.wf.actions.label') })
+    await userEvent.setup().click(button(t('app.wf.actions.runNow')))
+    const dialog = await screen.findByRole('dialog', { name: t('app.run.confirmTitle') })
+    await within(dialog).findByText(/HTTP request/)
+    view.rerender(<Actions client={slow} workflowId="wf-quiet" />)
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByText(t('app.run.loadingEffects'))).toBeTruthy())
+    expect(within(screen.getByRole('dialog')).queryByText(/HTTP request/)).toBeNull()
+    expect((within(screen.getByRole('dialog')).getByRole('button', { name: t('app.run.confirmAction') }) as HTMLButtonElement).disabled).toBe(true)
+    release()
+    await within(screen.getByRole('dialog')).findByText(t('app.run.noSideEffects'))
+  })
+})
+
+describe('WorkflowActions: the effect line', () => {
+  it('joins several badges with the list format of the language', async () => {
+    const hybrid = workflowOf('섞인 흐름', [node('start', 'trigger.manual@1', {}), node('both', 'llm.extract@1', { file: '/Users/demo/a.pdf', fields: [{ name: 'a', type: 'number', description: 'x' }] }), node('send', 'http.request@1', { url: 'https://hooks.example.com/x', method: 'POST' })], [edge('start', 'both'), edge('both', 'send')])
+    const w = createFakeWorld({ hostOptions: { restartDelayMs: 0 }, workflows: [{ id: 'wf-hybrid', workflow: hybrid, active: false, createdAt: FIXTURE_NOW }], control: { stepIntervalMs: 0 } })
+    const patched = catalog.map((entry) => (entry.type === 'llm.extract@1' ? { ...entry, sideEffect: 'external' as const } : entry))
+    renderThemed(<Actions client={w.client} workflowId="wf-hybrid" nodes={patched} />, { locale: 'en' })
+    await screen.findByRole('region', { name: 'Run the workflow' })
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Run now' }))
+    const dialog = await screen.findByRole('dialog')
+    await waitFor(() => expect(dialog.textContent).toContain('(both): External transfer and Network call'))
+  })
+})
+
+describe('ActionConfirm', () => {
+  it('asks plainly without a list when no workflow is named, and answers yes and no', async () => {
+    const w = world()
+    const onAnswer = vi.fn()
+    renderThemed(<ActionConfirm client={w.client} catalog={catalog} title="app.deactivate.title" message="app.confirm.deactivate" confirmLabel="app.deactivate.confirm" onAnswer={onAnswer} />)
+    const dialog = screen.getByRole('dialog', { name: t('app.deactivate.title') })
+    expect(within(dialog).queryByText(t('app.run.sideEffects'))).toBeNull()
+    expect(w.callsOf('getWorkflow')).toHaveLength(0)
+    const user = userEvent.setup()
+    await user.click(within(dialog).getByRole('button', { name: t('app.deactivate.confirm') }))
+    expect(onAnswer).toHaveBeenLastCalledWith(true)
+    await user.click(within(dialog).getByRole('button', { name: t('app.common.cancel') }))
+    expect(onAnswer).toHaveBeenLastCalledWith(false)
+  })
+
+  it('keeps the confirm button off until the effects of the named workflow are known, and never while the catalog is empty', async () => {
+    const w = world()
+    const onAnswer = vi.fn()
+    const view = renderThemed(<ActionConfirm client={w.client} catalog={[]} title="app.retry.title" message="app.confirm.retry" confirmLabel="app.retry.confirm" effectsOf="wf-manual" onAnswer={onAnswer} />)
+    const dialog = screen.getByRole('dialog', { name: t('app.retry.title') })
+    const go = () => within(dialog).getByRole('button', { name: t('app.retry.confirm') }) as HTMLButtonElement
+    expect(go().disabled).toBe(true)
+    await within(dialog).findByText(t('app.run.effectsUnknown'))
+    expect(go().disabled).toBe(true)
+    fireEvent.click(go())
+    expect(onAnswer).not.toHaveBeenCalled()
+    view.rerender(<ActionConfirm client={w.client} catalog={catalog} title="app.retry.title" message="app.confirm.retry" confirmLabel="app.retry.confirm" effectsOf="wf-manual" onAnswer={onAnswer} />)
+    await waitFor(() => expect(go().disabled).toBe(false))
+    expect(dialog.textContent).toContain('HTTP request (send): 네트워크 호출')
   })
 })

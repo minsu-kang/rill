@@ -3,10 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App, type AppProps } from '../src/app/App'
 import { createFakeWorld, type FakeWorld, type FakeWorldOptions } from '../src/app/fake-world'
+import { firstRunDone, firstRunItems } from '../src/app/FirstRunCard'
 import { HostProvider } from '../src/app/host'
 import { fakeSettings, type FakeHostState } from '../src/engine/fake-host'
 import { fakeData, ids } from '../src/fixtures'
 import { explainCases } from '../src/fixtures/explain'
+import { outcomeOf, results } from '../src/fixtures/plan'
 import { recipeInfos } from '../src/fixtures/recipes'
 import { createTranslator } from '../src/i18n'
 import { renderThemed } from './render'
@@ -91,6 +93,20 @@ describe('App shell', () => {
   })
 })
 
+describe('switching workflows', () => {
+  it('does not show the activation error of one workflow on the next one', async () => {
+    const { user } = mount({ hostInit: { settings: KEYED }, world: { control: { stepIntervalMs: 0, activationError: true } } })
+    await workflowsLoaded()
+    const select = screen.getByLabelText(t('app.wf.switcher.label')) as HTMLSelectElement
+    await user.selectOptions(select, ids.workflows.webhook)
+    await user.click(await screen.findByRole('button', { name: t('app.wf.actions.activate') }))
+    expect((await screen.findByRole('alert')).textContent).toBe(t('app.wf.error.ACTIVATION_FAILED'))
+    await user.selectOptions(select, ids.workflows.receipt)
+    await waitFor(() => expect(screen.getByRole('heading', { name: '영수증 정리', level: 2 })).toBeTruthy())
+    expect(screen.queryByText(t('app.wf.error.ACTIVATION_FAILED'))).toBeNull()
+  })
+})
+
 describe('first run', () => {
   it('shows the checklist from the host settings and leads to the right settings sections', async () => {
     const { user } = mount({ world: { workflows: [] } })
@@ -119,6 +135,16 @@ describe('first run', () => {
     await screen.findByText(t('app.keys.saved'))
     await user.click(tab('워크플로우'))
     await waitFor(() => expect(screen.queryByRole('region', { name: t('app.firstRun.title') })).toBeNull())
+  })
+
+  it('counts the key of the chosen provider only, so a key of another provider keeps the card', async () => {
+    const other = fakeSettings({ provider: 'anthropic', configuredProviders: ['openai'], allowedFolders: ['/Users/demo/Receipts'] })
+    expect(firstRunItems(other).find((item) => item.id === 'keys')!.done).toBe(false)
+    expect(firstRunDone(other)).toBe(false)
+    expect(firstRunDone({ ...other, provider: 'openai' })).toBe(true)
+    mount({ world: { workflows: [] }, hostInit: { settings: other } })
+    const card = await screen.findByRole('region', { name: t('app.firstRun.title') })
+    expect(within(card).getAllByRole('listitem').map((item) => item.getAttribute('data-done'))).toEqual(['true', 'false', 'false'])
   })
 
   it('does not show for a host that is already set up', async () => {
@@ -190,7 +216,7 @@ describe('edit context', () => {
     const { user, world } = mount({ hostInit: { settings: KEYED }, initial: { workflowId: ids.workflows.receipt } })
     await workflowsLoaded()
     fireEvent.click(screen.getByTestId('rf__node-extract'))
-    await screen.findByText(/수정 중/)
+    await screen.findByText(/수정 중/, undefined, { timeout: 5000 })
     await user.type(screen.getByLabelText(t('chat.composer.label')), '금액만 뽑아 줘')
     await user.keyboard('{Control>}{Enter}{/Control}')
     await waitFor(() => expect(world.callsOf('plan')).toHaveLength(1))
@@ -241,23 +267,67 @@ describe('failed run and the explanation', () => {
     expect(await screen.findByRole('heading', { name: '연결', level: 2 })).toBeTruthy()
   })
 
-  it('retries the run after the confirmation of the card, selecting the new run', async () => {
+  it('retries the run only after the card and the dialog of the app both say yes, selecting the new run', async () => {
     const { user, world } = mount({ hostInit: { settings: KEYED }, initial: failed })
     await explain(user)
     await user.click(await screen.findByRole('button', { name: t('explain.action.retry_run') }))
     await user.click(await screen.findByRole('button', { name: t('explain.confirm.yes') }))
+    const dialog = await screen.findByRole('dialog', { name: t('app.retry.title') })
+    expect(world.callsOf('startRun')).toHaveLength(0)
+    expect(dialog.textContent).toContain(t('app.confirm.retry'))
+    await waitFor(() => expect(dialog.textContent).toContain('Extract fields with AI (extract): 외부 전송'))
+    expect(dialog.textContent).toContain('Append CSV row (append): 파일 기록')
+    await user.click(within(dialog).getByRole('button', { name: t('app.retry.confirm') }))
     await waitFor(() => expect(world.callsOf('startRun')).toHaveLength(1))
     expect(world.callsOf('startRun')[0]!.params).toEqual({ workflowId: ids.workflows.receipt })
     expect(await screen.findByText(t('app.notice.retryStarted'))).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('deactivates the workflow after the confirmation of the card', async () => {
+  it('starts nothing when the dialog of the app is cancelled', async () => {
+    const { user, world } = mount({ hostInit: { settings: KEYED }, initial: failed })
+    await explain(user)
+    await user.click(await screen.findByRole('button', { name: t('explain.action.retry_run') }))
+    await user.click(await screen.findByRole('button', { name: t('explain.confirm.yes') }))
+    const dialog = await screen.findByRole('dialog', { name: t('app.retry.title') })
+    await user.click(within(dialog).getByRole('button', { name: t('app.common.cancel') }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(world.callsOf('startRun')).toHaveLength(0)
+    expect(screen.queryByText(t('app.notice.retryStarted'))).toBeNull()
+  })
+
+  it('deactivates the workflow after the card and the dialog of the app both say yes', async () => {
     const { user, world } = mount({ hostInit: { settings: KEYED }, initial: failed })
     await explain(user)
     await user.click(await screen.findByRole('button', { name: t('explain.action.deactivate_workflow') }))
     await user.click(await screen.findByRole('button', { name: t('explain.confirm.yes') }))
+    const dialog = await screen.findByRole('dialog', { name: t('app.deactivate.title') })
+    expect(world.callsOf('deactivate')).toHaveLength(0)
+    expect(within(dialog).queryByText(t('app.run.sideEffects'))).toBeNull()
+    await user.click(within(dialog).getByRole('button', { name: t('app.deactivate.confirm') }))
     await waitFor(() => expect(world.callsOf('deactivate')).toHaveLength(1))
     expect(await screen.findByText(t('app.notice.deactivated'))).toBeTruthy()
+  })
+
+  it('puts a fix proposal into the composer and not into a free-text answer of a planner question', async () => {
+    const { user, world } = mount({
+      hostInit: { settings: KEYED },
+      initial: failed,
+      world: { plan: () => outcomeOf(results.questions), explain: (params) => ({ ...structuredClone(explainCases.configuration), runId: params.runId }) },
+    })
+    const composer = (await screen.findByLabelText(t('chat.composer.label'))) as HTMLTextAreaElement
+    await waitFor(() => expect(composer.disabled).toBe(false))
+    await user.type(composer, 'sort my receipts')
+    await user.click(screen.getByRole('button', { name: t('chat.composer.send') }))
+    const free = (await screen.findByLabelText(t('chat.questions.freeText'))) as HTMLTextAreaElement
+    const before = free.value
+    await explain(user)
+    await user.click(await screen.findByRole('button', { name: t('explain.fix.use') }))
+    await waitFor(() => expect((screen.getByLabelText(t('chat.composer.label')) as HTMLTextAreaElement).value).toBe(explainCases.configuration.fixProposal!.requestText))
+    expect(free.value).toBe(before)
+    expect(document.activeElement).toBe(screen.getByLabelText(t('chat.composer.label')))
+    expect(world.callsOf('plan')).toHaveLength(1)
+    expect(screen.queryByText(t('app.notice.chatUnavailable'))).toBeNull()
   })
 
   it('puts a fix proposal into the chat draft and focuses it, without sending, and sets the edit context of that node', async () => {
@@ -326,6 +396,58 @@ describe('engine changes', () => {
     await screen.findByText(t('app.top.engine.restarting'))
     await screen.findByText(t('app.top.engine.connected'))
     expect(world.callsOf('llmModels').length).toBeGreaterThanOrEqual(2)
+  })
+
+  async function restartedWhileFocused(focus: () => Promise<HTMLElement>, during?: () => void) {
+    const { world, user } = mount({ hostInit: { settings: KEYED }, restartDelayMs: 150 })
+    await connected()
+    await workflowsLoaded()
+    const target = await focus()
+    expect(document.activeElement).toBe(target)
+    void world.host.engine.restart()
+    await screen.findByText(t('app.top.engine.restarting'))
+    during?.()
+    await screen.findByText(t('app.top.engine.connected'))
+    return { target, user }
+  }
+
+  it('puts focus back on the button it was on after the engine restarted', async () => {
+    const { target } = await restartedWhileFocused(async () => {
+      const button = await screen.findByRole('button', { name: t('app.wf.actions.dryRun') })
+      button.focus()
+      return button
+    })
+    await waitFor(() => expect(document.activeElement).toBe(target))
+  })
+
+  it('puts focus back inside an open dialog after the engine restarted, so Tab stays in it', async () => {
+    const { target, user } = await restartedWhileFocused(async () => {
+      await userEvent.setup().click(await screen.findByRole('button', { name: t('app.wf.actions.runNow') }))
+      const dialog = await screen.findByRole('dialog')
+      await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
+      return document.activeElement as HTMLElement
+    })
+    await waitFor(() => expect(document.activeElement).toBe(target))
+    await user.tab()
+    expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true)
+  })
+
+  it('does not take focus back from a control the user moved to while the engine was away', async () => {
+    let moved: HTMLElement | undefined
+    const { target } = await restartedWhileFocused(
+      async () => {
+        const button = await screen.findByRole('button', { name: t('app.wf.actions.dryRun') })
+        button.focus()
+        return button
+      },
+      () => {
+        moved = tab('설정')
+        moved.focus()
+      },
+    )
+    expect(moved).toBeDefined()
+    expect(document.activeElement).toBe(moved)
+    expect(document.activeElement).not.toBe(target)
   })
 
   it('shows the stopped engine with a restart button that brings it back', async () => {

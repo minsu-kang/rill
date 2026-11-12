@@ -196,6 +196,7 @@ export function Composer(props: ComposerProps) {
       />
       <textarea
         ref={text}
+        data-rill-composer=""
         className={styles.text}
         aria-label={t('chat.composer.label')}
         placeholder={t('chat.composer.placeholder')}

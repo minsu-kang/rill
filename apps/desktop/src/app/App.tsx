@@ -9,7 +9,8 @@ import styles from './App.module.css'
 import { useEngineConnection } from './connection'
 import controls from './controls.module.css'
 import { FirstRunCard, firstRunDone, type FirstRunTarget } from './FirstRunCard'
-import { fillChatDraft, handleExplainAction, nodeExists, type ExplainActionDeps } from './glue/actions'
+import { ActionConfirm } from './ActionConfirm'
+import { COMPOSER, fillChatDraft, handleExplainAction, nodeExists, type ConfirmText, type ExplainActionDeps } from './glue/actions'
 import { createAttachmentPort } from './glue/attachments'
 import { useEditContext } from './glue/editContext'
 import { useEngineData } from './glue/useEngineData'
@@ -36,7 +37,16 @@ export interface AppProps {
   }
 }
 
-const ALWAYS_YES = (): Promise<boolean> => Promise.resolve(true)
+const CONFIRM_COPY: Record<ConfirmText, { title: MessageKey; confirm: MessageKey }> = {
+  'app.confirm.retry': { title: 'app.retry.title', confirm: 'app.retry.confirm' },
+  'app.confirm.deactivate': { title: 'app.deactivate.title', confirm: 'app.deactivate.confirm' },
+}
+
+interface PendingConfirm {
+  text: ConfirmText
+  workflowId: string | undefined
+  settle(ok: boolean): void
+}
 
 export function App({ initial = {} }: AppProps) {
   const t = useT()
@@ -60,14 +70,65 @@ export function App({ initial = {} }: AppProps) {
   const chatRoot = useRef<HTMLElement>(null)
   const chatToggle = useRef<HTMLButtonElement>(null)
   const noticeId = useRef(0)
+  const [pending, setPending] = useState<PendingConfirm | undefined>(undefined)
+  const pendingRef = useRef<PendingConfirm | undefined>(undefined)
+  const lastFocus = useRef<HTMLElement | null>(null)
+  const heldFocus = useRef<HTMLElement | null>(null)
   const workflowId = selection.workflowId ?? list.workflows[0]?.id
   const { editContext, setEditContext, clearEditContext } = useEditContext(workflowId, initial.workflowId !== undefined && initial.nodeId !== undefined ? { workflowId: initial.workflowId, nodeId: initial.nodeId } : undefined)
   const port = useMemo(() => createAttachmentPort(host), [host])
   const summary = list.workflows.find((item) => item.id === workflowId)
 
   useEffect(() => {
-    if (chatFocus > 0) chatRoot.current?.querySelector('textarea')?.focus()
+    if (chatFocus > 0) chatRoot.current?.querySelector<HTMLElement>(COMPOSER)?.focus()
   }, [chatFocus])
+
+  useEffect(
+    () => () => {
+      pendingRef.current?.settle(false)
+    },
+    [],
+  )
+
+  useEffect(() => {
+    const remember = (event: FocusEvent): void => {
+      if (event.target instanceof HTMLElement && event.target !== document.body) lastFocus.current = event.target
+    }
+    document.addEventListener('focusin', remember)
+    return () => document.removeEventListener('focusin', remember)
+  }, [])
+
+  useEffect(() => {
+    if (!connected) {
+      const focused = lastFocus.current
+      heldFocus.current = focused !== null && focused.isConnected && focused.matches(':disabled') ? focused : null
+      return
+    }
+    const held = heldFocus.current
+    heldFocus.current = null
+    if (held !== null && held.isConnected && !held.matches(':disabled') && (document.activeElement === null || document.activeElement === document.body)) held.focus()
+  }, [connected])
+
+  const confirm = useCallback(
+    (text: ConfirmText, effects?: { workflowId: string }): Promise<boolean> =>
+      new Promise<boolean>((resolve) => {
+        pendingRef.current?.settle(false)
+        const next: PendingConfirm = {
+          text,
+          workflowId: effects?.workflowId,
+          settle: (ok) => {
+            if (pendingRef.current === next) {
+              pendingRef.current = undefined
+              setPending(undefined)
+            }
+            resolve(ok)
+          },
+        }
+        pendingRef.current = next
+        setPending(next)
+      }),
+    [],
+  )
 
   const notify = useCallback((key: MessageKey, vars?: Record<string, string | number>) => {
     noticeId.current += 1
@@ -141,7 +202,7 @@ export function App({ initial = {} }: AppProps) {
       openSettings,
       selectNode: selection.selectNode,
       setEditContext,
-      confirm: ALWAYS_YES,
+      confirm,
       notify,
       selectRun: selection.selectRun,
     }
@@ -214,7 +275,7 @@ export function App({ initial = {} }: AppProps) {
         ) : (
           <fieldset className={styles.reset} disabled={!connected}>
             {summary === undefined ? null : (
-              <WorkflowActions client={client} workflowId={summary.id} summary={summary} catalog={data.catalog} onRunStarted={selection.selectRun} focusAction={focusAction} />
+              <WorkflowActions key={summary.id} client={client} workflowId={summary.id} summary={summary} catalog={data.catalog} onRunStarted={selection.selectRun} focusAction={focusAction} />
             )}
             <div className={styles.workspace}>
               <Workspace
@@ -234,36 +295,49 @@ export function App({ initial = {} }: AppProps) {
   }
 
   return (
-    <Layout
-      chatOpen={chatOpen}
-      onCloseChat={() => {
-        setChatOpen(false)
-        chatToggle.current?.focus()
-      }}
-      chatRef={chatRoot}
-      topBar={
-        <TopBar
-          tab={tab}
-          onTab={goTab}
-          list={list}
-          selectedId={workflowId}
-          onSelectWorkflow={(id) => {
-            selection.selectWorkflow(id)
-            goTab('workflows')
-          }}
-          connection={connection}
-          ping={ping}
-          model={data.model}
-          onRestart={restartEngine}
-          restarting={restarting}
-          chatOpen={chatOpen}
-          onToggleChat={() => setChatOpen((open) => !open)}
-          chatToggleRef={chatToggle}
+    <>
+      <Layout
+        chatOpen={chatOpen}
+        onCloseChat={() => {
+          setChatOpen(false)
+          chatToggle.current?.focus()
+        }}
+        chatRef={chatRoot}
+        topBar={
+          <TopBar
+            tab={tab}
+            onTab={goTab}
+            list={list}
+            selectedId={workflowId}
+            onSelectWorkflow={(id) => {
+              selection.selectWorkflow(id)
+              goTab('workflows')
+            }}
+            connection={connection}
+            ping={ping}
+            model={data.model}
+            onRestart={restartEngine}
+            restarting={restarting}
+            chatOpen={chatOpen}
+            onToggleChat={() => setChatOpen((open) => !open)}
+            chatToggleRef={chatToggle}
+          />
+        }
+        chat={chat}
+        main={main}
+        notice={<NoticeBar notice={notice} onDismiss={() => setNotice(undefined)} />}
+      />
+      {pending === undefined || client === undefined ? null : (
+        <ActionConfirm
+          client={client}
+          catalog={data.catalog}
+          title={CONFIRM_COPY[pending.text].title}
+          message={pending.text}
+          confirmLabel={CONFIRM_COPY[pending.text].confirm}
+          {...(pending.workflowId === undefined ? {} : { effectsOf: pending.workflowId })}
+          onAnswer={pending.settle}
         />
-      }
-      chat={chat}
-      main={main}
-      notice={<NoticeBar notice={notice} onDismiss={() => setNotice(undefined)} />}
-    />
+      )}
+    </>
   )
 }

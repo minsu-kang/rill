@@ -125,6 +125,8 @@ export const appKo = {
   'app.run.noSideEffects': '파일을 쓰거나 밖으로 보내는 단계가 없어요.',
   'app.run.loadingEffects': '단계를 불러오는 중…',
   'app.run.effectsError': '단계를 불러오지 못해서 일어나는 일을 보여 줄 수 없어요. 다시 열어 주세요.',
+  'app.run.effectsUnknown': '이 워크플로우의 단계가 무엇을 하는지 아직 알 수 없어서 일어나는 일을 보여 줄 수 없어요. 엔진 연결이 끝난 뒤에 다시 열어 주세요.',
+  'app.run.effectLine': '{title} ({id}): {badges}',
   'app.run.confirmAction': '실행하기',
   'app.deactivate.title': '비활성화할까요?',
   'app.deactivate.message': '비활성화하면 트리거가 발생해도 자동으로 실행되지 않아요.',
@@ -173,6 +175,8 @@ export const appKo = {
   'app.notice.actionFailed': '작업을 하지 못했어요. 엔진 연결을 확인하고 다시 시도해 주세요.',
   'app.notice.modelFailed': '모델을 바꾸지 못했어요.',
   'app.notice.chatUnavailable': '대화 입력창이 열려 있지 않아서 제안을 넣지 못했어요. 대화 화면으로 돌아와 다시 시도해 주세요.',
+  'app.retry.title': '다시 실행할까요?',
+  'app.retry.confirm': '다시 실행하기',
   'app.confirm.retry': '같은 워크플로우를 지금 다시 실행할까요? 실패한 실행의 입력 데이터는 이어지지 않고 빈 입력으로 시작해요.',
   'app.confirm.deactivate': '이 워크플로우를 비활성화할까요?',
 } as const

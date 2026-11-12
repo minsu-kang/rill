@@ -127,6 +127,8 @@ export const appEn: Record<keyof typeof appKo, string> = {
   'app.run.noSideEffects': 'No step writes a file or sends anything out.',
   'app.run.loadingEffects': 'Loading the steps…',
   'app.run.effectsError': 'The steps could not be loaded, so what will happen cannot be shown. Open this again.',
+  'app.run.effectsUnknown': 'What these steps do is not known yet, so what will happen cannot be shown. Open this again once the engine is connected.',
+  'app.run.effectLine': '{title} ({id}): {badges}',
   'app.run.confirmAction': 'Run it',
   'app.deactivate.title': 'Deactivate it?',
   'app.deactivate.message': 'Once deactivated, the workflow no longer runs by itself when its trigger fires.',
@@ -175,6 +177,8 @@ export const appEn: Record<keyof typeof appKo, string> = {
   'app.notice.actionFailed': 'That did not work. Check the engine connection and try again.',
   'app.notice.modelFailed': 'The model could not be changed.',
   'app.notice.chatUnavailable': 'The chat input is not open, so the suggestion was not added. Go back to the chat screen and try again.',
+  'app.retry.title': 'Run it again?',
+  'app.retry.confirm': 'Run again',
   'app.confirm.retry': 'Run the same workflow again now? The input of the failed run is not carried over; it starts with an empty input.',
   'app.confirm.deactivate': 'Deactivate this workflow?',
 }

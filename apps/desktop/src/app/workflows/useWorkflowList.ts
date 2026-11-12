@@ -61,7 +61,7 @@ export function useWorkflowList(client: EngineClient | undefined): WorkflowListS
     if (clientRef.current !== undefined) await load(clientRef.current)
   }, [load])
 
-  const current = data !== undefined && data.client === client ? data : undefined
+  const current = client === undefined ? undefined : data
   if (current === undefined) return { status: 'loading', workflows: NONE, refresh }
   if ('failed' in current) return { status: 'error', workflows: NONE, refresh }
   return { status: 'ready', workflows: current.workflows, refresh }

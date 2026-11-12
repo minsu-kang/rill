@@ -4,6 +4,7 @@ import type { MessageKey } from '../../i18n'
 import { escapeInvisible, truncate } from '../../model/text'
 
 export type ExplainAction = ExplainResult['suggestedActions'][number]
+export type ConfirmText = 'app.confirm.retry' | 'app.confirm.deactivate'
 
 export interface ExplainActionContext {
   runId: string
@@ -17,11 +18,12 @@ export interface ExplainActionDeps {
   openSettings(section: 'connections' | 'keys' | 'folders'): void
   selectNode(nodeId: string): void
   setEditContext(context: { workflowId: string; nodeId?: string }): void
-  confirm(text: MessageKey): Promise<boolean>
+  confirm(text: ConfirmText, effects?: { workflowId: string }): Promise<boolean>
   notify(key: MessageKey, vars?: Record<string, string | number>): void
   selectRun?(runId: string): void
 }
 
+export const COMPOSER = 'textarea[data-rill-composer]'
 const PATH_KEYS = ['file', 'path']
 const MAX_PATH_SHOWN = 240
 
@@ -48,14 +50,14 @@ export async function handleExplainAction(action: ExplainAction, context: Explai
   try {
     switch (action) {
       case 'retry_run': {
-        if (!(await deps.confirm('app.confirm.retry'))) return
+        if (!(await deps.confirm('app.confirm.retry', context.dryRun === true ? undefined : { workflowId: context.workflowId }))) return
         const { runId } = await client.request('startRun', { workflowId: context.workflowId, ...(context.dryRun === true ? { dryRun: true } : {}) })
         deps.selectRun?.(runId)
         notify('app.notice.retryStarted')
         return
       }
       case 'deactivate_workflow': {
-        if (!(await deps.confirm('app.confirm.deactivate'))) return
+        if (!(await deps.confirm('app.confirm.deactivate', undefined))) return
         await client.request('deactivate', { workflowId: context.workflowId })
         notify('app.notice.deactivated')
         return
@@ -92,7 +94,7 @@ export async function handleExplainAction(action: ExplainAction, context: Explai
 }
 
 export function fillChatDraft(root: ParentNode | null, text: string): boolean {
-  const field = root?.querySelector('textarea')
+  const field = root?.querySelector(COMPOSER)
   if (!(field instanceof HTMLTextAreaElement) || field.disabled) return false
   const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
   if (setValue === undefined) return false
