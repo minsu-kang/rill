@@ -213,14 +213,14 @@ describe('a plan row stored before the provider fields existed', () => {
     expect((await client.request('listPlans', {})).plans).toHaveLength(2)
   })
 
-  it('accepts a new plan next to the old rows, in the same table, with no migration', async () => {
+  it('accepts a new plan next to the old rows, in the same table, with no migration for the provider fields', async () => {
     const db = Db.open(':memory:')
     new Store(db)
     insertLegacy(db, 'legacy-1', JSON.stringify(LEGACY_META), 100)
     const { engine } = makeEngine(named('gemini', geminiLike, new ScriptedProvider([{ data: workflowReply(plainWorkflow()) }])), db)
     await engine.plan(planInput({ planId: 'fresh' }))
     const columns = db.all<{ name: string }>('PRAGMA table_info(plans)').map((column) => column.name)
-    expect(columns).toEqual(['id', 'created_at', 'status', 'effort', 'model', 'request_text', 'attachments', 'result', 'meta', 'error', 'workflow_hash', 'flag_keys', 'workflow_id', 'confirmed'])
+    expect(columns).toEqual(['id', 'created_at', 'status', 'effort', 'model', 'request_text', 'attachments', 'result', 'meta', 'error', 'workflow_hash', 'flag_keys', 'workflow_id', 'confirmed', 'memory_ids'])
     const stored = JSON.parse(db.get<{ meta: string }>('SELECT meta FROM plans WHERE id = ?', 'fresh')!.meta) as PlanMeta
     expect(stored.provider).toBe('gemini')
     expect(engine.getPlan('legacy-1').meta).toEqual(LEGACY_META)

@@ -22,6 +22,7 @@ import {
 } from '@rill/protocol'
 import { WebSocketServer, type RawData, type WebSocket } from 'ws'
 import { WorkflowValidationError, type Engine } from '../engine'
+import { MemoryDuplicateError, MemoryFullError, MemoryInvalidError } from '../memory'
 import {
   LlmUnavailableError,
   PlanBusyError,
@@ -36,7 +37,7 @@ const OPEN = 1
 const CLOSED = 3
 const TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]{16,}$/
 const MAX_PROBLEMS = 20
-const PLANNER_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan'])
+const NAME_ONLY_ERROR_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan', 'saveMemory'])
 
 export interface RillServerOptions {
   engine: Engine
@@ -112,6 +113,9 @@ function toErrorBody(method: string, error: unknown): ErrorBody {
     return { code: 'INVALID_WORKFLOW', message: 'the workflow is not valid', problems }
   }
   if (error instanceof PlanError) return planErrorBody(error)
+  if (error instanceof MemoryInvalidError) return { code: 'MEMORY_INVALID', message: 'the note is not valid', problems: error.problems }
+  if (error instanceof MemoryFullError) return { code: 'MEMORY_FULL', message: error.message }
+  if (error instanceof MemoryDuplicateError) return { code: 'MEMORY_DUPLICATE', message: error.message }
   if (error instanceof LlmError && error.kind === 'auth') return authBody(error)
   if (error instanceof AttachmentError) return { code: 'ATTACHMENT_REJECTED', message: error.message }
   if (error instanceof LlmUnavailableError) return { code: 'LLM_UNAVAILABLE', message: error.message }
@@ -324,7 +328,7 @@ export class RillServer {
   }
 
   private logError(method: string, error: unknown): void {
-    const detail = PLANNER_METHODS.has(method)
+    const detail = NAME_ONLY_ERROR_METHODS.has(method)
       ? { name: error instanceof Error ? error.name : typeof error }
       : { message: error instanceof Error ? error.message : String(error) }
     this.log(JSON.stringify({ type: 'error', method, ...detail }))
@@ -394,6 +398,9 @@ export class RillServer {
       listRuns: (params) => ({ runs: engine.listRuns({ workflowId: params.workflowId, limit: params.limit }) }),
       getRun: (params) => engine.getRunDetail(params.runId),
       nodeCatalog: () => ({ nodes: engine.nodeCatalog() }),
+      listMemory: () => ({ items: engine.listMemory() }),
+      saveMemory: (params) => ({ item: engine.saveMemory({ text: params.text, ...(params.id === undefined ? {} : { id: params.id }) }) }),
+      deleteMemory: (params) => ({ deleted: engine.deleteMemory(params.id) }),
       llmModels: () => engine.llmModels(),
       plan: (params) => engine.plan(params),
       cancelPlan: (params) => ({ cancelled: engine.cancelPlan(params.planId) }),

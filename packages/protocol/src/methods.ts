@@ -1,6 +1,7 @@
 import { WorkflowSchema } from '@rill/dsl'
 import Type from 'typebox'
 import { LlmModelsResultSchema } from './llm'
+import { MEMORY_MAX_INPUT_CHARS, MEMORY_MAX_ITEMS, MemoryItemSchema } from './memory'
 import {
   AttachmentRefSchema,
   IdSchema,
@@ -144,6 +145,18 @@ export const METHODS = {
     params: Type.Object({ planId: id, confirmed: Type.Array(Type.String(), { maxItems: 200 }) }, closed),
     result: Type.Object({ workflowId: id }),
   },
+  listMemory: {
+    params: noParams,
+    result: Type.Object({ items: Type.Array(MemoryItemSchema, { maxItems: MEMORY_MAX_ITEMS }) }),
+  },
+  saveMemory: {
+    params: Type.Object({ id: Type.Optional(id), text: Type.String({ maxLength: MEMORY_MAX_INPUT_CHARS }) }, closed),
+    result: Type.Object({ item: MemoryItemSchema }),
+  },
+  deleteMemory: {
+    params: Type.Object({ id }, closed),
+    result: Type.Object({ deleted: Type.Boolean() }),
+  },
   llmModels: { params: noParams, result: LlmModelsResultSchema },
   ping: { params: noParams, result: Type.Object({ time: Type.Number() }) },
 } as const
@@ -168,4 +181,7 @@ export const ERROR_CODES = [
   'PLAN_NOT_CONFIRMED',
   'PLAN_DEPLOYED',
   'ATTACHMENT_REJECTED',
+  'MEMORY_INVALID',
+  'MEMORY_FULL',
+  'MEMORY_DUPLICATE',
 ] as const

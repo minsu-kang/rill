@@ -5,6 +5,7 @@ import { createPlanner, scrubResultText, userTexts, type AttachmentStore, type P
 import type {
   AttachmentRef,
   LlmModelsResult,
+  MemoryItem,
   NodeInfo,
   PlanEffort,
   PlanRecord,
@@ -332,6 +333,18 @@ export class Engine {
 
   getRunDetail(runId: string): { run: RunSummary; steps: StepDetail[] } {
     return { run: this.store.getRunSummary(runId), steps: this.store.listStepDetails(runId) }
+  }
+
+  listMemory(): MemoryItem[] {
+    return this.store.listMemory()
+  }
+
+  saveMemory(input: { id?: string; text: string }): MemoryItem {
+    return this.store.saveMemory(input)
+  }
+
+  deleteMemory(id: string): boolean {
+    return this.store.deleteMemory(id)
   }
 
   llmModels(): LlmModelsResult {

@@ -99,6 +99,16 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX plans_workflow_hash ON plans(workflow_hash);
   CREATE INDEX plans_created ON plans(created_at);
   `,
+  `
+  CREATE TABLE memory_items (
+    id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    text_key TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  ALTER TABLE plans ADD COLUMN memory_ids TEXT NOT NULL DEFAULT '[]';
+  `,
 ]
 
 export function migrate(db: Db): void {

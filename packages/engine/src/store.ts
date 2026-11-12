@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { Workflow } from '@rill/dsl'
 import type { Journal, JournalEntry } from '@rill/nodes-core'
-import type { AttachmentRef, PlanMeta, PlanResultBody, PlanSummary } from '@rill/protocol'
+import { MEMORY_MAX_ITEMS, type AttachmentRef, type MemoryItem, type PlanMeta, type PlanResultBody, type PlanSummary } from '@rill/protocol'
 import type { Db } from './db'
+import { MemoryDuplicateError, MemoryFullError, memoryKey, normaliseMemoryText } from './memory'
 import { PlanDeployedError, PlanExistsError, PlanNotFoundError, type StoredPlan } from './plans'
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
@@ -149,6 +150,13 @@ function toRun(raw: RawRun): RunRow {
 
 function parseJson(text: string | null): unknown {
   return text === null ? null : JSON.parse(text)
+}
+
+interface RawMemory {
+  id: string
+  text: string
+  created_at: number
+  updated_at: number
 }
 
 interface RawPlan {
@@ -578,6 +586,37 @@ export class Store {
       "SELECT id FROM plans WHERE workflow_hash = ? AND flag_keys != '[]' AND workflow_id IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1",
       hash,
     )
+  }
+
+  listMemory(): MemoryItem[] {
+    return this.db
+      .all<RawMemory>('SELECT id, text, created_at, updated_at FROM memory_items ORDER BY created_at, rowid')
+      .map((row) => ({ id: row.id, text: row.text, createdAt: row.created_at, updatedAt: row.updated_at }))
+  }
+
+  saveMemory(input: { id?: string; text: string }): MemoryItem {
+    const text = normaliseMemoryText(input.text)
+    const key = memoryKey(text)
+    return this.db.transaction(() => {
+      const at = this.now()
+      if (input.id !== undefined) {
+        const row = this.db.get<RawMemory>('SELECT id, text, created_at, updated_at FROM memory_items WHERE id = ?', input.id)
+        if (!row) throw new NotFoundError('memory note not found')
+        if (this.db.get('SELECT 1 AS found FROM memory_items WHERE text_key = ? AND id != ?', key, input.id) !== undefined) throw new MemoryDuplicateError()
+        this.db.run('UPDATE memory_items SET text = ?, text_key = ?, updated_at = ? WHERE id = ?', text, key, at, input.id)
+        return { id: input.id, text, createdAt: row.created_at, updatedAt: at }
+      }
+      if (this.db.get('SELECT 1 AS found FROM memory_items WHERE text_key = ?', key) !== undefined) throw new MemoryDuplicateError()
+      const count = this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM memory_items')?.n ?? 0
+      if (count >= MEMORY_MAX_ITEMS) throw new MemoryFullError()
+      const id = randomUUID()
+      this.db.run('INSERT INTO memory_items (id, text, text_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', id, text, key, at, at)
+      return { id, text, createdAt: at, updatedAt: at }
+    })
+  }
+
+  deleteMemory(id: string): boolean {
+    return this.db.run('DELETE FROM memory_items WHERE id = ?', id) > 0
   }
 
   journal(): Journal {
