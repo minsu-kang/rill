@@ -1,4 +1,5 @@
 import { explainKo } from './explain.ko'
+import { recipesKo } from './recipes.ko'
 
 export const ko = {
   'app.name': 'Rill',
@@ -74,4 +75,5 @@ export const ko = {
   'workspace.loading': '불러오는 중…',
   'workspace.loadError': '불러오지 못했어요: {message}',
   ...explainKo,
+  ...recipesKo,
 }
