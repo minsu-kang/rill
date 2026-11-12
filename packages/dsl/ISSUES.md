@@ -36,7 +36,7 @@ first.
 | `nullable_into_required` | 3 | warning | a whole-value reference to a nullable field feeds a field that rejects null |
 | `number_into_integer` | 3 | warning | a reference to a `number` field feeds an `integer` field |
 | `path_outside_roots` | 3 | error | a literal path (role `path`) fails the path guard for the allowed roots; hint lists them |
-| `inside_watched_folder` | 3 | error | an action writes a file into a folder that a `trigger.folderWatch` watches and the trigger's pattern matches the file name, so every write would start the workflow again; a template in the path is read as ordinary text |
+| `inside_watched_folder` | 3 | error | an action writes a file into a folder that a `trigger.folderWatch` watches and the trigger's pattern matches the file name, so every write would start the workflow again; the hint carries the fix; see the engine README, "Workflow checks" |
 | `unknown_connection` | 3 | error | a literal connection name (role `connection`) is not configured; hint lists the names |
 
 Known gap: placeholders stand for the upstream type, not its value, so a nullable number flowing into an

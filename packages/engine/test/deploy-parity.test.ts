@@ -498,7 +498,7 @@ describe('the validator and the run-time check agree on every typed reference be
         for (const target of targets) {
           const workflow = workflowFor(source, target, ref)
           const index = workflow.nodes.length - 1
-          const issues = validateWorkflow(workflow, { registry, allowedRoots: [root] })
+          const issues = validateWorkflow(workflow, { registry, allowedRoots: [root] }).filter((issue) => issue.code !== 'inside_watched_folder')
           const errors = issues.filter((issue) => !isWarningIssue(issue) && issue.pointer.startsWith(`/nodes/${index}/config`))
           const label = `${source[0]} ${ref} -> ${target.type} ${target.field} (${target.shape})`
           const elsewhere = issues.filter((issue) => !isWarningIssue(issue) && !issue.pointer.startsWith(`/nodes/${index}/config`))

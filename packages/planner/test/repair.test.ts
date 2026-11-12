@@ -35,8 +35,8 @@ function withDelay(ms: unknown, extra: Workflow['nodes'] = []): Workflow {
   return workflow
 }
 
-function repairPayload(text: string): { round: number; issues: { code: string; pointer: string; message: string }[] } {
-  return JSON.parse(text) as { round: number; issues: { code: string; pointer: string; message: string }[] }
+function repairPayload(text: string): { round: number; issues: { code: string; pointer: string; message: string; hint?: string }[] } {
+  return JSON.parse(text) as { round: number; issues: { code: string; pointer: string; message: string; hint?: string }[] }
 }
 
 describe('repair loop', () => {
@@ -67,6 +67,7 @@ describe('repair loop', () => {
     expect(payload.issues).toHaveLength(1)
     expect(payload.issues[0]).toMatchObject({ code: 'inside_watched_folder', pointer: '/nodes/2/config/file' })
     expect(payload.issues[0]!.message).not.toContain(ROOT)
+    expect(payload.issues[0]!.hint).toBe('write the file to another folder or narrow the trigger pattern')
   })
 
   it('numbers the repair rounds', async () => {

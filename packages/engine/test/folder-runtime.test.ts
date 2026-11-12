@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
-import { PathNotAllowedError, globToRegExp } from '@rill/nodes-core'
+import { PathNotAllowedError, compileGlob } from '@rill/nodes-core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DuplicateFileError } from '../src/store'
 import { FolderRuntime } from '../src/triggers/folder'
@@ -30,19 +30,19 @@ function setup(config: Partial<{ glob: string; pollMs: number; stableMs: number;
   return { clock, h, runtime }
 }
 
-describe('globToRegExp', () => {
+describe('compileGlob', () => {
   it('matches names case-insensitively with * and ?', () => {
-    expect(globToRegExp('*.pdf').test('A.PDF')).toBe(true)
-    expect(globToRegExp('*.pdf').test('a.pdf.part')).toBe(false)
-    expect(globToRegExp('rec?.txt').test('rec1.txt')).toBe(true)
-    expect(globToRegExp('rec?.txt').test('rec12.txt')).toBe(false)
-    expect(globToRegExp('a+b(1).txt').test('a+b(1).txt')).toBe(true)
-    expect(globToRegExp('a.b').test('axb')).toBe(false)
-    expect(globToRegExp('*').test('anything')).toBe(true)
+    expect(compileGlob('*.pdf').test('A.PDF')).toBe(true)
+    expect(compileGlob('*.pdf').test('a.pdf.part')).toBe(false)
+    expect(compileGlob('rec?.txt').test('rec1.txt')).toBe(true)
+    expect(compileGlob('rec?.txt').test('rec12.txt')).toBe(false)
+    expect(compileGlob('a+b(1).txt').test('a+b(1).txt')).toBe(true)
+    expect(compileGlob('a.b').test('axb')).toBe(false)
+    expect(compileGlob('*').test('anything')).toBe(true)
   })
 
   it('compares names in NFC form', () => {
-    expect(globToRegExp('résumé*.txt'.normalize('NFD')).test('résumé 영수증.txt'.normalize('NFC'))).toBe(true)
+    expect(compileGlob('résumé*.txt'.normalize('NFD')).test('résumé 영수증.txt'.normalize('NFC'))).toBe(true)
   })
 })
 

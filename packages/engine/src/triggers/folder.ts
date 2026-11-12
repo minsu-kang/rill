@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readdirSync, statSync } from 'node:fs'
 import { extname, join } from 'node:path'
-import { assertPathAllowed, folderWatchSees, globToRegExp, type FolderWatchConfig } from '@rill/nodes-core'
+import { assertPathAllowed, compileGlob, folderWatchSees, type FolderWatchConfig, type GlobMatcher } from '@rill/nodes-core'
 import { DuplicateFileError } from '../store'
 import type { TriggerHost, TriggerRuntime } from './types'
 
@@ -21,7 +21,7 @@ export class FolderRuntime implements TriggerRuntime {
   private readonly workflowId: string
   private readonly host: TriggerHost
   private readonly folder: string
-  private readonly matches: RegExp
+  private readonly matches: GlobMatcher
   private readonly pollMs: number
   private readonly stableMs: number
   private readonly includeExisting: boolean
@@ -40,7 +40,7 @@ export class FolderRuntime implements TriggerRuntime {
       isDirectory = false
     }
     if (!isDirectory) throw new Error(`folder does not exist: ${config.folder}`)
-    this.matches = globToRegExp(config.glob ?? '*')
+    this.matches = compileGlob(config.glob ?? '*')
     this.pollMs = config.pollMs ?? 1000
     this.stableMs = config.stableMs ?? 2000
     this.includeExisting = config.includeExisting ?? false

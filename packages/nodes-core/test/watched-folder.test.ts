@@ -1,9 +1,10 @@
-import { homedir } from 'node:os'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ISSUE_CODES, isWarningIssue, type Workflow } from '@rill/dsl'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { createCoreRegistry } from '../src'
-import { WATCHED_FOLDER_CODE, folderWatchSees, globToRegExp, watchedFolderIssues } from '../src/watched-folder'
+import { WATCHED_FOLDER_CODE, WATCHED_FOLDER_HINT, compileGlob, folderWatchSees, watchedFolderIssues } from '../src/watched-folder'
 import { validateWorkflow } from '../src/validate'
 
 const registry = createCoreRegistry()
@@ -149,23 +150,139 @@ describe('validateWorkflow', () => {
 
 describe('what a folder watch sees', () => {
   it('matches the whole name, case-insensitively, with * and ? that never cross a separator', () => {
-    expect(globToRegExp('*.pdf').test('A.PDF')).toBe(true)
-    expect(globToRegExp('*.pdf').test('a.pdf.txt')).toBe(false)
-    expect(globToRegExp('r?.csv').test('r1.csv')).toBe(true)
-    expect(globToRegExp('r?.csv').test('r12.csv')).toBe(false)
-    expect(globToRegExp('*').test('a/b')).toBe(false)
-    expect(globToRegExp('*').test('a\\b')).toBe(false)
-    expect(globToRegExp('a.b').test('axb')).toBe(false)
-    expect(globToRegExp('(a)+[b]').test('(a)+[b]')).toBe(true)
+    expect(compileGlob('*.pdf').test('A.PDF')).toBe(true)
+    expect(compileGlob('*.pdf').test('a.pdf.txt')).toBe(false)
+    expect(compileGlob('r?.csv').test('r1.csv')).toBe(true)
+    expect(compileGlob('r?.csv').test('r12.csv')).toBe(false)
+    expect(compileGlob('*').test('a/b')).toBe(false)
+    expect(compileGlob('*').test('a\\b')).toBe(false)
+    expect(compileGlob('a.b').test('axb')).toBe(false)
+    expect(compileGlob('(a)+[b]').test('(a)+[b]')).toBe(true)
   })
 
   it('skips hidden, editor lock, temporary and partial download names', () => {
-    const all = globToRegExp('*')
+    const all = compileGlob('*')
     for (const name of ['.hidden', '~$lock.docx', 'draft~', 'a.tmp', 'a.PART', 'a.crdownload', 'a.Download']) expect(folderWatchSees(all, name), name).toBe(false)
     for (const name of ['ledger.csv', 'a.part.pdf', 'tmp', 'a~b']) expect(folderWatchSees(all, name), name).toBe(true)
   })
 
   it('compares composed and decomposed letters as the same name', () => {
-    expect(folderWatchSees(globToRegExp('caf\u00e9.csv'), 'cafe\u0301.csv')).toBe(true)
+    expect(folderWatchSees(compileGlob('caf\u00e9.csv'), 'cafe\u0301.csv')).toBe(true)
+  })
+})
+
+function legacyRegExp(glob: string): RegExp {
+  let source = ''
+  for (const char of glob.normalize('NFC')) {
+    if (char === '*') source += '[^/\\\\]*'
+    else if (char === '?') source += '[^/\\\\]'
+    else source += char.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp(`^${source}$`, 'i')
+}
+
+describe('the glob matcher', () => {
+  it('answers as the regular expression it replaced on 20000 random globs and names', () => {
+    const alphabet = ['a', 'b', 'A', 'B', '.', '+', '(', '[', '\\', '/', '\n', 'é', 'É', 'ß', 'ſ', 'K', 'k', 'K', 'İ', 'ı', '\ud83d', '\ude00']
+    let seed = 12345
+    const next = (limit: number): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      return Math.floor(seed / 65536) % limit
+    }
+    const word = (extra: string[], max: number): string => {
+      const pool = [...alphabet, ...extra]
+      return Array.from({ length: next(max) }, () => pool[next(pool.length)] as string).join('')
+    }
+    let matched = 0
+    for (let round = 0; round < 20000; round += 1) {
+      const glob = word(['*', '*', '?'], 8)
+      const name = word([], 8)
+      const expected = legacyRegExp(glob).test(name)
+      if (expected) matched += 1
+      expect(compileGlob(glob).test(name), JSON.stringify({ glob, name })).toBe(expected)
+    }
+    expect(matched).toBeGreaterThan(300)
+  })
+
+  it('answers as the old expression on named cases', () => {
+    const cases: [string, string][] = [['*a*b', 'xxaxxb'], ['*a*b', 'a/ab'], ['a*', 'a/b'], ['?', '/'], ['?', '\\'], ['*', ''], ['', ''], ['', 'a'], ['**', 'abc'], ['a**b', 'ab'], ['*?*', 'a'], ['*?*', ''], ['ß', 'SS'], ['ß', 'ẞ'], ['K', 'K'], ['ſ', 's'], ['\u{1f600}x', '\u{1f600}x'], ['\u{1f600}', '\ud83d'], ['?', '\u{1f600}'], ['??', '\u{1f600}']]
+    for (const [glob, name] of cases) expect(compileGlob(glob).test(name), `${glob} ${name}`).toBe(legacyRegExp(glob).test(name))
+  })
+
+  it('stays fast on a glob that made the old expression crawl', () => {
+    const matcher = compileGlob(`${'*a'.repeat(40)}b`)
+    const started = Date.now()
+    expect(matcher.test('a'.repeat(250))).toBe(false)
+    expect(compileGlob(`${'*'.repeat(200)}a`).test('b'.repeat(2000))).toBe(false)
+    expect(compileGlob(`${'*'.repeat(200)}a`).test(`${'b'.repeat(2000)}a`)).toBe(true)
+    expect(Date.now() - started).toBeLessThan(500)
+  })
+})
+
+describe('a write that starts from the file of the trigger', () => {
+  const folder = '/Users/demo/Receipts'
+  const one = (glob: string | undefined, file: string, id = 't1') => found(watch(glob === undefined ? { folder } : { folder, glob }, id), csv(file))
+
+  it('flags the file that started the run and a file named after it in the same folder', () => {
+    expect(one('*', '{{t1.output.file}}')).toEqual(LOOP(1))
+    expect(one('*.pdf', '{{ t1.output.file }}')).toEqual(LOOP(1))
+    expect(one('*', '{{t1.output.file}}.csv')).toEqual(LOOP(1))
+    expect(one(undefined, '{{t1.output.file}}.csv')).toEqual(LOOP(1))
+    expect(one('*.csv', '{{t1.output.file}}.csv')).toEqual(LOOP(1))
+  })
+
+  it('leaves a file that the trigger would not see, a path that goes elsewhere and another trigger alone', () => {
+    expect(one('*.pdf', '{{t1.output.file}}.csv')).toEqual([])
+    expect(one('*', '{{t1.output.file}}.tmp')).toEqual([])
+    expect(one('*', '{{t1.output.file}}/ledger.csv')).toEqual([])
+    expect(one('*', '{{t1.output.file}}\\ledger.csv')).toEqual([])
+    expect(one('*', '{{t2.output.file}}.csv')).toEqual([])
+    expect(one('*', '{{t1.output.name}}.csv')).toEqual([])
+    expect(one('*', 'x{{t1.output.file}}.csv')).toEqual([])
+  })
+
+  it('skips a relative path that holds a template, since it depends on the folder the engine runs in', () => {
+    expect(found(watch({ folder: process.cwd(), glob: '*' }), csv('{{t1.output.name}}.csv'))).toEqual([])
+    expect(found(watch({ folder: process.cwd(), glob: '*' }), csv('ledger.csv'))).toEqual(LOOP(1))
+  })
+})
+
+describe('the same folder behind a symbolic link', () => {
+  const base = mkdtempSync(join(tmpdir(), 'rill-watched-'))
+  afterAll(() => rmSync(base, { recursive: true, force: true }))
+  const real = join(base, 'real')
+  const link = join(base, 'link')
+  mkdirSync(real)
+  symlinkSync(real, link)
+
+  it('sees the real folder and the link as one folder, in either order and for a file that does not exist yet', () => {
+    expect(found(watch({ folder: link, glob: '*' }), csv(join(real, 'ledger.csv')))).toEqual(LOOP(1))
+    expect(found(watch({ folder: real, glob: '*' }), csv(join(link, 'ledger.csv')))).toEqual(LOOP(1))
+    expect(found(watch({ folder: realpathSync(base), glob: '*' }), csv(join(link, 'ledger.csv')))).toEqual([])
+    expect(found(watch({ folder: join(link, 'later'), glob: '*' }), csv(join(real, 'later', 'ledger.csv')))).toEqual(LOOP(1))
+  })
+
+  it('compares the written spelling when the link points nowhere', () => {
+    const dangling = join(base, 'dangling')
+    symlinkSync(join(base, 'missing'), dangling)
+    expect(found(watch({ folder: dangling, glob: '*' }), csv(join(dangling, 'ledger.csv')))).toEqual(LOOP(1))
+    expect(found(watch({ folder: dangling, glob: '*' }), csv(join(real, 'ledger.csv')))).toEqual([])
+  })
+
+  it('compares the written spelling when the folder does not exist at all', () => {
+    expect(found(watch({ folder: '/rill-nowhere/in', glob: '*' }), csv('/rill-nowhere/in/ledger.csv'))).toEqual(LOOP(1))
+    expect(found(watch({ folder: '/rill-nowhere/in', glob: '*' }), csv('/rill-nowhere/out/ledger.csv'))).toEqual([])
+  })
+})
+
+describe('the issue the planner sees', () => {
+  it('carries the fix as a fixed hint and no path in the message', () => {
+    const [issue] = watchedFolderIssues(
+      { schemaVersion: 1, name: 'x', nodes: [watch({ folder: '/Users/demo/SECRET-FOLDER', glob: '*' }), csv('/Users/demo/SECRET-FOLDER/ledger.csv')], edges: [] } as unknown as Workflow,
+      registry,
+    )
+    expect(issue!.hint).toBe(WATCHED_FOLDER_HINT)
+    expect(WATCHED_FOLDER_HINT).toBe('write the file to another folder or narrow the trigger pattern')
+    expect(JSON.stringify(issue)).not.toContain('SECRET-FOLDER')
   })
 })

@@ -22,7 +22,7 @@ function exists(path: string): boolean {
   }
 }
 
-function resolveReal(path: string): string {
+export function resolveReal(path: string): string {
   const missing: string[] = []
   let current = resolve(path)
   for (;;) {
