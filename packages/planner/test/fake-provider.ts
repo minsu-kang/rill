@@ -1,4 +1,4 @@
-import { LlmError, type LlmCallOptions, type LlmProvider, type LlmRequest, type LlmResult, type LlmUsage } from '@rill/llm'
+import { LlmError, type LlmCallOptions, type LlmCapabilities, type LlmProvider, type LlmRequest, type LlmResult, type LlmUsage } from '@rill/llm'
 
 export type Step =
   | { data: unknown; model?: string; usage?: Partial<LlmUsage>; fallbackUsed?: boolean; servedModels?: string[] }
@@ -17,12 +17,15 @@ export function usage(partial: Partial<LlmUsage> = {}): LlmUsage {
 }
 
 export class FakeProvider implements LlmProvider {
-  readonly name = 'fake'
+  readonly name: string
+  readonly capabilities?: LlmCapabilities
   readonly calls: Recorded[] = []
   private readonly steps: Step[]
 
-  constructor(steps: Step[]) {
+  constructor(steps: Step[], options: { name?: string; capabilities?: LlmCapabilities } = {}) {
     this.steps = [...steps]
+    this.name = options.name ?? 'fake'
+    if (options.capabilities !== undefined) this.capabilities = options.capabilities
   }
 
   get remaining(): number {

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs'
 import { extname } from 'node:path'
-import type { LlmPart } from '@rill/llm'
+import { capabilitiesOf, type LlmPart, type LlmProvider } from '@rill/llm'
 import Type from 'typebox'
 import Value from 'typebox/value'
 import { BINARY_TYPES, TEXT_TYPES } from '../filetypes'
@@ -146,7 +146,25 @@ function wrapText(tag: string, text: string): LlmPart {
   return { type: 'text', text: `<${tag}>\n${text}\n</${tag}>` }
 }
 
-function loadSource(config: LlmExtractConfig, ctx: NodeContext, tag: string): LlmPart {
+function assertProviderTakes(llm: LlmProvider, mediaType: string, label: string): void {
+  const capabilities = capabilitiesOf(llm)
+  if (mediaType === 'application/pdf') {
+    if (capabilities.documents === 'none') throw new Error(`llm.extract cannot read a PDF with the ${llm.name} provider: ${label}`)
+    return
+  }
+  if (!(capabilities.images as readonly string[]).includes(mediaType)) {
+    throw new Error(`llm.extract cannot read ${mediaType} with the ${llm.name} provider, which takes ${capabilities.images.join(', ')}: ${label}`)
+  }
+}
+
+function assertWithinRequestCap(llm: LlmProvider, bytes: number, label: string): void {
+  const cap = capabilitiesOf(llm).maxRequestBytes
+  if (cap !== undefined && bytes > cap) {
+    throw new Error(`llm.extract cannot send ${bytes} bytes to the ${llm.name} provider, which takes ${cap} bytes in one request: ${label}`)
+  }
+}
+
+function loadSource(config: LlmExtractConfig, ctx: NodeContext, llm: LlmProvider, tag: string): LlmPart {
   if (config.text !== undefined) return wrapText(tag, config.text)
   const label = config.file as string
   if (ctx.allowedRoots === undefined) {
@@ -168,8 +186,10 @@ function loadSource(config: LlmExtractConfig, ctx: NodeContext, tag: string): Ll
     }
   }
   const mediaType = binaryType as string
+  assertProviderTakes(llm, mediaType, label)
   const bytes = readBounded(path, IMAGE_TYPES.has(mediaType) ? MAX_IMAGE_BYTES : MAX_DOCUMENT_BYTES, label)
   if (!SIGNATURES[mediaType]!(bytes)) throw new Error(`file content does not look like ${mediaType}: ${label}`)
+  assertWithinRequestCap(llm, bytes.length, label)
   const data = bytes.toString('base64')
   if (mediaType === 'application/pdf') return { type: 'document', mediaType: 'application/pdf', data }
   return { type: 'image', mediaType: mediaType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp', data }
@@ -217,14 +237,15 @@ export const llmExtract = defineAction({
   outputSchemaFor: (config) => llmExtractOutputSchema(config),
   validate,
   execute: async (config, ctx) => {
-    if (!ctx.llm) throw new Error('llm.extract needs an LLM provider; set ANTHROPIC_API_KEY')
+    const llm = ctx.llm
+    if (!llm) throw new Error('llm.extract needs an LLM provider; set ANTHROPIC_API_KEY')
     const problems = validate(config)
     if (problems.length > 0) throw new Error(problems[0])
     const tag = `document-${randomBytes(6).toString('hex')}`
-    const source = loadSource(config, ctx, tag)
+    const source = loadSource(config, ctx, llm, tag)
     let data: unknown
     try {
-      const result = await ctx.llm.generate({
+      const result = await llm.generate({
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: [source, { type: 'text', text: instructionText(config, source.type === 'text' ? tag : undefined) }] }],
         schema: requestSchema(config.fields),

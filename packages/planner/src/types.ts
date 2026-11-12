@@ -88,8 +88,24 @@ export type PlanResult = PlanResultBody & {
    */
   costUsd: number | null
   model: string
+  /** The effort the caller asked for; meta.effort.effective is the level that ran. */
   effort: PlanEffort
   fallbackUsed: boolean
+  meta: PlanProviderMeta
+}
+
+export interface PlanEffortMeta {
+  requested: PlanEffort
+  effective: PlanEffort
+  native: string
+  collapsed: boolean
+}
+
+export interface PlanProviderMeta {
+  provider: string
+  effort: PlanEffortMeta
+  reasoningCapped: boolean
+  costNote?: string
 }
 
 export type PlanErrorKind = 'invalid_request' | 'invalid_after_repair' | 'provider' | 'aborted' | 'attachment'

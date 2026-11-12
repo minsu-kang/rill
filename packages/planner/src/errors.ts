@@ -5,6 +5,7 @@ export type AttachmentErrorCode =
   | 'empty'
   | 'too_large'
   | 'unsupported_type'
+  | 'unsupported_media'
   | 'type_mismatch'
   | 'closing_tag_in_content'
 

@@ -14,7 +14,16 @@ export const ERROR_ISSUE: PlanIssue = { stage: 3, pointer: '/nodes/1/config', co
 export const WARNING_ISSUE: PlanIssue = { stage: 3, pointer: '/nodes/1/config/x', code: 'nullable_into_required', message: 'nullable' }
 
 export function fakeResult(body: PlanResultBody, rounds: PlanRound[] = [fakeRound(0)]): PlanResult {
-  return { ...body, rounds, usage: fakeUsage(), costUsd: 0, model: 'fake-planner', effort: 'low', fallbackUsed: false }
+  return {
+    ...body,
+    rounds,
+    usage: fakeUsage(),
+    costUsd: 0,
+    model: 'fake-planner',
+    effort: 'low',
+    fallbackUsed: false,
+    meta: { provider: 'fake', effort: { requested: 'low', effective: 'low', native: 'low', collapsed: false }, reasoningCapped: true },
+  }
 }
 
 export function workflowBody(workflow: Workflow, flags: Flag[] = [], needsConfirmation = flags.length > 0): PlanResultBody {

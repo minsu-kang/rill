@@ -1,10 +1,11 @@
 import { capIssues, isWarningIssue, type PlanIssue, type Workflow } from '@rill/dsl'
-import { LlmError, costUsd, type LlmMessage, type LlmPart, type LlmRequest, type LlmResult, type LlmUsage } from '@rill/llm'
+import { LlmError, capabilitiesOf, costUsd, type LlmCapabilities, type LlmMessage, type LlmPart, type LlmRequest, type LlmResult, type LlmUsage } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
 import { ATTACHMENT_RULES, attachmentModule } from './attachments'
 import { createNameGuard } from './attachments/names'
 import { fold } from './attachments/normalize'
 import { createProvenanceCache, userSourcedTest } from './attachments/provenance'
+import { SOFT_CAP_HEADROOM, SOFT_CAP_NOTE, checkAttachmentSupport, checkRequestBytes, resolveEffort, type ResolvedEffort } from './capabilities'
 import { maskConfig, unmaskConfig } from './mask'
 import { convertSchema, restoreConverted } from './convert'
 import { decodeGeneration, type DecodeContext, type Decoded } from './decode'
@@ -23,7 +24,7 @@ import {
   type CurrentTurnInput,
 } from './prompt'
 import { MAX_QUESTION_TURNS, gapLanguage, gapQuestions, gapSummary, isGapIssue, isNoticeIssue, questionTurnsSinceLastWorkflow } from './questions'
-import { PlanError, type Flag, type PatchOp, type PlanRequest, type PlanResult, type PlanQuestion, type PlanResultBody, type PlanRound, type PlanTurn } from './types'
+import { PlanError, type AttachmentRef, type Flag, type PatchOp, type PlanProviderMeta, type PlanRequest, type PlanResult, type PlanQuestion, type PlanResultBody, type PlanRound, type PlanTurn } from './types'
 
 export const DEFAULT_MAX_REPAIR_ROUNDS = 3
 export const MAX_TARGETED_NODES = 2
@@ -125,6 +126,8 @@ class Run {
   private readonly mode: GenerationMode
   private readonly allowQuestions: boolean
   private readonly ctx: DecodeContext
+  private readonly capabilities: LlmCapabilities
+  private readonly effort: ResolvedEffort
   private attachmentTexts: string[] = []
   private readonly provenanceCache = createProvenanceCache()
   private totalUsage: LlmUsage = ZERO
@@ -139,6 +142,8 @@ class Run {
   ) {
     this.attachments = deps.attachments ?? attachmentModule
     this.registry = deps.registry
+    this.capabilities = capabilitiesOf(deps.provider)
+    this.effort = resolveEffort(this.capabilities, request.effort)
     this.mode = request.selection === undefined ? 'create' : 'patch'
     this.allowQuestions = questionTurnsSinceLastWorkflow(request.turns) < MAX_QUESTION_TURNS
     this.ctx = {
@@ -182,6 +187,29 @@ class Run {
     if (earlier + current > MAX_ATTACHMENTS_PER_CONVERSATION) {
       throw this.fail('attachment', `at most ${MAX_ATTACHMENTS_PER_CONVERSATION} attachments per conversation, got ${earlier + current}`)
     }
+    try {
+      checkAttachmentSupport(this.deps.provider.name, this.capabilities, this.allRefs())
+    } catch (error) {
+      if (error instanceof AttachmentError) throw this.fail('attachment', error.message, error)
+      throw error
+    }
+  }
+
+  private allRefs(): AttachmentRef[] {
+    return [...this.request.turns.flatMap((turn) => (turn.role === 'user' ? (turn.attachments ?? []) : [])), ...this.request.attachments]
+  }
+
+  private checkBinaryBytes(messages: readonly LlmMessage[]): void {
+    const refs = this.allRefs()
+    const last = refs.at(-1)
+    if (last === undefined) return
+    const parts = messages.flatMap((message) => (typeof message.content === 'string' ? [] : message.content))
+    try {
+      checkRequestBytes(this.deps.provider.name, this.capabilities, parts, last)
+    } catch (error) {
+      if (error instanceof AttachmentError) throw this.fail('attachment', error.message, error)
+      throw error
+    }
   }
 
   private async prepare(refs: PlanTurn['attachments'], cacheLast: boolean): Promise<LlmPart[]> {
@@ -216,6 +244,7 @@ class Run {
     }
     const parts = await this.prepare(this.request.attachments, false)
     messages.push(userMessage(currentTurnText(this.turnInput()), parts))
+    this.checkBinaryBytes(messages)
     return messages
   }
 
@@ -224,10 +253,9 @@ class Run {
   }
 
   private async call(request: LlmRequest): Promise<LlmResult | LlmError> {
-    const budget = EFFORT_BUDGETS[this.request.effort]
     try {
       const result = await this.deps.provider.generate(request, {
-        timeoutMs: budget.timeoutMs,
+        timeoutMs: this.timeoutMs(),
         ...(this.request.signal === undefined ? {} : { signal: this.request.signal }),
       })
       this.record(result)
@@ -244,6 +272,11 @@ class Run {
       if (this.request.signal?.aborted === true) throw this.fail('aborted', 'planning was aborted', error)
       throw error
     }
+  }
+
+  private timeoutMs(): number {
+    const { timeoutMs } = EFFORT_BUDGETS[this.effort.effective]
+    return this.capabilities.reasoningCappedByMaxTokens ? timeoutMs : timeoutMs * SOFT_CAP_HEADROOM
   }
 
   private record(result: LlmResult): void {
@@ -270,8 +303,8 @@ class Run {
       system: systemBlocks(this.registry, this.hasAttachments() ? ATTACHMENT_RULES : undefined),
       messages,
       schema,
-      maxTokens: EFFORT_BUDGETS[this.request.effort].maxTokens,
-      effort: this.request.effort,
+      maxTokens: EFFORT_BUDGETS[this.effort.effective].maxTokens,
+      effort: this.effort.effective,
     }
   }
 
@@ -315,6 +348,17 @@ class Run {
       model: this.lastModel,
       effort: this.request.effort,
       fallbackUsed: this.fallbackUsed,
+      meta: this.meta(),
+    }
+  }
+
+  private meta(): PlanProviderMeta {
+    const capped = this.capabilities.reasoningCappedByMaxTokens
+    return {
+      provider: this.deps.provider.name,
+      effort: { requested: this.request.effort, ...this.effort },
+      reasoningCapped: capped,
+      ...(capped ? {} : { costNote: SOFT_CAP_NOTE }),
     }
   }
 
