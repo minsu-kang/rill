@@ -87,6 +87,13 @@ describe('conversationReducer', () => {
     expect(state.error).toBeUndefined()
   })
 
+  it('ignores a second submit while a plan is running', () => {
+    const first = run([{ type: 'submit', text: 'first' }])
+    const again = conversationReducer(first, { type: 'submit', text: 'second' })
+    expect(again).toBe(first)
+    expect(conversationReducer(first, { type: 'submit', text: '', answers: { a: 'y' } })).toBe(first)
+  })
+
   it('submits answers: a user entry with empty text and the answers, and leaves the composer alone', () => {
     const base = run([{ type: 'submit', text: 'q' }, { type: 'planned', planId: 'p1', result: questionResult, meta: META }, { type: 'draft', text: 'half typed' }, { type: 'attach', ref: ref('a') }])
     const state = run([{ type: 'submit', text: '', answers: { a: 'y' } }], base)

@@ -67,6 +67,12 @@ describe('PlanResultCard: a newer plan', () => {
     for (const box of screen.getAllByRole('checkbox')) expect((box as HTMLInputElement).disabled).toBe(true)
   })
 
+  it('gives one reason only when a plan is both replaced and another one is being made', () => {
+    show(results.workflow, { superseded: true, planning: true })
+    expect(screen.getByText('A newer plan replaced this one.')).toBeTruthy()
+    expect(screen.queryByText('Deploy is available when the new plan is ready.')).toBeNull()
+  })
+
   it('does not call a deployed plan superseded', () => {
     show(results.workflow, { entry: entryOf(results.workflow, 'wf-9'), superseded: true })
     expect(screen.queryByText('A newer plan replaced this one.')).toBeNull()

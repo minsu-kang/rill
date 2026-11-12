@@ -101,6 +101,20 @@ describe('QuestionCard', () => {
     expect(onSubmit).toHaveBeenCalledWith({ folder: '~/Downloads', notify: '알림 없음', fields: 'date, total' })
   })
 
+  it('does not submit a blank or a disabled card even when the form itself is submitted', () => {
+    const blank = show()
+    fireEvent.submit(blank.container.querySelector('form')!)
+    expect(blank.onSubmit).not.toHaveBeenCalled()
+    blank.unmount()
+    const off = show([{ id: 'x', text: 'Pick', options: ['a', 'b'], default: 'a' }], true)
+    fireEvent.submit(off.container.querySelector('form')!)
+    expect(off.onSubmit).not.toHaveBeenCalled()
+    off.unmount()
+    const ok = show([{ id: 'x', text: 'Pick', options: ['a', 'b'], default: 'a' }])
+    fireEvent.submit(ok.container.querySelector('form')!)
+    expect(ok.onSubmit).toHaveBeenCalledWith({ x: 'a' })
+  })
+
   it('blocks the submit and says why when a free text answer is blank', () => {
     const { onSubmit } = show()
     fireEvent.click(screen.getByRole('button', { name: 'Use this suggestion' }))

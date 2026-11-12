@@ -19,6 +19,11 @@ describe('clampText', () => {
     expect(clampText('abc', 10)).toEqual({ shown: 'abc', cut: false })
   })
 
+  it('returns text of exactly the limit whole and not cut', () => {
+    expect(clampText('abc', 3)).toEqual({ shown: 'abc', cut: false })
+    expect(clampText('abcd', 3)).toEqual({ shown: 'ab…', cut: true })
+  })
+
   it('cuts long text at the limit with an ellipsis and says so', () => {
     const out = clampText('x'.repeat(50), 10)
     expect(out.cut).toBe(true)

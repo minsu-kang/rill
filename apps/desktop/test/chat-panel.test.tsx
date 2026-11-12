@@ -168,7 +168,7 @@ describe('ChatPanel: cancel and errors', () => {
     let planCalls = 0
     const { world } = show({
       intercept: (method) => {
-        if (method === 'plan' && (planCalls += 1) === 1) return new Promise((resolve) => (answer = resolve))
+        if (method === 'plan') return new Promise((resolve) => (planCalls += 1) === 1 && (answer = resolve))
         return method === 'cancelPlan' ? Promise.resolve({ cancelled: false }) : undefined
       },
     })
@@ -177,12 +177,13 @@ describe('ChatPanel: cancel and errors', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
     await screen.findByRole('alert')
     ask('second')
-    expect(await screen.findByText(workflowSummary)).toBeTruthy()
-    answer({ result: results.unsupported, meta: metas.plain })
+    await waitFor(() => expect(world.planCalls()).toHaveLength(2))
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy()
+    answer({ planId: 'plan-1', result: results.unsupported, meta: metas.plain })
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(screen.queryByText('This cannot be built')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy()
     expect(screen.getAllByRole('article', { name: 'You' })).toHaveLength(1)
-    expect(world.planCalls()).toHaveLength(2)
   })
 
   it('shows the localized notice for each error code and keeps the draft and the attachments', async () => {

@@ -99,6 +99,7 @@ describe('memoryErrorKey', () => {
   it('falls back to the general invalid-note message for a rule it does not know and to the plan keys for other codes', () => {
     const general = memoryErrorKey(new RillError('MEMORY_INVALID', 'x', []))
     expect(memoryErrorKey(new RillError('MEMORY_INVALID', 'x', ['new_rule: text']))).toBe(general)
+    for (const rule of ['constructor', '__proto__', 'toString']) expect(memoryErrorKey(new RillError('MEMORY_INVALID', 'x', [`${rule}: text`]))).toBe(general)
     expect(memoryErrorKey(new RillError('MEMORY_FULL', 'x'))).toBe(planErrorKey(new RillError('MEMORY_FULL', 'x')))
     expect(memoryErrorKey(new Error('x'))).toBe(planErrorKey(new Error('x')))
   })

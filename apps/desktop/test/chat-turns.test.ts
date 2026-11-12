@@ -71,6 +71,14 @@ describe('buildTurns', () => {
     expect(turns.at(-2)).toMatchObject({ role: 'user', text: 'u24' })
   })
 
+  it('keeps a text of exactly the limit whole, even when its last unit is a lone high surrogate', () => {
+    const exact = `${'x'.repeat(7999)}\ud83d`
+    const turns = buildTurns([user(exact), assistant('p', workflow)])
+    expect(turns[0]!.text).toBe(exact)
+    const over = buildTurns([user(`${exact}x`), assistant('p', workflow)])
+    expect(over[0]!.text).toBe('x'.repeat(7999))
+  })
+
   it('caps a text longer than the protocol allows and still gives turns the protocol accepts', () => {
     const long = { ...workflow, summary: 'x'.repeat(9000) } as PlanResultBody
     const turns = buildTurns([user('hi'), assistant('p', long)])
