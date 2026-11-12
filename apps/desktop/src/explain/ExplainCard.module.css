@@ -1,0 +1,92 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+.cause {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.causeLabel {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.causeValue {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.explanation {
+  line-height: var(--line-height);
+}
+
+.heading {
+  margin: 0 0 var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  max-width: 100%;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--badge-effect-border);
+  border-radius: var(--radius-sm);
+  background: var(--badge-effect-bg);
+  color: var(--badge-effect-text);
+  font-size: var(--font-size-xs);
+}
+
+.node {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.more {
+  align-self: center;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.metaItem {
+  overflow-wrap: anywhere;
+}
+
+.metaNote {
+  color: var(--status-abandoned-text);
+  font-weight: 600;
+}

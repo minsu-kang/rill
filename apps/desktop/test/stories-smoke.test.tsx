@@ -9,14 +9,14 @@ import preview from '../.storybook/preview'
 type StoryModule = { default: Meta } & Record<string, unknown>
 
 const SRC = join(import.meta.dirname, '../src')
-const COMPONENT_DIRS = ['graph', 'inspector', 'runs', 'workspace', 'ui']
+const COMPONENT_DIRS = ['graph', 'inspector', 'runs', 'workspace', 'ui', 'explain']
 const modules = import.meta.glob<StoryModule>('../src/**/*.stories.tsx', { eager: true })
 const MODES = [
   { name: 'Korean, light', globals: { theme: 'light', locale: 'ko' } },
   { name: 'English, dark', globals: { theme: 'dark', locale: 'en' } },
 ] as const
 
-const KEY_LIKE = /\b(?:app|status|run|badge|node|graph|inspector|json|history|time|workspace)\.[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*)*/g
+const KEY_LIKE = /\b(?:app|status|run|badge|node|graph|inspector|json|history|time|workspace|explain)\.[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*)*/g
 const EVENT_NAMES = new Set(['run.started', 'run.finished'])
 
 function untranslated(text: string): string[] {

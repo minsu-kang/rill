@@ -1,0 +1,32 @@
+.root {
+  display: block;
+}
+
+.text {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.omitted {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.toggle {
+  margin-top: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-accent);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.toggle:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: 2px;
+}
