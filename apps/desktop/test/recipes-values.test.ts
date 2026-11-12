@@ -1,7 +1,7 @@
 // @vitest-environment node
 import type { RecipeParamInfo } from '@rill/protocol'
 import { describe, expect, it } from 'vitest'
-import { initialValues, toRequestValues, valueErrorKey, visibleConnections, withVisibleConnections, type HostConnection } from '../src/recipes/model/values'
+import { initialValues, toRequestValues, valueErrorKey, valueOf, visibleConnections, withVisibleConnections, type HostConnection } from '../src/recipes/model/values'
 
 const LABEL = { ko: '라벨', en: 'Label' }
 const param = (overrides: Partial<RecipeParamInfo> & Pick<RecipeParamInfo, 'id' | 'kind'>): RecipeParamInfo => ({ label: LABEL, required: true, ...overrides })
@@ -19,6 +19,15 @@ describe('initialValues', () => {
   it('holds every param id, also for no params', () => {
     expect(initialValues([])).toEqual({})
     expect(Object.keys(initialValues([FOLDER, NUMBER]))).toEqual(['folder', 'threshold'])
+  })
+})
+
+describe('valueOf', () => {
+  it('reads only the values the form holds, never a name inherited from Object', () => {
+    expect(valueOf({ folder: '/a' }, 'folder')).toBe('/a')
+    expect(valueOf({}, 'constructor')).toBe('')
+    expect(valueOf({}, 'toString')).toBe('')
+    expect(toRequestValues([param({ id: 'constructor', kind: 'text' })], {})).toEqual({ ok: false, errors: { constructor: 'required' } })
   })
 })
 

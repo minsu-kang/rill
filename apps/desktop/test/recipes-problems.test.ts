@@ -27,6 +27,17 @@ describe('problemsToFields for <param>: <rule> problems', () => {
     expect(fields).toEqual({ watchFolder: 'recipes.rule.required' })
   })
 
+  it('sends a problem that only starts like <param>: <rule> to the general list as raw text', () => {
+    const { fields, general } = problemsToFields(['watchFolder: required and more text'], params)
+    expect(fields).toEqual({})
+    expect(general).toEqual([{ code: 'watchFolder: required and more text', pointer: '', key: 'recipes.issue.unknown' }])
+  })
+
+  it('does not read an issue out of the middle of a longer text', () => {
+    const { general } = problemsToFields(['odd text cycle at /edges/0'], params)
+    expect(general).toEqual([{ code: 'odd text cycle at /edges/0', pointer: '', key: 'recipes.issue.unknown' }])
+  })
+
   it('has a message in both languages for every rule id', () => {
     for (const id of PARAM_RULE_IDS) {
       const key = ruleKey(id)

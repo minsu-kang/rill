@@ -46,6 +46,23 @@ describe('ExplainCard content', () => {
     expect(screen.getByText(/그 밖에 \d+개/)).toBeTruthy()
   })
 
+  it('cuts the explanation after 600 characters and not before', () => {
+    const view = show({ ...explainCases.unknown, explanation: 'x'.repeat(600) }).view
+    expect(screen.queryByRole('button', { name: ko['explain.card.showMore'] })).toBeNull()
+    view.unmount()
+    show({ ...explainCases.unknown, explanation: 'x'.repeat(601) })
+    expect(screen.getByRole('button', { name: ko['explain.card.showMore'] })).toBeTruthy()
+  })
+
+  it('cuts a node id in the signal list after 32 characters and not before', () => {
+    const exact = 'a'.repeat(32)
+    const longer = 'b'.repeat(33)
+    show({ ...explainCases.unknown, signals: [{ nodeId: exact, signal: 'unknown' }, { nodeId: longer, signal: 'unknown' }] })
+    expect(screen.getByText(exact)).toBeTruthy()
+    expect(screen.queryByText(longer)).toBeNull()
+    expect(screen.getByText(`${'b'.repeat(31)}…`)).toBeTruthy()
+  })
+
   it('caps the explanation with a show more button and shows the whole 1,500 characters when asked', async () => {
     const { user } = show(explainCases.longExplanation)
     const full = explainCases.longExplanation.explanation

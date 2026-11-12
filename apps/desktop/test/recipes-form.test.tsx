@@ -227,8 +227,12 @@ describe('RecipeForm connection that is no longer offered', () => {
     const { user } = setup(BIG, { onSubmit }, 'ko', { ...initialValues(BIG.params), watchFolder: '/Users/demo/Receipts', csvFile: '/Users/demo/ledger.csv', threshold: '250', slackConnection: 'slack-ghost' })
     expect(field(BIG.params[4]!.label.ko).value).toBe('')
     expect(submit().disabled).toBe(true)
-    await user.click(submit())
+    fireEvent.submit(submit().closest('form')!)
     expect(onSubmit).not.toHaveBeenCalled()
+    expect(screen.getByText(ko['recipes.rule.required'])).toBeTruthy()
+    await user.selectOptions(field(BIG.params[4]!.label.ko), 'slack-ops')
+    fireEvent.submit(submit().closest('form')!)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -295,6 +299,32 @@ describe('RecipeForm submit', () => {
     expect(screen.getByText(ko['recipes.rule.template_text'])).toBeTruthy()
     await user.selectOptions(field(REMINDER.params[2]!.label.ko), 'slack-ops')
     await user.click(submit())
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('shows the hint for a closing }} on its own, but not at a number field', () => {
+    setup(REMINDER)
+    const message = field(REMINDER.params[1]!.label.ko)
+    fireEvent.change(message, { target: { value: 'only }} here' } })
+    expect(screen.getByText(ko['recipes.rule.template_text'])).toBeTruthy()
+    fireEvent.change(message, { target: { value: 'fine' } })
+    expect(screen.queryByText(ko['recipes.rule.template_text'])).toBeNull()
+  })
+
+  it('shows no template hint at a number field while typing, only the number error on submit', async () => {
+    const { user } = setup(BIG)
+    await fillBig(user)
+    const number = field(BIG.params[3]!.label.ko)
+    fireEvent.change(number, { target: { value: '{{1}}' } })
+    expect(screen.queryByText(ko['recipes.rule.template_text'])).toBeNull()
+    await user.click(submit())
+    expect(screen.getByText(ko['recipes.error.not_a_number'])).toBeTruthy()
+  })
+
+  it('does not call onSubmit for a form submitted while it is already submitting', () => {
+    const onSubmit = vi.fn()
+    setup(HEALTH, { submitting: true, onSubmit }, 'ko', { schedule: '0 9 * * 1-5', url: 'https://x.test', slackConnection: 'slack-ops' })
+    fireEvent.submit(screen.getByRole('button', { name: ko['recipes.form.submitting'] }).closest('form')!)
     expect(onSubmit).not.toHaveBeenCalled()
   })
 
