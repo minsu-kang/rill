@@ -1,3 +1,4 @@
+import { RillClient } from '@rill/protocol'
 import { HOST_API_METHODS, type EngineInfo } from '../shared/host-api'
 import type { EngineSupervisor } from './engine-supervisor'
 
@@ -8,9 +9,11 @@ export interface SmokeDeps {
   print(line: string): void
   exit(code: number): void
   versions: { electron?: string; node?: string }
+  seed?: (info: EngineInfo) => Promise<void>
   timeoutMs?: number
   stopTimeoutMs?: number
   pollMs?: number
+  settleMs?: number
 }
 
 interface Report {
@@ -19,6 +22,9 @@ interface Report {
   engine: boolean
   ping: boolean
   pingMs?: number
+  appRendered: boolean
+  graphRendered: boolean
+  cspViolations: number
   protocol?: number
   electron?: string
   node?: string
@@ -32,10 +38,34 @@ export const WINDOW_API_QUERY = `(() => { const api = window.rill; return typeof
 export const PING_QUERY =
   "(() => { const el = document.querySelector('[data-rill-ping]'); return el ? { state: el.getAttribute('data-rill-ping'), ms: el.getAttribute('data-rill-ping-ms') } : null })()"
 
+export const APP_QUERY =
+  "(() => { const regions = ['topbar', 'chat', 'workspace'].every((name) => document.querySelector('[data-rill-region=\"' + name + '\"]') !== null); const raw = document.documentElement.getAttribute('data-rill-csp-violations'); return { rendered: document.querySelector('[data-rill-app]') !== null && regions, graph: document.querySelector('.react-flow__node') !== null, violations: raw === null ? -1 : Number(raw) } })()"
+
+export const REFRESH_QUERY = "(() => { window.dispatchEvent(new Event('focus')); return true })()"
+
+export const SMOKE_WORKFLOW = {
+  schemaVersion: 1,
+  name: 'Smoke',
+  nodes: [
+    { id: 'start', type: 'trigger.manual@1', config: {} },
+    { id: 'wait', type: 'delay@1', config: { ms: 1 } },
+  ],
+  edges: [{ from: 'start', to: 'wait' }],
+}
+
+async function defaultSeed(info: EngineInfo): Promise<void> {
+  const client = await RillClient.connect(info.url, info.token)
+  try {
+    await client.request('deploy', { workflow: SMOKE_WORKFLOW })
+  } finally {
+    client.close()
+  }
+}
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 export async function runSmoke(deps: SmokeDeps): Promise<void> {
-  const report: Report = { ok: false, windowApi: false, engine: false, ping: false }
+  const report: Report = { ok: false, windowApi: false, engine: false, ping: false, appRendered: false, graphRendered: false, cspViolations: -1 }
   const pollMs = deps.pollMs ?? 250
 
   async function work(): Promise<void> {
@@ -50,11 +80,30 @@ export async function runSmoke(deps: SmokeDeps): Promise<void> {
         report.ping = true
         const ms = Number(found.ms)
         if (Number.isFinite(ms)) report.pingMs = ms
+        break
+      }
+      if (found?.state === 'error') {
+        await observe().catch(() => undefined)
         return
       }
-      if (found?.state === 'error') return
       await sleep(pollMs)
     }
+    await (deps.seed ?? defaultSeed)(info)
+    await deps.contents.executeJavaScript(REFRESH_QUERY)
+    for (;;) {
+      await observe()
+      if (report.appRendered && report.graphRendered) break
+      await sleep(pollMs)
+    }
+    await sleep(deps.settleMs ?? 400)
+    await observe()
+  }
+
+  async function observe(): Promise<void> {
+    const seen = (await deps.contents.executeJavaScript(APP_QUERY)) as { rendered: boolean; graph: boolean; violations: number } | null
+    report.appRendered = seen?.rendered === true
+    report.graphRendered = seen?.graph === true
+    report.cspViolations = typeof seen?.violations === 'number' ? seen.violations : -1
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -64,7 +113,7 @@ export async function runSmoke(deps: SmokeDeps): Promise<void> {
   const outcome = await Promise.race([work().then(() => 'done' as const, () => 'failed' as const), timeout])
   clearTimeout(timer)
   if (outcome !== 'done') report.error = outcome
-  report.ok = report.windowApi && report.engine && report.ping
+  report.ok = report.windowApi && report.engine && report.ping && report.appRendered && report.graphRendered && report.cspViolations === 0
   if (deps.versions.electron !== undefined) report.electron = deps.versions.electron
   if (deps.versions.node !== undefined) report.node = deps.versions.node
   deps.print(JSON.stringify(report))

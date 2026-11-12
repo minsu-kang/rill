@@ -158,6 +158,8 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
   async function request<M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> {
     calls.push({ method, params })
     switch (method) {
+      case 'ping':
+        return { time: Date.now() } as MethodResult<M>
       case 'llmModels':
         return modelsFor(await host.settings.get()) as MethodResult<M>
       case 'listWorkflows':

@@ -44,9 +44,17 @@ export function useWorkflowList(client: EngineClient | undefined): WorkflowListS
   useEffect(() => {
     if (client === undefined) return undefined
     void load(client)
-    return client.onEvent((event) => {
+    const onFocus = (): void => {
+      void load(client)
+    }
+    window.addEventListener('focus', onFocus)
+    const off = client.onEvent((event) => {
       if (event.type === 'workflow.activated' || event.type === 'workflow.deactivated') void load(client)
     })
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      off()
+    }
   }, [client, load])
 
   const refresh = useCallback(async (): Promise<void> => {

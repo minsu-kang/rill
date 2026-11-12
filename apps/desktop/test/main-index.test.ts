@@ -37,6 +37,8 @@ class FakeContents {
   }
   executeJavaScript = vi.fn(async (code: string) => {
     if (code.includes('window.rill')) return true
+    if (code.includes('data-rill-app')) return { rendered: true, graph: true, violations: 0 }
+    if (code.includes("dispatchEvent(new Event('focus'))")) return true
     return { state: 'ok', ms: '3' }
   })
   emit(event: string, ...args: unknown[]) {
@@ -123,6 +125,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.resetModules()
   vi.doUnmock('electron')
+  vi.doUnmock('@rill/protocol')
 })
 
 async function load(options: { lock?: boolean; smoke?: boolean; packaged?: boolean } = {}): Promise<Harness> {
@@ -177,6 +180,10 @@ async function load(options: { lock?: boolean; smoke?: boolean; packaged?: boole
     },
     Tray: FakeTray,
     utilityProcess: { fork },
+  }))
+  vi.doMock('@rill/protocol', async () => ({
+    ...(await vi.importActual<typeof import('@rill/protocol')>('@rill/protocol')),
+    RillClient: { connect: async () => ({ request: async () => ({ workflowId: 'wf-smoke' }), close: () => undefined }) },
   }))
   const first = FakeBrowserWindow.instances.length
   const module = await import('../src/main/index')
@@ -369,7 +376,7 @@ describe('app entry: smoke mode', () => {
     expect(h.exits).toEqual([0])
     const lines = h.stdout.join('').trim().split('\n')
     expect(lines).toHaveLength(1)
-    expect(JSON.parse(lines[0]!)).toMatchObject({ ok: true, windowApi: true, engine: true, ping: true })
+    expect(JSON.parse(lines[0]!)).toMatchObject({ ok: true, windowApi: true, engine: true, ping: true, appRendered: true, graphRendered: true, cspViolations: 0 })
     expect(existsSync(h.userData)).toBe(false)
     expect(h.window().shown).toBe(0)
   })

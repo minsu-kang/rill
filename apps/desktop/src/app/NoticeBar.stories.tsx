@@ -1,0 +1,17 @@
+import type { Meta, StoryObj } from '@storybook/react-vite'
+import { NoticeBar } from './NoticeBar'
+
+const meta: Meta<typeof NoticeBar> = {
+  title: 'App/NoticeBar',
+  component: NoticeBar,
+  args: { onDismiss: () => undefined },
+  decorators: [(Story) => <div style={{ position: 'relative', height: 120 }}><Story /></div>],
+}
+export default meta
+type Story = StoryObj<typeof NoticeBar>
+
+export const Nothing: Story = { args: { notice: undefined } }
+export const Reminder: Story = { args: { notice: { id: 1, key: 'app.notice.waitAndRetry' } } }
+export const FilePath: Story = { args: { notice: { id: 2, key: 'app.notice.filePath', vars: { path: '/Users/demo/Receipts/receipt-001.pdf' } } } }
+export const HostilePath: Story = { args: { notice: { id: 3, key: 'app.notice.filePath', vars: { path: '<img src=x onerror=alert(1)> ‹U+202E›txt.exe' } } } }
+export const Failure: Story = { args: { notice: { id: 4, key: 'app.notice.actionFailed' } } }

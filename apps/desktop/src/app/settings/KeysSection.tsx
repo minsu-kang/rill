@@ -1,19 +1,12 @@
 import { useId, useRef, useState, type FormEvent } from 'react'
 import { useT } from '../../i18n'
 import { MAX_SECRET_LENGTH, PROVIDER_IDS, PROVIDER_KEY_ENV, type ProviderId } from '../../shared/host-api'
+import { PROVIDER_LABELS } from './providers'
 import controls from '../controls.module.css'
 import { useHost } from '../host'
 import styles from './Settings.module.css'
 import type { SettingsApi } from './types'
 import { useAction } from './useAction'
-
-const PROVIDER_LABELS: Readonly<Record<ProviderId, string>> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  gemini: 'Gemini',
-  grok: 'Grok (xAI)',
-  meta: 'Meta',
-}
 
 export function KeysSection({ api, locked }: { api: SettingsApi; locked: boolean }) {
   const t = useT()
