@@ -2,7 +2,7 @@
 
 The React renderer of the Rill desktop app, built so that every screen can be looked at in Storybook without starting the app, the engine, a network or a model key.
 
-This package holds the screens only. There is no Electron main process and no connection to a running engine yet. Every screen takes its data as props or reads it through a small `EngineClient` interface (`request` and `onEvent`). The stories and the tests give it a fake client that answers from fixtures.
+The screens take their data as props or read it through a small `EngineClient` interface (`request` and `onEvent`). The stories and the tests give them a fake client that answers from fixtures. The Electron shell that wraps them (main process, engine process, secrets, tray, installer) is described in [The desktop app](#the-desktop-app). The screens are not wired into it yet: the window shows a small status page, and Plan 4e puts the real app screen there.
 
 ## What is here
 
@@ -182,14 +182,79 @@ The host contract:
 
 `test/catalog-drift.test.ts` fails when the committed file differs from the live registry, so run the command above and commit the result after a node changes.
 
+## The desktop app
+
+`apps/desktop` is also the macOS app named Rill. The main process starts the engine as a child process, keeps keys and connection secrets in the system keychain, shows a tray icon, can start at login and can be packed into an unsigned installer. The window itself only shows a status page (engine state and ping time) until Plan 4e.
+
+| Part | Files | What it does |
+| --- | --- | --- |
+| Host API | `src/shared/host-api.ts` | The typed API between the window and the main process, defined once with TypeBox schemas. Main, preload and renderer all check against it. |
+| Main process | `src/main/` | Plain modules that take Electron and file system objects as arguments, so Vitest runs them without Electron: `config-store`, `secret-store`, `engine-supervisor`, `attachments`, `ipc-handlers`. Only `index.ts`, `window.ts`, `tray.ts` and `login-item.ts` touch real Electron objects. |
+| Preload | `src/preload/` | Exposes `window.rill`, the host API, and nothing else. It never exposes `ipcRenderer`. |
+| Status page | `src/renderer-shell/` | Shows the engine state and the ping time through `window.rill` and `RillClient`. Outside the app it says to run it inside the app. |
+| Engine bundle | `scripts/bundle-engine.ts` | Bundles `packages/engine` into one `.mjs` file with esbuild. The app starts it with `utilityProcess.fork`. |
+
+### Run it
+
+From the repository root, in your own terminal (this starts a server and a window, so the build agents never run it):
+
+    pnpm install
+    pnpm --filter @rill/desktop dev
+
+`dev` bundles the engine and starts electron-vite with hot reload for the renderer. While it is not packaged, the app does not touch the system login items.
+
+### Build the installer
+
+    pnpm --filter @rill/desktop dist
+
+This builds the engine bundle and the app, then runs electron-builder. The result is in `apps/desktop/release/` (git ignores it): a `dmg` and a `zip` for the architecture of the machine that built them, for example `Rill-0.0.0-arm64.dmg`. The app id `app.rill.desktop` is a reverse-DNS placeholder until there is a real domain, and the default Electron icon is used.
+
+The build is not signed or notarized, because there is no signing identity yet. On another Mac, Gatekeeper warns that the app is from an unidentified developer. Open it with right click, then Open, or run `xattr -dr com.apple.quarantine /Applications/Rill.app` once.
+
+### Where data lives
+
+Everything is in `~/Library/Application Support/Rill`:
+
+| File | Content |
+| --- | --- |
+| `config.json` | Allowed folders, provider, model and the login setting. No secrets. A corrupt file is kept as `config.json.bak` and the defaults are used. |
+| `secrets.bin` | The provider keys and the connection secrets, encrypted as one blob with Electron `safeStorage`. A file that cannot be decrypted is kept as `secrets.bin.bak` and the keys must be entered again. |
+| `rill.db` | The engine database (workflows, runs, plans, memory). |
+| `attachments/` | Files the user attached, copied there as `<id>.<ext>` with mode 0600 in a folder with mode 0700. |
+
+When `safeStorage` is not available (no keychain), saving a key or a connection is refused with a clear error and the engine is not started. There is no plaintext fallback. The window never receives a secret: settings return only which providers have a key, and the name and kind of each connection. The engine gets a secret only through the environment of its process: the key of the chosen provider in its own variable (`ANTHROPIC_API_KEY` and so on) and the connections as JSON in `RILL_CONNECTIONS`. No connections file is ever written.
+
+To reset the app, quit it, delete `~/Library/Application Support/Rill`, and delete the keychain item that `safeStorage` made for the app (open Keychain Access and search for "Safe Storage"; the item is named after the app, and "Electron Safe Storage" when started from `dev`).
+
+### The engine process
+
+The main process gives the engine a random token and port 0, reads `{"type":"listening","port":...}` from its output, and tells the window the address through `window.rill.engine.info()`. It restarts the engine, gracefully (10 seconds, then kill), when the provider, model, key, allowed folders or connections change. After a crash it restarts with a back-off of 1, 2, 4, 4 and 4 seconds. On the sixth failure within a minute, or the sixth failed start in a row, it shows the stopped state and waits for the user (the restart button of the window, or a settings change, starts it again). An engine that exits with the usage error code 2 is not retried. Allowed folders are the folders the user chose plus the app's own attachment folder; with none chosen the engine can only touch attachments.
+
+### Security settings of the window
+
+`contextIsolation` and `sandbox` are on, `nodeIntegration`, `webviewTag` and `allowRunningInsecureContent` are off, and `webSecurity` is on. The page carries a content security policy that allows only the app's own files and `ws://127.0.0.1:*` and `ws://localhost:*` for connections. New windows and navigation away from the app file are denied, every permission request is denied, and `shell.openExternal` is not exposed. The engine refuses WebSocket requests with an `Origin` header, which a page loaded from a file always sends, so the main process removes that header from requests to `127.0.0.1` and `localhost` for this window only; the token is still required. The window can copy a file into the attachment folder by path only after the user picked that file in the file dialog; dropped files go through `attachments.addFromBytes`.
+
+### Smoke mode
+
+    apps/desktop/release/mac-arm64/Rill.app/Contents/MacOS/Rill --smoke
+    pnpm --filter @rill/desktop smoke
+
+`--smoke` starts a hidden window and the engine in a temporary data folder with its own stand-in for `safeStorage` (the real keychain is not touched), waits until the page has connected to the engine and sent `ping`, prints one JSON line such as `{"ok":true,"windowApi":true,"engine":true,"ping":true,"pingMs":2,...}`, stops the engine and exits with 0 (1 on any failure or after 45 seconds). It is the only check of the real Electron chain; the unit tests use fakes. The token and the address are never printed.
+
+### Known limits
+
+The build is unsigned. The smoke run is macOS only and was not tried on Windows or Linux. `safeStorage` on a Mac with a locked keychain can show a prompt the first time it is used. A corrupt secrets file means the user must enter the keys again. The real `safeStorage` is not used by any automated check, so the first save of a key in a real run is the first time it runs.
+
 ## Tests
 
     pnpm --filter @rill/desktop exec vitest run
 
 or `pnpm test` from the root. The desktop tests use Vitest with jsdom and Testing Library, in a project of their own. React Flow needs `ResizeObserver`, `DOMMatrixReadOnly` and a few size getters, which `test/setup.ts` stubs in one place. The logic tests (layout, run state, JSON model, time) run in the node environment. The graph test also runs axe-core on a selected card with run states.
 
+The tests of the main process, the preload and the build configuration are `test/main-*.test.ts`, `test/renderer-shell.test.tsx` and `test/main-installer-config.test.ts`. They run in the node environment with fakes for Electron, the keychain and the child process; `main-engine-bundle.test.ts` bundles the engine and starts it with plain Node. The `src/main` and `src/preload` folders are node side code, so the browser-only lint rule and the browser build checks skip them.
+
 ## Not built yet
 
-Editing and forms for a workflow, patch mode from a node picked on the graph (the chat takes `editContext` as a prop), the real attachment copy and the real model switch (the chat takes them as `port` and `onSelectModel`), the Electron main process and preload, the connection to a running engine, the tray, secret storage and the installer.
+The real app screen in the window (the panels above assembled with the workspace, settings, workflow controls), editing and forms for a workflow, patch mode from a node picked on the graph (the chat takes `editContext` as a prop), signing and notarization, auto update, and Windows and Linux builds.
 
-The three panels above are screens only. Still to do in the integration plan: the explain button next to a failed run in the history, putting a fix proposal into the chat composer, doing what the suggested action buttons say (retry, open connections, select a node, turn a workflow off), a dry run and activation after a recipe deploy, and reading the connection names and native file pickers from the host (Plan 4d).
+The three panels above are screens only. Still to do in the integration plan (4e): the explain button next to a failed run in the history, putting a fix proposal into the chat composer, doing what the suggested action buttons say (retry, open connections, select a node, turn a workflow off), a dry run and activation after a recipe deploy, and reading the connection names and native file pickers from the host through `window.rill`.

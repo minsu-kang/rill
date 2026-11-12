@@ -1,0 +1,28 @@
+# appId is a reverse-DNS placeholder until a real domain exists.
+appId: app.rill.desktop
+productName: Rill
+asar: true
+npmRebuild: false
+electronLanguages:
+  - en
+  - ko
+directories:
+  output: release
+files:
+  - dist/main/**
+  - dist/preload/**
+  - dist/renderer/**
+  - package.json
+  - '!**/*.map'
+  - '!node_modules/**/*'
+extraResources:
+  - from: dist/engine/rill-engine.mjs
+    to: engine/rill-engine.mjs
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false

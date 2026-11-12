@@ -8,3 +8,4 @@ coverage/
 *.db-shm
 packages/eval/results/
 storybook-static/
+apps/desktop/release/

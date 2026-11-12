@@ -8,7 +8,7 @@ const SAFE = 'The desktop renderer must stay browser-safe.'
 const ENGINE_SIDE = ['@rill/engine', '@rill/planner', '@rill/llm', '@rill/recipes', '@rill/eval']
 
 export default defineConfig(
-  globalIgnores(['**/node_modules/**', '**/dist/**', '**/storybook-static/**', 'docs/**']),
+  globalIgnores(['**/node_modules/**', '**/dist/**', '**/release/**', '**/storybook-static/**', 'docs/**']),
   js.configs.recommended,
   tseslint.configs.recommended,
   {

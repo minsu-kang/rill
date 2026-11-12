@@ -11,7 +11,8 @@
     "bundle-engine": "node --import tsx scripts/bundle-engine.ts",
     "build": "pnpm bundle-engine && electron-vite build",
     "dev": "pnpm bundle-engine && electron-vite dev",
-    "smoke": "electron . --smoke"
+    "smoke": "electron . --smoke",
+    "dist": "pnpm build && electron-builder --config electron-builder.yml --mac --publish never"
   },
   "dependencies": {
     "@dagrejs/dagre": "3.1.3",
