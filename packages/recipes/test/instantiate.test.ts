@@ -133,6 +133,17 @@ describe('placeholders are replaced structurally', () => {
     expect(() => instantiateRecipe(odd, values)).toThrow(RecipeDefinitionError)
   })
 
+  it('keeps a null, a boolean, a number and an empty list or object in a config as they are', () => {
+    const plain = recipeWith({
+      schemaVersion: 1,
+      name: 'demo',
+      nodes: [{ id: 't1', type: 'trigger.manual@1', config: { a: null, b: false, c: 0, d: [], e: {}, f: [null, { g: null }], h: param('folder'), i: param('note'), j: param('limit') } }],
+      edges: [],
+    })
+    const workflow = workflowOf(instantiateRecipe(plain, values)) as { nodes: Array<{ config: Record<string, unknown> }> }
+    expect(workflow.nodes[0]!.config).toEqual({ a: null, b: false, c: 0, d: [], e: {}, f: [null, { g: null }], h: '/Users/demo/in', i: 'default note', j: 5 })
+  })
+
   it('does not let a key such as __proto__ in the values reach the workflow', () => {
     const polluted = JSON.parse('{"folder":"/Users/demo/in","limit":5,"__proto__":{"polluted":true}}') as Record<string, string | number>
     expect(instantiateRecipe(recipe, polluted)).toEqual({ problems: [{ param: '?', rule: 'unknown_param' }] })
@@ -150,6 +161,25 @@ describe('a recipe that is wrongly written', () => {
     ['a declared parameter that nothing uses', { folder: param('folder') }],
   ])('is refused when it has %s', (_name, config) => {
     expect(() => instantiateRecipe(withConfig(config), values)).toThrow(RecipeDefinitionError)
+  })
+
+  it('is refused for a single defect, such as a text that spells a placeholder', () => {
+    const single = withConfig({ ...used, note: param('note'), other: 'folder is $param' })
+    expect(() => instantiateRecipe(single, values)).toThrow(RecipeDefinitionError)
+  })
+
+  it('states each defect with its rule and its pointer, and the error has a name', () => {
+    const two = withConfig({ ...used, note: param('ghost'), other: 'is $param' })
+    try {
+      instantiateRecipe(two, values)
+      expect.unreachable()
+    } catch (error) {
+      expect(error).toBeInstanceOf(RecipeDefinitionError)
+      expect((error as Error).name).toBe('RecipeDefinitionError')
+      expect((error as Error).message).toBe(
+        'the recipe is written wrongly: undeclared_param at /workflow/nodes/0/config/note; placeholder_in_text at /workflow/nodes/0/config/other; unused_param at /params/1',
+      )
+    }
   })
 
   it('names the defects and never a value in the error', () => {

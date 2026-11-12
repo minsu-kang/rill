@@ -74,7 +74,7 @@ function folderKey(path: string): string {
   return resolve(expandHome(path)).normalize('NFC').toLowerCase()
 }
 
-function watchedLedgerIssues(workflow: Workflow, registry: NodeRegistry): PlanIssue[] {
+export function watchedLedgerIssues(workflow: Workflow, registry: NodeRegistry): PlanIssue[] {
   const watches = workflow.nodes.flatMap((node) => {
     const config = node.config as { folder?: unknown; glob?: unknown }
     if (baseType(node.type) !== FOLDER_WATCH || typeof config.folder !== 'string') return []

@@ -332,6 +332,13 @@ describe('instantiateRecipe refuses', () => {
     expect(frames.join('\n')).not.toContain(MARKER)
   })
 
+  it('an id that differs from a real one by a space or by case, as an unknown recipe', async () => {
+    for (const id of ['webhook-to-slack ', ' webhook-to-slack', 'Webhook-To-Slack', 'webhook-to-slac']) {
+      const { error } = await invalid(id, { slackConnection: 'slack-ops' })
+      expect(error, id).toMatchObject({ code: 'NOT_FOUND', message: 'recipe not found' })
+    }
+  })
+
   it('21 values, a string of 501 characters and extra params, as malformed params', async () => {
     const { client, frames, logs } = await startRecipeEnv()
     const many = Object.fromEntries(Array.from({ length: RECIPE_MAX_VALUES + 1 }, (_unused, index) => [`p${index}`, `${MARKER}${index}`]))

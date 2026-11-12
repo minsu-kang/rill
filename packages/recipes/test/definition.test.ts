@@ -276,6 +276,129 @@ describe('recipeProblems', () => {
   })
 })
 
+describe('the limits of the shape', () => {
+  const text = (length: number) => 'a'.repeat(length)
+  const withParams = (count: number) => {
+    const params = Array.from({ length: count }, (_unused, index): RecipeParam => ({ id: `p${index}`, kind: 'text', label, required: false, default: 'd' }))
+    return make({
+      params,
+      workflow: workflowWith(Object.fromEntries(params.map((entry) => [entry.id, param(entry.id)]))),
+      sample: Object.fromEntries(params.map((entry) => [entry.id, 's'])),
+    })
+  }
+
+  it('hold at most ten parameters', () => {
+    expect(recipeProblems(withParams(10))).toEqual([])
+    expect(rules(withParams(11))).toEqual(['bad_shape'])
+  })
+
+  it('take a parameter id of at most 32 characters, starting with a lower-case letter', () => {
+    const named = (id: string) => make({ params: [{ ...folder, id }, note], workflow: workflowWith({ a: param(id), b: param('note') }), sample: { [id]: '/Users/demo/in', note: 'x' } })
+    expect(recipeProblems(named(`a${text(31)}`))).toEqual([])
+    expect(rules(named(`a${text(32)}`))).toContain('bad_shape')
+  })
+
+  it('take a recipe id of kebab-case words, at most 64 characters', () => {
+    for (const id of ['a', 'a-b-c', 'a1-b2', `a${text(63)}`, 'receipt-folder-to-csv']) expect(recipeProblems(make({ id })), id).toEqual([])
+    for (const id of ['a--b', 'abc-', '-abc', '1abc', 'a_b', 'A', 'a b', `a${text(64)}`]) expect(rules(make({ id })), id).toEqual(['bad_shape'])
+  })
+
+  it('take at most eight tags of at most 32 characters of a lower-case word with digits and dashes', () => {
+    const tags = (count: number) => Array.from({ length: count }, (_unused, index) => `tag${index}`)
+    expect(recipeProblems(make({ tags: tags(8) }))).toEqual([])
+    expect(rules(make({ tags: tags(9) }))).toEqual(['bad_shape'])
+    expect(recipeProblems(make({ tags: [`a${text(31)}`, 'a-1-b'] }))).toEqual([])
+    for (const tag of [`a${text(32)}`, '1a', '-a', 'A', 'a b', '']) expect(rules(make({ tags: [tag] })), tag).toEqual(['bad_shape'])
+  })
+
+  it('take a title or a label of 1 to 200 characters and a description or a help of 1 to 600', () => {
+    expect(recipeProblems(make({ title: { ko: text(200), en: text(200) } }))).toEqual([])
+    expect(rules(make({ title: { ko: text(201), en: 'x' } }))).toEqual(['bad_shape'])
+    expect(rules(make({ title: { ko: 'x', en: '' } }))).toEqual(['bad_shape'])
+    expect(recipeProblems(make({ description: { ko: text(600), en: text(600) } }))).toEqual([])
+    expect(rules(make({ description: { ko: text(601), en: 'x' } }))).toEqual(['bad_shape'])
+    expect(rules(make({ description: { ko: 'x', en: '' } }))).toEqual(['bad_shape'])
+    expect(recipeProblems(make({ params: [{ ...folder, label: { ko: text(200), en: 'x' } }, note] }))).toEqual([])
+    expect(rules(make({ params: [{ ...folder, label: { ko: text(201), en: 'x' } }, note] }))).toEqual(['bad_shape'])
+    expect(recipeProblems(make({ params: [{ ...folder, help: { ko: text(600), en: 'x' } }, note] }))).toEqual([])
+    expect(rules(make({ params: [{ ...folder, help: { ko: text(601), en: 'x' } }, note] }))).toEqual(['bad_shape'])
+    expect(rules(make({ params: [{ ...folder, help: { ko: '', en: 'x' } }, note] }))).toEqual(['bad_shape'])
+  })
+
+  it('take an extension of a dot and one to eight lower-case letters or digits', () => {
+    const ledger = (extension: string): Recipe => make({ params: [{ ...file, extension }, note], workflow: workflowWith({ f: param('ledger'), n: param('note') }), sample: { ledger: `/Users/demo/a${extension}`, note: 'x' } })
+    for (const extension of ['.csv', '.a', '.mp3', '.7z', '.abcdefgh', '.12345678']) expect(recipeProblems(ledger(extension)), extension).toEqual([])
+    for (const extension of ['.abcdefghi', '.', 'csv', '.CSV', '.a.b', '.a b', '.a-b']) expect(rules(ledger(extension)), extension).toEqual(['bad_shape'])
+  })
+
+  it('report a wrecked recipe with a short list of defects, and the root as /', () => {
+    const wrecked = make({ params: Array.from({ length: 10 }, () => ({}) as RecipeParam) })
+    expect(recipeProblems(wrecked).length).toBeGreaterThan(0)
+    expect(recipeProblems(wrecked).length).toBeLessThanOrEqual(20)
+    expect(recipeProblems(null)).toEqual([{ pointer: '/', rule: 'bad_shape' }])
+    expect(recipeProblems(make({ id: 'Bad' }))).toEqual([{ pointer: '/id', rule: 'bad_shape' }])
+  })
+
+  it('want finite bounds already from the shape', () => {
+    const limit = (extra: Partial<RecipeParam>): Recipe =>
+      make({ params: [{ id: 'limit', kind: 'number', label, required: true, ...extra }], workflow: workflowWith({ n: param('limit') }), sample: { limit: 1 } })
+    expect(recipeProblems(limit({ min: Number.NEGATIVE_INFINITY, max: 5 }))).toEqual([{ pointer: '/params/0/min', rule: 'bad_shape' }])
+    expect(recipeProblems(limit({ min: 0, max: Number.POSITIVE_INFINITY }))).toEqual([{ pointer: '/params/0/max', rule: 'bad_shape' }])
+  })
+})
+
+describe('the walk through the workflow', () => {
+  const nest = (levels: number, wrap: (inner: unknown) => unknown): unknown => (levels === 0 ? 'x' : wrap(nest(levels - 1, wrap)))
+  const inObject = (inner: unknown) => ({ a: inner })
+  const inList = (inner: unknown) => [inner]
+  const deep = (value: unknown) => make({ workflow: workflowWith({ folder: param('folder'), glob: param('note'), deep: value }) })
+
+  it('goes 32 levels deep and calls a value on the 33rd level a bad workflow', () => {
+    expect(recipeProblems(deep(nest(28, inObject)))).toEqual([])
+    expect(recipeProblems(deep(nest(28, inList)))).toEqual([])
+    expect(recipeProblems(deep(nest(29, inObject)))).toEqual([{ pointer: `/workflow/nodes/0/config/deep${'/a'.repeat(29)}`, rule: 'bad_workflow' }])
+    expect(recipeProblems(deep(nest(29, inList)))).toEqual([{ pointer: `/workflow/nodes/0/config/deep${'/0'.repeat(29)}`, rule: 'bad_workflow' }])
+  })
+
+  it('holds a placeholder to the config of a node, not to a key that is named config deeper down', () => {
+    const wrong = make({ workflow: workflowWith({ folder: param('folder') }, { retry: { config: { x: param('note') } } }) })
+    expect(recipeProblems(wrong)).toEqual([{ pointer: '/workflow/nodes/0/retry/config/x', rule: 'placeholder_outside_config' }])
+  })
+
+  it('wants every node to have a text id and a text type, and no node to be empty or a list', () => {
+    const ok = { id: 't1', type: 'trigger.manual@1', config: {} }
+    for (const bad of [{ id: 'x' }, { type: 'x' }, null, 'node', 5, [], [ok]]) {
+      expect(recipeProblems(make({ workflow: { nodes: [ok, bad] } })).map((defect) => defect.rule), JSON.stringify(bad)).toContain('bad_workflow')
+      expect(recipeProblems(make({ workflow: { nodes: [bad] } })).map((defect) => defect.rule), JSON.stringify(bad)).toContain('bad_workflow')
+    }
+  })
+
+  it('names the workflow itself when it has no usable nodes', () => {
+    expect(recipeProblems(make({ workflow: { nodes: [] } })).filter((defect) => defect.rule === 'bad_workflow')).toEqual([{ pointer: '/workflow', rule: 'bad_workflow' }])
+    expect(recipeProblems(make({ workflow: [] })).filter((defect) => defect.rule === 'bad_workflow')).toEqual([{ pointer: '/workflow', rule: 'bad_workflow' }])
+  })
+
+  it('reports a malformed placeholder as that alone', () => {
+    const shapes: unknown[] = [{ $param: 'note', other: 1 }, { $param: 5 }, { $param: null }, { $param: ['note'] }, { $param: '' }, { $param: { id: 'note' } }]
+    for (const shape of shapes) {
+      const wrong = make({ workflow: workflowWith({ folder: param('folder'), glob: param('note'), other: shape }) })
+      expect(recipeProblems(wrong), JSON.stringify(shape)).toEqual([{ pointer: '/workflow/nodes/0/config/other', rule: 'bad_placeholder' }])
+    }
+  })
+
+  it('does not take a name that the prototype has for a sample that is there', () => {
+    for (const id of ['constructor', 'toString', 'valueOf', 'hasOwnProperty']) {
+      const recipe = make({ params: [{ id, kind: 'text', label, required: true }], workflow: workflowWith({ a: param(id) }), sample: {} })
+      expect(recipeProblems(recipe), id).toEqual([{ pointer: `/sample/${id}`, rule: 'sample_missing' }])
+    }
+  })
+
+  it('lets a null, a boolean and a number stand in a config as they are', () => {
+    const recipe = make({ workflow: workflowWith({ folder: param('folder'), glob: param('note'), a: null, b: true, c: 0, d: [null, false] }) })
+    expect(recipeProblems(recipe)).toEqual([])
+  })
+})
+
 describe('recipeNodeTypes', () => {
   it('lists the node types of the workflow in order, once each', () => {
     const recipe = make({
@@ -292,5 +415,11 @@ describe('recipeNodeTypes', () => {
       },
     })
     expect(recipeNodeTypes(recipe)).toEqual(['trigger.folderWatch@1', 'notify.slack@1', 'condition@1'])
+  })
+
+  it('lists nothing for a workflow without a node list, and skips a node that has no text type', () => {
+    for (const workflow of [undefined, null, 'text', 5, [], {}, { nodes: 'x' }, { nodes: {} }, { nodes: null }]) expect(recipeNodeTypes(make({ workflow })), JSON.stringify(workflow)).toEqual([])
+    const nodes = [null, undefined, 'x', 5, {}, { type: 5 }, { type: null }, { type: 'a@1' }, { type: 'a@1' }, { type: 'b@1' }]
+    expect(recipeNodeTypes(make({ workflow: { nodes } }))).toEqual(['a@1', 'b@1'])
   })
 })

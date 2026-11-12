@@ -30,8 +30,8 @@ function param(kind: ParamKind, extra: Partial<RecipeParam> = {}): RecipeParam {
 const MARKER = 'MARKER-7c41d9'
 
 const ACCEPTS: Record<ParamKind, unknown[]> = {
-  folder: ['/Users/demo/Receipts', '~/Receipts', '/', '/Users/demo/a..b', '/Users/demo/영수증', '/' + 'a'.repeat(499), '/Users/demo/Receipts/', '~/Receipts/'],
-  file: ['/Users/demo/Receipts/ledger.csv', '~/ledger.csv', '/Users/demo/.hidden/file.csv', '/Users/demo/Ledger.CSV', '/Users/demo/.ledger.csv', '/Users/demo/a.csv.csv'],
+  folder: ['/Users/demo/Receipts', '~/Receipts', '/', '/Users/demo/a..b', '/Users/demo/영수증', '/' + 'a'.repeat(499), '/Users/demo/Receipts/', '~/Receipts/', '~/a'],
+  file: ['/Users/demo/Receipts/ledger.csv', '~/ledger.csv', '/Users/demo/.hidden/file.csv', '/Users/demo/Ledger.CSV', '/Users/demo/.ledger.csv', '/Users/demo/a.csv.csv', '~/a.csv'],
   glob: ['*.pdf', '*', 'receipt-??.png', '영수증*.pdf'],
   text: ['hello', '월말 정산 확인', 'a'.repeat(500), '😀'.repeat(500), 'a { b } c', 'a {b}', '{"a":1}', '$param', 'family 👨‍👩‍👧'],
   number: [0, 1, 100, 99.5, 0.0001],
@@ -69,6 +69,8 @@ const REJECTS: Record<ParamKind, Array<[ParamRule, unknown]>> = {
     ['format_character', '/Users/demo/‌x'],
     ['format_character', '/Users/demo/\u{e0041}x'],
     ['format_character', '/Users/demo/\u{e0100}x'],
+    ['format_character', '/Users/demo/\u{e01ef}x'],
+    ['format_character', '/Users/demo/\u{e0101}x'],
     ['template_text', '/Users/demo/{{t1.output.file}}'],
     ['template_text', '/Users/demo/}}'],
     ['template_text', '{{x}}'],
@@ -120,6 +122,7 @@ const REJECTS: Record<ParamKind, Array<[ParamRule, unknown]>> = {
     ['wrong_extension', '/Users/demo/ledger.csv.bak'],
     ['wrong_extension', '/Users/demo/csv'],
     ['wrong_extension', '/Users/demo/ledger.csv.d/file'],
+    ['wrong_extension', '/Users/demo/a\\.csv'],
   ],
   glob: [
     ['wrong_type', 5],
@@ -212,6 +215,8 @@ const REJECTS: Record<ParamKind, Array<[ParamRule, unknown]>> = {
     ['bad_url', 'example.test/health'],
     ['bad_url', '//example.test/health'],
     ['bad_url', 'HTTPS://example.test/health'],
+    ['bad_url', 'xhttps://example.test/health'],
+    ['bad_url', 'ftp://example.test/https://other.test/'],
     ['bad_url', 'https://'],
     ['bad_url', 'https:///health'],
     ['bad_url', 'https://exa mple.test'],
@@ -220,6 +225,7 @@ const REJECTS: Record<ParamKind, Array<[ParamRule, unknown]>> = {
     ['bad_url', 'https://example.test:99999/'],
     ['url_credentials', 'https://user:pass@example.test/'],
     ['url_credentials', 'https://user@example.test/'],
+    ['url_credentials', 'https://:secret@example.test/'],
     ['url_credentials', 'https://example.test@other.test/'],
   ],
   connection: [
@@ -346,6 +352,40 @@ describe('the path kinds', () => {
     expect(checkValue(csv, '/Users/x/')).toBe('trailing_separator')
     expect(checkValue(csv, '/Users/x')).toBe('wrong_extension')
     expect(checkValue(csv, '/Users/x\u0000 ')).toBe('control_character')
+  })
+})
+
+describe('the order of the rules', () => {
+  it('names the first rule that a value breaks, in the order of the README', () => {
+    const text = param('text')
+    expect(checkValue(text, 'a\n\u2028\u202e\u200b{{')).toBe('control_character')
+    expect(checkValue(text, 'a\u2028\u202e\u200b{{')).toBe('line_separator')
+    expect(checkValue(text, 'a\u202e\u200b{{')).toBe('bidi_format')
+    expect(checkValue(text, 'a\u200b{{')).toBe('format_character')
+    expect(checkValue(text, 'a{{')).toBe('template_text')
+    expect(checkValue(text, ' '.repeat(501))).toBe('empty')
+    expect(checkValue(text, `${'a'.repeat(501)}\n`)).toBe('too_long')
+    expect(checkValue(param('folder'), '/a/../b\n')).toBe('control_character')
+  })
+
+  it('count U+FFFF, a noncharacter below the surrogates, as one character like any other', () => {
+    expect(checkValue(param('text'), '\uffff'.repeat(500))).toBeUndefined()
+    expect(checkValue(param('text'), '\uffff'.repeat(501))).toBe('too_long')
+    expect(checkValue(param('text'), '\u{10000}'.repeat(500))).toBeUndefined()
+    expect(checkValue(param('text'), '\u{10000}'.repeat(501))).toBe('too_long')
+  })
+})
+
+describe('checkParams on the keys of the values', () => {
+  const recipe: Recipe = { id: 'demo', title: label, description: label, tags: [], params: [], workflow: {}, sample: {} }
+
+  it('names an unknown key of 32 characters and refers to one of 33 as ?', () => {
+    const key = (length: number) => `a${'b'.repeat(length - 1)}`
+    expect(checkParams(recipe, { [key(32)]: 'v' })).toEqual([{ param: key(32), rule: 'unknown_param' }])
+    expect(checkParams(recipe, { [key(33)]: 'v' })).toEqual([{ param: '?', rule: 'unknown_param' }])
+    expect(checkParams(recipe, { Upper: 'v' })).toEqual([{ param: '?', rule: 'unknown_param' }])
+    expect(checkParams(recipe, { 'ab-c': 'v' })).toEqual([{ param: '?', rule: 'unknown_param' }])
+    expect(checkParams(recipe, { 'a1B2': 'v' })).toEqual([{ param: 'a1B2', rule: 'unknown_param' }])
   })
 })
 
