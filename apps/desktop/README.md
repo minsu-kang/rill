@@ -12,6 +12,8 @@ This package holds the screens only. There is no Electron main process, no engin
 | Inspector | `src/inspector/` | The settings of the selected node and every attempt of its last run: input, output, error and times. `JsonView` caps depth, rows and string length, so a large value cannot freeze the page. |
 | Run history | `src/runs/` | The runs of a workflow with a status, a relative time, a dry-run tag and the start of the error. Picking a run draws its states on the graph. |
 | Workspace | `src/workspace/` | The three screens together as in the design: graph in the middle, inspector on the right, history below. Live events from the client change the node cards as they arrive. |
+| Failure explanation | `src/explain/` | The "why did it fail" flow for a failed run: a notice of what is sent to the model provider, an effort choice, the explanation card with the likely cause, signal chips, action buttons and an optional fix proposal handed to the chat box as a draft. |
+| Recipe gallery | `src/recipes/` | The six ready-made recipes with search and tag filter, a form built from each recipe's params, a draft preview with the graph, side-effect lines and the "external transfer" line, and a deploy button. |
 | Shared pieces | `src/ui/`, `src/theme/`, `src/i18n/` | Status chip and icons, color tokens for light and dark, and a typed Korean and English dictionary. |
 
 Run state lives in `src/model/` as pure functions: `statesFromSteps` for a finished run, `reduceEvent` for the live event stream, `displayState` for what a card shows. A trigger writes no step row, so a trigger of an open run is shown as succeeded.
@@ -31,12 +33,16 @@ Good places to start:
 - `Graph/WorkflowGraph`: one story per fixture run, a 30 node graph, and light and dark side by side.
 - `Graph/NodeCard`: every status, badges, long text and a node the catalog does not know.
 - `Inspector/Inspector` and `Inspector/JsonView`: failed runs, a ten thousand item array, a one megabyte string and hostile data.
+- `Explain/ExplainCard`: one story per likely cause, zero to three actions, a fix proposal with a `<hidden>` mark, truncated and repaired answers, an unknown cost, hostile text, and light and dark or Korean and English side by side.
+- `Explain/ExplainPanel`: the disabled button for runs that are not failed, the notice, loading, an answer and every error. The stories after the first few click through the flow with a Storybook play function, so open them in the browser (the test run renders only the first screen of each).
+- `Recipes/RecipeGallery`, `Recipes/RecipeForm` and `Recipes/FieldInput`: the six recipes, every field kind, problems at fields, general issues, unknown rules and no matching connection.
+- `Recipes/DraftPreview` and `Recipes/RecipePanel`: with and without the external transfer line, deploying, deployed and failed, and the whole flow against a fake service.
 
 To share a static copy: `pnpm --filter @rill/desktop build-storybook` writes `apps/desktop/storybook-static/`, which git ignores.
 
 ## Add a story
 
-Every component file in `src/graph`, `src/inspector`, `src/runs`, `src/workspace` and `src/ui` needs a stories file next to it, and `test/stories-smoke.test.tsx` fails when one is missing.
+Every component file in `src/graph`, `src/inspector`, `src/runs`, `src/workspace`, `src/ui`, `src/explain` and `src/recipes` needs a stories file next to it, and `test/stories-smoke.test.tsx` fails when one is missing.
 
 1. Create `Name.stories.tsx` beside `Name.tsx` with a `Meta` that has a `title` such as `Graph/NodeCard`, and one exported story per state worth seeing.
 2. Build the data from `src/fixtures` or with the builders in `src/fixtures/workflows.ts`. Fixtures are typed against `@rill/protocol`, so they cannot drift from what the engine sends.
@@ -45,6 +51,61 @@ Every component file in `src/graph`, `src/inspector`, `src/runs`, `src/workspace
 
 Every text a person reads goes through `useT()`. Add the key to both `src/i18n/ko.ts` and `src/i18n/en.ts`; a test fails when the two differ.
 
+## The explain panel
+
+`ExplainPanel` in `src/explain/` takes an `EngineClient`, the open run and two callbacks. It never starts a run, turns a workflow off or sends a chat message by itself.
+
+    interface ExplainPanelProps {
+      client: EngineClient
+      run: RunSummary | undefined
+      model?: { provider: string; model: string }
+      onAction(action, context: { runId: string; nodeId?: string }): void
+      onProposeFix(proposal: { nodeId: string; requestText: string }): void
+    }
+
+- The button is enabled for a failed run only. Every other status shows a reason next to it. (The engine also explains a finished run that has a failed step; the panel follows the plan and asks only for failed runs.)
+- The first click opens a notice: "the step record, with secrets hidden, is sent to the model provider", with the provider and model when `model` is given. "Do not ask again in this session" lives in component state only and is forgotten on remount; the notice comes back when `model` changes.
+- Effort is `low`, `medium` or `high` (default `medium`). It is not the planner slider.
+- While a request runs the panel can be closed. That does not cancel the request on the server, and the card says the answer is thrown away.
+- `retry_run` and `deactivate_workflow` ask for confirmation inside the card before `onAction` is called. `open_connections`, `edit_node`, `check_input_file` and `wait_and_retry` call it at once (they navigate or remind; `wait_and_retry` is only a text). `none` shows no button.
+- `onProposeFix` hands the text to the chat box. The host (the integration plan) puts it in the composer as an editable draft. `<hidden>` marks stay visible with a note that those parts were removed on purpose.
+- `nodeId` in the `onAction` context comes from the fix proposal or the first signal. It is model or engine text: the host must check that the node exists before it selects it.
+- Model text is plain text with a length cap and a "show more" button. A message key is shown for each error code; the server text never reaches the screen.
+
+`src/explain/model/` holds the pure parts (`explainReducer`, `explainErrorKey`, `canExplain`, the label functions), `src/explain/useExplain.ts` the hook, and `src/engine/fake-explain.ts` the Storybook and test wrapper `withExplainMethod(client, script)`, which checks params and answers against the real `explainRun` schema. Fixtures are in `src/fixtures/explain.ts`.
+
+## The recipe panel
+
+`RecipePanel` in `src/recipes/` shows the gallery, then the form of the chosen recipe, then the draft preview.
+
+    interface RecipePanelProps {
+      client: EngineClient
+      catalog: readonly NodeInfo[]
+      connections: readonly { name: string; kind: 'slack' | 'http' | 'webhookSecret' }[]
+      onPickPath?(kind: 'folder' | 'file'): Promise<string | undefined>
+      onDeployed?(workflowId: string): void
+      onAction?(action: 'activate' | 'dry_run', workflowId: string): void
+    }
+
+The host contract:
+
+- The protocol has no method that lists connections (the engine reads them from a file at start), so the host passes `connections`. A connection field is a select of the entries whose `kind` matches the param's `connectionKind`. With none it shows a message and no free text.
+- `onPickPath` is for a native folder or file dialog (Plan 4d). Without it a folder or file field is a plain text input. A cancelled or failed pick leaves the text alone.
+- The form checks only what costs nothing: required, 500 characters, a number range, and text with `{{` or `}}`. Every other rule comes back from `instantiateRecipe` as `RECIPE_INVALID` problems and is shown at the field or in a list. The rule and issue tables are in `src/recipes/model/problems.ts`.
+- The cron field has labelled presets and no parser; the server checks the expression.
+- Nothing runs on its own. `deploy` is called only from the deploy button, once. After a deploy the panel calls `onDeployed` and offers "dry run" and "activate" buttons that only call `onAction`; running or activating is the host's job.
+- Titles, descriptions, labels and help come from the engine in Korean and English and are shown as text.
+
+`src/engine/fake-recipes.ts` has `withRecipeMethods(client, data)` for Storybook and tests. It checks params and answers against the real schemas and answers `deploy` with a fixed id for a workflow it handed out as a draft.
+
+### The recipe fixture
+
+`src/fixtures/recipe-infos.json` holds the recipe list and a draft for each recipe, made by the real engine from each recipe's sample values. Regenerate it after a recipe changes:
+
+    pnpm --filter @rill/desktop exec node --import tsx scripts/make-recipe-fixture.ts
+
+`test/recipes-drift.test.ts` fails when the file differs from what the engine builds now. It also compares the rule table of the form with `GENERAL_RULES` and `PARAM_RULES` of `@rill/recipes` and checks that the table has a message for every issue code of `@rill/dsl` and the connection kind check. These drift tests import the sources of `@rill/recipes` and `@rill/planner` by relative path, because the desktop package does not depend on them (and must not: the renderer cannot import them). The `fixtures` script of `package.json` only builds the node catalog.
+
 ## Rules for renderer code
 
 `src/` runs in a browser, so it must stay browser-safe:
@@ -52,6 +113,7 @@ Every text a person reads goes through `useT()`. Add the key to both `src/i18n/k
 - It may import types and pure code from `@rill/dsl` and `@rill/protocol`, and only types from `@rill/nodes-core`.
 - It must not import `@rill/engine`, `@rill/planner`, `@rill/llm`, `@rill/recipes`, `@rill/eval` or any `node:` module. An ESLint rule, a test that reads the sources and a test that builds every source file for the browser all enforce this.
 - Run data (step input and output, errors, trigger payloads) is untrusted. Show it only as text. `dangerouslySetInnerHTML`, `innerHTML`, `eval` and links made from run data are banned, and the tests render `<img onerror>` and `<script>` strings to check that they stay text.
+- `src/explain/` and `src/recipes/` also may not use `localStorage`, `sessionStorage` or a runtime import of `@rill/recipes` or `@rill/planner`; `test/panels-source.test.ts` reads the sources and fails on each. Model text, recipe text and ids from the server are shown only as text, with no link made from them.
 - Status is never shown by color alone: every status has its own icon and a word. A test computes the contrast of every text and background token pair in both themes and requires 4.5 to 1.
 - Times are formatted with `Intl` from a `now` prop and an optional `timeZone`, so stories and tests give the same output every day.
 
@@ -71,4 +133,6 @@ or `pnpm test` from the root. The desktop tests use Vitest with jsdom and Testin
 
 ## Not built yet
 
-Chat and the planner dialog, the effort slider, attachments, flag confirmation, memory, the provider picker, the failure explanation card, the recipe gallery, editing and forms, patch mode, the Electron main process and preload, the connection to a running engine, the tray, secret storage and the installer.
+Chat and the planner dialog, the effort slider of the planner, attachments, flag confirmation, memory, the provider picker, editing and forms for a workflow, patch mode, the Electron main process and preload, the connection to a running engine, the tray, secret storage and the installer.
+
+The two panels above are screens only. Still to do in the integration plan: the explain button next to a failed run in the history, putting a fix proposal into the chat composer, doing what the suggested action buttons say (retry, open connections, select a node, turn a workflow off), a dry run and activation after a recipe deploy, and reading the connection names and native file pickers from the host (Plan 4d).

@@ -60,6 +60,27 @@ describe('story files', () => {
   })
 })
 
+describe('explain and recipe stories', () => {
+  it('hold the states of both panels: the notice, every cause, errors, loading, problems, preview and deploy', () => {
+    const all = stories(MODES[0].globals)
+    const count = (dir: string) => all.filter((story) => story.file.startsWith(`${dir}/`)).length
+    expect(count('explain')).toBeGreaterThanOrEqual(50)
+    expect(count('recipes')).toBeGreaterThanOrEqual(40)
+    for (const name of ['CauseConfiguration', 'CauseUnknown', 'LightAndDarkSideBySide', 'HostileText']) {
+      expect(all.some((story) => story.file === 'explain/ExplainCard.stories.tsx' && story.name === name), name).toBe(true)
+    }
+    for (const name of ['ErrorNotFound', 'ErrorBusy', 'ErrorOther', 'Loading', 'NoticeBeforeFirstRequest']) {
+      expect(all.some((story) => story.file === 'explain/ExplainPanel.stories.tsx' && story.name === name), name).toBe(true)
+    }
+    for (const name of ['ProblemsAtFields', 'NoMatchingConnection', 'HostileRecipeText']) {
+      expect(all.some((story) => story.file === 'recipes/RecipeForm.stories.tsx' && story.name === name), name).toBe(true)
+    }
+    for (const name of ['WithModelTransfer', 'Deployed', 'DeployFailed']) {
+      expect(all.some((story) => story.file === 'recipes/DraftPreview.stories.tsx' && story.name === name), name).toBe(true)
+    }
+  })
+})
+
 describe.each(MODES)('every story renders without an error or a warning ($name)', (mode) => {
   let errors: ReturnType<typeof vi.spyOn>
   let warnings: ReturnType<typeof vi.spyOn>
