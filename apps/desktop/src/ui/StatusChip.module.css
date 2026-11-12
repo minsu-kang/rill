@@ -1,0 +1,74 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 1px var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.icon {
+  flex: none;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+.chip[data-status='idle'] {
+  background: var(--status-idle-bg);
+  color: var(--status-idle-text);
+  border-color: var(--status-idle-border);
+}
+
+.chip[data-status='running'] {
+  background: var(--status-running-bg);
+  color: var(--status-running-text);
+  border-color: var(--status-running-border);
+}
+
+.chip[data-status='succeeded'] {
+  background: var(--status-succeeded-bg);
+  color: var(--status-succeeded-text);
+  border-color: var(--status-succeeded-border);
+}
+
+.chip[data-status='failed'] {
+  background: var(--status-failed-bg);
+  color: var(--status-failed-text);
+  border-color: var(--status-failed-border);
+}
+
+.chip[data-status='abandoned'] {
+  background: var(--status-abandoned-bg);
+  color: var(--status-abandoned-text);
+  border-color: var(--status-abandoned-border);
+}
+
+.chip[data-status='skipped'] {
+  background: var(--status-skipped-bg);
+  color: var(--status-skipped-text);
+  border-color: var(--status-skipped-border);
+}
+
+.chip[data-status='continued'] {
+  background: var(--status-continued-bg);
+  color: var(--status-continued-text);
+  border-color: var(--status-continued-border);
+}

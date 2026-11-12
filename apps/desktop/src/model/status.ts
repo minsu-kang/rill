@@ -22,3 +22,16 @@ export function withState(states: RunStates, nodeId: string, state: NodeRunState
   next[nodeId] = state
   return Object.freeze(next)
 }
+
+export type RunStatusName = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export function visualStatusOfRun(status: RunStatusName): NodeStatus {
+  switch (status) {
+    case 'queued':
+      return 'idle'
+    case 'cancelled':
+      return 'abandoned'
+    default:
+      return status
+  }
+}

@@ -6,6 +6,7 @@ import Value from 'typebox/value'
 import { describe, expect, it } from 'vitest'
 import { fakeData, FIXTURE_NOW, ids, workflows } from '../src/fixtures'
 import { hostileValue } from '../src/fixtures/hostile'
+import { largeStates, largeWorkflow } from '../src/fixtures/large'
 
 const registry = createCoreRegistry()
 const STRICT = { registry, allowedRoots: ['/Users/demo'], connections: ['slack-ops'] }
@@ -152,5 +153,23 @@ describe('fixture catalog', () => {
 
   it('passes the protocol result schema', () => {
     expect(Value.Check(METHODS.nodeCatalog.result, { nodes: fakeData.catalog })).toBe(true)
+  })
+})
+
+describe('large generated workflow', () => {
+  it('has thirty nodes, passes the shared validator and has labelled branches', () => {
+    const workflow = largeWorkflow()
+    expect(workflow.nodes).toHaveLength(30)
+    expect(new Set(workflow.nodes.map((n) => n.id)).size).toBe(30)
+    expect(validateWorkflow(workflow, { registry, allowedRoots: ['/Users/demo'], connections: ['slack-ops'] })).toEqual([])
+    expect(workflow.edges.filter((e) => e.when === 'true')).toHaveLength(workflow.edges.filter((e) => e.when === 'false').length)
+  })
+
+  it('gives every node of the workflow a state that mixes all the statuses', () => {
+    const workflow = largeWorkflow()
+    const states = largeStates(workflow)
+    const statuses = new Set(Object.values(states).map((s) => s.status))
+    for (const status of ['running', 'succeeded', 'failed', 'skipped', 'continued']) expect(statuses.has(status as never), status).toBe(true)
+    for (const key of Object.keys(states)) expect(workflow.nodes.some((n) => n.id === key), key).toBe(true)
   })
 })

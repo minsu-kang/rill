@@ -9,5 +9,6 @@ export default defineConfig({
     include: ['test/**/*.test.{ts,tsx}'],
     setupFiles: ['test/setup.ts'],
     testTimeout: 30_000,
+    css: { include: [/@xyflow\/react\/dist\/.*\.css$/] },
   },
 })

@@ -6,6 +6,7 @@ import { workflows } from './workflows'
 
 export * from './workflows'
 export * from './hostile'
+export * from './large'
 export { fixtureRuns, fixtureSteps, FIXTURE_NOW, ids }
 
 export const catalog = catalogJson as NodeInfo[]
