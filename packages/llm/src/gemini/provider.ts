@@ -11,6 +11,7 @@ import { buildRequest, type GeminiParams } from './request'
 export const DEFAULT_TIMEOUT_MS = 180_000
 export const DEFAULT_MAX_TOKENS = 32_768
 const API_VERSION = 'v1beta'
+const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/'
 
 export interface GeminiClient {
   interactions: { create(params: GeminiParams, options?: GoogleGenAIRequestOptions): Promise<unknown> }
@@ -166,7 +167,8 @@ export class GeminiProvider implements LlmProvider {
     return new GoogleGenAI({
       apiKey,
       apiVersion: API_VERSION,
-      httpOptions: { ...(baseURL === undefined ? {} : { baseUrl: baseURL }), ...(fetch === undefined ? {} : { fetch: plainFetch(fetch) }) },
+      vertexai: false,
+      httpOptions: { baseUrl: baseURL ?? DEFAULT_BASE_URL, ...(fetch === undefined ? {} : { fetch: plainFetch(fetch) }) },
     })
   }
 }
