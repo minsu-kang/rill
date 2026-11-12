@@ -6,6 +6,8 @@ It runs the production node (`llmExtract.execute`) with the production system pr
 
 A second suite measures the planner (plain-language request to workflow, questions or refusal). It has its own command, `pnpm eval planner`, and its own section: [Planner suite](#planner-suite).
 
+Both suites run on five providers (Anthropic, OpenAI, Gemini, Grok and Meta), chosen by naming the model as `provider:model`. See [Providers](#providers). A third command, `pnpm eval check-provider`, makes at most four small calls to one provider and reports what its adapter could not confirm from documentation. See [check-provider](#check-provider).
+
 ## Run it
 
 All commands run from the repository root. The root script `pnpm eval` forwards to `packages/eval/src/cli.ts`.
@@ -48,7 +50,7 @@ Results go to `packages/eval/results/extract-<timestamp>/`, which is git-ignored
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--models a,b,c` | haiku, sonnet, opus (5-5) | Models to compare. Each needs a price in `src/pricing.ts` for `--yes`. |
+| `--models a,b,c` | haiku, sonnet, opus (5-5) | Models to compare: a Claude id, or `provider:model` for the other providers (see [Providers](#providers)). Each needs a price in `src/pricing.ts` for `--yes`. |
 | `--reps n` | 3 | Repetitions per case and model. |
 | `--concurrency n` | 4 | Calls in flight at once. |
 | `--kinds text,pdf,png` | all | Fixture kinds to include. |
@@ -62,10 +64,10 @@ Results go to `packages/eval/results/extract-<timestamp>/`, which is git-ignored
 | `--reps n`, `--concurrency n` | 3, 4 | Limits: reps 1 to 20, concurrency 1 to 16. |
 | `--seed n` | 1 | Seeds the shuffled schedule and the bootstrap, 0 to 4294967295. |
 | `--out dir` | `packages/eval/results/extract-<timestamp>` | Results directory. |
-| `--allow-base-url` | off | Allow an `ANTHROPIC_BASE_URL` other than `https://api.anthropic.com`, or a set `ANTHROPIC_CUSTOM_HEADERS`. The key is sent to that host. |
+| `--allow-base-url` | off | Allow an `ANTHROPIC_BASE_URL` other than `https://api.anthropic.com`, or a set `ANTHROPIC_CUSTOM_HEADERS`. The key is sent to that host. Applies to the Anthropic provider only. |
 | `--reestimate dir` | off | Re-estimate the full run from the results directory of a pilot. Takes only `--models`, `--reps`, `--kinds`, `--only`, `--max-output-tokens` and `--concurrency`; any other option is a usage error. No key, no network, nothing written. See "After the pilot". |
 | `--baselines` | off | Only the baselines. Cannot be combined with `--yes`, `--models`, `--reps`, `--effort`, `--budget-usd`, `--max-output-tokens` or `--allow-base-url`. |
-| `--yes` | off | Really call the API. Needs `--budget-usd`. |
+| `--yes` | off | Really call the API. Needs `--budget-usd` and the key of every provider in `--models`. |
 
 The printed command repeats every option that differs from its default (`--only`, `--kinds`, `--effort`, `--seed`, `--max-output-tokens` and so on), so it reproduces the plan exactly.
 
@@ -78,6 +80,67 @@ Exit codes:
 | 2 | Usage error (the usage text is printed), including `--yes` without `--budget-usd`. |
 | 3 | Partial run: the budget ran out. The report starts with a PARTIAL RUN notice. |
 | 130 | Interrupted by SIGINT or SIGTERM. The results and the report are written as a partial run. |
+
+## Providers
+
+A model is named as `provider:model` in `--models` (extract) and `--model` or `--models` (planner). A bare id is an Anthropic model, so every earlier command keeps working.
+
+| Provider | Key variable | Example | Reads PDF |
+| --- | --- | --- | --- |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-5-5` | yes |
+| `openai` | `OPENAI_API_KEY` | `openai:gpt-6.1-sol` | yes |
+| `gemini` | `GEMINI_API_KEY` | `gemini:gemini-3.8-flash` | yes |
+| `grok` | `XAI_API_KEY` | `grok:grok-4.7` | no |
+| `meta` | `META_API_KEY` | `meta:muse-spark-1.3` | yes |
+
+The models, their capabilities and what each vendor does with your content are in the `@rill/llm` README. The Meta variable name is a choice made in this repository.
+
+```
+pnpm eval extract --models claude-haiku-5-5,openai:gpt-6-luna,gemini:gemini-3.5-flash-lite
+pnpm eval planner --dry --model claude-sonnet-5-5,openai:gpt-6.1-sol,grok:grok-4.7
+```
+
+What changes with more than one provider:
+
+- **Keys.** `--yes` needs the key of every provider in the list, each from its own variable. The check happens before anything is sent: a missing key stops the run with a message that names the variable (and, for a mixed list, the models that need it), and nothing is spent. Keys are read from the environment and nowhere else. The key of each provider in the list is replaced with `[redacted]` in anything the run writes, and every provider key found in the environment is replaced in error messages.
+- **Names.** An unknown provider or model, a duplicate model in the list, and any model id that ends in `-contributor` (a Meta model that trains on your content) are usage errors, exit 2. The message lists the known values. A model without a price in `src/pricing.ts` is refused for `--yes`, as before.
+- **Plan output.** For a list that is not Anthropic only, the plan adds a `providers` block (the key each needs and whether it is set, and the API host your content goes to), a `by model` block (calls, typical cost and worst case per model) and a `capability notes` block. The notes say which cases a model cannot take (they are not sent and show as n/a) and which effort levels collapse (`effort high runs as ...`).
+- **Not run (n/a).** A case a model cannot take is not sent and not counted as a failure. The extract suite's PDF cases are n/a for Grok, which reads no PDF. The run is not partial because of them, and the report lists them in a `Not run (n/a)` section.
+- **Budget guard.** The formula is the same (`1 + 2R` calls per planner case, the worst case reserved per call), with prices from the dated table in `@rill/llm`. For a provider whose hidden reasoning is not capped by `max_tokens` (Grok), the reserve counts twice the output, and the plan, the report and the cost columns mark those figures as a soft cap. The real cost of such a call can be above the estimate even with the guard on.
+- **Reports and rows.** A model is stored as its spec, so the provider is part of every row. When a run includes a provider other than Anthropic the report header lists the providers, the comparison tables get a Provider column and group the models by provider, and an effort that a model collapsed shows the level that ran next to the one asked for.
+- **Endpoint override.** `ANTHROPIC_BASE_URL` and `ANTHROPIC_CUSTOM_HEADERS` apply to Anthropic only and still need `--allow-base-url`. The other providers always use their own host.
+
+Nothing here has been measured against a live endpoint. The adapters were tested against fake transports, so a first run with a new provider should go through [check-provider](#check-provider) and a small pilot before a full run.
+
+## check-provider
+
+```
+pnpm eval check-provider --provider openai --model gpt-6.1-sol
+pnpm eval check-provider --provider openai --model gpt-6.1-sol --yes --budget-usd 0.25
+```
+
+It sends at most four small calls to one provider: text with a schema that has an optional field, the same call again with a cached prefix (to see a cache read), an image, and a PDF (a model that reads no PDF is asked anyway and must refuse before any request leaves). Then it prints every `LIVE_CHECKS` entry of that provider's adapter with the measured value and a status. Each call also prints the adapter's usage next to the vendor's raw usage object, so a reader can compare the two.
+
+| Status | Meaning |
+| --- | --- |
+| PASS | A call measured the thing and it matched what the adapter assumes. |
+| FAIL | A call measured it and it differs, or the call that would show it failed. |
+| UNKNOWN | No call could show it (it was not reached, the reply did not report the field, or the check needs a person), or the entry has no evaluator. |
+
+No live call has ever been made, so no entry of any adapter has a measured value yet.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--provider id` | none, required | `anthropic`, `openai`, `gemini`, `grok` or `meta`. |
+| `--model id` | none, required | A model of that provider, without the provider prefix. |
+| `--budget-usd n` | 0.25 | Spending cap. The guard stops before a call whose worst case does not fit, and the command refuses to start when the budget is below the worst case of the first call. |
+| `--dry` | off | Print the plan, the worst case per call and the live checks, and send nothing. Also what happens without `--yes`. Cannot be combined with `--yes`. |
+| `--yes` | off | Really call the API. Needs the provider's key variable in the environment. |
+| `--allow-base-url` | off | As for the suites, Anthropic only. |
+
+Exit codes: 0 done, 1 runtime error (a missing key, no price for the model, a budget too small for the first call, or a rejected key), 2 usage error.
+
+The calls share a prefix of about 7,000 tokens (about 24,000 characters), so a cache whose documented minimum is lower can show a read. The command prints the prefix size. For the entries that ask whether the minimum and the time to live are met, no cache read stays UNKNOWN. For `cache-hit` (Grok), which the vendor documents as automatic, no read is FAIL. Run it again with each model you plan to use, because the answers can differ per model.
 
 ## After the pilot
 
@@ -123,7 +186,7 @@ Opus costs about 40 times what Haiku does per call. The suggested budget for the
 ## Safety
 
 - No call is made without `--yes`. The default command only prints a plan. `--baselines` uses fakes that never touch the network.
-- `--yes` reads the key from `ANTHROPIC_API_KEY` in the environment and nowhere else, and passes it to the SDK explicitly, so the SDK never falls back to another credential. The key is trimmed; a missing, empty or whitespace-only key stops the run with exit 1. The key is never printed and never written: not in the report, the rows, the errors or the traces. The exact key string is replaced with `[redacted]` in anything that is written, error messages included. The library API (`runEval`) never builds a paid provider on its own: the caller must pass `createProvider`, and `createEvalProvider` needs an explicit key.
+- `--yes` reads the key of each provider in `--models` from that provider's variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `META_API_KEY`) in the environment and nowhere else, and passes it to the adapter explicitly, so an SDK never falls back to another credential. The key is trimmed; a missing, empty or whitespace-only key stops the run with exit 1. The key is never printed and never written: not in the report, the rows, the errors or the traces. The exact key string is replaced with `[redacted]` in anything that is written, error messages included. The library API (`runEval`) never builds a paid provider on its own: the caller must pass `createProvider`, and `createEvalProvider` needs an explicit key.
 - Before any request the command prints the API host. If `ANTHROPIC_BASE_URL` points anywhere but `https://api.anthropic.com`, or `ANTHROPIC_CUSTOM_HEADERS` is set, it refuses to run (exit 1) unless `--allow-base-url` is given, and then prints a loud warning that the key goes to that host. The notice about the documents names the same host.
 - A model without a price in the price table is refused with `no price for model X; the budget guard needs one`, before any request.
 - The budget is a hard cap. Before each call the runner reserves the worst case of that call: its input estimate plus `--max-output-tokens` output tokens at the model's price, the same `max_tokens` the request really carries (a request that asks for more stops the run). It adds that to what is spent and what is held for calls in flight. At the first call that would cross the cap, it stops dispatching: every remaining task is recorded as skipped (`budget_skipped` in `errors.jsonl`), `run.json` says `partial: true`, the report starts with a PARTIAL RUN notice with completed and skipped tasks per model, and the command exits 3. Because the schedule is shuffled across models, the finished tasks are a prefix of it and the models stay comparable. A retry is only sent while it still fits.
@@ -254,7 +317,7 @@ Results go to `packages/eval/results/planner-<timestamp>/` (git-ignored; the dir
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--model a,b` | `claude-sonnet-5-5` | Models to compare (`--models` is the same option). The caller picks the model by picking the provider; the planner only gets the effort. Each needs a price for `--yes`. |
+| `--model a,b` | `claude-sonnet-5-5` | Models to compare (`--models` is the same option): a Claude id, or `provider:model` (see [Providers](#providers)). The planner only gets the effort; a provider with fewer effort levels runs the nearest lower one and the dry run says so. Each needs a price for `--yes`. |
 | `--effort e` | the case's own | One of `low`, `medium`, `high`, applied to every request. The cases carry `low`, `medium` or `high` (18, 18 and 12 of them). `xhigh` and `max` are refused before anything runs: the planner asks for 32000 output tokens there, the provider streams the reply, and the recorder cannot read the usage of a streamed reply, so a run would be paid for and then stop. |
 | `--group g` | all | `easy`, `ambiguous`, `unsupported`, `attachment`, `patch` (20, 10, 8, 6 and 4 cases), or a comma list. |
 | `--only x` | all | A case id substring, or a comma list of exact ids. Applies after `--group`. |
@@ -270,7 +333,7 @@ Results go to `packages/eval/results/planner-<timestamp>/` (git-ignored; the dir
 
 `--max-output-tokens` is not an option of this command (it is a usage error that says so). The planner sets `max_tokens` itself, from the effort of the request: low 8000, medium 12000, high 16000. The guard reserves exactly that for each case, so choose the effort with `--effort`; the same refusal applies to a case in the case data whose own effort streams.
 
-The guards are the extract ones: no paid call without `--yes`, `ANTHROPIC_API_KEY` in the environment and `--budget-usd` (`--yes` without it is a usage error, exit 2), a base URL other than `https://api.anthropic.com` or custom headers refused without `--allow-base-url`, a model without a price refused, the first authentication failure stops the run, the key is redacted from everything written. The default provider is only constructed inside `--yes`, after those checks; a dry run never builds one (`test/planner-cli.test.ts` checks it in process and in a child process with a reachable mock API).
+The guards are the extract ones: no paid call without `--yes`, the key of every provider in `--model` in the environment and `--budget-usd` (`--yes` without it is a usage error, exit 2), a base URL other than `https://api.anthropic.com` or custom headers refused without `--allow-base-url` (Anthropic only), a model without a price refused, the first authentication failure stops the run, the key is redacted from everything written. The default provider is only constructed inside `--yes`, after those checks; a dry run never builds one (`test/planner-cli.test.ts` checks it in process and in a child process with a reachable mock API).
 
 Exit codes: 0 done, 1 runtime error (a refused base URL or header, a missing key, unusable attachment fixtures, an authentication failure), 2 usage error, 3 partial run (the budget ran out; the report starts with a PARTIAL RUN notice), 130 interrupted (SIGINT or SIGTERM).
 

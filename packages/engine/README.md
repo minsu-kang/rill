@@ -11,6 +11,8 @@ The durable workflow engine, its WebSocket server and the `rill-engine` command 
 
 `serve` listens on 127.0.0.1 and reads its access token from `RILL_TOKEN` (16 or more characters). When the variable is not set it prints a generated token in its first output line.
 
+Every command also accepts `--llm-provider <id>`, `--llm-model <id>` and `--llm-no-fallback`, described under Model provider.
+
 ### Connections file
 
 A JSON object that maps a connection name to a secret string, or to an object with a kind:
@@ -22,13 +24,52 @@ A JSON object that maps a connection name to a secret string, or to an object wi
 
 Nodes can use both forms. The planner is told only about the second form, by name and kind (`slack`, `http` or `webhookSecret`), and never receives a secret. A bad kind or a secret that is not a string stops the command with a usage error.
 
+### Model provider
+
+The provider and model serve `llm.extract` steps in every command and the planner in `serve`.
+
+| Flag | Meaning |
+| --- | --- |
+| `--llm-provider <id>` | One of `anthropic` (the default), `openai`, `gemini`, `grok`, `meta`. |
+| `--llm-model <id>` | A model of that provider. Defaults to `claude-opus-5-5` for `anthropic` and is required for every other provider. |
+| `--llm-no-fallback` | Turns off the Anthropic refusal fallback. It has no effect on the other providers, which have no fallback. |
+
+The key comes from the environment, in the variable of the chosen provider:
+
+| Provider | Key variable |
+| --- | --- |
+| `anthropic` | `ANTHROPIC_API_KEY` (`ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL` are read by the Anthropic SDK as before) |
+| `openai` | `OPENAI_API_KEY` |
+| `gemini` | `GEMINI_API_KEY` |
+| `grok` | `XAI_API_KEY` |
+| `meta` | `META_API_KEY` |
+
+- An unknown provider, an unknown model of a provider other than `anthropic`, and any model id that ends in `-contributor` stop the command with a usage error (exit 2) that lists the known values. This happens before the key is looked at.
+- `anthropic` keeps its earlier behaviour: the provider is always built, and a missing key shows up as an authentication failure when a call is made.
+- For any other provider a missing or blank key is not an error and the engine never asks for one. The engine starts with no model provider: `plan` fails with `LLM_UNAVAILABLE`, and an `llm.extract` step fails with `llm.extract needs an LLM provider; start the engine with --llm-provider and its key variable`.
+- The CLI passes the process environment to the registry once at start and hands the engine only which providers have a key and which model is active (`EngineOptions.llmInfo`, built with `chooseLlm` and `configuredProviders`). The engine keeps no key outside the provider object.
+
 ### Planning
 
-`serve` answers the planner methods below. The planner calls the Anthropic API with the credentials in `ANTHROPIC_API_KEY`; without them `plan` fails with `LLM_UNAVAILABLE`.
+`serve` answers the planner methods below with the provider chosen above. Without a key for it, `plan` fails with `LLM_UNAVAILABLE`.
 
 The planner only proposes file paths inside the `--allow` folders. With no `--allow` it cannot propose reading or writing files.
 
 `--attachments-dir` is the folder the engine reads plan attachments from. It is created with mode 0700 when it is missing, and it must be inside an `--allow` folder when any is given. Without it, a `plan` request that carries attachments fails with `ATTACHMENT_REJECTED`.
+
+## Model methods
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `llmModels` | none | `models`, `providers`, `active` |
+
+`llmModels` answers what a client needs to offer a choice of model without knowing the provider code:
+
+- `models`: every model of the registry with `provider`, `id`, `tier` (`strong`, `mid`, `cheap`), `label`, `contextTokens` and `capabilities` (structured output, PDF and image support, request size cap, cache mode, the effort levels the model distinguishes and the value each level is sent as, whether reasoning counts against the output cap, streaming, maximum output, and `dataNote`, one sentence about what the vendor does with the content). Plain data, no functions.
+- `providers`: one entry per provider with `id`, `label`, `keyEnv` (the name of the variable, never its value) and `configured` (a key is present in the environment the engine was started with).
+- `active`: `{ provider, model }` of the model the engine uses, or `null` when the engine has no model provider. For `anthropic` without a key it is still set, and `configured` for `anthropic` is `false`.
+
+No key, header or part of a key appears in the result, in an event or in a log line. An engine started without `llmInfo` reports every provider as not configured and `active` as `null`.
 
 ## Planner methods
 
@@ -68,9 +109,20 @@ A flag marks a node field whose value did not come from the user's own words (`a
 
 A record has the status `planned`, `failed` or `cancelled`, the effort, the request text, the attachment references, the result and the meta of a planned record, and the confirmed keys once it is deployed. A failed or cancelled record keeps a fixed error text and the redacted repair rounds, never the model's reply.
 
+The meta of a planned record (returned by `plan` and stored in the record that `getPlan` returns) holds `rounds`, `usage`, `costUsd`, `model`, `effort` (the level the client asked for) and `fallbackUsed`, and these fields about the provider:
+
+| Field | Meaning |
+| --- | --- |
+| `provider` | The name of the provider that answered, such as `openai`. |
+| `effortDetail` | `{ requested, effective, native, collapsed }`: the level asked for, the level that ran, the value sent to the provider and whether the two levels differ. Gemini, for example, runs `xhigh` and `max` as `high`. |
+| `reasoningCapped` | `false` when the provider does not count hidden reasoning against the output cap (Grok). |
+| `costNote` | Present only when `reasoningCapped` is `false`: a sentence saying the cap is soft and the cost can be above the estimate. |
+
+All four are optional in the protocol schema. A plan stored before they existed has none of them and still reads through `getPlan` and `listPlans`. The meta is stored as JSON text, so no migration was needed. A failed record's meta has none of them either.
+
 | Code | Meaning |
 | --- | --- |
-| `LLM_UNAVAILABLE` | No model provider, or the provider rejected the credentials |
+| `LLM_UNAVAILABLE` | No model provider, or the provider rejected the credentials: an authentication error from any provider, whether it reaches the server as a plan failure or on its own. The message is fixed and never carries the provider's text |
 | `PLAN_INVALID` | No valid plan after the repair rounds; `problems` lists `<code> at <pointer>` |
 | `PLAN_PROVIDER` | The model provider failed |
 | `PLAN_CANCELLED` | The plan was cancelled |
