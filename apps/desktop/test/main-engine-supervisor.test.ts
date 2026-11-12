@@ -141,7 +141,7 @@ function setup(options: Setup = {}) {
     clock,
     randomToken: () => `token-${String(++tokenCounter).padStart(16, '0')}`,
     forceKill: (child) => forceKills.push(child),
-    env: options.processEnv ?? { PATH: '/usr/bin', HOME: '/Users/test', LANG: 'en_US.UTF-8', ANTHROPIC_API_KEY: 'LEAK', OPENAI_API_KEY: 'LEAK', AWS_SECRET_ACCESS_KEY: 'LEAK', RILL_TOKEN: 'LEAK', RILL_CONNECTIONS: 'LEAK' },
+    env: options.processEnv ?? { PATH: '/usr/bin', HOME: '/Users/test', LANG: 'en_US.UTF-8', ANTHROPIC_API_KEY: 'LEAK', OPENAI_API_KEY: 'LEAK', AWS_SECRET_ACCESS_KEY: 'LEAK', RILL_TOKEN: 'LEAK', RILL_CONNECTIONS: 'LEAK', USER: 'LEAK', SHELL: 'LEAK', TMPDIR: 'LEAK', NODE_OPTIONS: 'LEAK' },
     log: (message) => logs.push(message),
   })
   supervisor.onStatus((status) => statuses.push(status))
@@ -254,11 +254,28 @@ describe('engine supervisor: start', () => {
   it('ignores a listening line with a wrong host, port or type', async () => {
     const { forks, supervisor } = await started()
     const child = forks[0]!.child
-    for (const bad of [{ type: 'listening', host: '0.0.0.0', port: 1, protocol: 1 }, { type: 'listening', host: '127.0.0.1', port: 70000, protocol: 1 }, { type: 'listening', host: '127.0.0.1', port: 'x', protocol: 1 }, { type: 'ready', host: '127.0.0.1', port: 5, protocol: 1 }]) {
+    for (const bad of [{ type: 'listening', host: '0.0.0.0', port: 1, protocol: 1 }, { type: 'listening', host: '127.0.0.1', port: 70000, protocol: 1 }, { type: 'listening', host: '127.0.0.1', port: 65536, protocol: 1 }, { type: 'listening', host: '127.0.0.1', port: 0, protocol: 1 }, { type: 'listening', host: '127.0.0.1', port: -1, protocol: 1 }, { type: 'listening', host: '127.0.0.1', port: 1.5, protocol: 1 }, { type: 'listening', host: '127.0.0.1', port: 'x', protocol: 1 }, { type: 'ready', host: '127.0.0.1', port: 5, protocol: 1 }]) {
       child.stdout.write(`${JSON.stringify(bad)}\n`)
     }
     await settle()
     expect(supervisor.status().state).toBe('starting')
+  })
+
+  it.each([[1], [65_535]])('accepts the port %i at the ends of the range', async (port) => {
+    const { forks, supervisor, start } = await started()
+    forks[0]!.child.listen(port)
+    await start
+    expect((await supervisor.info()).url).toBe(`ws://127.0.0.1:${port}/`)
+  })
+
+  it('drops an over-long line without a newline, so the line after it still counts', async () => {
+    const { forks, supervisor, start } = await started()
+    const child = forks[0]!.child
+    child.stdout.write('x'.repeat(70_000))
+    await settle()
+    child.stdout.write(`${JSON.stringify({ type: 'listening', host: '127.0.0.1', port: 41000, protocol: 1 })}\n`)
+    await start
+    expect(supervisor.status().state).toBe('running')
   })
 
   it('makes info() wait for the engine and reject when it stops', async () => {
@@ -543,6 +560,47 @@ describe('engine supervisor: crash back-off', () => {
       await harness.clock.advance(61_000)
     }
     expect(harness.supervisor.status()).toEqual({ state: 'running', restarts: 8 })
+  })
+
+  it('forgets a crash that is exactly one minute old, and keeps one that is a second younger', async () => {
+    const harness = await running()
+    for (let index = 0; index < 3; index++) {
+      await crashAndRecover(harness, index, 1000)
+      await harness.clock.advance(59_000)
+    }
+    expect(harness.supervisor.status()).toEqual({ state: 'running', restarts: 3 })
+    const young = await running()
+    await crashAndRecover(young, 0, 1000)
+    await young.clock.advance(58_000)
+    young.forks[1]!.child.exit(1)
+    await settle()
+    await young.clock.advance(1_999)
+    expect(young.forks).toHaveLength(2)
+    await young.clock.advance(1)
+    expect(young.forks).toHaveLength(3)
+  })
+
+  it('counts failed starts afresh after a restart that follows a stop for good', async () => {
+    const { supervisor, forks, clock } = await started()
+    for (const [index, delay] of [1000, 2000, 4000, 4000, 4000].entries()) {
+      forks[index]!.child.exit(1)
+      await settle()
+      await clock.advance(delay)
+    }
+    forks[5]!.child.exit(1)
+    await settle()
+    expect(supervisor.status()).toEqual({ state: 'stopped', error: 'crashed', restarts: 5 })
+    const restart = supervisor.restart()
+    await settle()
+    expect(forks).toHaveLength(7)
+    forks[6]!.child.exit(1)
+    await settle()
+    expect(supervisor.status().state).toBe('restarting')
+    await clock.advance(1000)
+    expect(forks).toHaveLength(8)
+    forks[7]!.child.listen(41000)
+    await restart
+    expect(supervisor.status().state).toBe('running')
   })
 
   it('shows no error while restarting, only when stopped', async () => {

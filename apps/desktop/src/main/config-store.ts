@@ -134,7 +134,7 @@ async function resolveReal(fs: FsLike, path: string): Promise<string> {
 
 function holds(folder: string, inner: string): boolean {
   const way = relative(folder, inner)
-  return way === '' || (way !== '..' && !way.startsWith(`..${sep}`) && !isAbsolute(way))
+  return way !== '..' && !way.startsWith(`..${sep}`) && !isAbsolute(way)
 }
 
 export function createConfigStore(deps: { dir: string; fs?: FsLike; homeDir?: string }): ConfigStore {

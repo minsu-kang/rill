@@ -29,6 +29,8 @@ describe('app protocol: which file a url means', () => {
     ['app://rill/assets%5c..%5cindex.js'],
     ['app://rill/a\\b'],
     ['app://rill/a%00b'],
+    ['app://rill/assets/..%2findex.html'],
+    ['app://rill/assets/%2e%2e%2findex.html'],
     ['app://rill/%2e%2e%2fmain/index.mjs'],
     ['app://rill/assets/%2e%2e/%2e%2e%2fmain'],
     ['app://rill/assets%2f..%2f..%2fmain'],

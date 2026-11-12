@@ -94,6 +94,32 @@ describe('attachments: type detection', () => {
     expect(long.name.endsWith('.txt')).toBe(true)
     expect(Value.Check(AttachmentRefSchema, long)).toBe(true)
   })
+
+  it('removes the unit separator and DEL from a name, and keeps spaces', async () => {
+    const store = createAttachmentStore({ dir })
+    expect((await store.addFromBytes({ name: 'a\u001fb\u007fc d.txt', bytes: new Uint8Array([1]) })).name).toBe('abc d.txt')
+  })
+
+  it('keeps a name of exactly 255 characters and cuts one of 256', async () => {
+    const store = createAttachmentStore({ dir })
+    const exact = `${'a'.repeat(251)}.txt`
+    expect((await store.addFromBytes({ name: exact, bytes: new Uint8Array([1]) })).name).toBe(exact)
+    const cut = await store.addFromBytes({ name: `${'b'.repeat(252)}.txt`, bytes: new Uint8Array([1]) })
+    expect(cut.name).toBe(`${'b'.repeat(251)}.txt`)
+  })
+
+  it('refuses a file that was swapped for a link between the check and the open', async () => {
+    const target = join(source, 'target.txt')
+    writeFileSync(target, 'secret')
+    const link = join(source, 'swapped.txt')
+    symlinkSync(target, link)
+    const store = createAttachmentStore({
+      dir,
+      fs: { ...fsp, lstat: (async (path: string, ...rest: unknown[]) => (path === link ? { isSymbolicLink: () => false, isFile: () => true, size: 6 } : (fsp.lstat as (...a: unknown[]) => unknown)(path, ...rest))) as unknown as FsLike['lstat'] },
+    })
+    expect(await reason(store.addFromPath(link))).toBe('symlink')
+    expect(listing()).toEqual([])
+  })
 })
 
 describe('attachments: size limits', () => {
@@ -309,8 +335,10 @@ describe('attachments: the folder has a size and a count limit', () => {
     writeFileSync(join(dir, '.partial-zzzzzzzz9999'), 'half')
     writeFileSync(join(dir, 'abcdefgh1234.txt'), 'kept')
     writeFileSync(join(dir, '.keep'), 'kept')
+    writeFileSync(join(dir, '.pinned'), 'kept')
+    writeFileSync(join(dir, 'partial-abcdefgh1234'), 'kept')
     await createAttachmentStore({ dir }).sweepPartials()
-    expect(readdirSync(dir).sort()).toEqual(['.keep', 'abcdefgh1234.txt'])
+    expect(readdirSync(dir).sort()).toEqual(['.keep', '.pinned', 'abcdefgh1234.txt', 'partial-abcdefgh1234'])
   })
 
   it('does not fail when the folder does not exist yet', async () => {

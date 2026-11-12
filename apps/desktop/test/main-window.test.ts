@@ -280,7 +280,7 @@ describe('window: session', () => {
     expect(session.beforeSend?.filter).toEqual(ENGINE_REQUEST_FILTER)
     expect(ENGINE_REQUEST_FILTER.urls).toEqual(['ws://127.0.0.1/*', 'ws://localhost/*'])
     let sent: Record<string, string> | undefined
-    session.beforeSend?.listener({ requestHeaders: { Origin: 'null', Cookie: 'a=b', 'Sec-WebSocket-Protocol': 'rill.v1' } }, (response) => (sent = response.requestHeaders))
+    session.beforeSend?.listener({ requestHeaders: { Origin: 'null', origin: 'null', ORIGIN: 'null', Cookie: 'a=b', 'Sec-WebSocket-Protocol': 'rill.v1' } }, (response) => (sent = response.requestHeaders))
     expect(sent).toEqual({ Cookie: 'a=b', 'Sec-WebSocket-Protocol': 'rill.v1' })
   })
 

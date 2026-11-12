@@ -142,6 +142,13 @@ describe('secret store: values', () => {
     expect(readdirSync(dir)).toEqual([])
   })
 
+  it('keeps a value of exactly 2000 characters and refuses one of 2001', async () => {
+    const { store } = setup()
+    expect(await store.setProviderKey('anthropic', 'k'.repeat(2000))).toBe(true)
+    expect((await errorOf(store.setProviderKey('anthropic', 'k'.repeat(2001))))?.reason).toBe('invalid_value')
+    expect(await store.getProviderKey('anthropic')).toBe('k'.repeat(2000))
+  })
+
   it('keeps names that look like object keys as plain names', async () => {
     const { store } = setup()
     await store.setConnection({ name: '__proto__', kind: 'http', secret: HOOK })
@@ -206,6 +213,27 @@ describe('secret store: unreadable file', () => {
       expect(await store.unreadable(), inner).toBe(true)
       expect(await store.configuredProviders()).toEqual([])
     }
+  })
+
+  it('treats a file with the right shape but another version as unreadable', async () => {
+    const safeStorage = fakeSafeStorage()
+    writeFileSync(file(), safeStorage.encryptString(JSON.stringify({ version: 2, providerKeys: [{ provider: 'anthropic', value: KEY }], connections: [] })))
+    const store = createSecretStore({ dir, safeStorage })
+    expect(await store.unreadable()).toBe(true)
+    expect(await store.getProviderKey('anthropic')).toBeUndefined()
+  })
+
+  it('logs once for each time a file turns unreadable, not once for the life of the store', async () => {
+    writeFileSync(file(), 'broken one')
+    const { store, logs } = setup()
+    await store.configuredProviders()
+    await store.configuredProviders()
+    expect(logs).toHaveLength(1)
+    await store.setProviderKey('anthropic', KEY)
+    writeFileSync(file(), 'broken two')
+    await store.configuredProviders()
+    await store.configuredProviders()
+    expect(logs).toHaveLength(2)
   })
 
   it('lets the user enter the keys again: the bad file is kept as secrets.bin.bak and replaced', async () => {

@@ -202,6 +202,19 @@ describe('ipc handlers: settings', () => {
     await h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/f1', '/f100'] })
   })
 
+  it('restarts when only the provider changes, and when one folder is swapped for another', async () => {
+    const h = harness()
+    await h.call(CHANNELS.settingsUpdate, { provider: 'openai', model: 'gpt-6.1-sol' })
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
+    await h.call(CHANNELS.settingsUpdate, { provider: 'gemini', model: 'gpt-6.1-sol' })
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(2)
+    await h.allow('/a', '/b', '/c')
+    await h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/a', '/b'] })
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(3)
+    await h.call(CHANNELS.settingsUpdate, { allowedFolders: ['/a', '/c'] })
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(4)
+  })
+
   it('applies the login item without restarting the engine', async () => {
     const h = harness()
     await h.call(CHANNELS.settingsUpdate, { openAtLogin: true })
@@ -233,6 +246,15 @@ describe('ipc handlers: settings', () => {
     expect(await h.call(CHANNELS.engineStatus)).toEqual({ state: 'running', restarts: 0 })
     h.supervisor.status.mockReturnValue({ state: 'stopped', error: 'crashed', restarts: 5 })
     expect(await h.call(CHANNELS.engineStatus)).toEqual({ state: 'stopped', error: 'crashed', restarts: 5 })
+  })
+
+  it('refuses a result that does not match its schema, with INTERNAL, and says so in the log', async () => {
+    const h = harness()
+    const logs: string[] = []
+    h.supervisor.status.mockReturnValue({ state: 'running', restarts: 0, token: 'leak' } as never)
+    const handlers = createIpcHandlers({ config: h.config, secrets: h.secrets, supervisor: h.supervisor, attachments: createAttachmentStore({ dir: join(dir, 'a') }), dialog: h.dialog, app: h.app, loginItem: h.loginItem, log: (line) => logs.push(line) })
+    expect(await failure(handlers[CHANNELS.engineStatus](undefined))).toMatchObject({ message: 'INTERNAL' })
+    expect(logs).toEqual([`result of ${CHANNELS.engineStatus} did not match its schema`])
   })
 
   it('returns the engine address and maps a missing engine to ENGINE_UNAVAILABLE', async () => {

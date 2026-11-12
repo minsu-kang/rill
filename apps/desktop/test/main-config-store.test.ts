@@ -107,6 +107,15 @@ describe('config store: folders that would widen access too far', () => {
     expect((await store().get()).allowedFolders).toEqual([])
   })
 
+  it('refuses the home folder and the folders above it also when the data folder is somewhere else', async () => {
+    const elsewhere = join(dir, 'elsewhere', 'data')
+    const myHome = join(dir, 'people', 'me')
+    mkdirSync(myHome, { recursive: true })
+    const apart = createConfigStore({ dir: elsewhere, homeDir: myHome })
+    for (const folder of [myHome, dirname(myHome)]) expect(await reason(apart.update({ allowedFolders: [folder] })), folder).toBe('invalid_folder')
+    expect((await apart.update({ allowedFolders: [join(myHome, 'Documents')] })).after.allowedFolders).toEqual([join(myHome, 'Documents')])
+  })
+
   it('refuses a link that leads to one of them', async () => {
     const link = join(dir, 'looks-harmless')
     symlinkSync(join(home, 'Library'), link)
