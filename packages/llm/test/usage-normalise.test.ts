@@ -57,3 +57,10 @@ describe('normaliseUsage', () => {
     expect(normaliseUsage({ ...parts, input: 400, inputIncludesCache: false }).inputTokens).toBe(400)
   })
 })
+
+describe('the largest token count it believes', () => {
+  it('takes a count just under one billion and refuses one billion', () => {
+    expect(normaliseUsage({ ...parts, input: 999_999_999, cacheRead: 0, cacheWrite: 0 }).inputTokens).toBe(999_999_999)
+    expect(() => normaliseUsage({ ...parts, input: 1_000_000_000, cacheRead: 0, cacheWrite: 0 })).toThrow(LlmError)
+  })
+})
