@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CONFORMANCE_API_KEY, CONFORMANCE_DATA, CONFORMANCE_SCHEMA } from '../conformance'
 import { errorReply, jsonReply, sseReply, type FakeReply } from '../fake-transport'
+import { InteractionReader } from '../../src/gemini/reply'
 import { LlmError, type LlmRequest } from '../../src/index'
 import {
   DONE,
@@ -115,6 +116,17 @@ describe('Gemini stream', () => {
     expect(none).toMatchObject({ model: GEMINI_MODEL, fallbackUsed: false })
   })
 
+  it('prefers the model of the final event over the one of the first event', async () => {
+    const events = [createdEvent('gemini-4-argon'), ...outputEvents(0, [TEXT]), completedEvent('completed', RAW_USAGE, 'gemini-3.5-flash-lite'), DONE]
+    expect(await run(stream(events)).result).toMatchObject({ model: 'gemini-3.5-flash-lite', servedModels: ['gemini-3.5-flash-lite'], fallbackUsed: true })
+  })
+
+  it('ignores the text of thought steps in the final event', async () => {
+    const steps = [{ type: 'thought', content: [{ type: 'text', text: 'HIDDEN THOUGHT' }] }, { type: 'model_output', content: [{ type: 'text', text: TEXT }] }]
+    const events = [createdEvent(), completedEvent('completed', RAW_USAGE, GEMINI_MODEL, { steps }), DONE]
+    expect((await run(stream(events)).result).data).toEqual(CONFORMANCE_DATA)
+  })
+
   it('reads the text from the final event when no text arrived as deltas', async () => {
     const steps = [{ type: 'thought' }, { type: 'model_output', content: [{ type: 'text', text: '{"a":' }, { type: 'text', text: '1}' }] }]
     const events = [createdEvent(), completedEvent('completed', RAW_USAGE, GEMINI_MODEL, { steps }), DONE]
@@ -162,6 +174,23 @@ describe('Gemini stream', () => {
     const { error, requests } = await fails(jsonReply({ id: 'v1', status: 'completed', steps: [], usage: RAW_USAGE }))
     expect(error.kind).toBe('invalid_output')
     expect(requests).toBe(1)
+  })
+
+  it('says which of the two it was, an empty reply or one that is not JSON', async () => {
+    const empty = await fails(stream([createdEvent(), completedEvent('completed'), DONE]))
+    expect(empty.error.message).toContain('no text')
+    const broken = await fails(stream([createdEvent(), ...outputEvents(0, ['{"a":']), completedEvent('completed'), DONE]))
+    expect(broken.error.message).toContain('not valid JSON')
+  })
+
+  it('keeps the model of the first created event and the first error event it sees', () => {
+    const reader = new InteractionReader()
+    reader.push({ event_type: 'interaction.created', interaction: { model: 'first' } })
+    reader.push({ event_type: 'interaction.created', interaction: { model: 'second' } })
+    expect(reader.model).toBe('first')
+    reader.push({ event_type: 'error', error: { code: 'one', message: 'a' } })
+    reader.push({ event_type: 'error', error: { code: 'two', message: 'b' } })
+    expect(reader.failure).toEqual({ code: 'one', message: 'a' })
   })
 
   it('is invalid_output, with the billed usage, for empty text and for text that is not JSON', async () => {
@@ -227,6 +256,13 @@ describe('Gemini stream errors', () => {
     ['safety', 'refusal'],
     ['prohibited_content', 'refusal'],
     ['cancelled', 'connection'],
+    ['payment_required', 'auth'],
+    ['too_many_requests', 'rate_limit'],
+    ['failed_precondition', 'invalid_request'],
+    ['parameter_unknown', 'invalid_request'],
+    ['out_of_range', 'invalid_request'],
+    ['model_not_found', 'invalid_request'],
+    ['missing_thought_signature', 'invalid_request'],
     ['something_new', 'unknown'],
   ] as const)('an error event with code %s is %s', async (code, kind) => {
     const { error } = await fails(failing(code))

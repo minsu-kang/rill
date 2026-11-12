@@ -26,6 +26,14 @@ async function refused(request: LlmRequest): Promise<{ error: LlmError; requests
   return { error: error as LlmError, requests: transport.requests.length }
 }
 
+describe('Gemini request: a capability record that reads no PDF', () => {
+  it('refuses a PDF before building anything', () => {
+    const none = { ...modelCapabilities(geminiDescriptor.models, GEMINI_MODEL), documents: 'none' as const }
+    const pdf: LlmRequest = { ...base, messages: user([{ type: 'document', mediaType: 'application/pdf', data: PDF_BASE64 }]) }
+    expect(() => buildRequest(GEMINI_MODEL, none, pdf, 32_768)).toThrow('does not read PDF')
+  })
+})
+
 describe('Gemini request body', () => {
   it('always streams and never stores, whatever the request carries', async () => {
     const requests: LlmRequest[] = [

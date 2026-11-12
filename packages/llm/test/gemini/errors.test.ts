@@ -221,3 +221,25 @@ describe('sdkFailure', () => {
     active.dispose()
   })
 })
+
+describe('classifyGeminiHttp: the schema hint', () => {
+  it('adds the hint to a 400 that blames the schema, and leaves a context overflow that mentions it alone', () => {
+    expect(classify(400, generateContent(400, 'INVALID_ARGUMENT', 'The response schema is too complex')).message).toContain('Hint')
+    const overflow = classify(400, generateContent(400, 'INVALID_ARGUMENT', 'The input exceeds the context window, schema included'))
+    expect(overflow.category).toBe('context_too_long')
+    expect(overflow.message).not.toContain('Hint')
+  })
+})
+
+describe('sdkFailure: errors that carry no real HTTP status', () => {
+  it('treats a status below 100 as a connection problem, not as an HTTP answer', () => {
+    const call = startCall(1000)
+    try {
+      expect(sdkFailure(Object.assign(new Error('weird'), { status: 0 }), call, [KEY]).kind).toBe('connection')
+      expect(sdkFailure(Object.assign(new Error('weird'), { statusCode: 99 }), call, [KEY]).kind).toBe('connection')
+      expect(sdkFailure(Object.assign(new Error('busy'), { statusCode: 503, body: '' }), call, [KEY]).kind).toBe('overloaded')
+    } finally {
+      call.dispose()
+    }
+  })
+})

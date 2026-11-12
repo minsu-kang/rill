@@ -1,3 +1,4 @@
+import { getEventListeners } from 'node:events'
 import { describe, expect, it } from 'vitest'
 import { GeminiProvider, LIVE_CHECKS, geminiDescriptor } from '../../src/gemini'
 import { plainFetch } from '../../src/gemini/provider'
@@ -271,6 +272,19 @@ describe('GeminiProvider with an injected SDK client', () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
       expect(cancelled).toBe(1)
     })
+  })
+
+  it('reports a deadline that expires while waiting to retry as a timeout, not as a cancel', async () => {
+    const client = { interactions: { create: async () => Promise.reject(Object.assign(new Error('503 busy'), { status: 503, headers: new Headers(), body: JSON.stringify({ error: { code: 'service_unavailable', message: 'busy' } }) })) } }
+    const provider = new GeminiProvider({ model: GEMINI_MODEL, apiKey: CONFORMANCE_API_KEY, client: client as never, sleep: () => new Promise<void>(() => undefined), random: () => 0 })
+    await expect(provider.generate(request, { timeoutMs: 600 })).rejects.toMatchObject({ kind: 'timeout' })
+  })
+
+  it('leaves no abort listener on the signal it handed to the client', async () => {
+    const { client, created } = fakeClient(streamEvents(JSON.stringify(CONFORMANCE_DATA)))
+    await build(client).generate(request)
+    const signal = created[0]?.options.signal as AbortSignal
+    expect(getEventListeners(signal, 'abort')).toHaveLength(0)
   })
 
   it('retries an SDK error that carries a 503 and then gives up after two retries', async () => {
