@@ -18,3 +18,5 @@ export function signalKey(signal: (typeof EXPLAIN_SIGNALS)[number]): MessageKey 
 export function isStateChanging(action: Action): boolean {
   return action === 'retry_run' || action === 'deactivate_workflow'
 }
+
+export const HIDDEN_MARK = '<hidden>'

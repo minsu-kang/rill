@@ -1,12 +1,16 @@
 import { composeStories, type Meta } from '@storybook/react-vite'
-import { act, render } from '@testing-library/react'
+import { act, render, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ComponentType } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import preview from '../.storybook/preview'
+import { explainCases } from '../src/fixtures/explain'
+import { createTranslator, type Locale, type Translate } from '../src/i18n'
 
 type StoryModule = { default: Meta } & Record<string, unknown>
+type PlayableStory = ComponentType & { play?: (context: { canvasElement: HTMLElement; canvas: ReturnType<typeof within>; userEvent: ReturnType<typeof userEvent.setup> }) => Promise<void> }
 
 const SRC = join(import.meta.dirname, '../src')
 const COMPONENT_DIRS = ['graph', 'inspector', 'runs', 'workspace', 'ui', 'explain', 'recipes']
@@ -23,13 +27,37 @@ function untranslated(text: string): string[] {
   return (text.match(KEY_LIKE) ?? []).filter((found) => !EVENT_NAMES.has(found))
 }
 
-function stories(globals: Record<string, string>): Array<{ file: string; name: string; Story: ComponentType }> {
-  const found: Array<{ file: string; name: string; Story: ComponentType }> = []
+function stories(globals: Record<string, string>): Array<{ file: string; name: string; Story: PlayableStory }> {
+  const found: Array<{ file: string; name: string; Story: PlayableStory }> = []
   for (const [file, module] of Object.entries(modules)) {
-    const composed = composeStories(module, { ...preview, initialGlobals: globals } as never) as unknown as Record<string, ComponentType>
+    const composed = composeStories(module, { ...preview, initialGlobals: globals } as never) as unknown as Record<string, PlayableStory>
     for (const [name, Story] of Object.entries(composed)) found.push({ file: file.replace('../src/', ''), name, Story })
   }
   return found
+}
+
+const EXPLAIN_PANEL = 'explain/ExplainPanel.stories.tsx'
+const PLAYED: Readonly<Record<string, (t: Translate) => string[]>> = {
+  [`${EXPLAIN_PANEL} NoticeBeforeFirstRequest`]: (t) => [t('explain.notice.heading'), t('explain.notice.send'), 'anthropic · claude-sonnet-5'],
+  [`${EXPLAIN_PANEL} NoticeProviderUnknown`]: (t) => [t('explain.notice.targetUnknown'), t('explain.notice.send')],
+  [`${EXPLAIN_PANEL} Loading`]: (t) => [t('explain.progress'), t('explain.dismissWarning')],
+  [`${EXPLAIN_PANEL} AnswerWithThreeActions`]: (t) => [explainCases.threeActions.explanation, t('explain.card.actions')],
+  [`${EXPLAIN_PANEL} AnswerWithFixProposal`]: (t) => [t('explain.fix.heading'), t('explain.fix.hidden'), t('explain.card.hidden')],
+  [`${EXPLAIN_PANEL} AnswerHostileText`]: (t) => [t('explain.card.cause'), t('explain.fix.heading')],
+  [`${EXPLAIN_PANEL} ErrorNotFound`]: (t) => [t('explain.error.notFound'), t('explain.retry')],
+  [`${EXPLAIN_PANEL} ErrorNotExplainable`]: (t) => [t('explain.error.notExplainable'), t('explain.retry')],
+  [`${EXPLAIN_PANEL} ErrorProviderMissing`]: (t) => [t('explain.error.llmUnavailable'), t('explain.retry')],
+  [`${EXPLAIN_PANEL} ErrorBusy`]: (t) => [t('explain.error.busy'), t('explain.retry')],
+  [`${EXPLAIN_PANEL} ErrorProvider`]: (t) => [t('explain.error.provider'), t('explain.retry')],
+  [`${EXPLAIN_PANEL} ErrorInvalidAnswer`]: (t) => [t('explain.error.invalid'), t('explain.retry')],
+  [`${EXPLAIN_PANEL} ErrorInvalidParams`]: (t) => [t('explain.error.params'), t('explain.retry')],
+  [`${EXPLAIN_PANEL} ErrorOther`]: (t) => [t('explain.error.generic'), t('explain.retry')],
+  'explain/ExplainCard.stories.tsx ConfirmStepOpen': (t) => [t('explain.confirm.yes'), t('explain.confirm.no')],
+  'explain/ActionButtons.stories.tsx ConfirmRetry': (t) => [t('explain.confirm.retry_run'), t('explain.confirm.yes')],
+  'explain/ActionButtons.stories.tsx ConfirmDeactivate': (t) => [t('explain.confirm.deactivate_workflow'), t('explain.confirm.yes')],
+  'recipes/RecipeGallery.stories.tsx SearchWithNoMatch': (t) => [t('recipes.noMatch')],
+  'recipes/RecipePanel.stories.tsx FormOpened': (t) => [t('recipes.form.submit'), t('recipes.form.back')],
+  'recipes/RecipePanel.stories.tsx ServerProblemsAtFields': (t) => [t('recipes.rule.not_absolute_path'), t('recipes.rule.wrong_extension'), t('recipes.form.submit')],
 }
 
 describe('story files', () => {
@@ -61,6 +89,13 @@ describe('story files', () => {
 })
 
 describe('explain and recipe stories', () => {
+  it('name every story that needs its play function and every one of them has one', () => {
+    const all = stories(MODES[0].globals)
+    const played = all.filter((story) => story.Story.play !== undefined).map((story) => `${story.file} ${story.name}`)
+    for (const key of Object.keys(PLAYED)) expect(played, key).toContain(key)
+    expect(played.filter((key) => key.startsWith('explain/') || key.startsWith('recipes/')).sort()).toEqual([...Object.keys(PLAYED), 'recipes/RecipeGallery.stories.tsx TagFilterOn'].sort())
+  })
+
   it('hold the states of both panels: the notice, every cause, errors, loading, problems, preview and deploy', () => {
     const all = stories(MODES[0].globals)
     const count = (dir: string) => all.filter((story) => story.file.startsWith(`${dir}/`)).length
@@ -98,10 +133,13 @@ describe.each(MODES)('every story renders without an error or a warning ($name)'
   for (const { file, name, Story } of stories(mode.globals)) {
     it(`${file} ${name}`, async () => {
       const view = render(<Story />)
+      await Story.play?.({ canvasElement: view.container, canvas: within(view.container), userEvent: userEvent.setup() })
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 40))
       })
       const text = view.container.textContent ?? ''
+      const wanted = PLAYED[`${file} ${name}`]?.(createTranslator(mode.globals.locale as Locale)) ?? []
+      const pressed = view.container.querySelectorAll('[aria-pressed="true"]').length
       const attributes = [...view.container.querySelectorAll('[aria-label], [title]')].map((item) => `${item.getAttribute('aria-label') ?? ''}\n${item.getAttribute('title') ?? ''}`).join('\n')
       const wrapper = view.container.querySelector('[data-theme]')
       const drawn = wrapper?.querySelectorAll('*').length ?? 0
@@ -109,6 +147,8 @@ describe.each(MODES)('every story renders without an error or a warning ($name)'
       expect(drawn).toBeGreaterThan(0)
       expect(wrapper?.getAttribute('data-theme')).toBe(mode.globals.theme)
       expect(wrapper?.getAttribute('lang')).toBe(mode.globals.locale)
+      for (const phrase of wanted) expect(text, phrase).toContain(phrase)
+      if (file === 'recipes/RecipeGallery.stories.tsx' && name === 'TagFilterOn') expect(pressed).toBe(1)
       expect(untranslated(text)).toEqual([])
       expect(untranslated(attributes)).toEqual([])
       expect(attributes).not.toMatch(/Edge from|Node from/)

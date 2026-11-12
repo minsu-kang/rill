@@ -1,5 +1,5 @@
 import type { RecipeInfo, RecipeValues } from '@rill/protocol'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -164,6 +164,71 @@ describe('RecipeForm path pickers', () => {
     await user.click(button)
     await user.click(button)
     expect(field(BIG.params[0]!.label.ko).value).toBe('/keep')
+  })
+})
+
+describe('RecipeForm picker timing', () => {
+  const folderChoose = () => screen.getByRole('button', { name: `${BIG.params[0]!.label.ko} ${ko['recipes.field.choose']}` })
+
+  function slowPicker() {
+    let release: (value: string | undefined) => void = () => undefined
+    const onPickPath = vi.fn(() => new Promise<string | undefined>((resolve) => (release = resolve)))
+    return { onPickPath, release: (value: string | undefined) => act(async () => release(value)) }
+  }
+
+  it('keeps what was typed in other fields while the picker was open', async () => {
+    const { onPickPath, release } = slowPicker()
+    const { user } = setup(BIG, { onPickPath })
+    await user.click(folderChoose())
+    await user.type(field(BIG.params[2]!.label.ko), '/Users/demo/out.csv')
+    await release('/Users/demo/in')
+    expect(field(BIG.params[0]!.label.ko).value).toBe('/Users/demo/in')
+    expect(field(BIG.params[2]!.label.ko).value).toBe('/Users/demo/out.csv')
+  })
+
+  it('applies two picks that finish in any order to their own fields', async () => {
+    const releases: Array<(value: string) => void> = []
+    const onPickPath = vi.fn(() => new Promise<string | undefined>((resolve) => releases.push(resolve)))
+    const { user } = setup(BIG, { onPickPath })
+    await user.click(folderChoose())
+    await user.click(screen.getByRole('button', { name: `${BIG.params[2]!.label.ko} ${ko['recipes.field.choose']}` }))
+    await act(async () => releases[1]!('/Users/demo/b.csv'))
+    await act(async () => releases[0]!('/Users/demo/a'))
+    expect(field(BIG.params[0]!.label.ko).value).toBe('/Users/demo/a')
+    expect(field(BIG.params[2]!.label.ko).value).toBe('/Users/demo/b.csv')
+  })
+
+  it('ignores a pick that finishes after the form is gone', async () => {
+    const { onPickPath, release } = slowPicker()
+    const onValuesChange = vi.fn()
+    const { user, view } = setup(BIG, { onPickPath, onValuesChange })
+    await user.click(folderChoose())
+    view.unmount()
+    await release('/Users/demo/in')
+    expect(onValuesChange).not.toHaveBeenCalled()
+  })
+})
+
+describe('RecipeForm connection that is no longer offered', () => {
+  it('shows no selection, counts the field as missing and offers the rest again', async () => {
+    const view = renderThemed(<Harness info={BIG} />)
+    const user = userEvent.setup()
+    await fillBig(user)
+    expect(submit().disabled).toBe(false)
+    view.rerender(<Harness info={BIG} connections={[{ name: 'slack-dev', kind: 'slack' }]} />)
+    expect(field(BIG.params[4]!.label.ko).value).toBe('')
+    expect(submit().disabled).toBe(true)
+    await user.selectOptions(field(BIG.params[4]!.label.ko), 'slack-dev')
+    expect(submit().disabled).toBe(false)
+  })
+
+  it('does not submit a name the person cannot see', async () => {
+    const onSubmit = vi.fn()
+    const { user } = setup(BIG, { onSubmit }, 'ko', { ...initialValues(BIG.params), watchFolder: '/Users/demo/Receipts', csvFile: '/Users/demo/ledger.csv', threshold: '250', slackConnection: 'slack-ghost' })
+    expect(field(BIG.params[4]!.label.ko).value).toBe('')
+    expect(submit().disabled).toBe(true)
+    await user.click(submit())
+    expect(onSubmit).not.toHaveBeenCalled()
   })
 })
 

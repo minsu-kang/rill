@@ -1,5 +1,5 @@
 import type { ExplainResult } from '@rill/protocol'
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useT } from '../i18n'
 import styles from './ActionButtons.module.css'
 import { actionKey, isStateChanging } from './model/labels'
@@ -19,7 +19,21 @@ export function ActionButtons({ actions, runId, nodeId, onAction }: ActionButton
   const t = useT()
   const labelId = useId()
   const [pending, setPending] = useState<Action | undefined>(undefined)
-  const shown = actions.filter((action) => action !== 'none').slice(0, MAX_ACTIONS)
+  const triggers = useRef(new Map<Action, HTMLButtonElement>())
+  const yes = useRef<HTMLButtonElement>(null)
+  const asked = useRef<Action | undefined>(undefined)
+  const shown = [...new Set(actions)].filter((action) => action !== 'none').slice(0, MAX_ACTIONS)
+
+  useEffect(() => {
+    if (pending !== undefined) {
+      asked.current = pending
+      yes.current?.focus()
+    } else if (asked.current !== undefined) {
+      triggers.current.get(asked.current)?.focus()
+      asked.current = undefined
+    }
+  }, [pending])
+
   if (shown.length === 0) return null
   const context = nodeId === undefined ? { runId } : { runId, nodeId }
 
@@ -35,7 +49,17 @@ export function ActionButtons({ actions, runId, nodeId, onAction }: ActionButton
       </h4>
       <div className={styles.buttons}>
         {shown.map((action) => (
-          <button key={action} type="button" className={styles.button} aria-pressed={pending === action ? true : undefined} onClick={() => choose(action)}>
+          <button
+            key={action}
+            type="button"
+            ref={(node) => {
+              if (node === null) triggers.current.delete(action)
+              else triggers.current.set(action, node)
+            }}
+            className={styles.button}
+            aria-pressed={pending === action ? true : undefined}
+            onClick={() => choose(action)}
+          >
             {t(actionKey(action))}
           </button>
         ))}
@@ -47,6 +71,7 @@ export function ActionButtons({ actions, runId, nodeId, onAction }: ActionButton
           <div className={styles.buttons}>
             <button
               type="button"
+              ref={yes}
               className={styles.primary}
               onClick={() => {
                 setPending(undefined)

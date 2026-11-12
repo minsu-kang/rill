@@ -214,6 +214,47 @@ describe('ExplainPanel while asking and after', () => {
     }
   })
 
+  it('shows the notice again and sends nothing when Retry follows a change of provider', async () => {
+    const manual = manualExplainClient()
+    const user = userEvent.setup()
+    const props = { client: manual.client, run: FAILED, onAction: vi.fn(), onProposeFix: vi.fn() }
+    const view = renderThemed(<ExplainPanel {...props} model={MODEL} />)
+    await user.click(ask())
+    await user.click(screen.getByRole('button', { name: ko['explain.notice.send'] }))
+    await act(async () => manual.calls[0]!.reject(new RillError('LLM_UNAVAILABLE', 'x')))
+    view.rerender(<ExplainPanel {...props} model={{ provider: 'openai', model: 'gpt-x' }} />)
+    await user.click(screen.getByRole('button', { name: ko['explain.retry'] }))
+    expect(manual.calls).toHaveLength(1)
+    expect(screen.getByRole('group', { name: ko['explain.notice.heading'] })).toBeTruthy()
+    expect(screen.getByText('보내는 곳: openai · gpt-x')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: ko['explain.notice.send'] }))
+    expect(manual.calls).toHaveLength(2)
+    expect(manual.calls[1]!.params).toEqual({ runId: FAILED.id, effort: 'medium' })
+  })
+
+  it('retries at once when the provider did not change, also after a later change back', async () => {
+    const manual = manualExplainClient()
+    const user = userEvent.setup()
+    const props = { client: manual.client, run: FAILED, onAction: vi.fn(), onProposeFix: vi.fn() }
+    const view = renderThemed(<ExplainPanel {...props} model={MODEL} />)
+    await user.click(ask())
+    await user.click(screen.getByRole('button', { name: ko['explain.notice.send'] }))
+    await act(async () => manual.calls[0]!.reject(new RillError('INTERNAL', 'x')))
+    view.rerender(<ExplainPanel {...props} model={{ provider: MODEL.provider, model: 'other-model' }} />)
+    view.rerender(<ExplainPanel {...props} model={MODEL} />)
+    await user.click(screen.getByRole('button', { name: ko['explain.retry'] }))
+    expect(manual.calls).toHaveLength(2)
+    expect(screen.queryByRole('group', { name: ko['explain.notice.heading'] })).toBeNull()
+  })
+
+  it('hands the run on screen to onAction even when the answer names another run', async () => {
+    const { user, calls, onAction } = await asking()
+    await act(async () => calls[0]!.resolve({ ...explainCases.threeActions, runId: 'run-from-the-server' }))
+    await user.click(screen.getByRole('button', { name: ko['explain.action.retry_run'] }))
+    await user.click(screen.getByRole('button', { name: ko['explain.confirm.yes'] }))
+    expect(onAction).toHaveBeenCalledWith('retry_run', { runId: FAILED.id, nodeId: 'alert' })
+  })
+
   it('works end to end with the fake explain method', async () => {
     const client = withExplainMethod(createFakeClient(fakeData), () => explainCases.design)
     const user = userEvent.setup()

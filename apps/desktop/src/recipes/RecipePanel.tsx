@@ -2,6 +2,7 @@ import type { NodeInfo, RecipeInfo } from '@rill/protocol'
 import { useState } from 'react'
 import type { EngineClient } from '../engine/client'
 import type { MessageKey } from '../i18n'
+import { useStepFocus } from '../ui/useStepFocus'
 import { DraftPreview } from './DraftPreview'
 import { initialValues, type FormValues, type HostConnection } from './model/values'
 import { RecipeForm } from './RecipeForm'
@@ -21,8 +22,9 @@ export function RecipePanel({ client, catalog, connections, onPickPath, onDeploy
   const list = useRecipeList(client)
   const [chosen, setChosen] = useState<string | undefined>(undefined)
   const recipe = chosen === undefined ? undefined : list.recipes.find((item) => item.id === chosen)
+  const galleryHeading = useStepFocus(recipe === undefined ? 'gallery' : 'flow')
 
-  if (recipe === undefined) return <RecipeGallery recipes={list.recipes} status={list.status} catalog={catalog} onChoose={setChosen} onRetry={list.reload} />
+  if (recipe === undefined) return <RecipeGallery recipes={list.recipes} status={list.status} catalog={catalog} onChoose={setChosen} onRetry={list.reload} headingRef={galleryHeading} />
   return (
     <RecipeFlow
       key={recipe.id}
@@ -47,9 +49,10 @@ interface FlowProps extends Omit<RecipePanelProps, 'catalog'> {
 function RecipeFlow({ client, recipe, catalog, connections, onPickPath, onDeployed, onAction, onLeave }: FlowProps) {
   const [values, setValues] = useState<FormValues>(() => initialValues(recipe.params))
   const { session, submit, deploy, edit } = useRecipeSession(client, recipe.id, onDeployed)
+  const heading = useStepFocus(session.phase === 'draft' ? 'draft' : 'form', { initial: true })
 
   if (session.phase === 'draft') {
-    return <DraftPreview draft={session.draft} catalog={catalog} deploy={session.deploy} onDeploy={deploy} onEdit={edit} onAction={onAction} onDone={onLeave} />
+    return <DraftPreview draft={session.draft} catalog={catalog} deploy={session.deploy} onDeploy={deploy} onEdit={edit} onAction={onAction} onDone={onLeave} headingRef={heading} />
   }
   const failureKey: MessageKey | undefined = session.phase === 'failed' ? session.key : session.phase === 'invalid' && session.problems.length === 0 ? 'recipes.error.generic' : undefined
   return (
@@ -64,6 +67,7 @@ function RecipeFlow({ client, recipe, catalog, connections, onPickPath, onDeploy
       failureKey={failureKey}
       onSubmit={submit}
       onBack={onLeave}
+      headingRef={heading}
     />
   )
 }

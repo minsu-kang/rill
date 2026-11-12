@@ -60,6 +60,13 @@ export function visibleConnections(param: RecipeParamInfo, connections: readonly
   return connections.filter((connection) => param.connectionKind === undefined || connection.kind === param.connectionKind)
 }
 
+export function withVisibleConnections(params: readonly RecipeParamInfo[], values: FormValues, connections: readonly HostConnection[]): FormValues {
+  const gone = params
+    .filter((param) => param.kind === 'connection' && !visibleConnections(param, connections).some((connection) => connection.name === valueOf(values, param.id)))
+    .map((param) => [param.id, ''] as const)
+  return gone.length === 0 ? values : { ...values, ...Object.fromEntries(gone) }
+}
+
 const ERROR_KEYS: Readonly<Record<ValueError, MessageKey>> = {
   required: 'recipes.rule.required',
   too_long: 'recipes.rule.too_long',

@@ -1,5 +1,5 @@
 import type { NodeInfo, RecipeInfo } from '@rill/protocol'
-import { useId, useMemo, useState } from 'react'
+import { useId, useMemo, useState, type RefCallback } from 'react'
 import { useLocale, useT } from '../i18n'
 import { SafeText } from '../ui/SafeText'
 import { allTags, filterRecipes, nodeTypeBase, sendsToModelProvider } from './model/filter'
@@ -11,6 +11,7 @@ export interface RecipeGalleryProps {
   catalog?: readonly NodeInfo[]
   onChoose(recipeId: string): void
   onRetry?(): void
+  headingRef?: RefCallback<HTMLElement>
 }
 
 const ICON_PATHS: Readonly<Record<string, string>> = {
@@ -41,7 +42,7 @@ function NodeTypeIcon({ type, title }: { type: string; title: string }) {
   )
 }
 
-export function RecipeGallery({ recipes, status = 'ready', catalog = [], onChoose, onRetry }: RecipeGalleryProps) {
+export function RecipeGallery({ recipes, status = 'ready', catalog = [], onChoose, onRetry, headingRef }: RecipeGalleryProps) {
   const t = useT()
   const locale = useLocale()
   const headingId = useId()
@@ -55,7 +56,7 @@ export function RecipeGallery({ recipes, status = 'ready', catalog = [], onChoos
 
   return (
     <section className={styles.root} aria-labelledby={headingId}>
-      <h2 id={headingId} className={styles.heading}>
+      <h2 id={headingId} ref={headingRef} tabIndex={headingRef === undefined ? undefined : -1} className={styles.heading}>
         {t('recipes.heading')}
       </h2>
       {status === 'loading' && (

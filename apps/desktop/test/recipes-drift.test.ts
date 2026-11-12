@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { CONNECTION_KIND_CODE } from '../../../packages/planner/src/connections'
 import { GENERAL_RULES, PARAM_RULES, RECIPES } from '../../../packages/recipes/src/index'
 import { buildRecipeFixture } from '../scripts/build-recipe-fixture'
-import { ISSUE_CODE_KEYS, PARAM_RULE_IDS } from '../src/recipes/model/problems'
+import { ISSUE_CODE_KEYS, issueKey, PARAM_RULE_IDS } from '../src/recipes/model/problems'
 
 const FIXTURE = join(import.meta.dirname, '../src/fixtures/recipe-infos.json')
 
@@ -21,7 +21,15 @@ describe('recipe rule table', () => {
 
   it('has a message for every issue code the engine can return from instantiateRecipe', () => {
     expect(CONNECTION_KIND_CODE).toBe('connection_kind_mismatch')
-    for (const code of [...ISSUE_CODES, CONNECTION_KIND_CODE]) expect(Object.keys(ISSUE_CODE_KEYS), code).toContain(code)
+    for (const code of [...ISSUE_CODES, CONNECTION_KIND_CODE]) {
+      expect(Object.keys(ISSUE_CODE_KEYS), code).toContain(code)
+      expect(ISSUE_CODE_KEYS[code], code).not.toBe('recipes.issue.unknown')
+      expect(issueKey(code), code).not.toBe('recipes.issue.unknown')
+    }
+  })
+
+  it('would fall back to the unknown message for a code no family covers', () => {
+    expect(issueKey('a_code_nobody_mapped')).toBe('recipes.issue.unknown')
   })
 })
 

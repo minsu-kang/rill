@@ -294,3 +294,79 @@ describe('RecipePanel flow', () => {
     expect(onDeployed).not.toHaveBeenCalled()
   })
 })
+
+describe('RecipePanel focus', () => {
+  const focused = () => document.activeElement
+  const submitForm = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: ko['recipes.form.submit'] }))
+
+  it('takes no focus when the gallery first appears', async () => {
+    setup()
+    await screen.findAllByRole('article')
+    expect(focused()).toBe(document.body)
+  })
+
+  it('follows the person through the gallery, the form, the preview, the deploy and back', async () => {
+    const { user } = setup()
+    await screen.findAllByRole('article')
+    await choose(user, HEALTH.title.ko)
+    expect(focused()).toBe(screen.getByRole('heading', { name: t('recipes.form.heading', { title: HEALTH.title.ko }) }))
+    await fillHealth(user)
+    await submitForm(user)
+    const preview = await screen.findByRole('heading', { name: ko['recipes.preview.heading'] })
+    expect(focused()).toBe(preview)
+    await user.click(screen.getByRole('button', { name: ko['recipes.preview.edit'] }))
+    expect(focused()).toBe(screen.getByRole('heading', { name: t('recipes.form.heading', { title: HEALTH.title.ko }) }))
+    await submitForm(user)
+    await user.click(await screen.findByRole('button', { name: ko['recipes.preview.deploy'] }))
+    const deployed = await screen.findByRole('status')
+    expect(deployed.textContent).toContain(FAKE_DEPLOYED_ID)
+    expect(focused()).toBe(deployed)
+    await user.click(screen.getByRole('button', { name: ko['recipes.preview.another'] }))
+    expect(focused()).toBe(await screen.findByRole('heading', { name: ko['recipes.heading'] }))
+  })
+
+  it('returns to the gallery heading from the form', async () => {
+    const { user } = setup()
+    await screen.findAllByRole('article')
+    await choose(user, HEALTH.title.ko)
+    await user.click(screen.getByRole('button', { name: ko['recipes.form.back'] }))
+    expect(focused()).toBe(screen.getByRole('heading', { name: ko['recipes.heading'] }))
+  })
+
+  it('keeps focus where it is when a problem comes back to the form', async () => {
+    const { user } = setup({}, { ...fixtureRecipeData(), instantiate: failingInstantiate(['url: bad_url']) })
+    await screen.findAllByRole('article')
+    await choose(user, HEALTH.title.ko)
+    await fillHealth(user)
+    const button = screen.getByRole('button', { name: ko['recipes.form.submit'] })
+    await user.click(button)
+    await screen.findByText(ko['recipes.rule.bad_url'])
+    expect(focused()).toBe(button)
+  })
+
+  it('does not take focus from another place when the preview arrives', async () => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const base = withRecipeMethods(createFakeClient(fakeData), fixtureRecipeData())
+    const client: EngineClient = {
+      onEvent: (listener) => base.onEvent(listener),
+      request: <M extends MethodName>(method: M, params: MethodParams<M>) => (method === 'instantiateRecipe' ? gate.then(() => base.request(method, params)) : base.request(method, params)),
+    }
+    const user = userEvent.setup()
+    renderThemed(
+      <>
+        <button type="button">outside</button>
+        <RecipePanel client={client} catalog={catalog} connections={CONNECTIONS} />
+      </>,
+    )
+    await screen.findAllByRole('article')
+    await choose(user, HEALTH.title.ko)
+    await fillHealth(user)
+    await submitForm(user)
+    const outside = screen.getByRole('button', { name: 'outside' })
+    outside.focus()
+    await act(async () => release())
+    await screen.findByRole('heading', { name: ko['recipes.preview.heading'] })
+    expect(focused()).toBe(outside)
+  })
+})

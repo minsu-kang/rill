@@ -1,5 +1,5 @@
 import type { RecipeParamInfo } from '@rill/protocol'
-import { useId } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { SafeText } from '../ui/SafeText'
 import styles from './FieldInput.module.css'
@@ -40,11 +40,19 @@ export function FieldInput({ param, value, error, raw, connections, onChange, on
   const describedBy = [help === undefined ? undefined : helpId, hint === undefined ? undefined : hintId, shownError === undefined ? undefined : errorId].filter((item) => item !== undefined).join(' ')
   const common = { id, value, 'aria-invalid': shownError === undefined ? undefined : true, 'aria-required': param.required ? true : undefined, 'aria-describedby': describedBy === '' ? undefined : describedBy }
   const pickerKind = param.kind === 'folder' || param.kind === 'file' ? param.kind : undefined
+  const mounted = useRef(false)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   const pick = async (kind: 'folder' | 'file'): Promise<void> => {
     try {
       const picked = await onPickPath?.(kind)
-      if (picked !== undefined) onChange(picked)
+      if (picked !== undefined && mounted.current) onChange(picked)
     } catch {
       return
     }

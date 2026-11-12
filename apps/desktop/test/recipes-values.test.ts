@@ -1,7 +1,7 @@
 // @vitest-environment node
 import type { RecipeParamInfo } from '@rill/protocol'
 import { describe, expect, it } from 'vitest'
-import { initialValues, toRequestValues, valueErrorKey, visibleConnections, type HostConnection } from '../src/recipes/model/values'
+import { initialValues, toRequestValues, valueErrorKey, visibleConnections, withVisibleConnections, type HostConnection } from '../src/recipes/model/values'
 
 const LABEL = { ko: '라벨', en: 'Label' }
 const param = (overrides: Partial<RecipeParamInfo> & Pick<RecipeParamInfo, 'id' | 'kind'>): RecipeParamInfo => ({ label: LABEL, required: true, ...overrides })
@@ -160,5 +160,35 @@ describe('visibleConnections', () => {
 
   it('gives an empty list when none match', () => {
     expect(visibleConnections(param({ id: 'c', kind: 'connection', connectionKind: 'webhookSecret' }), [connections[0]!])).toEqual([])
+  })
+})
+
+describe('withVisibleConnections', () => {
+  const SLACK = param({ id: 'conn', kind: 'connection', connectionKind: 'slack' })
+  const ANY = param({ id: 'any', kind: 'connection', required: false })
+  const connections: HostConnection[] = [
+    { name: 'slack-ops', kind: 'slack' },
+    { name: 'api-main', kind: 'http' },
+  ]
+
+  it('keeps a connection the host still offers for the param', () => {
+    expect(withVisibleConnections([SLACK, ANY], { conn: 'slack-ops', any: 'api-main' }, connections)).toEqual({ conn: 'slack-ops', any: 'api-main' })
+  })
+
+  it('empties a connection the host no longer offers or that has the wrong kind', () => {
+    expect(withVisibleConnections([SLACK, ANY], { conn: 'slack-gone', any: 'gone' }, connections)).toEqual({ conn: '', any: '' })
+    expect(withVisibleConnections([SLACK], { conn: 'api-main' }, connections)).toEqual({ conn: '' })
+    expect(withVisibleConnections([SLACK], { conn: 'slack-ops' }, [])).toEqual({ conn: '' })
+  })
+
+  it('leaves every other param and value alone, and does not change its input', () => {
+    const values = { folder: '/Users/demo', conn: 'gone', stray: 'x' }
+    expect(withVisibleConnections([FOLDER, SLACK], values, connections)).toEqual({ folder: '/Users/demo', conn: '', stray: 'x' })
+    expect(values.conn).toBe('gone')
+  })
+
+  it('makes a required connection that vanished count as missing', () => {
+    const effective = withVisibleConnections([SLACK], { conn: 'slack-gone' }, connections)
+    expect(toRequestValues([SLACK], effective)).toEqual({ ok: false, errors: { conn: 'required' } })
   })
 })

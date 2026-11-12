@@ -1,7 +1,8 @@
 import type { ExplainEffort, ExplainResult, RunSummary } from '@rill/protocol'
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import type { EngineClient } from '../engine/client'
 import { useT } from '../i18n'
+import { useStepFocus } from '../ui/useStepFocus'
 import { ExplainCard } from './ExplainCard'
 import { ExplainNotice } from './ExplainNotice'
 import styles from './ExplainPanel.module.css'
@@ -26,12 +27,20 @@ export function ExplainPanel({ client, run, model, onAction, onProposeFix }: Exp
   const [effort, setEffort] = useState<ExplainEffort>('medium')
   const [skipNext, setSkipNext] = useState(false)
   const [accepted, setAccepted] = useState<string | undefined>(undefined)
+  const [sentTo, setSentTo] = useState<string | undefined>(undefined)
+  const root = useRef<HTMLElement>(null)
+  const anchor = useStepFocus(state.phase, { scope: run?.id, container: root })
   const target = model === undefined ? '' : `${model.provider}\u0000${model.model}`
   const allowed = canExplain(run)
 
+  const dispatch = (value: ExplainEffort): void => {
+    setSentTo(target)
+    send(value)
+  }
+
   const ask = (): void => {
     if (accepted === target) {
-      send(effort)
+      dispatch(effort)
       return
     }
     setSkipNext(false)
@@ -40,7 +49,16 @@ export function ExplainPanel({ client, run, model, onAction, onProposeFix }: Exp
 
   const confirm = (): void => {
     if (skipNext) setAccepted(target)
-    send(state.phase === 'confirming' ? state.effort : effort)
+    dispatch(state.phase === 'confirming' ? state.effort : effort)
+  }
+
+  const retry = (): void => {
+    if (sentTo === target) {
+      send(effort)
+      return
+    }
+    setSkipNext(false)
+    open(effort)
   }
 
   const reason = run === undefined ? t('explain.reason.none') : run.status === 'failed' ? undefined : t(`explain.reason.${run.status}`)
@@ -59,7 +77,7 @@ export function ExplainPanel({ client, run, model, onAction, onProposeFix }: Exp
           ))}
         </select>
       </div>
-      <button type="button" className={styles.primary} disabled={!allowed} aria-describedby={reason === undefined ? undefined : reasonId} onClick={ask}>
+      <button type="button" ref={anchor} className={styles.primary} disabled={!allowed} aria-describedby={reason === undefined ? undefined : reasonId} onClick={ask}>
         {askLabel}
       </button>
       {extra}
@@ -67,7 +85,7 @@ export function ExplainPanel({ client, run, model, onAction, onProposeFix }: Exp
   )
 
   return (
-    <section className={styles.root} aria-label={t('explain.heading')}>
+    <section ref={root} className={styles.root} aria-label={t('explain.heading')}>
       {state.phase === 'idle' && (
         <>
           {row(t('explain.ask'))}
@@ -79,11 +97,11 @@ export function ExplainPanel({ client, run, model, onAction, onProposeFix }: Exp
         </>
       )}
       {state.phase === 'confirming' && (
-        <ExplainNotice model={model} effort={state.effort} skipNext={skipNext} onSkipNextChange={setSkipNext} onSend={confirm} onCancel={cancelNotice} />
+        <ExplainNotice headingRef={anchor} model={model} effort={state.effort} skipNext={skipNext} onSkipNextChange={setSkipNext} onSend={confirm} onCancel={cancelNotice} />
       )}
       {state.phase === 'asking' && (
         <div className={styles.asking}>
-          <p role="status" className={styles.progress}>
+          <p role="status" ref={anchor} tabIndex={-1} className={styles.progress}>
             {t('explain.progress')}
           </p>
           <p className={styles.reason}>{t('explain.dismissWarning')}</p>
@@ -96,11 +114,11 @@ export function ExplainPanel({ client, run, model, onAction, onProposeFix }: Exp
       )}
       {state.phase === 'error' && (
         <div className={styles.asking}>
-          <p role="alert" className={styles.error}>
+          <p role="alert" ref={anchor} tabIndex={-1} className={styles.error}>
             {t(state.key)}
           </p>
           <div className={styles.buttons}>
-            <button type="button" className={styles.primary} onClick={() => send(effort)}>
+            <button type="button" className={styles.primary} onClick={retry}>
               {t('explain.retry')}
             </button>
             <button type="button" className={styles.button} onClick={reset}>
@@ -111,7 +129,7 @@ export function ExplainPanel({ client, run, model, onAction, onProposeFix }: Exp
       )}
       {state.phase === 'done' && (
         <>
-          <ExplainCard result={state.result} onAction={onAction} onProposeFix={onProposeFix} />
+          <ExplainCard result={state.result} runId={run?.id} focusRef={anchor} onAction={onAction} onProposeFix={onProposeFix} />
           <div className={styles.buttons}>
             <button type="button" className={styles.button} disabled={!allowed} onClick={ask}>
               {t('explain.askAgain')}

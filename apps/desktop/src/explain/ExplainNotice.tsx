@@ -1,5 +1,5 @@
 import type { ExplainEffort } from '@rill/protocol'
-import { useId } from 'react'
+import { useId, type RefCallback } from 'react'
 import { useT } from '../i18n'
 import { SafeText } from '../ui/SafeText'
 import styles from './ExplainNotice.module.css'
@@ -11,14 +11,15 @@ export interface ExplainNoticeProps {
   onSkipNextChange(value: boolean): void
   onSend(): void
   onCancel(): void
+  headingRef?: RefCallback<HTMLElement>
 }
 
-export function ExplainNotice({ model, effort, skipNext, onSkipNextChange, onSend, onCancel }: ExplainNoticeProps) {
+export function ExplainNotice({ model, effort, skipNext, onSkipNextChange, onSend, onCancel, headingRef }: ExplainNoticeProps) {
   const t = useT()
   const headingId = useId()
   return (
     <section className={styles.root} role="group" aria-labelledby={headingId}>
-      <h3 id={headingId} className={styles.heading}>
+      <h3 id={headingId} ref={headingRef} tabIndex={headingRef === undefined ? undefined : -1} className={styles.heading}>
         {t('explain.notice.heading')}
       </h3>
       <p className={styles.body}>{t('explain.notice.body')}</p>

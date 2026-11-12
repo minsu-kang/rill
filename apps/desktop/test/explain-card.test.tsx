@@ -111,6 +111,26 @@ describe('ExplainCard actions', () => {
     expect(within(screen.getByRole('group', { name: ko['explain.card.actions'] })).getAllByRole('button')).toHaveLength(3)
   })
 
+  it('shows a repeated action once and raises no key warning', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    show({ ...explainCases.credentials, suggestedActions: ['retry_run', 'retry_run', 'retry_run'] })
+    expect(screen.getAllByRole('button', { name: ko['explain.action.retry_run'] })).toHaveLength(1)
+    expect(errors).not.toHaveBeenCalled()
+    errors.mockRestore()
+  })
+
+  it('counts a repeated action once against the cap of three', () => {
+    show({ ...explainCases.credentials, suggestedActions: ['edit_node', 'edit_node', 'retry_run', 'open_connections'] })
+    expect(within(screen.getByRole('group', { name: ko['explain.card.actions'] })).getAllByRole('button')).toHaveLength(3)
+  })
+
+  it('hands the run of the panel to onAction when one is given, not the one the answer names', async () => {
+    const onAction = vi.fn()
+    renderThemed(<ExplainCard result={explainCases.threeActions} runId="run-shown" onAction={onAction} onProposeFix={vi.fn()} />)
+    await userEvent.setup().click(screen.getByRole('button', { name: ko['explain.action.open_connections'] }))
+    expect(onAction).toHaveBeenCalledWith('open_connections', { runId: 'run-shown', nodeId: 'alert' })
+  })
+
   it('shows no action group for zero actions', () => {
     show(explainCases.noActions)
     expect(screen.queryByRole('group', { name: ko['explain.card.actions'] })).toBeNull()
@@ -194,6 +214,42 @@ describe('ExplainCard fix proposal', () => {
     const { user, onProposeFix } = show({ ...explainCases.unknown, fixProposal: long })
     await user.click(screen.getByRole('button', { name: ko['explain.fix.use'] }))
     expect(onProposeFix).toHaveBeenCalledWith(long)
+  })
+})
+
+describe('ExplainCard hidden marker', () => {
+  it('explains a <hidden> mark in the explanation as well as in the fix proposal', () => {
+    show(explainCases.hiddenText)
+    expect(screen.getByText(ko['explain.card.hidden'])).toBeTruthy()
+    expect(screen.getByText(ko['explain.fix.hidden'])).toBeTruthy()
+  })
+
+  it('explains it for the explanation alone and says nothing when there is no mark', () => {
+    show({ ...explainCases.unknown, explanation: 'The key is <hidden> now.' })
+    expect(screen.getByText(ko['explain.card.hidden'])).toBeTruthy()
+    expect(screen.queryByText(ko['explain.fix.hidden'])).toBeNull()
+    show(explainCases.configuration)
+    expect(screen.getAllByText(ko['explain.card.hidden'])).toHaveLength(1)
+  })
+
+  it('is shown in English too', () => {
+    show({ ...explainCases.unknown, explanation: 'The key is <hidden> now.' }, 'en')
+    expect(screen.getByText(en['explain.card.hidden'])).toBeTruthy()
+  })
+})
+
+describe('ExplainCard counts', () => {
+  it('says one character, not one characters, in English', () => {
+    show({ ...explainCases.unknown, meta: explainMeta({ digestChars: 1 }) }, 'en')
+    expect(screen.getByLabelText(en['explain.card.meta']).textContent).toContain('1 character of summary sent')
+    expect(screen.getByLabelText(en['explain.card.meta']).textContent).not.toContain('1 characters')
+  })
+
+  it('keeps the plural for other counts and says one omitted character in the singular', async () => {
+    const { user } = show({ ...explainCases.unknown, explanation: 'x'.repeat(2_001), meta: explainMeta({ digestChars: 2 }) }, 'en')
+    expect(screen.getByLabelText(en['explain.card.meta']).textContent).toContain('2 characters of summary sent')
+    await user.click(screen.getByRole('button', { name: en['explain.card.showMore'] }))
+    expect(screen.getByText('… 1 more character is not shown')).toBeTruthy()
   })
 })
 

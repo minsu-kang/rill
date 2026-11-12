@@ -1,5 +1,5 @@
 import type { ExplainMeta, ExplainResult } from '@rill/protocol'
-import { useId } from 'react'
+import { useId, type RefCallback } from 'react'
 import { useLocale, useT, type Locale, type Translate } from '../i18n'
 import { escapeInvisible, truncate } from '../model/text'
 import { SafeText } from '../ui/SafeText'
@@ -7,12 +7,14 @@ import { ActionButtons } from './ActionButtons'
 import { Clamped } from './Clamped'
 import styles from './ExplainCard.module.css'
 import { FixProposal } from './FixProposal'
-import { causeKey, signalKey } from './model/labels'
+import { causeKey, HIDDEN_MARK, signalKey } from './model/labels'
 
 type Action = ExplainResult['suggestedActions'][number]
 
 export interface ExplainCardProps {
   result: ExplainResult
+  runId?: string | undefined
+  focusRef?: RefCallback<HTMLElement>
   onAction(action: Action, context: { runId: string; nodeId?: string }): void
   onProposeFix(proposal: { nodeId: string; requestText: string }): void
 }
@@ -39,7 +41,7 @@ function metaParts(t: Translate, locale: Locale, meta: ExplainMeta): string[] {
   ]
 }
 
-export function ExplainCard({ result, onAction, onProposeFix }: ExplainCardProps) {
+export function ExplainCard({ result, runId, focusRef, onAction, onProposeFix }: ExplainCardProps) {
   const t = useT()
   const locale = useLocale()
   const signalsId = useId()
@@ -48,7 +50,7 @@ export function ExplainCard({ result, onAction, onProposeFix }: ExplainCardProps
   const nodeId = result.fixProposal?.nodeId ?? result.signals[0]?.nodeId
 
   return (
-    <article className={styles.root} aria-label={t('explain.card.label')}>
+    <article className={styles.root} aria-label={t('explain.card.label')} ref={focusRef} tabIndex={focusRef === undefined ? undefined : -1}>
       <p className={styles.cause}>
         <span className={styles.causeLabel}>{t('explain.card.cause')}</span>
         <span className={styles.causeValue}>{t(causeKey(result.likelyCause))}</span>
@@ -56,6 +58,7 @@ export function ExplainCard({ result, onAction, onProposeFix }: ExplainCardProps
       <div className={styles.explanation}>
         <Clamped text={result.explanation} />
       </div>
+      {result.explanation.includes(HIDDEN_MARK) && <p className={styles.note}>{t('explain.card.hidden')}</p>}
       {result.signals.length > 0 && (
         <div className={styles.signals}>
           <h4 id={signalsId} className={styles.heading}>
@@ -74,7 +77,7 @@ export function ExplainCard({ result, onAction, onProposeFix }: ExplainCardProps
           </ul>
         </div>
       )}
-      <ActionButtons actions={result.suggestedActions} runId={result.runId} nodeId={nodeId} onAction={onAction} />
+      <ActionButtons actions={result.suggestedActions} runId={runId ?? result.runId} nodeId={nodeId} onAction={onAction} />
       {result.fixProposal !== undefined && <FixProposal proposal={result.fixProposal} onPropose={onProposeFix} />}
       <div className={styles.meta} role="group" aria-label={t('explain.card.meta')}>
         {metaParts(t, locale, result.meta).map((part) => (

@@ -4,6 +4,7 @@ import { truncate } from '../model/text'
 import { SafeText } from '../ui/SafeText'
 import { Clamped } from './Clamped'
 import styles from './FixProposal.module.css'
+import { HIDDEN_MARK } from './model/labels'
 
 export interface FixProposalProps {
   proposal: { nodeId: string; requestText: string }
@@ -11,7 +12,6 @@ export interface FixProposalProps {
 }
 
 const MAX_NODE_ID = 40
-const HIDDEN = '<hidden>'
 
 export function FixProposal({ proposal, onPropose }: FixProposalProps) {
   const t = useT()
@@ -27,7 +27,7 @@ export function FixProposal({ proposal, onPropose }: FixProposalProps) {
       <blockquote className={styles.text}>
         <Clamped text={proposal.requestText} />
       </blockquote>
-      {proposal.requestText.includes(HIDDEN) && <p className={styles.note}>{t('explain.fix.hidden')}</p>}
+      {proposal.requestText.includes(HIDDEN_MARK) && <p className={styles.note}>{t('explain.fix.hidden')}</p>}
       <p className={styles.note}>{t('explain.fix.note')}</p>
       <div>
         <button type="button" className={styles.button} onClick={() => onPropose({ nodeId: proposal.nodeId, requestText: proposal.requestText })}>

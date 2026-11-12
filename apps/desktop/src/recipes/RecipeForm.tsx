@@ -1,16 +1,16 @@
 import type { RecipeInfo, RecipeValues } from '@rill/protocol'
-import { useMemo, useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent, type RefCallback } from 'react'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { SafeText } from '../ui/SafeText'
 import { FieldInput } from './FieldInput'
 import { problemsToFields } from './model/problems'
-import { toRequestValues, valueErrorKey, valueOf, type FormValues, type HostConnection, type ValueError } from './model/values'
+import { toRequestValues, valueErrorKey, valueOf, withVisibleConnections, type FormValues, type HostConnection, type ValueError } from './model/values'
 import styles from './RecipeForm.module.css'
 
 export interface RecipeFormProps {
   recipe: RecipeInfo
   values: FormValues
-  onValuesChange(values: FormValues): void
+  onValuesChange(update: (previous: FormValues) => FormValues): void
   connections: readonly HostConnection[]
   onPickPath?(kind: 'folder' | 'file'): Promise<string | undefined>
   submitting?: boolean
@@ -18,6 +18,7 @@ export interface RecipeFormProps {
   failureKey?: MessageKey
   onSubmit(values: RecipeValues): void
   onBack(): void
+  headingRef?: RefCallback<HTMLElement>
 }
 
 const NO_PROBLEMS: readonly string[] = []
@@ -26,16 +27,17 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
   return Object.hasOwn(record, key) ? record[key] : undefined
 }
 
-export function RecipeForm({ recipe, values, onValuesChange, connections, onPickPath, submitting = false, problems = NO_PROBLEMS, failureKey, onSubmit, onBack }: RecipeFormProps) {
+export function RecipeForm({ recipe, values, onValuesChange, connections, onPickPath, submitting = false, problems = NO_PROBLEMS, failureKey, onSubmit, onBack, headingRef }: RecipeFormProps) {
   const t = useT()
   const locale = useLocale()
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, ValueError>>>({})
   const [edited, setEdited] = useState<ReadonlySet<string>>(new Set())
   const server = useMemo(() => problemsToFields(problems, recipe.params), [problems, recipe.params])
-  const complete = recipe.params.every((param) => param.default !== undefined || valueOf(values, param.id).trim() !== '')
+  const shown = useMemo(() => withVisibleConnections(recipe.params, values, connections), [recipe.params, values, connections])
+  const complete = recipe.params.every((param) => param.default !== undefined || valueOf(shown, param.id).trim() !== '')
 
   const change = (id: string, value: string): void => {
-    onValuesChange({ ...values, [id]: value })
+    onValuesChange((previous) => ({ ...previous, [id]: value }))
     setEdited((previous) => new Set(previous).add(id))
     setClientErrors((previous) => Object.fromEntries(Object.entries(previous).filter(([key]) => key !== id)))
   }
@@ -43,7 +45,7 @@ export function RecipeForm({ recipe, values, onValuesChange, connections, onPick
   const submit = (event: FormEvent): void => {
     event.preventDefault()
     if (submitting) return
-    const checked = toRequestValues(recipe.params, values)
+    const checked = toRequestValues(recipe.params, shown)
     if (!checked.ok) {
       setClientErrors(checked.errors)
       return
@@ -65,7 +67,7 @@ export function RecipeForm({ recipe, values, onValuesChange, connections, onPick
         <button type="button" className={styles.link} onClick={onBack}>
           {t('recipes.form.back')}
         </button>
-        <h3 className={styles.heading}>
+        <h3 ref={headingRef} tabIndex={headingRef === undefined ? undefined : -1} className={styles.heading}>
           <SafeText text={t('recipes.form.heading', { title: recipe.title[locale] })} />
         </h3>
         <p className={styles.description}>
@@ -96,7 +98,7 @@ export function RecipeForm({ recipe, values, onValuesChange, connections, onPick
           <FieldInput
             key={param.id}
             param={param}
-            value={valueOf(values, param.id)}
+            value={valueOf(shown, param.id)}
             error={errorOf(param.id)}
             raw={edited.has(param.id) ? undefined : ownEntry(server.raw, param.id)}
             connections={connections}
