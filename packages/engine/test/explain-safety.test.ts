@@ -1,4 +1,5 @@
 import { mkdirSync, readdirSync } from 'node:fs'
+import type { WorkflowNode } from '@rill/dsl'
 import { join } from 'node:path'
 import { ExplainError } from '@rill/planner'
 import { RillClient } from '@rill/protocol'
@@ -6,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { Engine } from '../src/engine'
 import { RillServer } from '../src/server/server'
 import { CONNECTION_SECRET, GOOD, LITERAL_SECRET, RUN_MARKER, TOKEN, allTables, failure, http, startEnv, useCleanups, useTempDir } from './explain-helpers'
-import { MARKER_KEYS, MARKER_VALUES, isolateKeyEnvironment } from './llm-env'
+import { isolateKeyEnvironment } from './llm-env'
 import { plainWorkflow, workflowReply, type Step } from './plan-helpers'
 
 const dirOf = useTempDir()
@@ -104,12 +105,15 @@ describe('what the provider receives', () => {
     expect(JSON.stringify(env.provider.requests[0])).not.toContain(CONNECTION_SECRET)
   })
 
-  it('has no key of a provider, whatever the environment holds', async () => {
+  it('sends only the rules, one message, the schema and the limits: nothing that could carry a key rides along', async () => {
     const env = await start([{ data: GOOD }])
-    Object.assign(process.env, MARKER_KEYS)
     const runId = await env.run([http(env.base, '/status/404')])
     await env.client.request('explainRun', { runId })
-    expect(JSON.stringify(env.provider.requests)).not.toMatch(new RegExp(MARKER_VALUES.join('|')))
+    const request = env.provider.requests[0]!
+    expect(Object.keys(request).sort()).toEqual(['effort', 'maxTokens', 'messages', 'schema', 'system'])
+    expect(request.messages).toHaveLength(1)
+    expect(request.system).toHaveLength(1)
+    expect(Object.keys(request.system![0]!)).toEqual(['text'])
   })
 
   it('stays within 12,000 characters, and fast, for 50 steps with 1 MB of output each', async () => {
@@ -135,6 +139,40 @@ describe('what the provider receives', () => {
     expect(text.length).toBeLessThan(12_000 + 800)
     expect(text).toMatch(/omitted: \d+ steps/)
     expect(text).toMatch(/STEP s49 .*failed/)
+  })
+})
+
+describe('a secret that no node role points at', () => {
+  function recorded(env: Awaited<ReturnType<typeof start>>, node: WorkflowNode, input: unknown, error: string): string {
+    const workflowId = env.engine.store.saveWorkflow({
+      schemaVersion: 1,
+      name: 'old',
+      nodes: [{ id: 't1', type: 'trigger.manual@1', config: {} }, node],
+      edges: [{ from: 't1', to: node.id }],
+    })
+    const run = env.engine.store.createRun({ workflowId, payload: {}, dryRun: false })
+    env.engine.store.markRunRunning(run.id)
+    const attempt = env.engine.store.startAttempt({ runId: run.id, nodeId: node.id, input, idempotencyKey: 'k1' })
+    env.engine.store.finishAttempt(run.id, node.id, attempt, { status: 'failed', error })
+    env.engine.store.finishRun(run.id, 'failed', `node ${node.id} failed: ${error}`)
+    return run.id
+  }
+
+  it('is replaced for a node whose type the registry no longer has', async () => {
+    const env = await start([{ data: GOOD }])
+    const node = { id: 'n1', type: 'removed.http@1', config: { url: 'https://api.example.com', auth: { connection: 'api' } } }
+    const runId = recorded(env, node, { url: 'https://api.example.com', auth: { connection: 'api' } }, `HTTP 401: {"received":"${CONNECTION_SECRET}"}`)
+    await env.client.request('explainRun', { runId })
+    const sent = JSON.stringify(env.provider.requests[0])
+    expect(sent).not.toContain(CONNECTION_SECRET)
+    expect(sent).toContain('<secret>')
+  })
+
+  it('is replaced for every connection the engine was told about, used by the workflow or not', async () => {
+    const env = await start([{ data: GOOD }], { planConnections: [{ name: 'api', kind: 'http' }, { name: 'not-configured', kind: 'http' }] })
+    const runId = recorded(env, { id: 'n1', type: 'transform@1', config: { values: { a: 1 } } }, {}, `boom ${CONNECTION_SECRET}`)
+    await env.client.request('explainRun', { runId })
+    expect(JSON.stringify(env.provider.requests[0])).not.toContain(CONNECTION_SECRET)
   })
 })
 

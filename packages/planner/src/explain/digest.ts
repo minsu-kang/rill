@@ -149,12 +149,12 @@ export function buildRunDigest(input: ExplainRunInput): RunDigest {
   const failedNodeIds = grouped.order.filter((id) => isFailedLike(lastOf(grouped, id).status))
   const byId = new Map(input.workflow.nodes.map((node) => [node.id, node]))
   const outline = outlineOf(input, redactor, failedNodeIds)
-  const head = [runLines(input.run, redactor).join('\n'), outline.lines.join('\n'), 'STEPS'].join('\n\n')
+  const head = redactor.seal([runLines(input.run, redactor).join('\n'), outline.lines.join('\n'), 'STEPS'].join('\n\n'))
   const order = priority(input.workflow, failedNodeIds, grouped.order)
   const blocks: string[] = []
   let used = head.length + 1
   for (const id of order) {
-    const block = stepBlock(id, grouped, byId, input.registry, redactor)
+    const block = redactor.seal(stepBlock(id, grouped, byId, input.registry, redactor))
     if (used + block.length + 2 > MAX_DIGEST_CHARS - FOOTER_ROOM) break
     blocks.push(block)
     used += block.length + 2

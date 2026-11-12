@@ -365,13 +365,19 @@ export class Engine {
 
   async explainRun(input: EngineExplainInput): Promise<ExplainResult> {
     const run = this.store.getRunSummary(input.runId)
-    const steps = this.store.listStepDetails(input.runId)
-    if (!isExplainable(run, steps)) throw new RunNotExplainableError()
     const llm = this.llm
     if (llm === undefined) throw new LlmUnavailableError('explaining')
     if (this.pendingExplains.size >= this.maxConcurrentExplains) throw new ExplainBusyError(this.maxConcurrentExplains)
+    const steps = this.store.listStepDetails(input.runId)
+    if (!isExplainable(run, steps)) throw new RunNotExplainableError()
     const workflow = this.store.getWorkflow(run.workflowId)
-    const secrets = connectionSecrets(workflow, steps, this.registry, this.connections)
+    const secrets = connectionSecrets(
+      workflow,
+      steps,
+      this.registry,
+      this.connections,
+      this.planConnections.map((connection) => connection.name),
+    )
     const controller = new AbortController()
     const pending: PendingPlan = { controller, done: Promise.resolve() }
     this.pendingExplains.add(pending)

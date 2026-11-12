@@ -6,15 +6,22 @@ export const MAX_STRING = 200
 const MAX_KEY = 100
 const WINDOW = 1_048_576
 const MIN_SECRET = 4
+const MIN_PIECE = 8
 const MARKER_ROOM = 30
 const WORK_BUDGET = 6000
 const SECRET_MARK = '<secret>'
 const REDACTED = '<redacted>'
 
-const AUTH_KEY = /authorization|cookie|set-cookie|token|secret|password|passwd|api[-_]?key|x-api-key|bearer|session|credential/i
+const AUTH_KEY = /authorization|cookie|token|secret|password|passwd|api[-_]?key|bearer|session|credential|private[-_]?key|access[-_]?key|signature|(?<![a-z])(?:auth|pwd|pass|sig|jwt|key)(?![a-z])/i
+const CAMEL_KEY = /[a-z0-9]Key$/
 const AUTH_QUERY = /token|secret|password|passwd|key|sig|signature|auth|credential|session/i
 const QUERY_PARAM = /([?&;])([^=&#\s]{1,64})=([^&#\s]*)/g
 const USER_INFO = /(:\/\/)[^/\s@]+@/g
+const COOKIE_LINE = /\b(set-cookie|cookie)(["']?\s*[:=]\s*["']?)[^\r\n"']+/gi
+const HEADER_VALUE = /\b(proxy-authorization|authorization|x-api-key|x-auth-token|x-access-token|x-csrf-token)(["']?\s*[:=]\s*["']?)(?:(?:bearer|basic|digest|negotiate|token)\s+)?[^\s"',;}]+/gi
+const SCHEME_CREDENTIAL = /\b(bearer|basic)(\s+)([A-Za-z0-9._~+/=-]{8,})/gi
+const SECRET_PAIR = /((?:api[-_]?key|secret|token|passw(?:or)?d|pwd|private[-_]?key|access[-_]?key|credential|signature)[\w.-]{0,40}["']?\s*[:=]\s*["']?)([^\s"',;&}]{8,})/gi
+const CREDENTIAL_SHAPE = /[0-9A-Z]/
 const BASE64 = /^[A-Za-z0-9+/_-]{200,}={0,2}$/
 const DATA_URL = /^data:[^,\s]{0,100},/i
 const REQUEST_HEADERS: ReadonlySet<string> = new Set(['content-type', 'accept', 'idempotency-key'])
@@ -27,15 +34,48 @@ export interface Redactor {
   within(text: string, limit: number): string
 }
 
+function percentForms(secret: string): string[] {
+  const upper = encodeURIComponent(secret)
+  const strict = upper.replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+  const forms = [upper, strict, upper.replaceAll('%20', '+'), new URLSearchParams({ a: secret }).toString().slice(2)]
+  return forms.flatMap((form) => [form, form.replace(/%[0-9A-F]{2}/g, (hex) => hex.toLowerCase())])
+}
+
+function urlSafe(base64: string): string {
+  return base64.replaceAll('+', '-').replaceAll('/', '_')
+}
+
+function base64Forms(bytes: Buffer): string[] {
+  const padded = bytes.toString('base64')
+  const bare = padded.replace(/=+$/, '')
+  return [padded, bare, urlSafe(padded), urlSafe(bare)]
+}
+
+const LEADING_MIXED = [0, 2, 3]
+
+function base64Pieces(bytes: Buffer): string[] {
+  const pieces: string[] = []
+  for (let lead = 0; lead < LEADING_MIXED.length; lead++) {
+    const body = Buffer.concat([Buffer.alloc(lead, 0x41), bytes]).toString('base64').replace(/=+$/, '')
+    const complete = (lead + bytes.length) % 3 === 0
+    const piece = body.slice(LEADING_MIXED[lead], complete ? undefined : -1)
+    pieces.push(piece, urlSafe(piece))
+  }
+  return pieces
+}
+
 function variantsOf(secret: string): string[] {
-  return [secret, JSON.stringify(secret).slice(1, -1), encodeURIComponent(secret), Buffer.from(secret, 'utf8').toString('base64')]
+  const bytes = Buffer.from(secret, 'utf8')
+  const json = JSON.stringify(secret).slice(1, -1)
+  const whole = [secret, json, JSON.stringify(json).slice(1, -1), ...percentForms(secret), ...base64Forms(bytes), bytes.toString('hex'), bytes.toString('hex').toUpperCase()]
+  return [...whole.filter((form) => form.length >= MIN_SECRET), ...base64Pieces(bytes).filter((piece) => piece.length >= MIN_PIECE)]
 }
 
 function needlesOf(secrets: readonly string[]): string[] {
   const found = new Set<string>()
   for (const secret of secrets) {
     if (secret.length < MIN_SECRET) continue
-    for (const form of variantsOf(secret)) if (form.length >= MIN_SECRET) found.add(form)
+    for (const form of variantsOf(secret)) found.add(form)
   }
   return [...found].sort((a, b) => b.length - a.length)
 }
@@ -55,13 +95,22 @@ function sanitiseUrls(text: string): string {
   return out
 }
 
+function sanitiseCredentials(text: string): string {
+  if (!/[:=]|bearer|basic/i.test(text)) return text
+  return text
+    .replace(COOKIE_LINE, `$1$2${REDACTED}`)
+    .replace(HEADER_VALUE, `$1$2${REDACTED}`)
+    .replace(SCHEME_CREDENTIAL, (whole, scheme: string, space: string, credential: string) => (CREDENTIAL_SHAPE.test(credential) ? `${scheme}${space}${REDACTED}` : whole))
+    .replace(SECRET_PAIR, (whole, head: string, value: string) => (CREDENTIAL_SHAPE.test(value) ? `${head}${REDACTED}` : whole))
+}
+
 export function createRedactor(secrets: readonly string[]): Redactor {
   const needles = needlesOf(secrets)
   const seal = (text: string): string => (needles.length === 0 ? text : text.split(SECRET_MARK).map((part) => replaceIn(part, needles)).join(SECRET_MARK))
   const cut = (text: string, limit: number, more = 0): string =>
     text.length <= limit ? text : `${text.slice(0, limit)}… ${text.length - limit + more} more characters`
   return {
-    string: (text) => sanitiseUrls(seal(text.length > WINDOW ? text.slice(0, WINDOW) : text)),
+    string: (text) => sanitiseCredentials(sanitiseUrls(seal(text.length > WINDOW ? text.slice(0, WINDOW) : text))),
     seal,
     cut,
     within: (text, limit) => (text.length <= limit ? text : cut(text, Math.max(0, limit - MARKER_ROOM))),
@@ -90,9 +139,15 @@ function leaf(text: string, ctx: Context): string {
 }
 
 function keyText(key: string, ctx: Context): string {
-  const head = key.length > MAX_KEY ? `${key.slice(0, MAX_KEY)}…` : key
+  const sealed = ctx.redactor.string(key)
+  const head = sealed.length > MAX_KEY ? `${sealed.slice(0, MAX_KEY)}…` : sealed
   ctx.budget -= head.length + 4
-  return ctx.redactor.string(head)
+  return head
+}
+
+function isAuthKey(name: string): boolean {
+  const checked = name.length > 200 ? name.slice(0, 200) : name
+  return AUTH_KEY.test(checked) || CAMEL_KEY.test(checked)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -148,7 +203,7 @@ function prune(value: unknown, ctx: Context, depth: number): unknown {
       const entry = value[name]
       const response = depth === 0 && ctx.options.responseHeaders === true
       let pruned: unknown
-      if (AUTH_KEY.test(name.length > 200 ? name.slice(0, 200) : name)) pruned = REDACTED
+      if (isAuthKey(name)) pruned = REDACTED
       else if (name.toLowerCase() === 'headers') pruned = headersOf(entry, ctx, response)
       else pruned = prune(entry, ctx, depth + 1)
       out[keyText(name, ctx)] = pruned

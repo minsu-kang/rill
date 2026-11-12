@@ -212,6 +212,36 @@ describe('what is left out', () => {
   })
 })
 
+describe('the limit with secrets that grow the text', () => {
+  function bigRun() {
+    const nodes = [node('t1', 'trigger.manual@1'), ...Array.from({ length: 60 }, (_, index) => node(`s${index}`, 'transform@1', { values: { k: 'v' } }))]
+    const edges = nodes.slice(1).map((entry, index) => edge(nodes[index]!.id, entry.id))
+    const steps = nodes.slice(1).map((entry) => step(entry.id, 'failed', { error: 'x'.repeat(23), input: null, output: null }))
+    return { workflow: workflowOf(nodes, edges), steps }
+  }
+
+  it('stays within 12,000 characters when a secret of 4 to 7 characters occurs in the structure of the digest', () => {
+    const { workflow, steps } = bigRun()
+    const plain = buildRunDigest(inputOf({ workflow, steps, secrets: [] }))
+    expect(plain.chars).toBeGreaterThan(11_500)
+    expect(plain.omittedSteps).toBe(0)
+    for (const secret of ['null', 'STEP', 'step', 'node', 'ran:', 'xxxx', 'edges', 'failed', 'input', 'RUN\n']) {
+      const digest = buildRunDigest(inputOf({ workflow, steps, secrets: [secret] }))
+      expect(digest.chars, secret).toBeLessThanOrEqual(MAX_DIGEST_CHARS)
+      expect(digest.text.length, secret).toBe(digest.chars)
+    }
+  })
+
+  it('counts the steps that no longer fit after the secret was replaced', () => {
+    const { workflow, steps } = bigRun()
+    const plain = buildRunDigest(inputOf({ workflow, steps, secrets: [] }))
+    const grown = buildRunDigest(inputOf({ workflow, steps, secrets: ['null'] }))
+    expect(grown.omittedSteps).toBeGreaterThan(plain.omittedSteps)
+    expect(grown.text.endsWith(`omitted: ${grown.omittedSteps} steps`)).toBe(true)
+    expect(grown.truncated).toBe(true)
+  })
+})
+
 describe('a hostile run', () => {
   const huge = 'lorem ipsum '.repeat(400_000)
   const shared = bigKeysOf()

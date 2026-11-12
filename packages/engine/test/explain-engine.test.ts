@@ -31,9 +31,9 @@ const SECRETS: Record<string, string> = { 'hook-secret': 'HOOK-1111', api: 'API-
 describe('connectionSecrets', () => {
   const resolver = { get: (name: string) => SECRETS[name] }
 
-  it('collects the secrets of the connections that nodes name, and no other', () => {
+  it('collects the secrets of the connections that nodes name, a node of an unknown type included, and no other', () => {
     const found = connectionSecrets(workflow, [], registry, resolver)
-    expect(found.sort()).toEqual(['API-2222', 'HOOK-1111', 'https://hooks.example.com/T/B/X'].sort())
+    expect(found.sort()).toEqual(['API-2222', 'GHOST-5555', 'HOOK-1111', 'https://hooks.example.com/T/B/X'].sort())
   })
 
   it('looks up only the fields that name a connection, not a url or a text', () => {
@@ -50,12 +50,36 @@ describe('connectionSecrets', () => {
     expect(found).toEqual(expect.arrayContaining(['OTHER-3333', 'UNUSED-4444']))
   })
 
-  it('leaves out a connection that is not configured, a node of an unknown type and a resolver that throws', () => {
+  it('leaves out a connection that is not configured and a resolver that throws', () => {
     expect(connectionSecrets(workflow, [], registry, { get: () => undefined })).toEqual([])
     const throwing = { get: (name: string) => { if (name === 'api') throw new Error('keychain locked'); return SECRETS[name] } }
     expect(connectionSecrets(workflow, [], registry, throwing)).not.toContain('API-2222')
     expect(connectionSecrets(workflow, [], registry, throwing)).toContain('HOOK-1111')
-    expect(connectionSecrets(workflow, [], registry, resolver)).not.toContain('GHOST-5555')
+  })
+
+  it('adds every connection the engine was told about, whether a node names it or not', () => {
+    const found = connectionSecrets(workflow, [], registry, resolver, ['unused', 'other', 'missing'])
+    expect(found).toEqual(expect.arrayContaining(['UNUSED-4444', 'OTHER-3333', 'API-2222']))
+    expect(found).not.toContain('URL-LOOKALIKE-6666')
+    expect(found.filter((secret) => secret === 'OTHER-3333')).toHaveLength(1)
+  })
+
+  it('reads the connection of a node whose type the registry does not have from keys called connection', () => {
+    const odd = {
+      ...workflow,
+      nodes: [
+        ...workflow.nodes,
+        { id: 'n6', type: 'future.thing@1', config: { nested: { list: [{ secretConnection: 'hook-secret' }], Connection: 'other' }, note: 'unused' } },
+      ],
+    }
+    const found = connectionSecrets(odd, [step('n6', { auth: { connection: 'unused' }, other: ['x', { CONNECTION: 'api' }] })], registry, resolver)
+    expect(found).toEqual(expect.arrayContaining(['GHOST-5555', 'HOOK-1111', 'OTHER-3333', 'UNUSED-4444', 'API-2222']))
+    expect(found).not.toContain('URL-LOOKALIKE-6666')
+  })
+
+  it('does not take a value under another key for a connection name, also for a node of an unknown type', () => {
+    const odd = { ...workflow, nodes: [{ id: 'n6', type: 'future.thing@1', config: { note: 'unused', connectionless: 'other', url: 'https://api.example.com' } }] }
+    expect(connectionSecrets(odd, [], registry, resolver)).toEqual([])
   })
 })
 

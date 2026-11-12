@@ -29,7 +29,13 @@ const TRANSPORT: readonly Rule[] = [
 
 const FILE_SYSTEM_CODE = /^E[A-Z0-9]+: /
 const FILE_PROBLEM = /^(file is |file content |file changed |not a file: |unsupported file type)/
-const LLM_UNAVAILABLE = /needs an LLM provider|API key|credentials|billing or quota|refused account access/i
+const LLM_RULES: readonly Rule[] = [
+  [/needs an LLM provider|^no (?:API key for |[A-Za-z]+ credentials found)|rejected the credentials|billing or credit|insufficient_quota|refused account access|refused the request \((?:401|402|403)\b/, 'llm_unavailable'],
+  [/rate limiting requests|refused the request \(429\b/, 'http_status_429'],
+  [/^the model provider timed out \(/, 'timeout'],
+  [/^the model provider had a server error \(5\d\d\)/, 'http_status_5xx'],
+  [/^llm\.extract reads files only inside allowed folders/, 'path_not_allowed'],
+]
 
 function firstMatch(rules: readonly Rule[], message: string): FailureSignal | undefined {
   return rules.find(([pattern]) => pattern.test(message))?.[1]
@@ -50,7 +56,7 @@ function specific(type: string, message: string): FailureSignal | undefined {
     case 'file.read':
       return fileSignal(message)
     case 'llm.extract':
-      return fileSignal(message) ?? (LLM_UNAVAILABLE.test(message) ? 'llm_unavailable' : 'llm_extract_failed')
+      return fileSignal(message) ?? firstMatch(LLM_RULES, message) ?? 'llm_extract_failed'
     case 'notify.slack':
       return /^HTTP 4\d\d\b/.test(message) && !message.startsWith('HTTP 429') ? 'slack_error' : undefined
     case 'csv.append':

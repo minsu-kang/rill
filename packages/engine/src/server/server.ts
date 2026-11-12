@@ -56,10 +56,11 @@ export interface RillServerOptions {
 interface Client {
   socket: WebSocket
   alive: boolean
+  gone: AbortController
 }
 
 type Handlers = {
-  [M in MethodName]: (params: MethodParams<M>) => MethodResult<M> | Promise<MethodResult<M>>
+  [M in MethodName]: (params: MethodParams<M>, signal: AbortSignal) => MethodResult<M> | Promise<MethodResult<M>>
 }
 
 function sameToken(expected: string, given: string | undefined): boolean {
@@ -293,7 +294,7 @@ export class RillServer {
   }
 
   private connect(socket: WebSocket): void {
-    const client: Client = { socket, alive: true }
+    const client: Client = { socket, alive: true, gone: new AbortController() }
     this.clients.add(client)
     socket.on('error', () => undefined)
     socket.on('pong', () => {
@@ -301,6 +302,7 @@ export class RillServer {
     })
     socket.on('close', () => {
       this.clients.delete(client)
+      client.gone.abort()
     })
     socket.on('message', (data, isBinary) => {
       void this.onMessage(client, data, isBinary)
@@ -333,8 +335,8 @@ export class RillServer {
       return
     }
     try {
-      const handler = this.handlers[checked.method] as (params: unknown) => unknown
-      this.send(client, okResponse(id, await handler(checked.params)))
+      const handler = this.handlers[checked.method] as (params: unknown, signal: AbortSignal) => unknown
+      this.send(client, okResponse(id, await handler(checked.params, client.gone.signal)))
     } catch (error) {
       const body = toErrorBody(method, error)
       if (body.code === 'INTERNAL') this.logError(method, error)
@@ -417,8 +419,8 @@ export class RillServer {
       saveMemory: (params) => ({ item: engine.saveMemory({ text: params.text, ...(params.id === undefined ? {} : { id: params.id }) }) }),
       deleteMemory: (params) => ({ deleted: engine.deleteMemory(params.id) }),
       llmModels: () => engine.llmModels(),
-      explainRun: async (params) => {
-        const result = await engine.explainRun({ runId: params.runId, ...(params.effort === undefined ? {} : { effort: params.effort }) })
+      explainRun: async (params, signal) => {
+        const result = await engine.explainRun({ runId: params.runId, ...(params.effort === undefined ? {} : { effort: params.effort }), signal })
         return {
           runId: params.runId,
           explanation: result.explanation,

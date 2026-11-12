@@ -1,8 +1,9 @@
 import { LlmError } from '@rill/llm'
 import { ERROR_CODES, METHODS } from '@rill/protocol'
 import Value from 'typebox/value'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { GOOD, RUN_MARKER, failure, http, startEnv, useCleanups, useTempDir } from './explain-helpers'
+import { waitFor } from './process'
 import type { Step } from './plan-helpers'
 
 const dirOf = useTempDir()
@@ -217,6 +218,68 @@ describe('EXPLAIN_PROVIDER, EXPLAIN_INVALID and EXPLAIN_BUSY', () => {
     const runId = await env.run([http(env.base, '/status/404')])
     for (let index = 0; index < 3; index++) expect((await failure(env.client.request('explainRun', { runId }))).code).toBe('EXPLAIN_PROVIDER')
     expect((await env.client.request('explainRun', { runId })).explanation).toBe(GOOD.explanation)
+  })
+})
+
+describe('the cost of a call that is refused', () => {
+  it('does not load the steps of a run when no provider is configured', async () => {
+    const env = await start([], {}, { llm: false })
+    const runId = await env.run([http(env.base, '/status/404')])
+    const loading = vi.spyOn(env.engine.store, 'listStepDetails')
+    expect(await failure(env.client.request('explainRun', { runId }))).toMatchObject({ code: 'LLM_UNAVAILABLE' })
+    expect(loading).not.toHaveBeenCalled()
+  })
+
+  it('does not load the steps of a run when two explanations are already running', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const env = await start([{ gate, data: GOOD }], { maxConcurrentExplains: 1 })
+    const runId = await env.run([http(env.base, '/status/404')])
+    const first = env.client.request('explainRun', { runId })
+    await env.provider.calls(1)
+    const loading = vi.spyOn(env.engine.store, 'listStepDetails')
+    expect(await failure(env.client.request('explainRun', { runId }))).toMatchObject({ code: 'EXPLAIN_BUSY' })
+    expect(loading).not.toHaveBeenCalled()
+    release()
+    await first
+  })
+
+  it('loads the run row before anything else, so a run that does not exist is NOT_FOUND with or without a provider', async () => {
+    const env = await start([], { maxConcurrentExplains: 0 }, { llm: false })
+    expect(await failure(env.client.request('explainRun', { runId: 'gone' }))).toMatchObject({ code: 'NOT_FOUND' })
+  })
+})
+
+describe('a client that goes away', () => {
+  it('stops the call to the provider and gives the place back', async () => {
+    const env = await start([{ wait: true }, { data: GOOD }], { maxConcurrentExplains: 1 })
+    const runId = await env.run([http(env.base, '/status/404')])
+    const other = await env.connect()
+    const abandoned = other.client.request('explainRun', { runId }).catch(() => undefined)
+    await env.provider.calls(1)
+    expect(env.provider.signals[0]!.aborted).toBe(false)
+    expect(await failure(env.client.request('explainRun', { runId }))).toMatchObject({ code: 'EXPLAIN_BUSY' })
+    other.client.close()
+    await waitFor(() => env.provider.signals[0]!.aborted)
+    await abandoned
+    let answer: { explanation: string } | undefined
+    for (let attempt = 0; attempt < 40 && answer === undefined; attempt++) {
+      try {
+        answer = await env.client.request('explainRun', { runId })
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+    }
+    expect(answer?.explanation).toBe(GOOD.explanation)
+  })
+
+  it('does not stop the call of a client that stays', async () => {
+    const env = await start([{ data: GOOD }])
+    const runId = await env.run([http(env.base, '/status/404')])
+    await env.client.request('explainRun', { runId })
+    expect(env.provider.signals[0]!.aborted).toBe(false)
   })
 })
 

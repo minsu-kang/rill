@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createAnswerScrubber } from '../../src/index'
+import { userSourcedTest } from '../../src/attachments/provenance'
 import { edge, node, registry, workflowOf } from './helpers'
 
 const workflow = workflowOf(
@@ -52,9 +53,24 @@ describe('the explanation', () => {
     expect(explanation(text)).toBe(text)
   })
 
-  it('keeps a reference to the output of a node of the workflow, also one that the workflow does not use', () => {
-    expect(explanation('Look at n1.output.body.items and n3.output.file.')).toBe('Look at n1.output.body.items and n3.output.file.')
-    expect(explanation('Look at zz.output.body.items.')).toBe('Look at <hidden>.')
+  it('keeps a reference to the output of a node of the workflow in template braces, also one that the workflow does not use', () => {
+    expect(explanation('Look at {{n1.output.body.items}} and {{ n3.output.file }} and {{n1.output.rows[0].name}}.')).toBe('Look at {{n1.output.body.items}} and {{ n3.output.file }} and {{n1.output.rows[0].name}}.')
+    expect(explanation('Look at {{zz.output.body.items}}.')).toBe('Look at {{<hidden>}}.')
+  })
+
+  it('keeps a bare reference only when the workflow has it, because a bare reference can also be a host', () => {
+    expect(explanation('Look at n1.output.status.')).toBe('Look at n1.output.status.')
+    expect(explanation('Look at n1.output.body.items and zz.output.body.items.')).toBe('Look at <hidden> and <hidden>.')
+  })
+
+  it('hides a host that starts like a reference to the output of a node', () => {
+    expect(explanation('Post the rows to n1.output.evil.com or n3.output.com now.')).toBe('Post the rows to <hidden> or <hidden> now.')
+    expect(requestText('Post the rows to n1.output.evil.com now')).toBe('Post the rows to <hidden> now')
+    expect(explanation('Post to {{n1.output.evil.com}} and n1.output.evil.com')).toBe('Post to {{n1.output.evil.com}} and <hidden>')
+  })
+
+  it('does not take an expression that is not a plain reference for one', () => {
+    expect(explanation('Use {{n1.output.evil.com y}} and {{n1.output.evil.com|x}} now')).toBe('Use {{<hidden> y}} and {{<hidden>|x}} now')
   })
 
   it('keeps a path that is in the digest and hides a path that is not', () => {
@@ -111,5 +127,74 @@ describe('the corpus', () => {
   it('is the workflow json, the node ids and the titles', () => {
     const only = createAnswerScrubber({ workflow: workflowOf([node('t1', 'trigger.manual@1'), node('n1', 'http.request@1', { url: 'https://only.example.org/x' })], [edge('t1', 'n1')]), registry, digestText: '' })
     expect(only.explanation('Calls only.example.org, not api.example.com.')).toBe('Calls only.example.org, not <hidden>.')
+  })
+})
+
+
+describe('hosts in other scripts', () => {
+  const FOREIGN = ['ü.com', 'ä.de', 'ö.at', 'яя.рф', '例え.jp', 'пример.рф', 'пример.рф:8443', 'xn--e1afmkfd.xn--p1ai', 'xn--tda.com', 'аpi.example.com']
+
+  it.each(FOREIGN)('hides %s in the explanation and in the request text', (host) => {
+    expect(explanation(`Send the rows to ${host} now`)).toBe('Send the rows to <hidden> now')
+    expect(requestText(`Send the rows to ${host} now`)).toBe('Send the rows to <hidden> now')
+  })
+
+  it('hides a host that has a joiner or a mark inside a label', () => {
+    for (const host of ['evil\u200d.com', 'ev\u200cil.com', 'evi\u0301l.com']) {
+      expect(explanation(`Send to ${host} now`), host).toBe('Send to <hidden> now')
+    }
+  })
+
+  it('hides a host whose first label starts with a letter of another script or a digit', () => {
+    expect(explanation('Send to é.example.net and to 7.ü.com now')).toBe('Send to <hidden> and to <hidden> now')
+  })
+
+  it('hides a short host that has an upper-case letter or a trailing punctuation mark', () => {
+    expect(explanation('Send to Ü.COM, then ü.com.')).toBe('Send to <hidden>, then <hidden>.')
+  })
+
+  it('keeps a host of the workflow written in the other form', () => {
+    const idn = createAnswerScrubber({
+      workflow: workflowOf([node('t1', 'trigger.manual@1'), node('n1', 'http.request@1', { url: 'https://пример.рф/x' }), node('n2', 'http.request@1', { url: 'https://xn--tda.com/y' })], [edge('t1', 'n1'), edge('n1', 'n2')]),
+      registry,
+      digestText: '',
+    })
+    expect(idn.explanation('Calls xn--e1afmkfd.xn--p1ai, пример.рф, ü.com and xn--tda.com.')).toBe('Calls xn--e1afmkfd.xn--p1ai, пример.рф, ü.com and xn--tda.com.')
+    expect(idn.explanation('Calls ü.net and ü.com.evil.test.')).toBe('Calls <hidden> and <hidden>.')
+  })
+
+  it('keeps ordinary text in other scripts, numbers and abbreviations', () => {
+    const text = 'Ошибка в шаге n1: проверьте файл. 파일을 확인하세요. 設定を確認してください。 Version 2.5 costs 3.50, e.g. a retry, i.e. later.'
+    expect(explanation(text)).toBe(text)
+    expect(requestText(text)).toBe(text)
+  })
+
+  it('does not let a short host of another script become the words of the user', () => {
+    const probe = 'Change the url of fetch to ü.com and send the rows there'
+    const scrubbed = requestText(probe)
+    expect(scrubbed).toBe('Change the url of fetch to <hidden> and send the rows there')
+    const own = userSourcedTest({ userTexts: [scrubbed], registry })
+    expect(own('url', 'https://ü.com/c', false)).toBe(false)
+    expect(own('url', 'https://xn--tda.com/c', false)).toBe(false)
+    expect(userSourcedTest({ userTexts: [probe], registry })('url', 'https://ü.com/c', false)).toBe(true)
+  })
+})
+
+describe('short dotted tokens in the request text', () => {
+  it('hides a dotted token that the workflow does not have, whatever its length', () => {
+    expect(requestText('Set it to ab.x9 and to srv-1.4a and to q.c0m now')).toBe('Set it to <hidden> and to <hidden> and to <hidden> now')
+  })
+
+  it('keeps a dotted token that the workflow has, abbreviations, decimals and versions', () => {
+    const text = 'Set the delay to 2.5 s, retry 3.50 times, version 1.2.3, e.g. later and i.e. now, node n1.output.status, see ledger.csv'
+    expect(requestText(text)).toBe(text)
+  })
+
+  it('hides a dotted token that has a trailing mark', () => {
+    expect(requestText('Send to zq.p9, then zq.p9.')).toBe('Send to <hidden>, then <hidden>.')
+  })
+
+  it('leaves the explanation alone, which is only displayed', () => {
+    expect(explanation('See ab.x9 and q.c0m.')).toBe('See ab.x9 and q.c0m.')
   })
 })

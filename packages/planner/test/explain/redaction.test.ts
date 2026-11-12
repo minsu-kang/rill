@@ -70,8 +70,107 @@ describe('connection secrets', () => {
   })
 })
 
+describe('connection secrets in less common forms', () => {
+  const secret = 'S3cr3t/Val+ue=Z9-extra01'
+  const hide = (echo: string, secrets: string[] = [secret]): string => textOf({ secrets, steps: [step('n1', 'failed', { error: echo, output: { echo } })] })
+
+  it('are replaced when percent-encoded with lower-case hex digits', () => {
+    const lower = encodeURIComponent(secret).replace(/%[0-9A-F]{2}/g, (hex) => hex.toLowerCase())
+    expect(lower).not.toBe(encodeURIComponent(secret))
+    const text = hide(`q=${lower}`)
+    expect(text).not.toContain(lower)
+    expect(text).toContain('q=<secret>')
+  })
+
+  it('are replaced when form-encoded with + for a space or encoded to the strict RFC 3986 set', () => {
+    const spaced = "my secret (v2) !'*"
+    const forms = [
+      new URLSearchParams({ a: spaced }).toString().slice(2),
+      encodeURIComponent(spaced).replaceAll('%20', '+'),
+      encodeURIComponent(spaced),
+      encodeURIComponent(spaced).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`),
+    ]
+    expect(new Set(forms).size).toBe(4)
+    const text = hide(forms.join(' | '), [spaced])
+    expect(text).toContain('error: <secret> | <secret> | <secret> | <secret>')
+  })
+
+  it('are replaced in base64url, with or without padding, and in unpadded base64', () => {
+    const forms = [Buffer.from(secret).toString('base64url'), Buffer.from(secret).toString('base64url') + '==', Buffer.from(secret).toString('base64').replace(/=+$/, '')]
+    for (const form of forms) {
+      const text = hide(`token ${form} end`)
+      expect(text, form).not.toContain(form.replace(/=+$/, ''))
+      expect(text, form).toContain('token <secret>')
+    }
+  })
+
+  it('are replaced in hex, in either case', () => {
+    for (const form of [Buffer.from(secret).toString('hex'), Buffer.from(secret).toString('hex').toUpperCase()]) {
+      expect(hide(`x ${form} y`)).not.toContain(form.slice(4, -4))
+      expect(hide(`x ${form} y`)).toContain('x <secret> y')
+    }
+  })
+
+  it.each([
+    ['a Basic header value', 'user:'],
+    ['a prefix of one byte', 'a'],
+    ['a prefix of two bytes', 'ab'],
+    ['no prefix', ''],
+  ])('are replaced inside the base64 of a longer value: %s', (_name, lead) => {
+    for (const tail of ['', 'x', 'xy', 'xyz:tail']) {
+      const echoed = Buffer.from(`${lead}${secret}${tail}`).toString('base64')
+      const text = hide(`got ${echoed} here`)
+      expect(text, `${lead}|${tail}`).toContain('<secret>')
+      expect(text, `${lead}|${tail}`).not.toContain(echoed.slice(7, 21))
+    }
+  })
+
+  it('are replaced inside the base64url of a longer value', () => {
+    const echoed = Buffer.from(`user:${secret}`).toString('base64url')
+    expect(hide(`got ${echoed}`)).not.toContain(echoed.slice(7, 21))
+  })
+
+  it('are replaced in JSON that was escaped twice', () => {
+    const quoted = 'pa"ss\\word-1234'
+    const twice = JSON.stringify(JSON.stringify(quoted).slice(1, -1)).slice(1, -1)
+    expect(twice).not.toBe(JSON.stringify(quoted).slice(1, -1))
+    expect(hide(`x ${twice} y`, [quoted])).toContain('x <secret> y')
+  })
+
+  it('keep a short secret from matching a part of its own encodings', () => {
+    const text = textOf({ secrets: ['ab12'], steps: [step('n1', 'failed', { error: 'ab12 and YWIx and 61 62 31 32 and 6162 and ab and YWIxMg and 61623132' })] })
+    expect(text).toContain('error: <secret> and YWIx and 61 62 31 32 and 6162 and ab and <secret> and <secret>')
+  })
+})
+
+describe('a key that is cut', () => {
+  const secret = 'S3cr3t/Value-9911'
+
+  it('does not send the first characters of a secret that starts before the cut', () => {
+    for (const lead of [60, 85, 90, 92, 93, 95, 99, 100, 101]) {
+      const key = `${'k'.repeat(lead)}${secret}${'z'.repeat(30)}`
+      const text = textOf({ secrets: [secret], steps: [step('n1', 'failed', { input: { [key]: 1 }, output: { nested: { [key]: 2 } } })] })
+      expect(text, `lead ${lead}`).not.toMatch(/S3cr3|Value|9911|S3c/)
+      if (lead <= 92) expect(text, `lead ${lead}`).toContain('<secret>')
+    }
+  })
+
+  it('shows 100 characters of a long key and an ellipsis', () => {
+    const key = 'k'.repeat(300)
+    const text = textOf({ steps: [step('n1', 'failed', { input: { [key]: 1 } })] })
+    expect(text).toContain(`"${'k'.repeat(100)}…":1`)
+  })
+
+  it('does not take a short key for cut', () => {
+    expect(textOf({ steps: [step('n1', 'failed', { input: { [`${'k'.repeat(100)}`]: 1 } })] })).toContain(`"${'k'.repeat(100)}":1`)
+  })
+})
+
 describe('keys that look like credentials', () => {
-  const keys = ['Authorization', 'cookie', 'Set-Cookie', 'token', 'access_token', 'refresh_token', 'secret', 'client_secret', 'password', 'passwd', 'api_key', 'apikey', 'api-key', 'X-Api-Key', 'bearer', 'session', 'sessionId', 'credentials']
+  const keys = [
+    'Authorization', 'cookie', 'Set-Cookie', 'token', 'access_token', 'refresh_token', 'secret', 'client_secret', 'password', 'passwd', 'api_key', 'apikey', 'api-key', 'X-Api-Key', 'bearer', 'session', 'sessionId', 'credentials',
+    'auth', 'Auth', 'x-auth', 'private_key', 'privateKey', 'access_key', 'accessKey', 'ssh_key', 'sshKey', 'key', 'Key', 'pwd', 'pass', 'sig', 'signature', 'jwt', 'JWT',
+  ]
 
   it.each(keys)('hide the value of %s at any depth of input, output and config', (key) => {
     const workflow = workflowOf([node('t1', 'trigger.manual@1'), node('n1', 'transform@1', { values: { [key]: 'CONFIG-VALUE-1' } })], [edge('t1', 'n1')])
@@ -96,6 +195,58 @@ describe('keys that look like credentials', () => {
   it('keep a key that only looks a little like one', () => {
     const text = textOf({ steps: [step('n1', 'failed', { input: { amount: 12, title: 'Order', status: 'open' } })] })
     expect(text).toContain('{"amount":12,"title":"Order","status":"open"}')
+  })
+
+  it('keep a key that holds a credential word only as part of another word', () => {
+    const words = ['author', 'authors', 'authenticated', 'oauth', 'monkey', 'keyboard', 'hotkey', 'keys', 'passed', 'passenger', 'bypass', 'compass', 'signal', 'design', 'sigma', 'jwts', 'passthrough', 'Monkey']
+    const input = Object.fromEntries(words.map((word) => [word, `VALUE-${word}`]))
+    const text = textOf({ steps: [step('n1', 'failed', { input })] })
+    for (const word of words) expect(text, word).toContain(`"${word}":"VALUE-${word}"`)
+  })
+})
+
+describe('credentials inside a string', () => {
+  const error = (text: string): string => buildRunDigest(inputOf({ steps: [step('n1', 'failed', { error: text })] })).text.split('\n').find((entry) => entry.startsWith('error: ') && !entry.includes('node n1'))!
+  const body = (text: string): string => buildRunDigest(inputOf({ steps: [step('n1', 'failed', { output: { text } })] })).text.split('\n').find((entry) => entry.startsWith('output: '))!
+
+  it('hides the value after an authorization header name in an error text', () => {
+    expect(error('Authorization: Bearer OTHERTOKEN123 was rejected')).toBe('error: Authorization: <redacted> was rejected')
+    expect(error('HTTP 401: {"received":{"authorization":"Basic YWJjOnNlY3JldA=="}}')).toBe('error: HTTP 401: {"received":{"authorization":"<redacted>"}}')
+    expect(error('proxy-authorization=Digest abc123 and x-api-key: k-1 and X-Auth-Token: t-2')).toBe('error: proxy-authorization=<redacted> and x-api-key: <redacted> and X-Auth-Token: <redacted>')
+  })
+
+  it('hides a whole cookie line', () => {
+    expect(error('Cookie: sid=abc123; theme=dark')).toBe('error: Cookie: <redacted>')
+    expect(error('server said Set-Cookie: id=77; Path=/')).toBe('error: server said Set-Cookie: <redacted>')
+  })
+
+  it('hides the credential after Bearer or Basic when it looks like one', () => {
+    expect(error('request had Bearer abcdefOTHER123 and Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==')).toBe('error: request had Bearer <redacted> and Basic <redacted>')
+    expect(error('Basic authentication required, Bearer realm needed')).toBe('error: Basic authentication required, Bearer realm needed')
+    expect(error('Bearer abc1')).toBe('error: Bearer abc1')
+  })
+
+  it('hides the value of an assignment whose name is a credential, one per line', () => {
+    expect(body('OPENAI_API_KEY=sk-proj-abc123XYZ\nAWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG\nDB_PASSWORD: Hunter2hunter2 \nmode=fast')).toBe(
+      'output: {"text":"OPENAI_API_KEY=<redacted>\\nAWS_SECRET_ACCESS_KEY=<redacted>\\nDB_PASSWORD: <redacted> \\nmode=fast"}',
+    )
+    expect(body('{"password":"hunter2hunter2","pwd":"Abcdefgh12","user":"bob"}')).toBe('output: {"text":"{\\"password\\":\\"<redacted>\\",\\"pwd\\":\\"<redacted>\\",\\"user\\":\\"bob\\"}"}')
+  })
+
+  it('keeps an ordinary sentence that mentions a token or a password', () => {
+    const text = 'The token: expired. Your password: invalid. secret: shh, signature: bad. Bearer is a scheme.'
+    expect(error(text)).toBe(`error: ${text}`)
+  })
+
+  it('does not hide a value twice or touch a marker that is already there', () => {
+    expect(error('token=<redacted> and secret=<secret> and Authorization: <redacted>')).toBe('error: token=<redacted> and secret=<secret> and Authorization: <redacted>')
+  })
+
+  it('stays quick on a million characters that look like a credential name', () => {
+    const started = Date.now()
+    const units = ['token', 'authorization', 'a:', 'Bearer ', 'secret=', 'key=a', '-token: ', 'cookie', 'token: A1', 'authorization: ', 'Cookie: x\n', `secret_${'a'.repeat(30)} `, 'api_key:"', 'Basic abcdefghij ']
+    for (const unit of units) body(unit.repeat(Math.ceil(1_000_000 / unit.length)))
+    expect(Date.now() - started).toBeLessThan(6000)
   })
 })
 

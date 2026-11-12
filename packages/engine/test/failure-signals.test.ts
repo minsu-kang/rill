@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Workflow, WorkflowNode } from '@rill/dsl'
-import { LlmError } from '@rill/llm'
+import { LlmError, classifyHttp } from '@rill/llm'
 import { FAILURE_SIGNALS, failureSignals, type FailureSignal } from '@rill/planner'
 import { createCoreRegistry, defineAction } from '@rill/nodes-core'
 import Type from 'typebox'
@@ -145,13 +145,32 @@ const ROWS: Row[] = [
     message: /^the model returned an unexpected shape/,
     options: () => ({ llm: new ScriptedProvider([{ data: { amount: 'not a number' } }]) }),
   },
-  {
-    name: 'an llm.extract whose provider is overloaded',
-    node: () => extract({ text: 'hello' }),
-    expected: 'llm_extract_failed',
-    message: /overloaded/,
-    options: () => ({ llm: new ScriptedProvider([{ error: new LlmError('overloaded', 'the provider is overloaded', { status: 529 }) }]) }),
-  },
+  ...[
+    ['rejects the credentials', classifyHttp(401, ''), 'llm_unavailable', /^the model provider rejected the credentials \(401\)$/],
+    ['refuses the account', classifyHttp(403, ''), 'llm_unavailable', /^the model provider rejected the credentials \(403\)$/],
+    ['reports a billing problem', classifyHttp(402, ''), 'llm_unavailable', /^the model provider reports a billing or credit problem \(402\)$/],
+    [
+      'refuses the request for a quota',
+      classifyHttp(429, JSON.stringify({ error: { code: 'insufficient_quota', message: 'You exceeded your current quota' } }), undefined, { kindFor: () => 'auth' }),
+      'llm_unavailable',
+      /^the model provider refused the request \(429 insufficient_quota\): /,
+    ],
+    ['is rate limiting', classifyHttp(429, ''), 'http_status_429', /^the model provider is rate limiting requests \(429\)$/],
+    ['times out', classifyHttp(504, ''), 'timeout', /^the model provider timed out \(504\)$/],
+    ['has a server error', classifyHttp(529, JSON.stringify({ error: { message: 'overloaded' } })), 'http_status_5xx', /^the model provider had a server error \(529\)$/],
+    ['rejects the request', classifyHttp(400, JSON.stringify({ error: { message: 'bad field' } })), 'llm_extract_failed', /^the model provider rejected the request \(400\): bad field$/],
+    ['says the input is too long', classifyHttp(400, JSON.stringify({ error: { message: 'this request exceeds the maximum context window' } })), 'llm_extract_failed', /^the input is too long for this model \(400\)/],
+    ['has no key', new LlmError('auth', 'no API key for Anthropic; set ANTHROPIC_API_KEY'), 'llm_unavailable', /^no API key for Anthropic; set ANTHROPIC_API_KEY$/],
+  ].map(
+    ([what, error, expected, message]): Row => ({
+      name: `an llm.extract whose provider ${what as string}`,
+      node: () => extract({ text: 'hello' }),
+      expected: expected as FailureSignal,
+      message: message as RegExp,
+      options: () => ({ llm: new ScriptedProvider([{ error: error as LlmError }]) }),
+    }),
+  ),
+  { name: 'an llm.extract of a file when no folder is allowed', node: () => extract({ file: join(dir, 'folder', 'a.pdf') }), expected: 'path_not_allowed', message: /^llm\.extract reads files only inside allowed folders/, options: () => ({ allowedRoots: undefined, llm: new ScriptedProvider([]) }) },
   { name: 'a slack webhook that is gone', node: () => slack('slack-404'), expected: 'slack_error', message: /^HTTP 404: answer 404$/ },
   { name: 'a slack webhook that is limited', node: () => slack('slack-429'), expected: 'http_status_429', message: /^HTTP 429$/ },
   { name: 'a slack webhook that is down', node: () => slack('slack-503'), expected: 'http_status_5xx', message: /^HTTP 503$/ },
