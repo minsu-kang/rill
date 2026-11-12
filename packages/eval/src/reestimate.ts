@@ -2,6 +2,7 @@ import type { LlmUsage } from '@rill/llm'
 import { guardReserveUsd, money, plural, roundUpBudget, worstCallUsd } from './budget'
 import { costUsd, estimateCallUsd, priceFor } from './pricing'
 import { ESTIMATE_OUTPUT_TOKENS, breakEvenOutputTokens, estimateRun, type RunEstimate } from './runner'
+import { softCapFactor } from './spec'
 import { mean, percentile } from './stats'
 import type { EvalCase, Suite } from './suite'
 
@@ -162,7 +163,8 @@ function promptTokens(usage: LlmUsage): number {
 }
 
 function measuredPool(model: string, samples: readonly PilotSample[], maxOutputTokens: number): Pool {
-  const usages = samples.map(({ usage }) => ({ ...usage, outputTokens: Math.min(usage.outputTokens, maxOutputTokens) }))
+  const ceiling = maxOutputTokens * softCapFactor(model)
+  const usages = samples.map(({ usage }) => ({ ...usage, outputTokens: Math.min(usage.outputTokens, ceiling) }))
   const inputs = usages.map(promptTokens)
   const outputs = usages.map((usage) => usage.outputTokens)
   const inputP90 = p90Of(inputs)
@@ -224,8 +226,10 @@ function project<C extends EvalCase, O>(input: ReestimateInput<C, O>, maxOutputT
   const kinds = [...new Set(cases.map((testCase) => testCase.kind))]
   const projections = models.map((model): ModelProjection => {
     const own = pilot.samples.filter((sample) => sample.model === model)
-    const cells = kinds.map((kind): CellProjection => {
-      const kindCases = cases.filter((testCase) => testCase.kind === kind)
+    const runnable = kinds
+      .map((kind) => ({ kind, kindCases: cases.filter((testCase) => testCase.kind === kind && suite.unsupportedReason?.(testCase, model) === undefined) }))
+      .filter(({ kindCases }) => kindCases.length > 0)
+    const cells = runnable.map(({ kind, kindCases }): CellProjection => {
       const cellSamples = own.filter((sample) => sample.kind === kind)
       let basis: Basis
       let pool: Pool
