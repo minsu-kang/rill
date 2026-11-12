@@ -147,6 +147,8 @@ export const PlanMetaSchema = Type.Object(
     effortDetail: Type.Optional(PlanEffortDetailSchema),
     reasoningCapped: Type.Optional(Type.Boolean()),
     costNote: Type.Optional(Type.String()),
+    memoryUsed: Type.Optional(Type.Integer({ minimum: 0 })),
+    memoryDropped: Type.Optional(Type.Integer({ minimum: 0 })),
   },
   closed,
 )
@@ -168,6 +170,7 @@ export const PlanRecordSchema = Type.Object(
     flagKeys: Type.Array(Type.String()),
     workflowId: nullable(IdSchema),
     confirmed: nullable(Type.Array(Type.String())),
+    memoryIds: Type.Optional(Type.Array(IdSchema)),
   },
   closed,
 )

@@ -510,3 +510,37 @@ describe('flagKey', () => {
     for (const [left, right] of pairs) expect(flagKey(left)).not.toBe(flagKey(right))
   })
 })
+
+describe('memory fields of a plan', () => {
+  it('takes useMemory as an optional boolean in the plan params', () => {
+    expect(ok('plan', planParams)).toBe(true)
+    expect(ok('plan', { ...planParams, useMemory: true })).toBe(true)
+    expect(ok('plan', { ...planParams, useMemory: false })).toBe(true)
+    expect(ok('plan', { ...planParams, useMemory: 'no' })).toBe(false)
+    expect(ok('plan', { ...planParams, useMemory: null })).toBe(false)
+  })
+
+  it('does not take notes in the plan params, so a client cannot inject them', () => {
+    expect(ok('plan', { ...planParams, memory: ['a note'] })).toBe(false)
+    expect(ok('plan', { ...planParams, memoryIds: ['a'] })).toBe(false)
+  })
+
+  it('accepts the counts in a meta, and a meta stored before they existed', () => {
+    const valid = (value: unknown) => Value.Check(PlanMetaSchema, value)
+    expect(valid(meta)).toBe(true)
+    expect(valid({ ...meta, memoryUsed: 3, memoryDropped: 0 })).toBe(true)
+    expect(valid({ ...meta, memoryUsed: -1 })).toBe(false)
+    expect(valid({ ...meta, memoryUsed: 1.5 })).toBe(false)
+    expect(valid({ ...meta, memoryDropped: '0' })).toBe(false)
+  })
+
+  it('accepts the ids in a record, and a record without them', () => {
+    const valid = (value: unknown) => Value.Check(PlanRecordSchema, value)
+    expect(valid(record)).toBe(true)
+    expect(valid({ ...record, memoryIds: [] })).toBe(true)
+    expect(valid({ ...record, memoryIds: ['3f2b8c1e-6a4d-4f5b-9c0e-1a2b3c4d5e6f'] })).toBe(true)
+    expect(valid({ ...record, memoryIds: [''] })).toBe(false)
+    expect(valid({ ...record, memoryIds: 'a' })).toBe(false)
+    expect(valid({ ...record, memoryIds: [{ id: 'a', text: 'a note' }] })).toBe(false)
+  })
+})

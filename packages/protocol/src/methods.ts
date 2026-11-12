@@ -124,6 +124,7 @@ export const METHODS = {
         effort: PlanEffortSchema,
         workflowId: Type.Optional(id),
         selection: Type.Optional(Type.Object({ nodeId: id }, closed)),
+        useMemory: Type.Optional(Type.Boolean()),
       },
       closed,
     ),

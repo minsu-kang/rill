@@ -22,6 +22,7 @@ interface PlanSource {
   text: string
   attachments: AttachmentRef[]
   effort: PlanEffort
+  memoryIds?: readonly string[]
 }
 
 export class PlanNotFoundError extends Error {
@@ -125,6 +126,7 @@ export function toPlanRecord(stored: StoredPlan): PlanRecord {
     flagKeys: stored.flagKeys,
     workflowId: stored.workflowId,
     confirmed: stored.confirmed,
+    memoryIds: stored.memoryIds ?? [],
   }
 }
 
@@ -164,6 +166,8 @@ export function plannedRecord(source: PlanSource, planned: PlanResult, createdAt
     },
     reasoningCapped: planned.meta.reasoningCapped,
     ...(planned.meta.costNote === undefined ? {} : { costNote: planned.meta.costNote }),
+    memoryUsed: planned.meta.memoryUsed,
+    memoryDropped: planned.meta.memoryDropped,
   }
   const record: StoredPlan = {
     planId: source.planId,
@@ -179,6 +183,7 @@ export function plannedRecord(source: PlanSource, planned: PlanResult, createdAt
     flagKeys: result.kind === 'workflow' ? [...new Set(result.flags.map(flagKey))] : [],
     workflowId: null,
     confirmed: null,
+    memoryIds: [...(source.memoryIds ?? [])],
     workflowHash: result.kind === 'workflow' ? workflowHash(result.workflow) : null,
   }
   return { record, outcome: { planId: source.planId, result, meta } }
@@ -223,6 +228,7 @@ export function failedRecord(source: PlanSource, error: unknown, createdAt: numb
     flagKeys: [],
     workflowId: null,
     confirmed: null,
+    memoryIds: [...(source.memoryIds ?? [])],
     workflowHash: null,
   }
 }

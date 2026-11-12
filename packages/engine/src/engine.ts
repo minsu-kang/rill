@@ -1,7 +1,7 @@
 import { isTrigger, isWarningIssue, type PlanIssue, type Workflow } from '@rill/dsl'
 import { assertPathAllowed, validateWorkflow, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
 import type { LlmProvider } from '@rill/llm'
-import { createPlanner, scrubResultText, userTexts, type AttachmentStore, type PlanConnection, type PlanRequest, type PlanResult } from '@rill/planner'
+import { createPlanner, scrubResultText, trustedTexts, type AttachmentStore, type PlanConnection, type PlanRequest, type PlanResult } from '@rill/planner'
 import type {
   AttachmentRef,
   LlmModelsResult,
@@ -68,6 +68,7 @@ export interface EnginePlanInput {
   effort: PlanEffort
   workflowId?: string
   selection?: { nodeId: string }
+  useMemory?: boolean
 }
 
 interface PendingPlan {
@@ -209,6 +210,8 @@ export class Engine {
         ...(reads === undefined ? {} : { attachmentStore: reads.store }),
         ...(this.maxRepairRounds === undefined ? {} : { maxRepairRounds: this.maxRepairRounds }),
       })
+      const notes = input.useMemory === false ? [] : this.store.listMemory()
+      const memoryIds = notes.map((note) => note.id)
       const request: PlanRequest = {
         text: input.text,
         turns: input.turns,
@@ -220,6 +223,7 @@ export class Engine {
           allowedRoots: this.allowedRoots ?? [],
           attachmentsRoot: this.attachmentsRoot ?? '',
           ...(existingWorkflow === undefined ? {} : { existingWorkflow }),
+          ...(notes.length === 0 ? {} : { memory: notes.map((note) => note.text) }),
         },
         signal,
       }
@@ -227,7 +231,7 @@ export class Engine {
       try {
         planned = await planner.plan(request)
       } catch (error) {
-        this.store.savePlan(failedRecord(input, error, this.now()))
+        this.store.savePlan(failedRecord({ ...input, memoryIds }, error, this.now()))
         throw error
       }
       if (reads !== undefined) {
@@ -236,13 +240,13 @@ export class Engine {
           ...planned,
           ...scrubResultText(planned, {
             attachmentTexts,
-            userTexts: userTexts(request),
+            userTexts: trustedTexts(request),
             registry: this.registry,
             ...(existingWorkflow === undefined ? {} : { existingWorkflow }),
           }),
         }
       }
-      const { record, outcome } = plannedRecord(input, planned, this.now())
+      const { record, outcome } = plannedRecord({ ...input, memoryIds }, planned, this.now())
       this.store.savePlan(record)
       return outcome
     } finally {

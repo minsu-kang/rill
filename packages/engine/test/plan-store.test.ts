@@ -56,6 +56,7 @@ function plan(overrides: Partial<StoredPlan> = {}): StoredPlan {
     flagKeys: [JSON.stringify(['n1', '/connection', 'new_egress_target'])],
     workflowId: null,
     confirmed: null,
+    memoryIds: [],
     workflowHash: workflowHash(workflow),
     ...overrides,
   }
@@ -74,6 +75,17 @@ describe('plan records', () => {
     const saved = plan()
     store.savePlan(saved)
     expect(store.getPlan('plan-1')).toEqual(saved)
+  })
+
+  it('round-trips the memory ids, in order, and stores an empty list for a record without them', () => {
+    const used = plan({ planId: 'used-1', memoryIds: ['note-b', 'note-a'] })
+    const bare = plan({ planId: 'bare-1' })
+    delete bare.memoryIds
+    store.savePlan(used)
+    store.savePlan(bare)
+    expect(store.getPlan('used-1').memoryIds).toEqual(['note-b', 'note-a'])
+    expect(store.getPlan('bare-1').memoryIds).toEqual([])
+    expect(db.get<{ memory_ids: string }>('SELECT memory_ids FROM plans WHERE id = ?', 'used-1')?.memory_ids).toBe('["note-b","note-a"]')
   })
 
   it('round-trips failed and cancelled records without a result', () => {

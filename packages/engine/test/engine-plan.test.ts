@@ -104,6 +104,7 @@ describe('Engine.plan', () => {
       flagKeys: [],
       workflowId: null,
       confirmed: null,
+      memoryIds: [],
     })
     const raw = db.get<{ workflow_hash: string; flag_keys: string }>('SELECT workflow_hash, flag_keys FROM plans')!
     expect(raw.workflow_hash).toBe(workflowHash(plainWorkflow()))

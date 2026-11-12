@@ -174,10 +174,11 @@ interface RawPlan {
   flag_keys: string
   workflow_id: string | null
   confirmed: string | null
+  memory_ids: string
 }
 
 const PLAN_COLUMNS =
-  'id, created_at, status, effort, model, request_text, attachments, result, meta, error, workflow_hash, flag_keys, workflow_id, confirmed'
+  'id, created_at, status, effort, model, request_text, attachments, result, meta, error, workflow_hash, flag_keys, workflow_id, confirmed, memory_ids'
 
 function toStoredPlan(row: RawPlan): StoredPlan {
   return {
@@ -194,6 +195,7 @@ function toStoredPlan(row: RawPlan): StoredPlan {
     flagKeys: JSON.parse(row.flag_keys) as string[],
     workflowId: row.workflow_id,
     confirmed: parseJson(row.confirmed) as string[] | null,
+    memoryIds: JSON.parse(row.memory_ids) as string[],
     workflowHash: row.workflow_hash,
   }
 }
@@ -513,7 +515,7 @@ export class Store {
   savePlan(record: StoredPlan): void {
     const refs = record.attachments.map(({ id, mediaType, name, bytes }) => ({ id, mediaType, name, bytes }))
     const added = this.db.run(
-      `INSERT INTO plans (${PLAN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+      `INSERT INTO plans (${PLAN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
       record.planId,
       record.createdAt,
       record.status,
@@ -528,6 +530,7 @@ export class Store {
       JSON.stringify(record.flagKeys),
       record.workflowId,
       record.confirmed === null ? null : JSON.stringify(record.confirmed),
+      JSON.stringify(record.memoryIds ?? []),
     )
     if (added === 0) throw new PlanExistsError(record.planId)
   }
