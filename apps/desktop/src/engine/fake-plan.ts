@@ -1,0 +1,176 @@
+import {
+  flagKey,
+  MEMORY_MAX_CHARS,
+  MEMORY_MAX_ITEMS,
+  RillError,
+  validateParams,
+  type LlmModelsResult,
+  type MemoryItem,
+  type MethodName,
+  type MethodParams,
+  type MethodResult,
+  type PlanMeta,
+  type PlanResultBody,
+} from '@rill/protocol'
+import type { EngineClient } from './client'
+
+export type PlanOutcome = { result: PlanResultBody; meta: PlanMeta }
+
+export interface FakePlanData {
+  models: LlmModelsResult
+  script: (params: MethodParams<'plan'>) => PlanOutcome | RillError | 'hang'
+  memory: MemoryItem[]
+  deployId?: string
+  delayMs?: number
+  now?: () => number
+}
+
+const HANDLED = ['plan', 'cancelPlan', 'deployPlan', 'llmModels', 'listMemory', 'saveMemory', 'deleteMemory'] as const satisfies readonly MethodName[]
+type Handled = (typeof HANDLED)[number]
+
+const MAX_PENDING = 2
+
+type MemoryRule = 'empty' | 'control_character' | 'line_separator' | 'bidi_format' | 'format_character' | 'too_long'
+
+const RULE_TEXT: Readonly<Record<MemoryRule, string>> = {
+  empty: 'a note is not empty',
+  control_character: 'a note is one line without control characters',
+  line_separator: 'a note is one line without line or paragraph separators',
+  bidi_format: 'a note has no bidirectional formatting characters',
+  format_character: 'a note has no invisible format characters',
+  too_long: `a note is at most ${MEMORY_MAX_CHARS} characters`,
+}
+
+const CONTROL = /\p{Cc}/u
+const SEPARATOR = /[\p{Zl}\p{Zp}]/u
+const BIDI = /[؜‎‏‪-‮⁦-⁩]/u
+const FORMAT = /(?![‌‍])\p{Cf}|[\u{e0100}-\u{e01ef}]/u
+const SPACES = /\s+/gu
+
+function invalidNote(rule: MemoryRule): RillError {
+  return new RillError('MEMORY_INVALID', 'the note is not valid', [`${rule}: ${RULE_TEXT[rule]}`])
+}
+
+function normalise(raw: string): string {
+  const trimmed = raw.normalize('NFC').trim()
+  if (trimmed === '') throw invalidNote('empty')
+  if (CONTROL.test(trimmed)) throw invalidNote('control_character')
+  if (SEPARATOR.test(trimmed)) throw invalidNote('line_separator')
+  if (BIDI.test(trimmed)) throw invalidNote('bidi_format')
+  if (FORMAT.test(trimmed)) throw invalidNote('format_character')
+  const text = trimmed.replace(SPACES, ' ')
+  if ([...text].length > MEMORY_MAX_CHARS) throw invalidNote('too_long')
+  return text
+}
+
+function keyOf(text: string): string {
+  return text.normalize('NFC').toUpperCase().toLowerCase().normalize('NFC')
+}
+
+interface PlanRecord {
+  result: PlanResultBody
+  flagKeys: string[]
+  workflowId?: string
+}
+
+export function withPlanMethods(client: EngineClient, data: FakePlanData): EngineClient & { pendingPlans(): string[] } {
+  const records = new Map<string, PlanRecord>()
+  const pending = new Map<string, (error: RillError) => void>()
+  const memory: MemoryItem[] = structuredClone(data.memory)
+  const now = data.now ?? Date.now
+  let memorySerial = 0
+  let deploySerial = 0
+
+  function plan(params: MethodParams<'plan'>): Promise<MethodResult<'plan'>> {
+    if (records.has(params.planId) || pending.has(params.planId)) throw new RillError('PLAN_EXISTS', 'a plan with this id already exists')
+    if (pending.size >= MAX_PENDING) throw new RillError('PLAN_BUSY', `too many plans are running (at most ${MAX_PENDING} at a time)`)
+    const answer = data.script(structuredClone(params))
+    return new Promise((resolve, reject) => {
+      pending.set(params.planId, reject)
+      if (answer === 'hang') return
+      const finish = (): void => {
+        if (!pending.delete(params.planId)) return
+        if (answer instanceof RillError) {
+          reject(answer)
+          return
+        }
+        const flagKeys = answer.result.kind === 'workflow' ? answer.result.flags.map(flagKey) : []
+        records.set(params.planId, { result: structuredClone(answer.result), flagKeys })
+        resolve({ planId: params.planId, result: structuredClone(answer.result), meta: structuredClone(answer.meta) })
+      }
+      if ((data.delayMs ?? 0) > 0) setTimeout(finish, data.delayMs)
+      else queueMicrotask(finish)
+    })
+  }
+
+  function cancelPlan({ planId }: MethodParams<'cancelPlan'>): MethodResult<'cancelPlan'> {
+    const reject = pending.get(planId)
+    if (reject === undefined) return { cancelled: false }
+    pending.delete(planId)
+    reject(new RillError('PLAN_CANCELLED', 'planning was cancelled'))
+    return { cancelled: true }
+  }
+
+  function deployPlan({ planId, confirmed }: MethodParams<'deployPlan'>): MethodResult<'deployPlan'> {
+    const record = records.get(planId)
+    if (record === undefined) throw new RillError('NOT_FOUND', `plan not found: ${planId}`)
+    if (record.result.kind !== 'workflow' || record.workflowId !== undefined) throw new RillError('PLAN_DEPLOYED', 'the plan cannot be deployed again')
+    const given = new Set(confirmed)
+    const known = new Set(record.flagKeys)
+    const missing = record.flagKeys.some((key) => !given.has(key))
+    const stray = [...given].some((key) => !known.has(key))
+    if (missing || stray) throw new RillError('PLAN_NOT_CONFIRMED', 'confirm every flag of the plan before deploying')
+    deploySerial += 1
+    record.workflowId = data.deployId ?? `wf-deployed-${deploySerial}`
+    return { workflowId: record.workflowId }
+  }
+
+  function saveMemory({ id, text: raw }: MethodParams<'saveMemory'>): MethodResult<'saveMemory'> {
+    const text = normalise(raw)
+    const key = keyOf(text)
+    const at = now()
+    if (id !== undefined) {
+      const found = memory.find((item) => item.id === id)
+      if (found === undefined) throw new RillError('NOT_FOUND', 'memory note not found')
+      if (memory.some((item) => item.id !== id && keyOf(item.text) === key)) throw new RillError('MEMORY_DUPLICATE', 'a note with the same text is already saved')
+      found.text = text
+      found.updatedAt = at
+      return { item: structuredClone(found) }
+    }
+    if (memory.some((item) => keyOf(item.text) === key)) throw new RillError('MEMORY_DUPLICATE', 'a note with the same text is already saved')
+    if (memory.length >= MEMORY_MAX_ITEMS) throw new RillError('MEMORY_FULL', `at most ${MEMORY_MAX_ITEMS} notes can be saved; delete one first`)
+    memorySerial += 1
+    const item: MemoryItem = { id: `mem-new-${memorySerial}`, text, createdAt: at, updatedAt: at }
+    memory.push(item)
+    return { item: structuredClone(item) }
+  }
+
+  function deleteMemory({ id }: MethodParams<'deleteMemory'>): MethodResult<'deleteMemory'> {
+    const at = memory.findIndex((item) => item.id === id)
+    if (at < 0) return { deleted: false }
+    memory.splice(at, 1)
+    return { deleted: true }
+  }
+
+  const handlers: { [M in Handled]: (params: MethodParams<M>) => MethodResult<M> | Promise<MethodResult<M>> } = {
+    plan,
+    cancelPlan,
+    deployPlan,
+    llmModels: () => structuredClone(data.models),
+    listMemory: () => ({ items: structuredClone(memory) }),
+    saveMemory,
+    deleteMemory,
+  }
+
+  return {
+    async request<M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> {
+      if (!(HANDLED as readonly string[]).includes(method)) return client.request(method, params)
+      const checked = validateParams(method, params)
+      if (!checked.ok) throw new RillError(checked.code, 'the parameters do not match the method', checked.problems)
+      const handler = handlers[method as Handled] as unknown as (given: MethodParams<M>) => MethodResult<M> | Promise<MethodResult<M>>
+      return handler(structuredClone(params))
+    },
+    onEvent: (listener) => client.onEvent(listener),
+    pendingPlans: () => [...pending.keys()],
+  }
+}
