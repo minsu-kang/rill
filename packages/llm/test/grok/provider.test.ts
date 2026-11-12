@@ -108,6 +108,7 @@ describe('request shape', () => {
     expect(bodyOf(explicit.transport)['max_output_tokens']).toBe(777)
     const implicit = await run([okReply()], { ...ask, maxTokens: undefined })
     expect(bodyOf(implicit.transport)['max_output_tokens']).toBe(GROK_DEFAULT_MAX_TOKENS)
+    expect(bodyOf(implicit.transport)['max_output_tokens']).toBe(16_000)
   })
 
   it.each([0, -5, 1.5, Number.NaN, Number.POSITIVE_INFINITY])('refuses maxTokens %s before any request', async (maxTokens) => {
@@ -415,6 +416,11 @@ describe('reading the reply', () => {
     }
   })
 
+  it('says that the reply had no text, apart from saying it was not JSON', async () => {
+    const { error } = await textOf([message(out(''))])
+    expect(error?.message).toContain('no text')
+  })
+
   it('does not retry or leak the model text when the text is not JSON', async () => {
     const { error, transport } = await run([okReply({ text: 'SECRETMODELTEXT {' })])
     expect(error?.kind).toBe('invalid_output')
@@ -621,6 +627,9 @@ describe('error events', () => {
     [{ type: 'error', message: 'Service temporarily unavailable' }, 'overloaded'],
     [{ code: 'unavailable', error: 'Service temporarily unavailable' }, 'overloaded'],
     [{ type: 'error', error: { code: '529', message: 'busy' } }, 'overloaded'],
+    [{ type: 'error', error: { code: '500', message: 'zzz' } }, 'overloaded'],
+    [{ type: 'error', error: { code: '502', message: 'zzz' } }, 'overloaded'],
+    [{ type: 'error', error: { code: '404', message: 'zzz' } }, 'invalid_request'],
     [{ type: 'error', error: { code: 503, message: 'busy' } }, 'overloaded'],
     [{ type: 'error', error: { code: 'overloaded_error', message: 'busy' } }, 'overloaded'],
     [{ type: 'error', error: { message: 'Rate limit reached for this team' } }, 'rate_limit'],
