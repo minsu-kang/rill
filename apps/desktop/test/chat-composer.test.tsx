@@ -335,7 +335,7 @@ describe('Composer: attachments', () => {
     const { container } = show({ port })
     fireEvent.change(input(container), { target: { files: [textFile()] } })
     const list = await screen.findByRole('list', { name: 'Attached files' })
-    expect(list.textContent).toContain('The attachment was rejected')
+    await waitFor(() => expect(list.textContent).toContain('The attachment was rejected'))
     expect(document.body.textContent).not.toContain('SERVER-SECRET')
     expect(screen.queryByText('Adding…')).toBeNull()
   })
@@ -345,7 +345,7 @@ describe('Composer: attachments', () => {
     const { container } = show({ port })
     fireEvent.change(input(container), { target: { files: [textFile()] } })
     const list = await screen.findByRole('list', { name: 'Attached files' })
-    expect(list.textContent).toContain('Something went wrong')
+    await waitFor(() => expect(list.textContent).toContain('Something went wrong'))
     expect(document.body.textContent).not.toContain('secret')
   })
 
