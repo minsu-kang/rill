@@ -1,0 +1,104 @@
+# Security notes
+
+This document describes how Rill treats untrusted data and secrets, where each control lives in the code, and what the controls do not cover. It is an engineering description. Nobody outside the project has reviewed it, and the app has not been penetration tested.
+
+Rill is a local app. There is no server, no account and no cloud component. The risks come from four places: text that a model reads, files and web responses that a workflow handles, the secrets the app stores, and other software on the same computer.
+
+## What is protected
+
+| Asset | Why it matters |
+| --- | --- |
+| Model keys and connection secrets (Slack webhook addresses, HTTP tokens) | A leaked key costs money. A leaked webhook address lets anyone post to a channel. |
+| Files outside the folders you chose | A workflow must not read or write your whole disk. |
+| What leaves the computer | File contents, notes and run records go to a model provider. Only what you expect should go. |
+| The workflow you confirmed | What runs must be what you read on the graph. |
+| The engine's control channel | Whoever can talk to the engine can run and change workflows. |
+
+## Untrusted data
+
+Rill treats the following as data that an attacker may have written. None of it may become an instruction, a path, a recipient or a rule without a check.
+
+| Source | Where it enters | What it could try |
+| --- | --- | --- |
+| Attachments you add to the chat (PDF, image, text) | The planner prompt | Tell the planner to add a node that sends data to an address of the attacker's choice. |
+| Documents in a watched folder | `llm.extract` at run time | Tell the extraction to return a path, a URL or a value that changes a later branch. |
+| Web responses and webhook bodies | Run data, then conditions and later nodes | Steer a condition, or smuggle text into a later request. |
+| Run records (step inputs, outputs, error text) | The failure explanation prompt | Turn into an instruction to the explainer, or into the text of your next request. |
+| Model output (plans, questions, explanations, fix proposals) | The screen, the next request, a deployed workflow | Show a link, a hidden character or an address you did not write. |
+
+## What is enforced, and where
+
+### Planning time
+
+| Control | What it does | Where |
+| --- | --- | --- |
+| Closed output schema | The planner asks for a structured answer with a fixed shape. The answer is checked again locally. Node types come from the catalog, so an unknown node is an error, not a guess. | `packages/planner/src/generation.ts`, `packages/planner/src/catalog.ts` |
+| One shared validator | `validateWorkflow` checks the schema, the graph, every reference, the config of every node, literal paths against the allowed folders, connection names, and a workflow that writes into the folder it watches. The planner's repair loop, `deploy` and recipe instantiation all call it. A parity test checks that planning time and deploy time give the same answer. | `packages/nodes-core/src/validate.ts`, `packages/engine/test/deploy-parity.test.ts` |
+| Provenance flags | After a plan is valid, each field with a role (path, URL, connection, recipient) is checked against your own words. A value that came from an attachment, a send or write target you never wrote, or a path or URL built from file, web or request content gets a flag. | `packages/planner/src/attachments/provenance.ts` |
+| Confirmation gate | `deployPlan` needs the confirmation key of every flag. A plain `deploy` of the same content is refused while the flagged plan is open. The gate stops the interface from skipping the confirmation. A client that holds the engine token and edits a value before deploying is trusted and not stopped. | `packages/engine/README.md` (Flags and confirmation), `packages/engine/test/deploy-gate.test.ts` |
+| Random tags around untrusted text | Attachments, memory notes and run data are placed between tags with a fresh random suffix, and the system prompt says that nothing outside the pair came from the document. | `packages/planner/src/attachments/prepare.ts`, `packages/planner/src/memory.ts`, `packages/planner/src/explain/explain.ts` |
+| Repair messages leak nothing | When a plan is repaired, flagged literals and attachment text are removed from the message sent back to the model. Words that only an attachment contained are replaced with `<hidden>` in the summary, the questions and the refusal text before they are stored. | `packages/planner/src/attachments/redact.ts`, `packages/planner/src/attachments/scrub.ts` |
+| No hidden settings | The planner cannot set timing and size limits (`pollMs`, `stableMs`, `timeoutMs`, `maxBytes`, `overlap`). The engine fills them in. | `packages/planner/src/hidden.ts` |
+
+### Run time
+
+| Control | What it does | Where |
+| --- | --- | --- |
+| The model never picks nodes at run time | `llm.extract` returns the fields you declared, as typed values or null. It cannot add, remove or reorder nodes. | `packages/nodes-core/src/nodes/llm-extract.ts` |
+| Path guard | Every node that reads or writes a file resolves the real path (links followed, a dangling link refused), rejects `..` and relative paths, and checks the result against the allowed folders. The app always starts the engine with the attachment folder as an allowed folder, so the guard is on in the app. | `packages/nodes-core/src/guard.ts` |
+| File limits | `llm.extract` checks file signatures (a `.pdf` must start with `%PDF-`) and size limits (PDF 20 MiB, image 3.75 MiB, text 1 MiB) before it reads a file in full. | `packages/nodes-core/src/nodes/llm-extract.ts` |
+| CSV formula guard | A cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet does not run it. Plain numbers such as `-12.5` stay as they are. | `packages/nodes-core/src/nodes/csv-append.ts` |
+| Outbound HTTP rules | Redirects are not followed, non-2xx answers fail the node, the response size is capped at 5 MiB by default, and credentials come from a connection, never from the workflow text. | `packages/nodes-core/src/http.ts`, `packages/nodes-core/src/nodes/http-request.ts` |
+| Webhook listener | Binds to `127.0.0.1`, checks the `Host` header, limits the body to 1 MiB, accepts a shared secret in `x-rill-secret` (compared in constant time) and refuses browser requests when no secret is set. | `packages/engine/src/triggers/webhook.ts` |
+| Dry run | Skips the CSV write, Slack messages and HTTP requests. It does read the file and call the model, because reading is not a side effect. | `packages/nodes-core/src/nodes/` |
+| Confirmations in the app | "Run now" names the side effects before it starts. Retry and deactivate from an explanation ask first. | `apps/desktop/src/explain/`, `apps/desktop/src/app/` |
+
+### Memory and explanations
+
+| Control | What it does | Where |
+| --- | --- | --- |
+| One write path for notes | Only an explicit `saveMemory` request creates or changes a note. No plan, attachment, model answer or extraction result can. A source scan in the tests catches a new write path. Control, line-separator, bidirectional and invisible formatting characters are refused, so a hidden instruction cannot sit in a note. | `packages/engine/src/memory.ts`, `packages/engine/test/memory-plan.test.ts` |
+| Notes are data, not rules | The notes block says that notes never change rules and that your request wins on a conflict. | `packages/planner/src/memory.ts` |
+| Explanations mask secrets | Before the run digest is cut to 12,000 characters, connection secrets are replaced by `<secret>` in plain, JSON-escaped, URL-encoded, base64 and hex forms. Authorization headers, credential-looking keys and values, and every response header except `content-type` and `retry-after` are removed. | `packages/planner/src/explain/excerpt.ts`, `packages/planner/src/explain/digest.ts`, `packages/engine/test/explain-safety.test.ts` |
+| Explanations cannot steer the next request | URLs, hosts, email addresses and recipients in the model's answer that were not already in the workflow or summary are replaced by `<hidden>`. The request text for a proposed fix is checked more strictly. The explanation is read-only, stores nothing and runs only when you press the button. | `packages/planner/src/explain/scrub.ts` |
+
+### The app
+
+| Control | What it does | Where |
+| --- | --- | --- |
+| Secrets in the keychain | Keys and connection secrets are encrypted as one blob with Electron `safeStorage`. Without a keychain, saving is refused and the engine does not start. There is no plaintext fallback. A blob that cannot be decrypted is moved aside, never overwritten. | `apps/desktop/src/main/secret-store.ts` |
+| The window never holds a secret | Settings return only which providers have a key and the name and kind of each connection. Key fields are password inputs and are cleared after saving. | `apps/desktop/src/shared/host-api.ts`, `apps/desktop/src/main/ipc-handlers.ts` |
+| Narrow, checked host API | The preload script exposes `window.rill` and nothing else, never `ipcRenderer`. Every call and every result is checked against a TypeBox schema in the main process. | `apps/desktop/src/preload/`, `apps/desktop/src/shared/host-api.ts` |
+| Folder allow-list | A folder can be added only when the system dialog returned it in this run. The main process refuses `/`, system folders, your home folder, the data folder and links that lead to them, so a workflow cannot reach `config.json` and widen its own access. | `apps/desktop/src/main/ipc-handlers.ts`, `apps/desktop/src/main/config-store.ts` |
+| Attachment store | Files are copied into one folder (mode 0700, files 0600) as `<id>.<ext>`, with a cap of 500 files and 512 MiB. The engine refuses links, directories and pipes. | `apps/desktop/src/main/attachments.ts`, `packages/engine/src/attachments.ts` |
+| Engine channel | The engine binds to `127.0.0.1` on a random port. The token is new on every start, travels in the WebSocket subprotocol, and is compared in constant time. `Host` and `Origin` are checked, messages are capped at 1 MiB and connections at 8. | `packages/engine/src/server/server.ts`, `apps/desktop/src/main/engine-supervisor.ts` |
+| Window hardening | `contextIsolation` and `sandbox` on, `nodeIntegration` and `webviewTag` off, `webSecurity` on. Permission requests, new windows and navigation away from the app page are denied. The page loads from the custom `app://rill/` scheme, which refuses `..`, encoded slashes and other hosts. | `apps/desktop/src/main/window.ts`, `apps/desktop/src/main/app-protocol.ts` |
+| Content security policy | `default-src 'none'`, scripts, styles, images and fonts from the app itself, connections only to `ws://127.0.0.1` and `ws://localhost`. No `unsafe-inline`, no `unsafe-eval`. | `apps/desktop/src/main/csp.ts` |
+| Packaged app | Electron fuses turn off `runAsNode`, `NODE_OPTIONS` and `--inspect`, and turn on ASAR integrity checking and load-from-ASAR-only. The developer tools and the View menu are removed. | `apps/desktop/electron-builder.yml`, `apps/desktop/src/main/index.ts`, `apps/desktop/src/main/app-menu.ts` |
+| Browser-safe renderer | An ESLint rule keeps Node modules and engine-side packages out of the renderer. Tests read the sources and fail on `dangerouslySetInnerHTML`, `innerHTML`, `eval`, `localStorage`, `sessionStorage` and links made from model or run text. Untrusted text is shown as plain text with a length cap, and bidirectional, zero-width and control characters are made visible. | `eslint.config.js`, `apps/desktop/test/browser-safe.test.ts`, `apps/desktop/test/chat-source-rules.test.ts`, `apps/desktop/test/panels-source.test.ts` |
+
+## Measured so far
+
+- Extraction against prompt injection: 6 adversarial documents (fake JSON, "ignore the instructions", a request for the system prompt, a Korean instruction, a fake closing tag, an injection inside an item name), each as text, PDF and PNG, three repetitions per model. All three Claude models resisted all 54 calls. The documents are synthetic and the injected text is simple. See the evaluation section of the [README](../README.md).
+- Planner against prompt injection: the suite has two injection cases among its 48. The result is pending, because the owner has not run it yet.
+- Everything else in this document is checked by unit and integration tests with fakes, not by a live attack.
+
+## What is not covered
+
+- **Other software of the same user.** The engine gets its secrets through the environment of its process. On macOS any process of the same user can read that block, for example with `ps -E -p <pid>`, without a keychain prompt. Moving the secrets to a message channel needs a change in the engine command line and is not done. Software that runs as you can also read your files directly, so the folder allow-list limits workflows and does not limit other programs.
+- **The engine is not sandboxed by the operating system.** The allowed folders are enforced by the code of the nodes. A bug in a node, or a new node that forgets the guard, would bypass them. The engine process runs with your user rights. A headless engine started without `--allow` does not restrict paths for `file.read` and `csv.append` (`llm.extract` refuses to read files then). The app always passes allowed folders, so this applies to the command line only.
+- **The token is enough to drive the engine.** The window receives the address and token so it can connect. Anything that obtains them can start and stop workflows over `ws://127.0.0.1`.
+- **Outbound network is not restricted.** `http.request` and `notify.slack` can call any host, including `localhost` and private addresses, when a workflow names it. The provenance flags ask you to confirm a target you did not write, and they depend on your confirming it. There is no host allow-list and no check against private address ranges.
+- **Prompt injection cannot be ruled out.** The design limits what an injected instruction can do (it cannot add nodes at run time, and a planned value it influences is flagged). It does not remove the risk. Text inside a PDF or an image cannot be searched offline, so a plain word taken from one is not detected. A value that you wrote yourself and that an attachment repeats counts as yours. Extracted values that flow into ordinary fields without passing a condition are not flagged. The planner can still produce a plausible workflow that does the wrong thing, and your confirmation is the last check.
+- **Gaps in the loop check.** Two workflows that write into each other's watched folders are not detected. On a case-sensitive file system the check can refuse a layout that would have been fine.
+- **At-least-once delivery.** A crash between sending a Slack message and recording the step can send the message twice.
+- **Content goes to the model provider.** Attachments, notes, receipts read by `llm.extract` and masked run records are sent to the provider you chose. What the vendor does with them is the vendor's policy. The app shows each provider's data note (Gemini's free tier may use data for training and review, for example) and always asks the OpenAI and Grok APIs not to store the request. Models whose id ends in `-contributor` are refused. The app does not control retention on the vendor side.
+- **Four of five provider adapters were never called live.** Their request and response handling comes from vendor documentation and fake transports.
+- **No signing, no notarization, no updates.** The installer is signed ad hoc, so there is no chain of trust from a developer certificate. There is no auto-update channel to attack, and no channel to ship a fix either.
+- **macOS only.** `safeStorage` behaves differently on Windows and Linux, and nothing here was checked on them.
+- **No audit log.** The app keeps run records in SQLite. It does not keep a tamper-proof record of who changed what.
+- **Not reviewed or tested by anyone else.** Treat the claims above as the intent of the design and the content of the tests.
+
+## Reporting a problem
+
+The repository is not public yet. When it is, this section will name a contact for security reports.

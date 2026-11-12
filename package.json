@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p apps/desktop/tsconfig.json && tsc -p apps/desktop/tsconfig.node.json && tsc -p apps/desktop/tsconfig.main.json",
     "test": "vitest run",
     "check": "pnpm lint && pnpm typecheck && pnpm test",
-    "eval": "pnpm --filter @rill/eval cli"
+    "eval": "pnpm --filter @rill/eval cli",
+    "demo:prepare": "pnpm --filter @rill/desktop demo:prepare"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
