@@ -648,7 +648,7 @@ export interface DraftConsistencyInput {
 export const MEMORY_NOTES_MAX = 20
 export const MEMORY_NOTE_CHARS = 300
 
-const NOT_ONE_LINE = /[\p{Cc}\p{Zl}\p{Zp}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u
+const NOT_ONE_LINE = /[\p{Cc}\p{Zl}\p{Zp}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]|(?![\u200c\u200d])\p{Cf}|[\u{e0100}-\u{e01ef}]/u
 
 function checkNotes(notes: readonly string[], fail: (message: string) => void): void {
   if (notes.length === 0) fail('notes must not be an empty list')
@@ -657,10 +657,10 @@ function checkNotes(notes: readonly string[], fail: (message: string) => void): 
   notes.forEach((note, index) => {
     const at = `note ${index + 1}`
     if (note.trim() === '') fail(`${at} is empty`)
-    if (NOT_ONE_LINE.test(note)) fail(`${at} is not one line without control or bidi characters`)
+    if (NOT_ONE_LINE.test(note)) fail(`${at} is not one line without control, bidi or invisible format characters`)
     if (note !== note.normalize('NFC').trim().replace(/\s+/gu, ' ')) fail(`${at} is not normalised (NFC, trimmed, single spaces)`)
     if ([...note].length > MEMORY_NOTE_CHARS) fail(`${at} is longer than ${MEMORY_NOTE_CHARS} characters`)
-    const key = note.normalize('NFC').toLowerCase()
+    const key = note.normalize('NFC').toUpperCase().toLowerCase()
     if (seen.has(key)) fail(`duplicate note ${index + 1}`)
     seen.add(key)
   })

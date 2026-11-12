@@ -16,7 +16,7 @@ export interface MemoryPrompt {
   dropped: number
 }
 
-export type MemoryPlacement = 'marked' | 'plain' | 'merged'
+export type MemoryPlacement = 'marked' | 'plain'
 
 const CATALOG_BREAKPOINTS = 1
 
@@ -45,7 +45,6 @@ export function buildMemoryPrompt(notes: readonly string[] | undefined, randomHe
 }
 
 export function memoryPlacement(capabilities: LlmCapabilities, messageBreakpoints: number): MemoryPlacement {
-  if (capabilities.cache !== 'explicit') return 'plain'
   const max = capabilities.maxCacheBreakpoints
-  return max !== undefined && CATALOG_BREAKPOINTS + 1 + messageBreakpoints <= max ? 'marked' : 'merged'
+  return capabilities.cache === 'explicit' && max !== undefined && CATALOG_BREAKPOINTS + 1 + messageBreakpoints <= max ? 'marked' : 'plain'
 }

@@ -1,12 +1,13 @@
 import { MEMORY_MAX_CHARS, MEMORY_MAX_ITEMS } from '@rill/protocol'
 
-export type MemoryRule = 'empty' | 'control_character' | 'line_separator' | 'bidi_format' | 'too_long'
+export type MemoryRule = 'empty' | 'control_character' | 'line_separator' | 'bidi_format' | 'format_character' | 'too_long'
 
 const RULE_TEXT: Readonly<Record<MemoryRule, string>> = {
   empty: 'a note is not empty',
   control_character: 'a note is one line without control characters',
   line_separator: 'a note is one line without line or paragraph separators',
   bidi_format: 'a note has no bidirectional formatting characters',
+  format_character: 'a note has no invisible format characters',
   too_long: `a note is at most ${MEMORY_MAX_CHARS} characters`,
 }
 
@@ -39,6 +40,7 @@ export class MemoryDuplicateError extends Error {
 const CONTROL = /\p{Cc}/u
 const SEPARATOR = /[\p{Zl}\p{Zp}]/u
 const BIDI = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u
+const FORMAT = /(?![\u200c\u200d])\p{Cf}|[\u{e0100}-\u{e01ef}]/u
 const SPACES = /\s+/gu
 
 export function normaliseMemoryText(raw: string): string {
@@ -47,11 +49,12 @@ export function normaliseMemoryText(raw: string): string {
   if (CONTROL.test(trimmed)) throw new MemoryInvalidError('control_character')
   if (SEPARATOR.test(trimmed)) throw new MemoryInvalidError('line_separator')
   if (BIDI.test(trimmed)) throw new MemoryInvalidError('bidi_format')
+  if (FORMAT.test(trimmed)) throw new MemoryInvalidError('format_character')
   const text = trimmed.replace(SPACES, ' ')
   if ([...text].length > MEMORY_MAX_CHARS) throw new MemoryInvalidError('too_long')
   return text
 }
 
 export function memoryKey(text: string): string {
-  return text.normalize('NFC').toLowerCase().normalize('NFC')
+  return text.normalize('NFC').toUpperCase().toLowerCase().normalize('NFC')
 }

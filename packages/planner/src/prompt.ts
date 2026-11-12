@@ -55,7 +55,6 @@ export function systemBlocks(registry: NodeRegistry, attachmentRules?: string, m
   const rules = attachmentRules === undefined || attachmentRules === '' ? PLANNER_RULES : `${PLANNER_RULES}\n\n${attachmentRules}`
   const catalog = catalogText(registry)
   if (memory === undefined || memory.text === '') return [{ text: rules }, { text: catalog, cache: true }]
-  if (memory.placement === 'merged') return [{ text: rules }, { text: `${catalog}\n\n${memory.text}`, cache: true }]
   return [{ text: rules }, { text: catalog, cache: true }, memory.placement === 'marked' ? { text: memory.text, cache: true } : { text: memory.text }]
 }
 

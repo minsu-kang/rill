@@ -355,15 +355,15 @@ describe('memoryPlacement', () => {
     expect(memoryPlacement(caps({ maxCacheBreakpoints: 2 }), 0)).toBe('marked')
   })
 
-  it('merges the notes into the catalog block when one more breakpoint would pass the maximum', () => {
-    expect(memoryPlacement(caps({ maxCacheBreakpoints: 2 }), 1)).toBe('merged')
-    expect(memoryPlacement(caps({ maxCacheBreakpoints: 1 }), 0)).toBe('merged')
-    expect(memoryPlacement(caps({ maxCacheBreakpoints: 3 }), 2)).toBe('merged')
-    expect(memoryPlacement(caps({ maxCacheBreakpoints: 4 }), 3)).toBe('merged')
+  it('leaves the notes unmarked when one more breakpoint would pass the maximum', () => {
+    expect(memoryPlacement(caps({ maxCacheBreakpoints: 2 }), 1)).toBe('plain')
+    expect(memoryPlacement(caps({ maxCacheBreakpoints: 1 }), 0)).toBe('plain')
+    expect(memoryPlacement(caps({ maxCacheBreakpoints: 3 }), 2)).toBe('plain')
+    expect(memoryPlacement(caps({ maxCacheBreakpoints: 4 }), 3)).toBe('plain')
   })
 
-  it('merges when an explicit provider names no maximum', () => {
-    expect(memoryPlacement(noMax(), 0)).toBe('merged')
+  it('leaves the notes unmarked when an explicit provider names no maximum', () => {
+    expect(memoryPlacement(noMax(), 0)).toBe('plain')
   })
 
   it('leaves the block unmarked for automatic and none, whatever the count', () => {
@@ -376,10 +376,9 @@ describe('memoryPlacement', () => {
 describe('systemBlocks with memory', () => {
   const text = 'MEMORY TEXT'
 
-  it('adds a marked block, an unmarked block or a merged catalog tail', () => {
+  it('adds a marked block or an unmarked block and never touches the catalog block', () => {
     expect(systemBlocks(registry, undefined, { text, placement: 'marked' })).toEqual([{ text: PLANNER_RULES }, { text: catalogText(registry), cache: true }, { text, cache: true }])
     expect(systemBlocks(registry, undefined, { text, placement: 'plain' })).toEqual([{ text: PLANNER_RULES }, { text: catalogText(registry), cache: true }, { text }])
-    expect(systemBlocks(registry, undefined, { text, placement: 'merged' })).toEqual([{ text: PLANNER_RULES }, { text: `${catalogText(registry)}\n\n${text}`, cache: true }])
   })
 
   it('adds nothing for an empty text and keeps the old shape without a third argument', () => {
@@ -448,14 +447,14 @@ describe('cache breakpoints of a real plan request', () => {
     expect(breakpoints(request)).toBe(3)
   })
 
-  it('explicit 2 with a cached attachment turn: the notes join the catalog block and keep one system breakpoint', async () => {
+  it('explicit 2 with a cached attachment turn: the notes form an unmarked block and the catalog block stays cached and unchanged', async () => {
     const request = await sent(caps({ maxCacheBreakpoints: 2 }), NOTES, true)
     const system = request.system as LlmSystemBlock[]
-    expect(system).toHaveLength(2)
-    expect(system[1]!.cache).toBe(true)
-    expect(system[1]!.text.startsWith(catalogText(registry))).toBe(true)
-    expect(system[1]!.text).toContain(NOTES[1]!)
-    expect(system[1]!.text).toMatch(TAG)
+    expect(system).toHaveLength(3)
+    expect(system[1]).toEqual({ text: catalogText(registry), cache: true })
+    expect(system[2]!.cache).toBeUndefined()
+    expect(system[2]!.text).toContain(NOTES[1]!)
+    expect(system[2]!.text).toMatch(TAG)
     expect(breakpoints(request)).toBe(2)
   })
 
@@ -465,10 +464,13 @@ describe('cache breakpoints of a real plan request', () => {
     expect(breakpoints(request)).toBe(2)
   })
 
-  it('explicit 1: always merged, one breakpoint', async () => {
+  it('explicit 1: the notes are always an unmarked block after an unchanged catalog block', async () => {
     for (const history of [false, true]) {
       const request = await sent(caps({ maxCacheBreakpoints: 1 }), NOTES, history)
-      expect((request.system as LlmSystemBlock[])).toHaveLength(2)
+      const system = request.system as LlmSystemBlock[]
+      expect(system).toHaveLength(3)
+      expect(system[1]).toEqual({ text: catalogText(registry), cache: true })
+      expect(system[2]!.cache).toBeUndefined()
       expect(breakpoints(request)).toBe(history ? 2 : 1)
     }
   })

@@ -287,6 +287,11 @@ describe('only saveMemory writes notes', () => {
     expect(found.sort()).toEqual(['store.ts:deleteMemory', 'store.ts:saveMemory', 'store.ts:saveMemory'].sort())
   })
 
+  it('keeps every line that mentions the table inside the three store methods that read or write notes', () => {
+    const owners = new Set(sitesOf(join(SOURCES[0]!, 'store.ts'), /memory_items/i).map((site) => site.owner))
+    expect([...owners].sort()).toEqual(['deleteMemory', 'listMemory', 'saveMemory'])
+  })
+
   it('mentions the table only in the migration and the store', () => {
     const files = SOURCES.flatMap((root) => sourceFiles(root)).filter((path) => readFileSync(path, 'utf8').includes('memory_items'))
     expect(files.map((path) => relative(SOURCES[0]!, path)).sort()).toEqual(['migrations.ts', 'store.ts'])
@@ -365,7 +370,7 @@ describe('the note text stays inside the engine and the provider call', () => {
 })
 
 describe('the note limit over the websocket', () => {
-  it('lets only one of two saves that race for the last slot through', async () => {
+  it('refuses the second of two saves sent together for the last slot', async () => {
     const { client, connect, db } = await start()
     const other = await connect()
     for (let index = 0; index < MEMORY_MAX_ITEMS - 1; index++) await client.request('saveMemory', { text: `note ${index}` })
