@@ -3,7 +3,8 @@ import Type from 'typebox'
 import Value from 'typebox/value'
 
 export const CATEGORIES = ['easy', 'ambiguous', 'unsupported', 'attachment', 'patch'] as const
-export type Category = (typeof CATEGORIES)[number]
+export const ALL_CATEGORIES = [...CATEGORIES, 'memory'] as const
+export type Category = (typeof ALL_CATEGORIES)[number]
 
 export const LANGUAGES = ['ko', 'en', 'mixed'] as const
 export const EFFORTS = ['low', 'medium', 'high'] as const
@@ -109,6 +110,7 @@ const contextSchema = Type.Object(
     existingWorkflow: Type.Optional(WorkflowSchema),
     selectedNodeId: Type.Optional(text),
     attachments: Type.Optional(Type.Array(attachmentSpecSchema)),
+    memory: Type.Optional(Type.Array(text)),
   },
   strict,
 )
@@ -118,7 +120,7 @@ export type CaseContext = Type.Static<typeof contextSchema>
 export const caseSchema = Type.Object(
   {
     id: text,
-    category: Type.Enum(CATEGORIES),
+    category: Type.Enum(ALL_CATEGORIES),
     language: Type.Enum(LANGUAGES),
     prompt: text,
     context: contextSchema,

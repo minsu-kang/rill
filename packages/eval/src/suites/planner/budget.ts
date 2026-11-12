@@ -1,6 +1,6 @@
 import { STREAMING_ABOVE_MAX_TOKENS } from '@rill/llm'
 import { createCoreRegistry, type NodeRegistry } from '@rill/nodes-core'
-import { ATTACHMENT_RULES, EFFORT_BUDGETS, MAX_TARGETED_NODES, PLANNER_RULES, catalogText, generationSchema, type PlanEffort } from '@rill/planner'
+import { ATTACHMENT_RULES, EFFORT_BUDGETS, MAX_TARGETED_NODES, PLANNER_RULES, buildMemoryPrompt, catalogText, generationSchema, type PlanEffort } from '@rill/planner'
 import { estimateCallUsd } from '../../pricing'
 import { softCapFactor } from '../../spec'
 import { PDF_INPUT_TOKENS, PNG_INPUT_TOKENS, TEXT_CHARS_PER_TOKEN, TEXT_OVERHEAD_TOKENS } from '../extract/suite'
@@ -68,10 +68,13 @@ export function worstCaseSeconds(maxRepairRounds: number): number {
   return worstCaseCalls(maxRepairRounds) * slowestCallSeconds()
 }
 
+const MEMORY_TAG_PLACEHOLDER = '0'.repeat(12)
+
 function contextChars(spec: CaseSpec): number {
   const { context } = spec
   const workflow = context.existingWorkflow === undefined ? 0 : JSON.stringify(context.existingWorkflow).length
-  return spec.prompt.length + workflow + context.connections.join(', ').length + context.allowedFolders.join(', ').length
+  const memory = buildMemoryPrompt(context.memory, () => MEMORY_TAG_PLACEHOLDER).text.length
+  return spec.prompt.length + workflow + context.connections.join(', ').length + context.allowedFolders.join(', ').length + memory
 }
 
 function attachmentTokens(file: ResolvedAttachment): number {

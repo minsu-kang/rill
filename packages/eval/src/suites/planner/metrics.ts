@@ -51,6 +51,17 @@ export interface PlannerMetrics {
 
 type Task = TaskResult<PlannerOutput>
 
+export interface MemoryPairRef {
+  with: string
+  without: string
+}
+
+export interface MemoryPairMetrics {
+  pairs: number
+  avoided: number
+  added: number
+}
+
 const AMBIGUOUS = 'ambiguous'
 
 export function rate(num: number, den: number): Rate {
@@ -144,4 +155,25 @@ export function plannerMetrics(all: readonly Task[]): PlannerMetrics {
     failedChecks: countBy(scored.flatMap((task) => task.score?.tags?.['checks'] ?? [])),
     planErrors: countBy(all.flatMap((task) => (task.output instanceof PlanError ? [task.output.kind] : []))),
   }
+}
+
+export function memoryPairMetrics(all: readonly Task[], pairs: readonly MemoryPairRef[]): MemoryPairMetrics {
+  const asked = new Map<string, number>()
+  for (const task of all) {
+    const value = extra(task, 'asked')
+    if (task.score !== undefined && value !== undefined) asked.set(JSON.stringify([task.model, task.rep, task.caseId]), value)
+  }
+  const result: MemoryPairMetrics = { pairs: 0, avoided: 0, added: 0 }
+  for (const task of all) {
+    for (const pair of pairs) {
+      if (task.caseId !== pair.with) continue
+      const withNotes = asked.get(JSON.stringify([task.model, task.rep, pair.with]))
+      const without = asked.get(JSON.stringify([task.model, task.rep, pair.without]))
+      if (withNotes === undefined || without === undefined) continue
+      result.pairs += 1
+      if (without === 1 && withNotes === 0) result.avoided += 1
+      if (withNotes === 1 && without === 0) result.added += 1
+    }
+  }
+  return result
 }

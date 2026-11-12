@@ -39,6 +39,7 @@ export function buildPlanRequest(spec: CaseSpec, attachments: readonly Attachmen
       allowedRoots: [...context.allowedFolders],
       ...(context.existingWorkflow === undefined ? {} : { existingWorkflow: structuredClone(context.existingWorkflow) }),
       attachmentsRoot: attachmentsRootOf(context.allowedFolders),
+      ...(context.memory === undefined ? {} : { memory: [...context.memory] }),
     },
   }
 }

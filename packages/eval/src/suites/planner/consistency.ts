@@ -14,8 +14,9 @@ import {
   literalPaths,
   type Produced,
 } from './assertions'
+import { MEMORY_DRAFT_SIZE, memoryDraftSchema, type MemoryDraftFile } from './memory-draft'
 import {
-  CATEGORIES,
+  ALL_CATEGORIES,
   TAGS,
   casesSchema,
   referencesSchema,
@@ -55,9 +56,9 @@ export interface ConsistencyResult {
   summary: ConsistencySummary | undefined
 }
 
-export const EXPECTED_COUNTS: Readonly<Record<Category, number>> = { easy: 20, ambiguous: 10, unsupported: 8, attachment: 6, patch: 4 }
-export const ID_PREFIX: Readonly<Record<Category, string>> = { easy: 'easy', ambiguous: 'ambig', unsupported: 'unsup', attachment: 'attach', patch: 'patch' }
-export const OUTCOME_FOR: Readonly<Record<Category, string>> = {
+export const EXPECTED_COUNTS: Readonly<Record<Category, number>> = { easy: 20, ambiguous: 10, unsupported: 8, attachment: 6, patch: 4, memory: 0 }
+export const ID_PREFIX: Readonly<Record<Category, string>> = { easy: 'easy', ambiguous: 'ambig', unsupported: 'unsup', attachment: 'attach', patch: 'patch', memory: 'mem' }
+export const OUTCOME_FOR: Readonly<Partial<Record<Category, string>>> = {
   easy: 'workflow',
   ambiguous: 'questions',
   unsupported: 'unsupported',
@@ -67,7 +68,7 @@ export const OUTCOME_FOR: Readonly<Record<Category, string>> = {
 
 const NODE_TYPE_RE = /^[a-z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*)*@[0-9]+$/
 const FIELD_NAME_RE = /^[a-z][a-zA-Z0-9_]{0,31}$/
-const ID_RE = /^(easy|ambig|unsup|attach|patch)-\d{2}-[a-z0-9-]+$/
+const ID_RE = /^(easy|ambig|unsup|attach|patch|mem)-\d{2}-[a-z0-9-]+$/
 const MAX_PROMPT = 600
 const MAX_WHY = 420
 const MIN_WORKFLOW_ASSERTIONS = 5
@@ -391,23 +392,24 @@ function checkCase(input: ConsistencyInput, testCase: CaseSpec, report: (where: 
       }
     }
   } else if (context.existingWorkflow !== undefined || context.selectedNodeId !== undefined) fail('existingWorkflow/selectedNodeId only belong to patch cases')
-  if (testCase.category === 'attachment') {
-    if (context.attachments === undefined || context.attachments.length === 0) fail('attachment cases need attachments')
-    else {
-      context.attachments.forEach((attachment, index) => {
-        const at = `${where}.attachments[${index}]`
-        if (!input.seeds.some((seed) => seed.id === attachment.fixture)) report(at, `fixture ${attachment.fixture} is not a seed id in seeds.json`)
-        const entry = input.manifest.find((file) => file.seedId === attachment.fixture && file.kind === attachment.kind)
-        if (entry === undefined) report(at, `no ${attachment.kind} fixture for ${attachment.fixture} in manifest.json`)
-        else if (input.fixtureExists !== undefined && !input.fixtureExists(entry.path)) report(at, `fixture file missing on disk: ${entry.path}`)
-        if (!isStr(attachment.note)) report(at, 'note must be a non-empty string')
-        if (attachment.inject !== undefined && !isStr(attachment.inject)) report(at, 'inject must be a non-empty string')
-      })
-    }
-  } else if (context.attachments !== undefined) fail('attachments only belong to attachment cases')
+  if (context.memory !== undefined && testCase.category !== 'memory') fail('memory notes only belong to memory cases')
+  if (testCase.category === 'attachment' && (context.attachments === undefined || context.attachments.length === 0)) fail('attachment cases need attachments')
+  else if (testCase.category !== 'attachment' && testCase.category !== 'memory' && context.attachments !== undefined) fail('attachments only belong to attachment cases')
+  else {
+    context.attachments?.forEach((attachment, index) => {
+      const at = `${where}.attachments[${index}]`
+      if (!input.seeds.some((seed) => seed.id === attachment.fixture)) report(at, `fixture ${attachment.fixture} is not a seed id in seeds.json`)
+      const entry = input.manifest.find((file) => file.seedId === attachment.fixture && file.kind === attachment.kind)
+      if (entry === undefined) report(at, `no ${attachment.kind} fixture for ${attachment.fixture} in manifest.json`)
+      else if (input.fixtureExists !== undefined && !input.fixtureExists(entry.path)) report(at, `fixture file missing on disk: ${entry.path}`)
+      if (!isStr(attachment.note)) report(at, 'note must be a non-empty string')
+      if (attachment.inject !== undefined && !isStr(attachment.inject)) report(at, 'inject must be a non-empty string')
+    })
+  }
 
-  if (testCase.expect.outcome !== OUTCOME_FOR[testCase.category]) {
-    fail(`category ${testCase.category} expects outcome ${OUTCOME_FOR[testCase.category]}, found ${testCase.expect.outcome}`)
+  const wanted = OUTCOME_FOR[testCase.category]
+  if (wanted !== undefined && testCase.expect.outcome !== wanted) {
+    fail(`category ${testCase.category} expects outcome ${wanted}, found ${testCase.expect.outcome}`)
   }
   checkBlock(registry, (message) => report(`${where}.expect`, message), testCase.expect, context, true)
 }
@@ -415,7 +417,7 @@ function checkCase(input: ConsistencyInput, testCase: CaseSpec, report: (where: 
 function checkCounts(cases: readonly CaseSpec[], report: (where: string, message: string) => void): void {
   const { summary, hard } = tally(cases)
   if (cases.length !== 48) report('cases.json', `expected exactly 48 cases, found ${cases.length}`)
-  for (const category of CATEGORIES) {
+  for (const category of ALL_CATEGORIES) {
     const found = summary.category[category] ?? 0
     if (found !== EXPECTED_COUNTS[category]) report('counts', `${category}: expected ${EXPECTED_COUNTS[category]}, found ${found}`)
   }
@@ -630,5 +632,116 @@ export function checkConsistency(input: ConsistencyInput): ConsistencyResult {
       coveredTypes: [...covered].sort(),
       unusedTypes: catalog.filter((type) => !covered.has(type)),
     },
+  }
+}
+
+export interface DraftConsistencyInput {
+  draft: unknown
+  references: unknown
+  approvedCases: unknown
+  registry: NodeRegistry
+  seeds: readonly { id: string }[]
+  manifest: readonly { seedId: string; kind: string; path: string }[]
+  fixtureExists?: (path: string) => boolean
+}
+
+export const MEMORY_NOTES_MAX = 20
+export const MEMORY_NOTE_CHARS = 300
+
+const NOT_ONE_LINE = /[\p{Cc}\p{Zl}\p{Zp}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u
+
+function checkNotes(notes: readonly string[], fail: (message: string) => void): void {
+  if (notes.length === 0) fail('notes must not be an empty list')
+  if (notes.length > MEMORY_NOTES_MAX) fail(`a case holds at most ${MEMORY_NOTES_MAX} notes, found ${notes.length}`)
+  const seen = new Set<string>()
+  notes.forEach((note, index) => {
+    const at = `note ${index + 1}`
+    if (note.trim() === '') fail(`${at} is empty`)
+    if (NOT_ONE_LINE.test(note)) fail(`${at} is not one line without control or bidi characters`)
+    if (note !== note.normalize('NFC').trim().replace(/\s+/gu, ' ')) fail(`${at} is not normalised (NFC, trimmed, single spaces)`)
+    if ([...note].length > MEMORY_NOTE_CHARS) fail(`${at} is longer than ${MEMORY_NOTE_CHARS} characters`)
+    const key = note.normalize('NFC').toLowerCase()
+    if (seen.has(key)) fail(`duplicate note ${index + 1}`)
+    seen.add(key)
+  })
+}
+
+function sameCase(left: CaseSpec, right: CaseSpec): boolean {
+  return JSON.stringify([left.prompt, left.context, left.effort, left.expect]) === JSON.stringify([right.prompt, right.context, right.effort, right.expect])
+}
+
+function withoutNotes(testCase: CaseSpec): unknown {
+  const context: Record<string, unknown> = { ...testCase.context }
+  delete context['memory']
+  return [testCase.prompt, context, testCase.effort]
+}
+
+function checkPairs(draft: MemoryDraftFile, approved: readonly CaseSpec[], report: Report): void {
+  const byId = new Map(draft.cases.map((testCase) => [testCase.id, testCase]))
+  const controls = new Set(draft.pairs.map((pair) => pair.without))
+  for (const testCase of draft.cases) {
+    const where = testCase.id
+    if (controls.has(testCase.id)) {
+      if (testCase.context.memory !== undefined) report(where, 'the control case must have no notes')
+    } else if (testCase.context.memory === undefined) report(where, 'a case without notes must be the control of a pair; every other case must have notes')
+  }
+  draft.pairs.forEach((pair, index) => {
+    const where = `pairs[${index}]`
+    const withNotes = byId.get(pair.with)
+    const control = byId.get(pair.without)
+    if (withNotes === undefined || control === undefined) return report(where, 'names an unknown case')
+    if (control.expect.outcome !== 'questions') report(where, 'the control must expect questions')
+    if (withNotes.expect.outcome !== 'workflow') report(where, 'the case with notes must expect a workflow')
+    if (JSON.stringify(withoutNotes(withNotes)) !== JSON.stringify(withoutNotes(control))) report(where, 'the two cases of a pair differ by more than the notes')
+    const base = approved.find((testCase) => testCase.id === pair.reuses)
+    if (base === undefined || base.category !== 'ambiguous') report(where, `reuses ${pair.reuses}, which is not an approved ambiguous case`)
+    else if (!sameCase(control, base)) report(where, `the control differs from the approved case ${base.id}`)
+  })
+}
+
+export function checkMemoryDraft(input: DraftConsistencyInput): ConsistencyResult {
+  const problems: string[] = []
+  const report: Report = (where, message) => {
+    problems.push(`${where}: ${message}`)
+  }
+  const shape = schemaProblems(memoryDraftSchema, input.draft)
+  if (shape.length > 0) return { problems: shape.map((problem) => `memory draft: ${problem}`), summary: undefined }
+  if (!isObj(input.references)) return { problems: ['memory draft: references must be an object'], summary: undefined }
+  const draft = input.draft as MemoryDraftFile
+  const references = input.references
+  const approved = Array.isArray(input.approvedCases) ? (input.approvedCases as CaseSpec[]) : []
+  const approvedIds = new Set(approved.map((testCase) => testCase.id))
+  const cases = draft.cases
+  if (cases.length !== MEMORY_DRAFT_SIZE) report('memory draft', `expected exactly ${MEMORY_DRAFT_SIZE} cases, found ${cases.length}`)
+  const base: ConsistencyInput = {
+    cases,
+    references,
+    vocabulary: {},
+    registry: input.registry,
+    seeds: input.seeds,
+    manifest: input.manifest,
+    ...(input.fixtureExists === undefined ? {} : { fixtureExists: input.fixtureExists }),
+  }
+  const ids = new Set<string>()
+  for (const testCase of cases) {
+    if (ids.has(testCase.id)) report(testCase.id, 'duplicate id')
+    ids.add(testCase.id)
+    if (approvedIds.has(testCase.id)) report(testCase.id, 'is an id of the approved suite')
+    if (testCase.category !== 'memory') report(testCase.id, 'must be a memory case')
+    checkCase(base, testCase, report)
+    if (testCase.context.memory !== undefined) checkNotes(testCase.context.memory, (message) => report(`${testCase.id}.memory`, message))
+  }
+  checkPairs(draft, approved, report)
+  const covered = checkReferences(base, cases, references, report)
+  for (const testCase of cases) {
+    guarded(report, testCase.id, () => checkMutation(testCase, references, report))
+    guarded(report, testCase.id, () => checkMachinery(testCase, report))
+  }
+  checkParity(references, report)
+  const catalog = input.registry.list().map((def) => def.type)
+  const { summary } = tally(cases)
+  return {
+    problems,
+    summary: { ...summary, references: Object.keys(references).length, coveredTypes: [...covered].sort(), unusedTypes: catalog.filter((type) => !covered.has(type)) },
   }
 }

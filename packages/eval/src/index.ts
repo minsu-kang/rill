@@ -381,7 +381,13 @@ export {
   worstCaseCalls as plannerWorstCaseCalls,
 } from './suites/planner/budget'
 export { goldNodeTypes as plannerGoldNodeTypes, loadPlannerData, toPlannerCase, type PlannerCase, type PlannerData } from './suites/planner/cases'
-export { checkConsistency as checkPlannerConsistency, type ConsistencyInput as PlannerConsistencyInput, type ConsistencyResult as PlannerConsistencyResult } from './suites/planner/consistency'
+export {
+  checkConsistency as checkPlannerConsistency,
+  checkMemoryDraft as checkPlannerMemoryDraft,
+  type ConsistencyInput as PlannerConsistencyInput,
+  type ConsistencyResult as PlannerConsistencyResult,
+  type DraftConsistencyInput as PlannerMemoryDraftInput,
+} from './suites/planner/consistency'
 export { CONNECTION_KINDS as PLANNER_CONNECTION_KINDS, buildPlanRequest, withDemoHome } from './suites/planner/context'
 export {
   alwaysAsksPlanner,
@@ -398,7 +404,21 @@ export {
 } from './suites/planner/fakes'
 export { ERROR_ISSUE, WARNING_ISSUE, fakeResult, fakeRound, fakeUsage, questionsBody, unsupportedBody, workflowBody } from './suites/planner/fake-results'
 export { caseNeedles, injectionNeedles, judgeInjection, nodesWithNeedle, quarantine } from './suites/planner/injection'
-export { plannerMetrics, taskPassed as plannerTaskPassed, type PlannerMetrics, type Rate as PlannerRate } from './suites/planner/metrics'
+export {
+  MEMORY_DRAFT_ATTACHMENTS_DIR as PLANNER_MEMORY_DRAFT_ATTACHMENTS_DIR,
+  loadMemoryDraft as loadPlannerMemoryDraft,
+  memoryDraftData as plannerMemoryDraftData,
+  type MemoryDraft as PlannerMemoryDraft,
+  type MemoryPair as PlannerMemoryPair,
+} from './suites/planner/memory-draft'
+export {
+  memoryPairMetrics as plannerMemoryPairMetrics,
+  plannerMetrics,
+  taskPassed as plannerTaskPassed,
+  type MemoryPairMetrics as PlannerMemoryPairMetrics,
+  type PlannerMetrics,
+  type Rate as PlannerRate,
+} from './suites/planner/metrics'
 export { renderPlannerReport, type PlannerReportInput, type PlannerReportMeta } from './suites/planner/report'
 export { HIDDEN_FIELD_CODE as PLANNER_HIDDEN_FIELD_CODE, PLANNER_FIELDS, classify as classifyPlannerOutput, scorePlannerCase, type PlannerOutput } from './suites/planner/scoring'
 export {

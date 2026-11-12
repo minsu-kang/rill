@@ -7,7 +7,8 @@
   "scripts": {
     "cli": "node --import tsx src/cli.ts",
     "generate-fixtures": "node --import tsx src/generate-fixtures.ts",
-    "generate-planner-attachments": "node --import tsx src/suites/planner/generate-attachments.ts"
+    "generate-planner-attachments": "node --import tsx src/suites/planner/generate-attachments.ts",
+    "generate-memory-draft-attachments": "node --import tsx src/suites/planner/generate-memory-draft-attachments.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

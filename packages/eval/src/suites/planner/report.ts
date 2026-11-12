@@ -2,7 +2,7 @@ import { effortLines, groupByProvider, notRunSection, providerCell, providerLine
 import { errorSection, num, partialNotice, pct, table, usd, type ReportMeta } from '../../report'
 import type { RunResult, TaskResult } from '../../runner'
 import { clusterBootstrapRatio, type RatioRow } from '../../stats'
-import { plannerMetrics, ratio, taskPassed, type PlannerMetrics, type Rate } from './metrics'
+import { memoryPairMetrics, plannerMetrics, ratio, taskPassed, type MemoryPairRef, type PlannerMetrics, type Rate } from './metrics'
 import type { PlannerOutput } from './scoring'
 
 export interface PlannerReportMeta extends ReportMeta {
@@ -13,6 +13,7 @@ export interface PlannerReportMeta extends ReportMeta {
 export interface PlannerReportInput {
   run: RunResult<PlannerOutput>
   meta: PlannerReportMeta
+  pairs?: readonly MemoryPairRef[]
 }
 
 type Task = TaskResult<PlannerOutput>
@@ -113,6 +114,22 @@ function questionsSection(stats: readonly { model: string; metrics: PlannerMetri
     ),
     'Refused: the unsupported prompts that got an unsupported answer. Named, nothing invented: the refusal also names what is unsupported. Hidden field: a round reported planner_hidden_field (pollMs, stableMs, timeoutMs, maxBytes or overlap set by the model).',
     '',
+  ]
+}
+
+function memorySection(stats: readonly { model: string; tasks: Task[] }[], pairs: readonly MemoryPairRef[]): string[] {
+  return [
+    '## Memory',
+    '',
+    'Each pair is one request run twice: once with the saved notes and once without. Questions avoided with memory is the paired difference: pairs where only the run without notes asked, minus pairs where only the run with notes asked.',
+    '',
+    ...table(
+      ['Model', 'Pairs', 'Asked without notes only', 'Asked with notes only', 'Questions avoided with memory (paired difference)'],
+      stats.map(({ model, tasks }) => {
+        const { pairs: count, avoided, added } = memoryPairMetrics(tasks, pairs)
+        return [model, String(count), String(avoided), String(added), share({ num: avoided - added, den: count })]
+      }),
+    ),
   ]
 }
 
@@ -220,7 +237,7 @@ export function renderPlannerReport(input: PlannerReportInput): string {
   const lines: string[] = [...headerSection(input, cases)]
   if (stats.length === 0) lines.push('No model under test in this run.', '')
   else {
-    lines.push(...resultsSection(stats, meta.seed), ...notRunSection(run), ...questionsSection(stats), ...injectionSection(stats), ...performanceSection(stats), ...categorySection(stats))
+    lines.push(...resultsSection(stats, meta.seed), ...notRunSection(run), ...questionsSection(stats), ...injectionSection(stats), ...(input.pairs === undefined || input.pairs.length === 0 ? [] : memorySection(stats, input.pairs)), ...performanceSection(stats), ...categorySection(stats))
     if (run.budgetUsd !== undefined) lines.push(`Budget: ${usd(run.budgetUsd)}, spent ${usd(run.spentUsd)}.`, '')
   }
   lines.push(...checksSection(stats), ...errorSection(run, meta.models), ...suspectSection(run, meta.models))
