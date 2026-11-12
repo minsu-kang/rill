@@ -6,7 +6,11 @@ export type TokenBlock = Map<string, string>
 export const TOKENS_PATH = join(import.meta.dirname, '../src/theme/tokens.css')
 
 export function readTokenBlocks(): Map<string, TokenBlock> {
-  const css = readFileSync(TOKENS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  return parseTokenBlocks(readFileSync(TOKENS_PATH, 'utf8'))
+}
+
+export function parseTokenBlocks(source: string): Map<string, TokenBlock> {
+  const css = source.replace(/\/\*[\s\S]*?\*\//g, '')
   const blocks = new Map<string, TokenBlock>()
   for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const selector = match[1]!.trim().replace(/\s+/g, ' ')
