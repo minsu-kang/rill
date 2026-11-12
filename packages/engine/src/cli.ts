@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util'
 import { PROVIDER_IDS, providerDescriptor } from '@rill/llm'
 import { createCoreRegistry } from '@rill/nodes-core'
 import { PROTOCOL_VERSION } from '@rill/protocol'
-import { UsageError, chooseLlm, loadConnections, prepareAttachmentsDir } from './cli-config'
+import { UsageError, chooseLlm, prepareAttachmentsDir, resolveConnections } from './cli-config'
 import { Db } from './db'
 import { Engine, WorkflowValidationError } from './engine'
 import { RillServer } from './server/server'
@@ -20,6 +20,8 @@ const USAGE = `usage:
 Every command accepts --llm-provider <id> (default anthropic), --llm-model <id> and --llm-no-fallback. The chosen provider serves llm.extract steps and, for serve, the planner. Providers and the environment variable that holds each key:
 ${PROVIDER_TABLE}
 --llm-model defaults to claude-opus-5-5 for anthropic and is required for every other provider; an unknown model, or a Meta model whose id ends in -contributor, is refused. --llm-no-fallback turns off the Anthropic refusal fallback and has no effect on the other providers. When the key of a provider other than anthropic is missing the engine starts without a model provider: plan requests fail with LLM_UNAVAILABLE and llm.extract steps fail. The llmModels method lists the models, which providers have a key and the active model, and never returns a key.
+
+Connections can also come from the RILL_CONNECTIONS environment variable, which holds the same JSON text as the file. It is read once and removed from the environment, and it cannot be combined with --connections.
 
 serve reads its access token from the RILL_TOKEN environment variable (16 or more characters from A-Z, a-z, 0-9 and !#$%&'*+-.^_\`|~) and prints a generated one when it is not set.
 
@@ -111,7 +113,7 @@ async function main(argv: string[]): Promise<number> {
     if (unconfigured !== undefined) {
       console.error(`${providerDescriptor(unconfigured).keyEnv} is not set; planning and llm.extract are unavailable`)
     }
-    const connections = loadConnections(values.connections)
+    const connections = resolveConnections({ file: values.connections, env: process.env })
     if (values['attachments-dir'] !== undefined && command !== 'serve') {
       throw new UsageError('--attachments-dir is only used by serve')
     }

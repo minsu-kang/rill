@@ -22,9 +22,8 @@ function badEntry(name: string, reason: string): UsageError {
   return new UsageError(`connection ${JSON.stringify(name)} ${reason}`)
 }
 
-export function parseConnections(text: string): LoadedConnections {
-  const table: unknown = JSON.parse(text)
-  if (!isObject(table)) throw new UsageError('the connections file must be a JSON object that maps names to secrets')
+function connectionsFromTable(table: unknown, source: string): LoadedConnections {
+  if (!isObject(table)) throw new UsageError(`${source} must be a JSON object that maps names to secrets`)
   const secrets = new Map<string, string>()
   const planConnections: PlanConnection[] = []
   for (const [name, entry] of Object.entries(table)) {
@@ -45,8 +44,35 @@ export function parseConnections(text: string): LoadedConnections {
   return { resolver: { get: (id) => secrets.get(id) }, planConnections }
 }
 
+export function parseConnections(text: string): LoadedConnections {
+  return connectionsFromTable(JSON.parse(text), 'the connections file')
+}
+
 export function loadConnections(file: string | undefined): LoadedConnections {
   return parseConnections(file === undefined ? '{}' : readFileSync(file, 'utf8'))
+}
+
+const CONNECTIONS_VARIABLE = 'RILL_CONNECTIONS'
+
+export function resolveConnections(input: { file: string | undefined; env: Record<string, string | undefined> }): LoadedConnections {
+  const given = input.env[CONNECTIONS_VARIABLE]
+  delete input.env[CONNECTIONS_VARIABLE]
+  if (given === undefined || given === '') return loadConnections(input.file)
+  if (input.file !== undefined) throw new UsageError(`${CONNECTIONS_VARIABLE} and --connections cannot be used together`)
+  let table: unknown
+  try {
+    table = JSON.parse(given)
+  } catch {
+    throw new UsageError(`${CONNECTIONS_VARIABLE} is not valid JSON`)
+  }
+  try {
+    return connectionsFromTable(table, CONNECTIONS_VARIABLE)
+  } catch (error) {
+    if (error instanceof UsageError && !error.message.startsWith(CONNECTIONS_VARIABLE)) {
+      throw new UsageError(`${CONNECTIONS_VARIABLE}: ${error.message}`)
+    }
+    throw error
+  }
 }
 
 export function prepareAttachmentsDir(dir: string, allow: readonly string[] | undefined): string {

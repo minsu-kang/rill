@@ -7,7 +7,8 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "fixtures": "node --import tsx scripts/make-catalog-fixture.ts",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "bundle-engine": "node --import tsx scripts/bundle-engine.ts"
   },
   "dependencies": {
     "@dagrejs/dagre": "3.1.3",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@rill/engine": "workspace:*",
+    "@rill/llm": "workspace:*",
     "@rill/nodes-core": "workspace:*",
     "@storybook/addon-a11y": "10.6.7",
     "@storybook/react-vite": "10.6.7",
@@ -29,6 +31,10 @@
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.3.0",
     "axe-core": "4.14.0",
+    "electron": "45.3.0",
+    "electron-builder": "26.18.0",
+    "electron-vite": "6.0.0",
+    "esbuild": "0.28.2",
     "jsdom": "31.0.0",
     "storybook": "10.6.7",
     "typebox": "^1.4.6",
