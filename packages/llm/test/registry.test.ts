@@ -285,3 +285,113 @@ describe('modelCapabilities', () => {
     expect(() => modelCapabilities(models, 'grok-9')).toThrow('grok-9')
   })
 })
+
+describe('capability facts of every model', () => {
+  const caps = (spec: string) => findModel(spec)!.capabilities
+  const identity = { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' }
+  const ALL = ['low', 'medium', 'high', 'xhigh', 'max']
+
+  const openai = ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'].map((id) => `openai:${id}`)
+  const gemini = ['gemini-4-carbon', 'gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'].map((id) => `gemini:${id}`)
+  const grok = ['grok-4.7', 'grok-4.6', 'grok-4.5', 'grok-4.3'].map((id) => `grok:${id}`)
+  const meta = ['muse-wonder-1.0', 'muse-spark-1.3', 'muse-spark-1.2', 'muse-spark-1.1', 'muse-ember-1.0'].map((id) => `meta:${id}`)
+
+  it('lists exactly these models for each vendor', () => {
+    expect(listModels().filter((model) => model.provider === 'openai').map((model) => `openai:${model.id}`)).toEqual(openai)
+    expect(listModels().filter((model) => model.provider === 'gemini').map((model) => `gemini:${model.id}`)).toEqual(gemini)
+    expect(listModels().filter((model) => model.provider === 'grok').map((model) => `grok:${model.id}`)).toEqual(grok)
+    expect(listModels().filter((model) => model.provider === 'meta').map((model) => `meta:${model.id}`)).toEqual(meta)
+  })
+
+  it.each(openai)('%s: Responses API with explicit breakpoints, 50 MB of files, every effort level', (spec) => {
+    const c = caps(spec)
+    expect(c).toMatchObject({
+      structuredOutput: 'strict',
+      documents: 'native-pdf',
+      images: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+      maxRequestBytes: 50_000_000,
+      cache: 'explicit',
+      maxCacheBreakpoints: 3,
+      reasoningCappedByMaxTokens: true,
+      streaming: 'optional',
+      maxOutputTokens: 128_000,
+    })
+    expect(c.effortLevels).toEqual(ALL)
+    expect(c.effortMap).toEqual(identity)
+    expect(findModel(spec)!.contextTokens).toBe(1_050_000)
+  })
+
+  it.each(gemini)('%s: automatic cache, streaming required, three thinking levels, 75 MB of inline files', (spec) => {
+    const c = caps(spec)
+    expect(c).toMatchObject({
+      structuredOutput: 'strict',
+      documents: 'native-pdf',
+      images: ['image/png', 'image/jpeg', 'image/webp'],
+      maxRequestBytes: 75_000_000,
+      cache: 'automatic',
+      reasoningCappedByMaxTokens: true,
+      streaming: 'required',
+      maxOutputTokens: 65_536,
+    })
+    expect(c.maxCacheBreakpoints).toBeUndefined()
+    expect(c.effortLevels).toEqual(['low', 'medium', 'high'])
+    expect(c.effortMap).toEqual({ low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high' })
+    expect(findModel(spec)!.contextTokens).toBe(1_048_576)
+  })
+
+  it.each(grok)('%s: no PDF, PNG and JPEG only, a soft output cap, no request byte cap', (spec) => {
+    const c = caps(spec)
+    expect(c).toMatchObject({ structuredOutput: 'strict', documents: 'none', images: ['image/png', 'image/jpeg'], cache: 'automatic', reasoningCappedByMaxTokens: false, streaming: 'required' })
+    expect(c.maxRequestBytes).toBeUndefined()
+    expect(c.maxOutputTokens).toBeUndefined()
+    expect(c.maxCacheBreakpoints).toBeUndefined()
+  })
+
+  it('maps Grok effort per model, with xhigh and max collapsing where the model has no such level', () => {
+    for (const spec of ['grok:grok-4.7', 'grok:grok-4.6', 'grok:grok-4.3']) {
+      expect(caps(spec).effortLevels, spec).toEqual(['low', 'medium', 'high', 'xhigh'])
+      expect(caps(spec).effortMap, spec).toEqual({ low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'xhigh' })
+    }
+    expect(caps('grok:grok-4.5').effortLevels).toEqual(['low', 'medium', 'high'])
+    expect(caps('grok:grok-4.5').effortMap).toEqual({ low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high' })
+    expect(['grok:grok-4.7', 'grok:grok-4.6', 'grok:grok-4.5', 'grok:grok-4.3'].map((spec) => findModel(spec)!.contextTokens)).toEqual([500_000, 500_000, 500_000, 1_000_000])
+  })
+
+  it.each(meta)('%s: PDF and four image types, 50 MB of files, automatic cache, streaming required', (spec) => {
+    const c = caps(spec)
+    expect(c).toMatchObject({
+      structuredOutput: 'strict',
+      documents: 'native-pdf',
+      images: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+      maxRequestBytes: 50_000_000,
+      cache: 'automatic',
+      reasoningCappedByMaxTokens: true,
+      streaming: 'required',
+    })
+    expect(c.maxCacheBreakpoints).toBeUndefined()
+    expect(findModel(spec)!.contextTokens).toBe(1_048_576)
+  })
+
+  it('gives Muse Spark 1.2 and 1.1 four effort levels, with max sent as xhigh, and the other Muse models all five', () => {
+    for (const spec of ['meta:muse-spark-1.2', 'meta:muse-spark-1.1']) {
+      expect(caps(spec).effortLevels, spec).toEqual(['low', 'medium', 'high', 'xhigh'])
+      expect(caps(spec).effortMap, spec).toEqual({ low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'xhigh' })
+    }
+    for (const spec of ['meta:muse-wonder-1.0', 'meta:muse-spark-1.3', 'meta:muse-ember-1.0']) {
+      expect(caps(spec).effortLevels, spec).toEqual(ALL)
+      expect(caps(spec).effortMap, spec).toEqual(identity)
+    }
+  })
+
+  it('caps output tokens only for Muse Ember', () => {
+    expect(meta.filter((spec) => caps(spec).maxOutputTokens !== undefined)).toEqual(['meta:muse-ember-1.0'])
+    expect(caps('meta:muse-ember-1.0').maxOutputTokens).toBe(524_288)
+  })
+
+  it('uses the Claude defaults for the Anthropic models', () => {
+    for (const id of ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']) {
+      expect(caps(id), id).toMatchObject({ documents: 'native-pdf', cache: 'explicit', maxCacheBreakpoints: 4, reasoningCappedByMaxTokens: true, streaming: 'optional', maxOutputTokens: 128_000 })
+      expect(caps(id).effortMap, id).toEqual(identity)
+    }
+  })
+})

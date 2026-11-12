@@ -1,5 +1,5 @@
 import type OpenAI from 'openai'
-import { APIConnectionError } from 'openai'
+import { APIConnectionError, APIConnectionTimeoutError, APIUserAbortError } from 'openai'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   LlmError,
@@ -409,7 +409,13 @@ describe('reply handling', () => {
     const { provider } = setup(withOutput([{ type: 'reasoning', id: 'rs_1', summary: [] }, message([])]))
     const error = await failure(provider.generate(requests.text))
     expect(error.kind).toBe('invalid_output')
+    expect(error.message).toContain('no text')
     expect(error.usage).toEqual(USAGE)
+  })
+
+  it('ignores a part that is not output_text even when it carries a text field', async () => {
+    const { provider } = setup(withOutput([message([{ type: 'output_text', text: OK_TEXT, annotations: [] }, { type: 'summary_text', text: 'not part of the answer' }])]))
+    expect((await provider.generate(requests.text)).data).toEqual(CONFORMANCE_DATA)
   })
 
   it('does not echo the refusal text and does not retry', async () => {
@@ -446,6 +452,9 @@ describe('reply handling', () => {
   it.each<[string, LlmError['kind']]>([
     ['server_error', 'overloaded'],
     ['rate_limit_exceeded', 'rate_limit'],
+    ['slow_down', 'rate_limit'],
+    ['server_is_overloaded', 'overloaded'],
+    ['service_unavailable_error', 'overloaded'],
     ['invalid_prompt', 'invalid_request'],
     ['data_residency_mismatch', 'invalid_request'],
     ['invalid_base64_image', 'invalid_request'],
@@ -683,6 +692,40 @@ describe('stream failures', () => {
   })
 })
 
+describe('provider options', () => {
+  it('uses its own maxTokens when the request names none, and the request value when it does', async () => {
+    const transport = createFakeTransport({ apiKey: CONFORMANCE_API_KEY })
+    transport.script(ok(), ok())
+    const provider = openaiDescriptor.create({ model: OPENAI_MODEL, apiKey: transport.apiKey, fetch: transport.fetch })
+    await provider.generate({ ...requests.text, maxTokens: undefined })
+    expect(body(transport, 0).max_output_tokens).toBe(16_000)
+    const small = new OpenAiProvider({ model: OPENAI_MODEL, apiKey: transport.apiKey, fetch: transport.fetch, maxTokens: 5000 })
+    transport.script(ok(), ok())
+    await small.generate({ ...requests.text, maxTokens: undefined })
+    await small.generate({ ...requests.text, maxTokens: 7000 })
+    expect([body(transport, 1).max_output_tokens, body(transport, 2).max_output_tokens]).toEqual([5000, 7000])
+  })
+
+  it('reports a deadline that expires while waiting to retry as a timeout, not as a cancel', async () => {
+    const transport = createFakeTransport({ apiKey: CONFORMANCE_API_KEY })
+    transport.script(errorReply(503, apiError('busy', { code: 'server_is_overloaded' })), ok())
+    const provider = openaiDescriptor.create({ model: OPENAI_MODEL, apiKey: transport.apiKey, fetch: transport.fetch, sleep: () => new Promise<void>(() => undefined), random: () => 0 })
+    const error = await failure(provider.generate(requests.text, { timeoutMs: 600 }))
+    expect(error.kind).toBe('timeout')
+    expect(transport.requests).toHaveLength(1)
+  })
+
+  it.each([
+    ['an SDK abort', () => new APIUserAbortError(), 'aborted'],
+    ['an SDK timeout', () => new APIConnectionTimeoutError({ message: 'slow' }), 'timeout'],
+    ['an SDK connection error', () => new APIConnectionError({ message: 'reset' }), 'connection'],
+  ] as const)('maps %s from an injected client without a caller abort', async (_label, make, kind) => {
+    const client = { responses: { create: async () => Promise.reject(make()) } } as unknown as OpenAI
+    const provider = new OpenAiProvider({ model: OPENAI_MODEL, apiKey: CONFORMANCE_API_KEY, client, maxRetries: 0 })
+    expect((await failure(provider.generate(requests.text))).kind).toBe(kind)
+  })
+})
+
 describe('the SDK client', () => {
   it('is built without retries, with the public endpoint, and ignores OpenAI variables of the environment', () => {
     vi.stubEnv('OPENAI_BASE_URL', 'https://elsewhere.invalid/v1')
@@ -703,6 +746,7 @@ describe('the SDK client', () => {
       const names = Object.keys(transport.requests[0]!.headers).map((name) => name.toLowerCase())
       expect(names).toContain('authorization')
       expect(names).toContain('content-type')
+      expect(names.some((name) => name.startsWith('x-stainless-'))).toBe(true)
       expect(names.filter((name) => !name.startsWith('x-stainless-'))).toEqual(['accept', 'authorization', 'content-type', 'user-agent'])
     }
   })
@@ -729,6 +773,11 @@ describe('the SDK client', () => {
     expect(seen).toHaveLength(1)
     expect(seen[0]).not.toContain('x-injected')
     expect(seen[0]).toContain('authorization')
+  })
+
+  it('gives the client the deadline it is asked for, and a default when it is not', () => {
+    expect(createOpenAiClient({ apiKey: CONFORMANCE_API_KEY, timeoutMs: 7000 }).timeout).toBe(7000)
+    expect(createOpenAiClient({ apiKey: CONFORMANCE_API_KEY }).timeout).toBe(120_000)
   })
 
   it('uses a base URL that is passed in', () => {
