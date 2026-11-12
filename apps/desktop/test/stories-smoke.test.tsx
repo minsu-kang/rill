@@ -112,6 +112,15 @@ describe('explain and recipe stories', () => {
     }
     for (const name of ['WithModelTransfer', 'Deployed', 'DeployFailed']) {
       expect(all.some((story) => story.file === 'recipes/DraftPreview.stories.tsx' && story.name === name), name).toBe(true)
+
+describe('chat story files', () => {
+  it('hold at least ninety stories in the Chat group, and a story file for each of the fifteen chat components', () => {
+    const all = stories(MODES[0].globals)
+    const chat = all.filter((story) => story.file.startsWith('chat/'))
+    expect(chat.length).toBeGreaterThanOrEqual(90)
+    expect(new Set(chat.map((story) => story.file)).size).toBeGreaterThanOrEqual(15)
+    for (const [file, module] of Object.entries(modules)) {
+      if (file.startsWith('../src/chat/')) expect(String(module.default.title), file).toMatch(/^Chat\//)
     }
   })
 })

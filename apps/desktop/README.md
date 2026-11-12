@@ -2,7 +2,7 @@
 
 The React renderer of the Rill desktop app, built so that every screen can be looked at in Storybook without starting the app, the engine, a network or a model key.
 
-This package holds the screens only. There is no Electron main process, no engine connection and no chat yet. Every screen takes its data as props or reads it through a small `EngineClient` interface (`request` and `onEvent`). The stories and the tests give it a fake client that answers from fixtures.
+This package holds the screens only. There is no Electron main process and no connection to a running engine yet. Every screen takes its data as props or reads it through a small `EngineClient` interface (`request` and `onEvent`). The stories and the tests give it a fake client that answers from fixtures.
 
 ## What is here
 
@@ -14,9 +14,63 @@ This package holds the screens only. There is no Electron main process, no engin
 | Workspace | `src/workspace/` | The three screens together as in the design: graph in the middle, inspector on the right, history below. Live events from the client change the node cards as they arrive. |
 | Failure explanation | `src/explain/` | The "why did it fail" flow for a failed run: a notice of what is sent to the model provider, an effort choice, the explanation card with the likely cause, signal chips, action buttons and an optional fix proposal handed to the chat box as a draft. |
 | Recipe gallery | `src/recipes/` | The six ready-made recipes with search and tag filter, a form built from each recipe's params, a draft preview with the graph, side-effect lines and the "external transfer" line, and a deploy button. |
+| Chat panel | `src/chat/` | The left pane: a conversation with the planner (questions, workflow preview, unsupported), an effort slider, file attachments, flag confirmation before deploy, a model picker and a notes screen. See the next section. |
 | Shared pieces | `src/ui/`, `src/theme/`, `src/i18n/` | Status chip and icons, color tokens for light and dark, and a typed Korean and English dictionary. |
 
 Run state lives in `src/model/` as pure functions: `statesFromSteps` for a finished run, `reduceEvent` for the live event stream, `displayState` for what a card shows. A trigger writes no step row, so a trigger of an open run is shown as succeeded.
+
+## The chat panel
+
+`src/chat/ChatPanel.tsx` is the whole left pane as one component that takes its world as props:
+
+| Prop | Meaning |
+| --- | --- |
+| `client` | An `EngineClient`. The panel calls `plan`, `cancelPlan`, `deployPlan`, `llmModels` and `listMemory`, and never subscribes to events. |
+| `port` | An `AttachmentPort`, see below. |
+| `catalog` | The node list (`nodeCatalog`) used to title the cards of the preview and the flag groups. |
+| `hints` | Optional measured cost and delay per effort step, `{ effort, costUsd?, latencyMs?, basis }`. Without it nothing is shown next to the steps: the numbers must come from evaluation runs, never from this package. |
+| `editContext` | Optional `{ workflowId, nodeId? }`. When given, every `plan` request carries `workflowId` and `selection`, which puts the planner in patch mode. |
+| `newId` | Optional plan id generator, for tests and stories. The default is `crypto.randomUUID`. |
+| `onDeployed`, `onSelectModel`, `onClearEditContext` | Callbacks. The panel does none of these things itself. |
+| `initialEntries`, `initialDraft` | Optional starting conversation and draft text, for stories and tests. |
+
+The conversation lives only in component state: a pure reducer (`src/chat/model/conversation.ts`) holds the entries, the draft, the attachments, the effort and the memory switch. Nothing is written to disk, `localStorage` or `sessionStorage`. The provider side is stateless, so each `plan` request carries the whole history as `turns` (at most 40, the engine's limit); when a conversation reaches the limit the panel asks for a new chat. A new chat keeps the effort and the memory choice and clears the rest.
+
+What the person sees and decides:
+
+- Effort steps: fast `low`, normal `medium` (default), careful `high`, very careful `xhigh`, and `max` under an advanced toggle. A step the active model does not list in `capabilities.effortLevels` is disabled with the reason. The answer shows requested and effective effort when the engine lowered it, and the cost as an upper bound (`null` shows "unknown").
+- Send is Ctrl+Enter or Cmd+Enter. Plain Enter is a line break, so a multi-line draft is safe to write. It is never sent while a plan runs, while a file is being added, with an empty draft, with more than 8000 characters or without a model.
+- Questions: the default of each question is preselected and counts as an answer, so one click continues. A question with no options is a free text field. Answers travel as the `answers` of a user turn, never as part of the request text, because the planner treats a chosen option differently from text the person wrote.
+- Flags: each flag of a plan has its own checkbox, grouped by node. Deploy stays disabled until the confirmed keys equal the flag keys of the plan (`flagKey` from `@rill/protocol`); the engine requires the same.
+- Every place that sends something to the model provider says so: the composer notice (request, attached files, notes), the badge on each attached file, the model picker (`dataNote`) and the notes screen.
+- A plan that is running can be cancelled and the draft and attachments come back. Closing the panel while a plan runs sends `cancelPlan` and drops the answer.
+
+Text written by the model (summary, questions, options, reason, nearest idea, flag messages) and names of attached files are untrusted. They are shown as plain text only, with bidi, zero-width and control characters made visible as `‹U+202E›`, a length cap and a "show more" button. A test reads the sources of `src/chat` and fails on `dangerouslySetInnerHTML`, `innerHTML`, `eval`, `localStorage`, `sessionStorage`, anchors, `href`, `src` and network calls.
+
+### The attachment port (for the real client)
+
+```ts
+interface AttachmentPort {
+  add(file: File): Promise<AttachmentRef>
+  remove?(id: string): Promise<void>
+}
+```
+
+The panel validates a file before it calls `add`: the media type must be one of the eight in `AttachmentRefSchema` (read from the declared type, else the extension), PDF up to 20 MiB, image up to 3.75 MiB, text up to 1 MiB, not empty, at most 5 files per message and 10 per conversation. `add` must copy the file into the engine's attachment folder and resolve with the protocol `AttachmentRef` (`id`, `mediaType`, `name`, `bytes`). File bytes never go through the protocol. If `add` rejects, the panel shows the localized text of the error code (`ATTACHMENT_REJECTED` and the others) and never the text of the error. `remove` is optional and best effort.
+
+### Choosing the model
+
+`plan` has no model field: the engine is started with a provider and a model. So `ModelPicker` is controlled. It shows the table of `llmModels` grouped by provider, marks the active model (`aria-current`), disables providers without a key with a "key needed" label and the environment variable name, and shows the provider's `dataNote`. Choosing a configured model calls `onSelectModel({ provider, model })` and nothing else: the picker never changes its own selection and never says a switch happened. What the callback does (probably restarting the engine) is for the code that owns the engine.
+
+### Notes
+
+`MemoryPanel` lists, adds, edits and deletes the notes that `listMemory`, `saveMemory` and `deleteMemory` handle (at most 20, one line of at most 300 characters). It shows the rule before the engine says it, a 0/20 and 20/20 state, and the "sent to the model provider with every plan" notice. Errors show the localized message of the code (and of the rule for an invalid note), never the text of a note.
+
+### Looking at it and scripting it
+
+`Chat/ChatPanel` has the whole flow: `Flow` answers the first request with three questions, the second with a workflow that has three flags and the later ones with a plain workflow or an unsupported card, so you can click through questions, flag confirmation and deploy. `Errors` fails each send with a different error code. `Nothing configured`, `Long conversation` and `Patch` are the other states. Every story has a "start over" button that builds a new fake engine.
+
+The fake lives in `src/engine/fake-plan.ts`: `withPlanMethods(client, data)` wraps the Plan 4a fake client and answers `plan`, `cancelPlan`, `deployPlan`, `llmModels`, `listMemory`, `saveMemory` and `deleteMemory` with the rules of the engine (parameters are checked with the real protocol schema, the same plan id twice is `PLAN_EXISTS`, two plans at a time, deploy needs exactly the flag keys, notes follow the engine's memory rules). `data.script(params)` decides each answer: return `{ result, meta }`, a `RillError`, or `'hang'` (the plan runs until it is cancelled). The data for stories and tests is built in `src/fixtures/plan.ts`, typed with the protocol types.
 
 ## Look at it
 
@@ -37,12 +91,13 @@ Good places to start:
 - `Explain/ExplainPanel`: the disabled button for runs that are not failed, the notice, loading, an answer and every error. The stories after the first few click through the flow with a Storybook play function, so open them in the browser (the test run renders only the first screen of each).
 - `Recipes/RecipeGallery`, `Recipes/RecipeForm` and `Recipes/FieldInput`: the six recipes, every field kind, problems at fields, general issues, unknown rules and no matching connection.
 - `Recipes/DraftPreview` and `Recipes/RecipePanel`: with and without the external transfer line, deploying, deployed and failed, and the whole flow against a fake service.
+- `Chat/ChatPanel`: `Flow` is the one to click through. `Chat/PlanResultCard`, `Chat/QuestionCard` and `Chat/FlagConfirm` show each state of the cards, `Chat/Composer` and `Chat/EffortSlider` the input line, and `Chat/ModelPicker` and `Chat/MemoryPanel` the two screens behind it.
 
 To share a static copy: `pnpm --filter @rill/desktop build-storybook` writes `apps/desktop/storybook-static/`, which git ignores.
 
 ## Add a story
 
-Every component file in `src/graph`, `src/inspector`, `src/runs`, `src/workspace`, `src/ui`, `src/explain` and `src/recipes` needs a stories file next to it, and `test/stories-smoke.test.tsx` fails when one is missing.
+Every component file in `src/graph`, `src/inspector`, `src/runs`, `src/workspace`, `src/ui`, `src/explain`, `src/recipes` and `src/chat` needs a stories file next to it, and `test/stories-smoke.test.tsx` fails when one is missing.
 
 1. Create `Name.stories.tsx` beside `Name.tsx` with a `Meta` that has a `title` such as `Graph/NodeCard`, and one exported story per state worth seeing.
 2. Build the data from `src/fixtures` or with the builders in `src/fixtures/workflows.ts`. Fixtures are typed against `@rill/protocol`, so they cannot drift from what the engine sends.
@@ -133,6 +188,6 @@ or `pnpm test` from the root. The desktop tests use Vitest with jsdom and Testin
 
 ## Not built yet
 
-Chat and the planner dialog, the effort slider of the planner, attachments, flag confirmation, memory, the provider picker, editing and forms for a workflow, patch mode, the Electron main process and preload, the connection to a running engine, the tray, secret storage and the installer.
+Editing and forms for a workflow, patch mode from a node picked on the graph (the chat takes `editContext` as a prop), the real attachment copy and the real model switch (the chat takes them as `port` and `onSelectModel`), the Electron main process and preload, the connection to a running engine, the tray, secret storage and the installer.
 
-The two panels above are screens only. Still to do in the integration plan: the explain button next to a failed run in the history, putting a fix proposal into the chat composer, doing what the suggested action buttons say (retry, open connections, select a node, turn a workflow off), a dry run and activation after a recipe deploy, and reading the connection names and native file pickers from the host (Plan 4d).
+The three panels above are screens only. Still to do in the integration plan: the explain button next to a failed run in the history, putting a fix proposal into the chat composer, doing what the suggested action buttons say (retry, open connections, select a node, turn a workflow off), a dry run and activation after a recipe deploy, and reading the connection names and native file pickers from the host (Plan 4d).
