@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { RECIPES, findRecipe, type ParamValues, type Recipe } from '@rill/recipes'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ScriptedProvider, type Step } from './plan-helpers'
-import { startRecipeEnv, useCleanups } from './recipe-helpers'
+import { SLACK_URL, startRecipeEnv, useCleanups } from './recipe-helpers'
 
 useCleanups()
 
@@ -48,8 +48,9 @@ async function deployed(recipeId: string, steps: Step[] = []) {
   const draft = await env.client.request('instantiateRecipe', { recipeId, values: rebased(recipe) })
   const { workflowId } = await env.client.request('deploy', { workflow: draft.workflow })
   const dryRun = (payload: unknown) => env.engine.startRun(workflowId, payload, { dryRun: true })
+  const run = (payload: unknown) => env.engine.startRun(workflowId, payload)
   const statuses = (runId: string) => Object.fromEntries(env.engine.getRunDetail(runId).steps.map((step) => [step.nodeId, step.status]))
-  return { ...env, draft, provider, workflowId, dryRun, statuses }
+  return { ...env, draft, provider, workflowId, dryRun, run, statuses }
 }
 
 describe('every recipe deploys and dry-runs through the real executor with fake services', () => {
@@ -67,7 +68,7 @@ describe('every recipe deploys and dry-runs through the real executor with fake 
   it('receipt-folder-to-csv reads the receipt with the model, builds the row and writes nothing', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('the network is not allowed'))
     const { dryRun, statuses, provider } = await deployed('receipt-folder-to-csv', [{ data: EXTRACTED }])
-    const csv = join(allowed, 'Receipts', 'ledger.csv')
+    const csv = join(allowed, 'ledger.csv')
     const result = await dryRun(folderPayload())
     expect(result.status).toBe('succeeded')
     expect(result.outputs.t1).toEqual(folderPayload())
@@ -87,7 +88,7 @@ describe('every recipe deploys and dry-runs through the real executor with fake 
     expect(big.status).toBe('succeeded')
     expect(big.outputs.n3).toEqual({ result: true, branch: 'true' })
     expect(big.outputs.n4).toEqual({ sent: false, status: 0 })
-    expect(big.outputs.n2).toEqual({ file: join(allowed, 'Receipts', 'ledger.csv'), written: false })
+    expect(big.outputs.n2).toEqual({ file: join(allowed, 'ledger.csv'), written: false })
     expect(statuses(big.runId)).toMatchObject({ n2: 'succeeded', n3: 'succeeded', n4: 'succeeded' })
 
     const small = await dryRun(folderPayload())
@@ -109,15 +110,15 @@ describe('every recipe deploys and dry-runs through the real executor with fake 
     expect(statuses(result.runId)).toMatchObject({ n2: 'succeeded', n3: 'failed' })
   })
 
-  it('daily-health-check calls nothing in a dry run and reaches the alert', async () => {
+  it('daily-health-check calls nothing in a dry run, where the call counts as answered and no alert is sent', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('the network is not allowed'))
     const { dryRun, statuses } = await deployed('daily-health-check')
     const result = await dryRun(cronPayload())
     expect(result.status).toBe('succeeded')
     expect(result.outputs.n1).toEqual({ status: 0, headers: {}, body: null, dryRun: true })
     expect(result.outputs.n2).toEqual({ result: true, branch: 'true' })
-    expect(result.outputs.n3).toEqual({ sent: false, status: 0 })
-    expect(statuses(result.runId)).toMatchObject({ n1: 'succeeded', n2: 'succeeded', n3: 'succeeded' })
+    expect(result.outputs).not.toHaveProperty('n3')
+    expect(statuses(result.runId)).toMatchObject({ n1: 'succeeded', n2: 'succeeded', n3: 'skipped' })
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
@@ -156,6 +157,17 @@ describe('every recipe deploys and dry-runs through the real executor with fake 
     }
   })
 
+  it('failure-webhook-alert compares the status as text, so a number in the body does not match', async () => {
+    const recipe = findRecipe('failure-webhook-alert')!
+    const env = await startRecipeEnv({ allowedRoots: [allowed] })
+    const draft = await env.client.request('instantiateRecipe', { recipeId: recipe.id, values: { ...recipe.sample, failedStatus: '500' } })
+    const { workflowId: id } = await env.client.request('deploy', { workflow: draft.workflow })
+    const send = (body: unknown) => env.engine.startRun(id, webhookPayload('/failure-alert', body), { dryRun: true })
+    expect((await send({ status: '500' })).outputs.n1).toEqual({ result: true, branch: 'true' })
+    expect((await send({ status: 500 })).outputs.n1).toEqual({ result: false, branch: 'false' })
+    expect((await send({ status: false })).outputs.n1).toEqual({ result: false, branch: 'false' })
+  })
+
   it('a value that looks like a reference never reaches a node as one', async () => {
     const recipe = findRecipe('failure-webhook-alert')!
     const env = await startRecipeEnv({ allowedRoots: [allowed] })
@@ -167,5 +179,58 @@ describe('every recipe deploys and dry-runs through the real executor with fake 
     const { workflowId } = await env.client.request('deploy', { workflow: draft.workflow })
     const result = await env.engine.startRun(workflowId, webhookPayload('/failure-alert', { status: '{"$param":"slackConnection"}' }), { dryRun: true })
     expect(result.outputs.n1).toEqual({ result: true, branch: 'true' })
+  })
+})
+
+describe('daily-health-check in a real run, with a fake network', () => {
+  const HEALTH = 'https://example.test/health'
+  const ALERT = '서버 상태 확인에 실패했어요. 응답이 없거나 성공 응답이 아니에요.'
+
+  function network(answer: () => Response | Promise<Response>) {
+    const calls: Array<{ url: string; body: unknown }> = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      calls.push({ url, body: typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined })
+      if (url === HEALTH) return answer()
+      if (url === SLACK_URL) return new Response('ok', { status: 200 })
+      throw new Error(`unexpected call to ${url}`)
+    })
+    return calls
+  }
+
+  it.each([
+    [200, 'ok'],
+    [201, 'created'],
+    [204, null],
+    [299, 'edge of the range'],
+  ])('sends no alert for the answer %i, since every 2xx answer is healthy', async (status, body) => {
+    const calls = network(() => new Response(body, { status }))
+    const { run, statuses } = await deployed('daily-health-check')
+    const result = await run(cronPayload())
+    expect(result.status).toBe('succeeded')
+    expect(result.outputs.n1).toMatchObject({ status })
+    expect(result.outputs.n2).toEqual({ result: true, branch: 'true' })
+    expect(statuses(result.runId)).toMatchObject({ n1: 'succeeded', n2: 'succeeded', n3: 'skipped' })
+    expect(calls.map((call) => call.url)).toEqual([HEALTH])
+  })
+
+  it.each([
+    ['a 503, tried twice', () => new Response('down', { status: 503 }), 2],
+    ['a 500, tried twice', () => new Response('error', { status: 500 }), 2],
+    ['a 429, tried twice', () => new Response('slow down', { status: 429 }), 2],
+    ['a 404, tried once', () => new Response('gone', { status: 404 }), 1],
+    ['a 403, tried once', () => new Response('no', { status: 403 }), 1],
+    ['a redirect, tried once', () => new Response(null, { status: 301, headers: { location: 'https://example.test/other' } }), 1],
+    ['a network error, tried twice', () => Promise.reject(new TypeError('fetch failed')), 2],
+  ])('sends one alert for %s', async (_name, answer, attempts) => {
+    const calls = network(answer)
+    const { run, statuses } = await deployed('daily-health-check')
+    const result = await run(cronPayload())
+    expect(result.status).toBe('succeeded')
+    expect(result.outputs.n2).toEqual({ result: false, branch: 'false' })
+    expect(result.outputs.n3).toEqual({ sent: true, status: 200 })
+    expect(statuses(result.runId)).toMatchObject({ n2: 'succeeded', n3: 'succeeded' })
+    expect(calls.filter((call) => call.url === HEALTH)).toHaveLength(attempts)
+    expect(calls.filter((call) => call.url === SLACK_URL)).toEqual([{ url: SLACK_URL, body: { text: ALERT } }])
   })
 })

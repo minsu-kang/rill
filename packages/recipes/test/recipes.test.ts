@@ -1,3 +1,4 @@
+import { dirname } from 'node:path'
 import { WorkflowSchema, extractRefs, findMalformedTemplates, isTrigger, stringLeaves, type Workflow } from '@rill/dsl'
 import { createCoreRegistry, validateWorkflow } from '@rill/nodes-core'
 import Value from 'typebox/value'
@@ -193,6 +194,29 @@ describe('the configuration of each recipe', () => {
   ]
   const recipeOf = (id: string) => findRecipe(id)!
 
+  it('asks for the ledger as a .csv file, tells the user to keep it outside the watched folder, and samples it outside', () => {
+    for (const id of ['receipt-folder-to-csv', 'receipt-big-amount-alert']) {
+      const recipe = recipeOf(id)
+      const csv = recipe.params.find((param) => param.id === 'csvFile')!
+      expect(csv, id).toMatchObject({ kind: 'file', extension: '.csv', required: true })
+      expect(csv.help!.en, id).toMatch(/outside the watched folder/)
+      expect(csv.help!.ko, id).toContain('밖')
+      expect(dirname(String(recipe.sample.csvFile)), id).not.toBe(String(recipe.sample.watchFolder))
+      expect(recipe.params.filter((param) => param.kind === 'file').map((param) => param.id), id).toEqual(['csvFile'])
+    }
+  })
+
+  it('declares a Slack connection wherever a recipe asks for one', () => {
+    const connections = RECIPES.flatMap((recipe) => recipe.params.filter((param) => param.kind === 'connection').map((param) => [recipe.id, param.id, param.connectionKind]))
+    expect(connections).toEqual([
+      ['receipt-big-amount-alert', 'slackConnection', 'slack'],
+      ['daily-health-check', 'slackConnection', 'slack'],
+      ['webhook-to-slack', 'slackConnection', 'slack'],
+      ['monthly-reminder', 'slackConnection', 'slack'],
+      ['failure-webhook-alert', 'slackConnection', 'slack'],
+    ])
+  })
+
   it('receipt-folder-to-csv watches a folder, extracts the amount, the date and the vendor and appends one row', () => {
     const recipe = recipeOf('receipt-folder-to-csv')
     expect(recipe.params.map((param) => [param.id, param.kind, param.required, param.default])).toEqual([
@@ -206,7 +230,7 @@ describe('the configuration of each recipe', () => {
     expect(nodeOf(workflow, 'n1').config).toEqual({ file: '{{t1.output.file}}', fields })
     expect(nodeOf(workflow, 'n1').retry).toEqual({ maxAttempts: 3 })
     expect(nodeOf(workflow, 'n2').config).toEqual({
-      file: '/Users/demo/Receipts/ledger.csv',
+      file: '/Users/demo/ledger.csv',
       row: ['{{n1.output.date}}', '{{n1.output.vendor}}', '{{n1.output.amount}}'],
     })
     expect(nodeOf(build(recipe, requiredOnly(recipe)), 't1').config).toEqual({ folder: '/Users/demo/Receipts', glob: '*.pdf' })
@@ -231,7 +255,7 @@ describe('the configuration of each recipe', () => {
     expect(nodeOf(workflow, 'n4').config).toEqual({ connection: 'slack-ops', text: '한도를 넘는 영수증이 들어왔어요: {{n1.output.amount}}' })
   })
 
-  it('daily-health-check calls a URL on a schedule and alerts when the status is not 200 or the call fails', () => {
+  it('daily-health-check calls a URL on a schedule and alerts when the call fails, which is every response that is not 2xx', () => {
     const recipe = recipeOf('daily-health-check')
     expect(recipe.params.map((param) => [param.id, param.kind, param.required, param.default])).toEqual([
       ['schedule', 'cron', false, '0 9 * * 1-5'],
@@ -239,11 +263,11 @@ describe('the configuration of each recipe', () => {
       ['slackConnection', 'connection', true, undefined],
     ])
     const workflow = build(recipe, recipe.sample)
-    expect(shape(workflow)).toEqual({ nodes: ['t1:trigger.cron@1', 'n1:http.request@1', 'n2:condition@1', 'n3:notify.slack@1'], edges: ['t1>n1', 'n1>n2', 'n2>n3:true'] })
+    expect(shape(workflow)).toEqual({ nodes: ['t1:trigger.cron@1', 'n1:http.request@1', 'n2:condition@1', 'n3:notify.slack@1'], edges: ['t1>n1', 'n1>n2', 'n2>n3:false'] })
     expect(nodeOf(workflow, 't1').config).toEqual({ expression: '30 8 * * 1-5' })
     expect(nodeOf(workflow, 'n1').config).toEqual({ url: 'https://example.test/health', method: 'GET' })
     expect(nodeOf(workflow, 'n1').onError).toBe('continue')
-    expect(nodeOf(workflow, 'n2').config).toEqual({ left: '{{n1.output.status}}', operator: 'neq', right: 200 })
+    expect(nodeOf(workflow, 'n2').config).toEqual({ left: '{{n1.output.status}}', operator: 'exists' })
     expect(nodeOf(workflow, 'n3').config).toEqual({ connection: 'slack-ops', text: expect.any(String) })
     expect(nodeOf(build(recipe, requiredOnly(recipe)), 't1').config).toEqual({ expression: '0 9 * * 1-5' })
   })
@@ -285,5 +309,19 @@ describe('the configuration of each recipe', () => {
     expect(nodeOf(workflow, 'n1').config).toEqual({ left: '{{t1.output.body.status}}', operator: 'eq', right: 'error' })
     expect(nodeOf(workflow, 'n2').config).toEqual({ connection: 'slack-ops', text: expect.any(String) })
     expect(nodeOf(build(recipe, requiredOnly(recipe)), 'n1').config).toEqual({ left: '{{t1.output.body.status}}', operator: 'eq', right: 'failed' })
+  })
+
+  it('failure-webhook-alert says in the help of the status that it is compared as text', () => {
+    const help = recipeOf('failure-webhook-alert').params.find((param) => param.id === 'failedStatus')!.help!
+    expect(help.en).toMatch(/send status as text/)
+    expect(help.ko).toContain('문자')
+  })
+
+  it('daily-health-check describes the alert as a failed call, not as a status other than 200', () => {
+    const recipe = recipeOf('daily-health-check')
+    expect(recipe.description.en).toContain('2xx')
+    expect(recipe.description.ko).toContain('2xx')
+    expect(JSON.stringify(recipe.description)).not.toContain('200')
+    expect(String(nodeOf(build(recipe, recipe.sample), 'n3').config.text)).not.toContain('200')
   })
 })

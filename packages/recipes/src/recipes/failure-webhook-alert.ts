@@ -16,7 +16,10 @@ export const failureWebhookAlert: Recipe = {
       id: 'failedStatus',
       kind: 'text',
       label: { ko: '실패로 볼 상태값', en: 'Failure status' },
-      help: { ko: '요청 본문의 status 값이 이 값이면 알려요.', en: 'Alert when the status field of the request body has this value.' },
+      help: {
+        ko: '요청 본문의 status 값이 이 값이면 알려요. status는 숫자가 아니라 문자로 보내야 해요. 예: "500"',
+        en: 'Alert when the status field of the request body has this value. The sender must send status as text, for example "500", not as a number.',
+      },
       required: false,
       default: 'failed',
     },

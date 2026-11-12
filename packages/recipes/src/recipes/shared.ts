@@ -27,8 +27,12 @@ export function csvFileParam(): RecipeParam {
     id: 'csvFile',
     kind: 'file',
     label: { ko: 'CSV 파일', en: 'CSV file' },
-    help: { ko: '영수증 한 장을 한 줄씩 쌓을 CSV 파일의 경로예요.', en: 'The CSV file that receives one row per receipt.' },
+    help: {
+      ko: '영수증 한 장을 한 줄씩 쌓을 CSV 파일의 경로예요. .csv로 끝나야 하고, 감시할 폴더 밖에 두세요.',
+      en: 'The CSV file that receives one row per receipt. It must end in .csv and sit outside the watched folder, or each new row would start the workflow again.',
+    },
     required: true,
+    extension: '.csv',
   }
 }
 
@@ -39,6 +43,7 @@ export function slackConnectionParam(): RecipeParam {
     label: { ko: '슬랙 연결', en: 'Slack connection' },
     help: { ko: '알림을 받을 슬랙 연결의 이름이에요.', en: 'The name of the Slack connection that receives the message.' },
     required: true,
+    connectionKind: 'slack',
   }
 }
 
@@ -49,7 +54,7 @@ export function scheduleParam(fallback: string, help: { ko: string; en: string }
 export const RECEIPT_SAMPLE = {
   watchFolder: '/Users/demo/Receipts',
   glob: '*.png',
-  csvFile: '/Users/demo/Receipts/ledger.csv',
+  csvFile: '/Users/demo/ledger.csv',
 } as const
 
 export function receiptNodes() {

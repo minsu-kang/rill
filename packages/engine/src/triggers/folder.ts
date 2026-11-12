@@ -17,6 +17,10 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${source}$`, 'i')
 }
 
+export function folderWatchSees(matches: RegExp, name: string): boolean {
+  return matches.test(name.normalize('NFC')) && !IGNORED.some((pattern) => pattern.test(name))
+}
+
 function fingerprintOf(path: string, mtimeMs: number, size: number): string {
   return createHash('sha256').update(`${path}\0${mtimeMs}\0${size}`).digest('hex')
 }
@@ -141,7 +145,7 @@ export class FolderRuntime implements TriggerRuntime {
     return readdirSync(this.folder, { withFileTypes: true })
       .filter((entry) => entry.isFile())
       .map((entry) => entry.name)
-      .filter((name) => this.matches.test(name.normalize('NFC')) && !IGNORED.some((pattern) => pattern.test(name)))
+      .filter((name) => folderWatchSees(this.matches, name))
   }
 
   private recordExistingAsSeen(): void {

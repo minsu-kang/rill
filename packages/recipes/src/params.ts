@@ -16,8 +16,8 @@ const TEXT_RULES = [
 ] as const
 
 export const PARAM_RULES = {
-  folder: [...TEXT_RULES, 'not_absolute_path', 'parent_segment'],
-  file: [...TEXT_RULES, 'not_absolute_path', 'parent_segment'],
+  folder: [...TEXT_RULES, 'surrounding_space', 'not_absolute_path', 'parent_segment'],
+  file: [...TEXT_RULES, 'surrounding_space', 'not_absolute_path', 'parent_segment', 'trailing_separator', 'wrong_extension'],
   glob: [...TEXT_RULES, 'bad_glob'],
   text: [...TEXT_RULES],
   number: ['wrong_type', 'not_finite', 'below_min', 'above_max'],
@@ -59,10 +59,20 @@ function characterRule(value: string, keepJoiners: boolean): ParamRule | undefin
   return undefined
 }
 
-function pathRule(value: string): ParamRule | undefined {
+function folderRule(value: string): ParamRule | undefined {
+  if (value.trim() !== value) return 'surrounding_space'
   const home = value.startsWith('~/') && value.length > 2
   if (!home && !isAbsolute(value)) return 'not_absolute_path'
   return value.split(/[\\/]+/).includes('..') ? 'parent_segment' : undefined
+}
+
+function fileRule(value: string, param: RecipeParam): ParamRule | undefined {
+  const rule = folderRule(value)
+  if (rule !== undefined) return rule
+  if (/[\\/]$/.test(value)) return 'trailing_separator'
+  if (param.extension === undefined) return undefined
+  const name = value.split(/[\\/]+/).pop() ?? ''
+  return name.length > param.extension.length && name.toLowerCase().endsWith(param.extension) ? undefined : 'wrong_extension'
 }
 
 function globRule(value: string): ParamRule | undefined {
@@ -90,9 +100,9 @@ function urlRule(value: string): ParamRule | undefined {
   return url.username !== '' || url.password !== '' ? 'url_credentials' : undefined
 }
 
-const KIND_RULES: Readonly<Record<ParamKind, ((value: string) => ParamRule | undefined) | undefined>> = {
-  folder: pathRule,
-  file: pathRule,
+const KIND_RULES: Readonly<Record<ParamKind, ((value: string, param: RecipeParam) => ParamRule | undefined) | undefined>> = {
+  folder: folderRule,
+  file: fileRule,
   glob: globRule,
   text: undefined,
   number: undefined,
@@ -114,7 +124,7 @@ export function checkValue(param: RecipeParam, value: unknown): ParamRule | unde
   if (typeof value !== 'string') return 'wrong_type'
   if (value.trim() === '') return 'empty'
   if (exceedsLength(value)) return 'too_long'
-  return characterRule(value, param.kind === 'text') ?? KIND_RULES[param.kind]?.(value)
+  return characterRule(value, param.kind === 'text') ?? KIND_RULES[param.kind]?.(value, param)
 }
 
 function givenValue(values: ParamValues, id: string): string | number | undefined {

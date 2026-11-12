@@ -3,11 +3,15 @@ import Type from 'typebox'
 export const PARAM_KINDS = ['folder', 'file', 'glob', 'text', 'number', 'cron', 'url', 'connection'] as const
 export type ParamKind = (typeof PARAM_KINDS)[number]
 
+export const CONNECTION_KINDS = ['slack', 'http', 'webhookSecret'] as const
+export type ConnectionKindName = (typeof CONNECTION_KINDS)[number]
+
 export const MAX_PARAM_STRING_CHARS = 500
 export const MAX_PARAM_VALUES = 20
 export const MAX_RECIPE_PARAMS = 10
 export const PARAM_ID_PATTERN = '^[a-z][a-zA-Z0-9]{0,31}$'
 export const RECIPE_ID_PATTERN = '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
+export const EXTENSION_PATTERN = '^\\.[a-z0-9]{1,8}$'
 const TAG_PATTERN = '^[a-z][a-z0-9-]{0,31}$'
 
 const closed = { additionalProperties: false } as const
@@ -25,6 +29,8 @@ export const RecipeParamSchema = Type.Object(
     default: Type.Optional(Type.Union([Type.String(), Type.Number()])),
     min: Type.Optional(Type.Number()),
     max: Type.Optional(Type.Number()),
+    extension: Type.Optional(Type.String({ pattern: EXTENSION_PATTERN })),
+    connectionKind: Type.Optional(Type.Enum(CONNECTION_KINDS)),
   },
   closed,
 )

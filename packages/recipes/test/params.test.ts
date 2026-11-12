@@ -16,14 +16,22 @@ import {
 const label = { ko: '라벨', en: 'Label' }
 
 function param(kind: ParamKind, extra: Partial<RecipeParam> = {}): RecipeParam {
-  return { id: 'value', kind, label, required: true, ...(kind === 'number' ? { min: 0, max: 100 } : {}), ...extra }
+  return {
+    id: 'value',
+    kind,
+    label,
+    required: true,
+    ...(kind === 'number' ? { min: 0, max: 100 } : {}),
+    ...(kind === 'file' ? { extension: '.csv' } : {}),
+    ...extra,
+  }
 }
 
 const MARKER = 'MARKER-7c41d9'
 
 const ACCEPTS: Record<ParamKind, unknown[]> = {
-  folder: ['/Users/demo/Receipts', '~/Receipts', '/', '/Users/demo/a..b', '/Users/demo/영수증', '/' + 'a'.repeat(499)],
-  file: ['/Users/demo/Receipts/ledger.csv', '~/ledger.csv', '/Users/demo/.hidden/file'],
+  folder: ['/Users/demo/Receipts', '~/Receipts', '/', '/Users/demo/a..b', '/Users/demo/영수증', '/' + 'a'.repeat(499), '/Users/demo/Receipts/', '~/Receipts/'],
+  file: ['/Users/demo/Receipts/ledger.csv', '~/ledger.csv', '/Users/demo/.hidden/file.csv', '/Users/demo/Ledger.CSV', '/Users/demo/.ledger.csv', '/Users/demo/a.csv.csv'],
   glob: ['*.pdf', '*', 'receipt-??.png', '영수증*.pdf'],
   text: ['hello', '월말 정산 확인', 'a'.repeat(500), '😀'.repeat(500), 'a { b } c', 'a {b}', '{"a":1}', '$param', 'family 👨‍👩‍👧'],
   number: [0, 1, 100, 99.5, 0.0001],
@@ -70,8 +78,12 @@ const REJECTS: Record<ParamKind, Array<[ParamRule, unknown]>> = {
     ['not_absolute_path', '~'],
     ['not_absolute_path', '~/'],
     ['not_absolute_path', '~user/Receipts'],
-    ['not_absolute_path', ' /Users/demo'],
     ['not_absolute_path', 'file:///Users/demo'],
+    ['surrounding_space', ' /Users/demo'],
+    ['surrounding_space', '/Users/demo/Receipts '],
+    ['surrounding_space', '/Users/demo/Receipts\u00a0'],
+    ['surrounding_space', '\u3000/Users/demo'],
+    ['surrounding_space', ' Receipts'],
     ['parent_segment', '/Users/demo/../other'],
     ['parent_segment', '/Users/demo/..'],
     ['parent_segment', '~/../other'],
@@ -89,8 +101,25 @@ const REJECTS: Record<ParamKind, Array<[ParamRule, unknown]>> = {
     ['template_text', '/Users/demo/{{n1.output.x}}.csv'],
     ['not_absolute_path', 'ledger.csv'],
     ['not_absolute_path', '~ledger.csv'],
+    ['not_absolute_path', '~/'],
+    ['surrounding_space', '/Users/demo/ledger.csv '],
+    ['surrounding_space', ' /Users/demo/ledger.csv'],
+    ['surrounding_space', '/Users/demo/ledger.csv\u00a0'],
     ['parent_segment', '/Users/demo/../ledger.csv'],
     ['parent_segment', '~/../ledger.csv'],
+    ['parent_segment', '/Users/demo/ledger.csv/..'],
+    ['trailing_separator', '/Users/demo/ledger.csv/'],
+    ['trailing_separator', '/Users/demo/ledger.csv\\'],
+    ['trailing_separator', '/Users/demo/ledger.csv//'],
+    ['trailing_separator', '/'],
+    ['wrong_extension', '/Users/demo'],
+    ['wrong_extension', '/Users/demo/notes.md'],
+    ['wrong_extension', '~/.zshrc'],
+    ['wrong_extension', '/Users/demo/ledger'],
+    ['wrong_extension', '/Users/demo/.csv'],
+    ['wrong_extension', '/Users/demo/ledger.csv.bak'],
+    ['wrong_extension', '/Users/demo/csv'],
+    ['wrong_extension', '/Users/demo/ledger.csv.d/file'],
   ],
   glob: [
     ['wrong_type', 5],
@@ -274,6 +303,49 @@ describe('character rules', () => {
     expect(checkValue(param('text'), '{{')).toBe('template_text')
     expect(checkValue(param('text'), '}}')).toBe('template_text')
     expect(checkValue(param('text'), '}{')).toBeUndefined()
+  })
+})
+
+describe('the path kinds', () => {
+  it('check the space around a path before they check whether it is absolute', () => {
+    for (const kind of ['folder', 'file'] as const) {
+      expect(checkValue(param(kind, { extension: undefined }), 'Receipts '), kind).toBe('surrounding_space')
+      expect(checkValue(param(kind, { extension: undefined }), '/Users/demo/Receipts'), kind).toBeUndefined()
+    }
+  })
+
+  it('accept a folder written with a trailing slash, as a pasted path often is, and refuse it for a file', () => {
+    expect(checkValue(param('folder'), '/Users/demo/Receipts/')).toBeUndefined()
+    expect(checkValue(param('file', { extension: undefined }), '/Users/demo/ledger.csv/')).toBe('trailing_separator')
+  })
+
+  it('hold a file to the extension of its parameter, without regard to case, and to any when it names none', () => {
+    const csv = param('file')
+    expect(checkValue(csv, '/Users/demo/ledger.csv')).toBeUndefined()
+    expect(checkValue(csv, '/Users/demo/ledger.CSV')).toBeUndefined()
+    expect(checkValue(csv, '/Users/demo/ledger.Csv')).toBeUndefined()
+    expect(checkValue(csv, '/Users/demo/ledger.txt')).toBe('wrong_extension')
+    const none = param('file', { extension: undefined })
+    expect(checkValue(none, '/Users/demo/notes.md')).toBeUndefined()
+    expect(checkValue(none, '/Users/demo/Receipts')).toBeUndefined()
+    const json = param('file', { extension: '.json' })
+    expect(checkValue(json, '/Users/demo/a.json')).toBeUndefined()
+    expect(checkValue(json, '/Users/demo/a.csv')).toBe('wrong_extension')
+  })
+
+  it('apply the extension to a file and to nothing else', () => {
+    expect(checkValue(param('folder', { extension: '.csv' }), '/Users/demo/Receipts')).toBeUndefined()
+    expect(checkValue(param('text', { extension: '.csv' }), 'notes')).toBeUndefined()
+  })
+
+  it('raise the rules in a fixed order: characters, space, absolute, parent, trailing separator, extension', () => {
+    const csv = param('file')
+    expect(checkValue(csv, ' relative/../x/')).toBe('surrounding_space')
+    expect(checkValue(csv, 'relative/../x/')).toBe('not_absolute_path')
+    expect(checkValue(csv, '/Users/../x/')).toBe('parent_segment')
+    expect(checkValue(csv, '/Users/x/')).toBe('trailing_separator')
+    expect(checkValue(csv, '/Users/x')).toBe('wrong_extension')
+    expect(checkValue(csv, '/Users/x\u0000 ')).toBe('control_character')
   })
 })
 

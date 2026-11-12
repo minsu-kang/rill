@@ -22,6 +22,8 @@ const info = {
     { id: 'watchFolder', kind: 'folder', label, help: label, required: true },
     { id: 'glob', kind: 'glob', label, required: false, default: '*.pdf' },
     { id: 'threshold', kind: 'number', label, required: true, min: 0, max: 100 },
+    { id: 'ledger', kind: 'file', label, required: true, extension: '.csv' },
+    { id: 'slack', kind: 'connection', label, required: true, connectionKind: 'slack' },
   ],
   nodeTypes: ['trigger.folderWatch@1', 'csv.append@1'],
   needsConnection: false,
@@ -35,7 +37,7 @@ const draft = {
     nodes: [{ id: 't1', type: 'trigger.manual@1', config: {} }],
     edges: [],
   },
-  summary: { nodes: [{ id: 't1', type: 'trigger.manual@1', title: 'Manual' }], sideEffects: ['idempotent', 'external'] },
+  summary: { nodes: [{ id: 't1', type: 'trigger.manual@1', title: 'Manual' }], sideEffects: ['idempotent', 'external'], sendsToModel: true },
 }
 
 const check = (schema: unknown, value: unknown): boolean => Value.Check(schema as never, value)
@@ -82,6 +84,14 @@ describe('listRecipes', () => {
     expect(check(RecipeParamInfoSchema, { ...info.params[2], min: 'zero' })).toBe(false)
     expect(check(RecipeParamInfoSchema, { ...info.params[1], default: true })).toBe(false)
     expect(check(RecipeParamInfoSchema, { ...info.params[1], default: 5 })).toBe(true)
+  })
+
+  it('says which file extension and which kind of connection a parameter takes', () => {
+    expect(check(RecipeParamInfoSchema, { ...info.params[3], extension: '.json' })).toBe(true)
+    expect(check(RecipeParamInfoSchema, { ...info.params[3], extension: 5 })).toBe(false)
+    for (const kind of ['slack', 'http', 'webhookSecret']) expect(check(RecipeParamInfoSchema, { ...info.params[4], connectionKind: kind }), kind).toBe(true)
+    expect(check(RecipeParamInfoSchema, { ...info.params[4], connectionKind: 'email' })).toBe(false)
+    expect(check(RecipeParamInfoSchema, { ...info.params[4], connectionKind: 5 })).toBe(false)
   })
 })
 
@@ -160,6 +170,16 @@ describe('the instantiateRecipe result', () => {
     expect(check(METHODS.instantiateRecipe.result, { ...draft, summary: { ...draft.summary, sideEffects: ['none'] } })).toBe(false)
     expect(check(METHODS.instantiateRecipe.result, { ...draft, summary: { ...draft.summary, sideEffects: ['external', 'external'] } })).toBe(false)
     expect(check(METHODS.instantiateRecipe.result, { ...draft, summary: { ...draft.summary, sideEffects: ['write'] } })).toBe(false)
+  })
+
+  it('says whether a draft sends content to a model, as a boolean that is always there', () => {
+    expect(check(METHODS.instantiateRecipe.result, draft)).toBe(true)
+    expect(check(METHODS.instantiateRecipe.result, { ...draft, summary: { ...draft.summary, sendsToModel: false } })).toBe(true)
+    expect(check(METHODS.instantiateRecipe.result, { ...draft, summary: { ...draft.summary, sendsToModel: 'yes' } })).toBe(false)
+    expect(check(METHODS.instantiateRecipe.result, { ...draft, summary: { ...draft.summary, sendsToModel: null } })).toBe(false)
+    const bare: Record<string, unknown> = { ...draft.summary }
+    delete bare.sendsToModel
+    expect(check(METHODS.instantiateRecipe.result, { ...draft, summary: bare })).toBe(false)
   })
 
   it('needs a valid workflow and closed objects', () => {

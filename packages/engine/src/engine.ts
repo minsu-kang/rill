@@ -441,7 +441,7 @@ export class Engine {
     return draftFromRecipe(input.recipeId, input.values, {
       registry: this.registry,
       allowedRoots: this.allowedRoots,
-      connections: this.planConnections.map((connection) => connection.name),
+      connections: this.planConnections,
     })
   }
 

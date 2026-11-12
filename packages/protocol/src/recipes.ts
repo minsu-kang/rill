@@ -3,6 +3,7 @@ import Type from 'typebox'
 import { IdSchema } from './plan'
 
 export const RECIPE_PARAM_KINDS = ['folder', 'file', 'glob', 'text', 'number', 'cron', 'url', 'connection'] as const
+export const RECIPE_CONNECTION_KINDS = ['slack', 'http', 'webhookSecret'] as const
 export const RECIPE_MAX_VALUES = 20
 export const RECIPE_MAX_STRING_CHARS = 500
 
@@ -19,6 +20,8 @@ export const RecipeParamInfoSchema = Type.Object(
     default: Type.Optional(Type.Union([Type.String(), Type.Number()])),
     min: Type.Optional(Type.Number()),
     max: Type.Optional(Type.Number()),
+    extension: Type.Optional(Type.String()),
+    connectionKind: Type.Optional(Type.Enum(RECIPE_CONNECTION_KINDS)),
   },
   closed,
 )
@@ -45,6 +48,7 @@ export const RecipeSummarySchema = Type.Object(
   {
     nodes: Type.Array(Type.Object({ id: Type.String(), type: Type.String(), title: Type.String() }, closed)),
     sideEffects: Type.Array(Type.Union([Type.Literal('external'), Type.Literal('idempotent')]), { uniqueItems: true }),
+    sendsToModel: Type.Boolean(),
   },
   closed,
 )

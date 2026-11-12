@@ -22,6 +22,9 @@ export const RECIPE_RULES = [
   'placeholder_outside_config',
   'undeclared_param',
   'unused_param',
+  'extension_not_allowed',
+  'connection_kind_missing',
+  'connection_kind_not_allowed',
 ] as const
 
 export type RecipeRule = (typeof RECIPE_RULES)[number]
@@ -70,6 +73,9 @@ export function recipeProblems(input: unknown): RecipeDefect[] {
     } else if (param.min !== undefined || param.max !== undefined) {
       add(at, 'bounds_not_allowed')
     }
+    if (param.extension !== undefined && param.kind !== 'file') add(at, 'extension_not_allowed')
+    if (param.kind === 'connection' && param.connectionKind === undefined) add(at, 'connection_kind_missing')
+    if (param.kind !== 'connection' && param.connectionKind !== undefined) add(at, 'connection_kind_not_allowed')
     if (param.required && param.default !== undefined) add(joinPointer(at, 'default'), 'default_on_required')
     if (!param.required && param.default === undefined) add(at, 'default_missing')
     if (param.default !== undefined && checkValue(param, param.default) !== undefined) add(joinPointer(at, 'default'), 'bad_default')

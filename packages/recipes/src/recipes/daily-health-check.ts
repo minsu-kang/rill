@@ -6,8 +6,8 @@ export const dailyHealthCheck: Recipe = {
   id: 'daily-health-check',
   title: { ko: '매일 서버 상태 확인', en: 'Daily health check' },
   description: {
-    ko: '정해진 시각에 주소를 호출해서 응답이 없거나 상태 코드가 200이 아니면 슬랙으로 알려요.',
-    en: 'Calls a URL on a schedule and sends a Slack message when it does not answer or the status is not 200.',
+    ko: '정해진 시각에 주소를 호출해서 응답이 없거나 성공(2xx) 응답이 아니면 슬랙으로 알려요.',
+    en: 'Calls a URL on a schedule and sends a Slack message when it does not answer or the answer is not a success (2xx).',
   },
   tags: ['monitoring', 'schedule', 'http', 'slack'],
   params: [
@@ -39,17 +39,17 @@ export const dailyHealthCheck: Recipe = {
         retry: { maxAttempts: 2 },
         onError: 'continue',
       },
-      { id: 'n2', type: 'condition@1', config: { left: '{{n1.output.status}}', operator: 'neq', right: 200 } },
+      { id: 'n2', type: 'condition@1', config: { left: '{{n1.output.status}}', operator: 'exists' } },
       {
         id: 'n3',
         type: 'notify.slack@1',
-        config: { connection: param('slackConnection'), text: '서버 상태 확인에 실패했어요. 응답이 없거나 상태 코드가 200이 아니에요.' },
+        config: { connection: param('slackConnection'), text: '서버 상태 확인에 실패했어요. 응답이 없거나 성공 응답이 아니에요.' },
       },
     ],
     edges: [
       { from: 't1', to: 'n1' },
       { from: 'n1', to: 'n2' },
-      { from: 'n2', to: 'n3', when: 'true' },
+      { from: 'n2', to: 'n3', when: 'false' },
     ],
   },
   sample: { schedule: '30 8 * * 1-5', url: 'https://example.test/health', slackConnection: 'slack-ops' },

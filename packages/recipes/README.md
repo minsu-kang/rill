@@ -10,7 +10,7 @@ A recipe is data: a workflow in which a string or number value may be replaced b
 import { RECIPES, findRecipe, instantiateRecipe } from '@rill/recipes'
 
 const recipe = findRecipe('receipt-folder-to-csv')!
-const result = instantiateRecipe(recipe, { watchFolder: '/Users/demo/Receipts', csvFile: '/Users/demo/Receipts/ledger.csv' })
+const result = instantiateRecipe(recipe, { watchFolder: '/Users/demo/Receipts', csvFile: '/Users/demo/ledger.csv' })
 if ('workflow' in result) deploy(result.workflow)
 else console.log(result.problems) // [{ param: 'csvFile', rule: 'required' }]
 ```
@@ -42,6 +42,8 @@ interface RecipeParam {
   default?: string | number
   min?: number // number kind only
   max?: number // number kind only
+  extension?: string // file kind only: the file name must end with it, such as '.csv'
+  connectionKind?: 'slack' | 'http' | 'webhookSecret' // connection kind only, and required there
 }
 ```
 
@@ -65,14 +67,14 @@ All string kinds share these rules, checked in this order, and the first that fa
 
 | Kind | Also required | Rule names it can raise |
 | --- | --- | --- |
-| `folder` | An absolute path, or `~/` followed by a path. No `..` segment, with `/` or `\` as separator. | `not_absolute_path`, `parent_segment` |
-| `file` | The same as `folder`. | `not_absolute_path`, `parent_segment` |
+| `folder` | An absolute path, or `~/` followed by a path. No space or other whitespace before or after it. No `..` segment, with `/` or `\` as separator. A trailing `/` is allowed. | `surrounding_space`, `not_absolute_path`, `parent_segment` |
+| `file` | The same as `folder`, and it must not end in `/` or `\`. When the parameter has an `extension`, the file name must end with it, without regard to case, and have at least one character before it. | `surrounding_space`, `not_absolute_path`, `parent_segment`, `trailing_separator`, `wrong_extension` |
 | `glob` | A file name pattern: no `/` and no `\`. | `bad_glob` |
 | `text` | Nothing more. One line. | none |
 | `number` | A finite number from `min` to `max`, both inclusive. Not a string. | `wrong_type`, `not_finite`, `below_min`, `above_max` |
 | `cron` | Five fields, accepted by the parser of the cron trigger and firing at some time. | `bad_cron` |
 | `url` | Starts with `http://` or `https://` in lower case, has a host, has no whitespace and no user name or password. | `bad_url`, `url_credentials` |
-| `connection` | The shape of a name only. The engine checks that the connection is configured. | none |
+| `connection` | The shape of a name only. The engine checks that the connection is configured and has the `connectionKind` of the parameter. | none |
 
 The exports `PARAM_KINDS`, `PARAM_RULES` (the rule names per kind), `GENERAL_RULES` (`required` and `unknown_param`), `MAX_PARAM_STRING_CHARS` (500) and `MAX_PARAM_VALUES` (20) hold these facts, and the tests prove that every rule in `PARAM_RULES` is reachable and that nothing else is raised.
 
@@ -80,6 +82,8 @@ Notes on the path kinds:
 
 - `~/` is kept as typed in the workflow. The engine expands it where it uses the path (`assertPathAllowed` expands it in `validateWorkflow`, in the folder trigger and in the nodes that read or write a file), so a `~/` path is checked against the allowed folders by what it stands for.
 - A bare `~` and `~user/` are refused, as is every relative path.
+- Whitespace around a path is refused rather than trimmed, because a folder or file name that differs from what the person meant only by a space would be created or watched silently. A trailing `/` is refused for a file, which cannot end in one, and accepted for a folder, which a pasted path often has.
+- The `extension` of a file parameter (`.csv` for the ledger of the receipt recipes) keeps a form from pointing at a folder or at a file such as `~/.zshrc`. It is lower case, a dot and one to eight letters or digits, and a `file` parameter only. The form can use it to filter a file picker.
 - Whether the path is inside the allowed folders is the engine's check. This package never touches the file system.
 
 Notes on `url`: a user name or password in a URL would put a secret into the workflow, so it is refused. A token in the query string cannot be told from other text. Credentials belong in a connection, which a recipe can reference but a URL value cannot carry.
@@ -94,10 +98,17 @@ Notes on `url`: a user name or password in a URL would put a secret into the wor
 | --- | --- | --- |
 | `receipt-folder-to-csv` | `watchFolder`, `glob` (default `*.pdf`), `csvFile` | folder watch, extract amount, date and vendor with AI (3 attempts), append a CSV row |
 | `receipt-big-amount-alert` | the same, plus `threshold` and `slackConnection` | the same, plus a condition (amount greater than the threshold) and a Slack message on the true branch |
-| `daily-health-check` | `schedule` (default weekdays at 9:00), `url`, `slackConnection` | cron, GET the URL (2 attempts, a failure continues), condition (status is not 200), Slack message |
+| `daily-health-check` | `schedule` (default weekdays at 9:00), `url`, `slackConnection` | cron, GET the URL (2 attempts, a failure continues), condition (the call produced a status), Slack message on the false branch |
 | `webhook-to-slack` | `slackConnection` | webhook on `/webhook-to-slack`, Slack message with a fixed text |
 | `monthly-reminder` | `schedule` (default first of the month at 9:00), `message` (has a default), `slackConnection` | cron, Slack message with the text of the form |
-| `failure-webhook-alert` | `slackConnection`, `failedStatus` (default `failed`) | webhook on `/failure-alert`, condition (`body.status` equals the failure status), Slack message on the true branch |
+| `failure-webhook-alert` | `slackConnection`, `failedStatus` (default `failed`) | webhook on `/failure-alert`, condition (`body.status` equals the failure status as text), Slack message on the true branch |
+
+Notes on the recipes:
+
+- The ledger of the two receipt recipes must not be in the watched folder when the pattern matches its name, because the folder trigger would see each new row as a new receipt and send it to the model again. The engine refuses that layout (see its README). The sample keeps the ledger one folder above the watched folder.
+- `http.request` already fails the node for a redirect and for every answer that is not 2xx, and `daily-health-check` continues after a failure, so the output of the call is empty exactly when the call failed. The condition asks whether a status exists: any 2xx answer, including 201 and 204, is healthy, and the alert goes out on the false branch. A dry run does not call the URL and reports status 0, which counts as an answer, so a dry run sends no alert.
+- The condition of `failure-webhook-alert` compares with strict equality, so `{"status": 500}` does not match the text `500`. The help of the parameter says that the sender must send the status as text.
+- The Slack connection of a recipe is declared with `connectionKind: 'slack'`, so a form can list only the connections of that kind, and the engine refuses a connection of another kind.
 
 The two webhook recipes use fixed paths because a webhook path is not a parameter kind. `activate` fails with `ACTIVATION_FAILED` for a second workflow on a webhook route that is already in use, so only one active workflow per webhook recipe fits until a path parameter exists.
 
@@ -115,6 +126,7 @@ The tests refuse a recipe when:
 - its shape is wrong, or two recipes share an id;
 - a placeholder names a parameter that is not declared, a declared parameter is not used, a placeholder sits in a key, a string spells `$param`, a placeholder object has other keys, or a placeholder is outside the `config` of a node;
 - the default or the sample of a parameter breaks its own rules, or the sample misses a parameter or has an extra one;
+- an `extension` sits on a parameter that is not a file, a connection has no `connectionKind` or any other parameter has one;
 - a node type is missing from the core registry;
 - the instantiated sample, or the instantiated required values with defaults, has any issue or warning from `validateWorkflow` (all three stages, allowed folder `/Users/demo`, connection `slack-ops`);
 - a `{{` stands outside a genuine node reference, or a literal looks like a token or a real host;
