@@ -14,6 +14,7 @@ export * from './questions'
 export * from './connections'
 export * from './mask'
 export * from './memory'
+export * from './explain'
 export {
   attachmentModule,
   createAttachmentModule,
