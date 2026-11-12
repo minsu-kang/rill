@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PRICE_SCHEDULE, PRICE_TABLE, PRICE_TABLE_AS_OF, costUsd, estimateCallUsd, priceFor } from '../src/index'
+import { PRICE_SCHEDULE, PRICE_TABLE, PRICE_TABLE_AS_OF, costUsd, estimateCallUsd, estimateWorstCallUsd, priceFor } from '../src/index'
 
 const usage = (inputTokens: number, outputTokens: number, cacheReadInputTokens = 0, cacheCreationInputTokens = 0) => ({
   inputTokens,
@@ -69,6 +69,37 @@ describe('estimateCallUsd', () => {
     expect(estimateCallUsd('claude-haiku-5-5', 4000, 2000)).toBeCloseTo(0.0014, 12)
     expect(estimateCallUsd('claude-opus-5-5', 4000, 2000)).toBeCloseTo(0.056, 12)
     expect(estimateCallUsd('nope', 1, 1)).toBeUndefined()
+  })
+})
+
+describe('estimateWorstCallUsd', () => {
+  it('prices every input token as a cache write when writes cost more than plain input', () => {
+    const write = priceFor('claude-sonnet-5-5')!.cacheWrite
+    expect(write).toBeGreaterThan(priceFor('claude-sonnet-5-5')!.input)
+    expect(estimateWorstCallUsd('claude-sonnet-5-5', 4000, 2000)).toBeCloseTo((4000 * write + 2000 * priceFor('claude-sonnet-5-5')!.output) / 1e6, 12)
+    expect(estimateWorstCallUsd('claude-sonnet-5-5', 4000, 2000)!).toBeGreaterThan(estimateCallUsd('claude-sonnet-5-5', 4000, 2000)!)
+  })
+
+  it('prices input at the plain rate when writes are free, so it never goes below the plain estimate', () => {
+    expect(priceFor('grok-4.7')!.cacheWrite).toBe(0)
+    expect(estimateWorstCallUsd('grok-4.7', 4000, 2000)).toBe(estimateCallUsd('grok-4.7', 4000, 2000))
+    for (const model of Object.keys(PRICE_TABLE)) {
+      expect(estimateWorstCallUsd(model, 5000, 700)!, model).toBeGreaterThanOrEqual(estimateCallUsd(model, 5000, 700)!)
+    }
+  })
+
+  it('uses the long-context tier once the prompt is past its threshold, as costUsd does', () => {
+    const price = priceFor('gpt-6-astra')!
+    const above = price.longContext!.aboveInputTokens + 1
+    const tier = price.longContext!
+    expect(estimateWorstCallUsd('gpt-6-astra', above, 1000)).toBeCloseTo((above * Math.max(tier.input, tier.cacheWrite) + 1000 * tier.output) / 1e6, 12)
+    const below = price.longContext!.aboveInputTokens
+    expect(estimateWorstCallUsd('gpt-6-astra', below, 1000)).toBeCloseTo((below * Math.max(price.input, price.cacheWrite) + 1000 * price.output) / 1e6, 12)
+  })
+
+  it('follows the price in force on the date asked for, and is undefined for an unknown model', () => {
+    expect(estimateWorstCallUsd('gemini-4-carbon', 1_000_000, 0, '2026-12-02')).toBeCloseTo(4, 10)
+    expect(estimateWorstCallUsd('nope', 1, 1)).toBeUndefined()
   })
 })
 

@@ -26,6 +26,7 @@ export {
   PRICE_TABLE_AS_OF,
   costUsd,
   estimateCallUsd,
+  estimateWorstCallUsd,
   priceFor,
   type ModelPrice,
   type PriceField,

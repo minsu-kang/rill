@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util'
 import { PROVIDER_IDS, LlmError, providerDescriptor, type LiveCheck, type LlmProvider, type LlmRequest, type LlmUsage, type ProviderId } from '@rill/llm'
 import { formatUsdPlain, money, plural } from './budget'
 import { EXIT_ERROR, EXIT_OK, EXIT_USAGE, UsageError, effectiveEndpoint, endpointCheck, type CliIo } from './cli-shared'
-import { PRICE_TABLE_AS_OF, costUsd, estimateCallUsd, priceFor } from './pricing'
+import { PRICE_TABLE_AS_OF, costUsd, estimateCallUsd, estimateWorstCallUsd, priceFor } from './pricing'
 import { createSpecProvider, describeSpec } from './providers'
 import type { FetchFn } from './record'
 import { modelIdOf, softCapFactor } from './spec'
@@ -255,7 +255,7 @@ function plans(): CallPlan[] {
 }
 
 function worstCaseOf(spec: string, plan: CallPlan): number | undefined {
-  return estimateCallUsd(spec, plan.inputTokens, CHECK_MAX_TOKENS * softCapFactor(spec))
+  return estimateWorstCallUsd(spec, plan.inputTokens, CHECK_MAX_TOKENS * softCapFactor(spec))
 }
 
 function typicalOf(spec: string, plan: CallPlan): number | undefined {

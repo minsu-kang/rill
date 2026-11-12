@@ -1,6 +1,7 @@
 import {
   costUsd as costUsdOf,
   estimateCallUsd as estimateCallUsdOf,
+  estimateWorstCallUsd as estimateWorstCallUsdOf,
   priceFor as priceForModel,
   type LlmUsage,
   type ModelPrice,
@@ -19,4 +20,8 @@ export function costUsd(spec: string, usage: LlmUsage, at?: string | Date): numb
 
 export function estimateCallUsd(spec: string, inputTokens: number, outputTokens: number, at?: string | Date): number | undefined {
   return estimateCallUsdOf(modelIdOf(spec), inputTokens, outputTokens, at)
+}
+
+export function estimateWorstCallUsd(spec: string, inputTokens: number, outputTokens: number, at?: string | Date): number | undefined {
+  return estimateWorstCallUsdOf(modelIdOf(spec), inputTokens, outputTokens, at)
 }

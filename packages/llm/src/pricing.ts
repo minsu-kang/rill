@@ -153,3 +153,10 @@ export function costUsd(model: string, usage: LlmUsage, at?: string | Date): num
 export function estimateCallUsd(model: string, inputTokens: number, outputTokens: number, at?: string | Date): number | undefined {
   return costUsd(model, { inputTokens, outputTokens, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }, at)
 }
+
+export function estimateWorstCallUsd(model: string, inputTokens: number, outputTokens: number, at?: string | Date): number | undefined {
+  const price = priceFor(model, at)
+  if (price === undefined) return undefined
+  const tier = price.longContext !== undefined && inputTokens > price.longContext.aboveInputTokens ? price.longContext : price
+  return (inputTokens * Math.max(tier.input, tier.cacheWrite) + outputTokens * tier.output) / PER_MILLION
+}
