@@ -102,6 +102,19 @@ describe('llm.extract and provider capabilities', () => {
     expect(requests).toHaveLength(0)
   })
 
+  it('accepts a file of exactly the request cap and refuses one byte more', async () => {
+    const exact = Buffer.concat([PNG, Buffer.alloc(40, 1)])
+    const file = join(dir, 'exact.png')
+    writeFileSync(file, exact)
+    const fits = provider('openai', { ...ANTHROPIC_CAPABILITIES, maxRequestBytes: exact.length })
+    await llmExtract.execute({ file, fields }, makeCtx({ llm: fits.llm, allowedRoots: [dir] }))
+    expect(fits.requests).toHaveLength(1)
+    const tight = provider('openai', { ...ANTHROPIC_CAPABILITIES, maxRequestBytes: exact.length - 1 })
+    const error = await failure(llmExtract.execute({ file, fields }, makeCtx({ llm: tight.llm, allowedRoots: [dir] })))
+    expect(error.message).toContain(String(exact.length - 1))
+    expect(tight.requests).toHaveLength(0)
+  })
+
   it('sends what the provider takes, and text to a provider that reads no PDF', async () => {
     const png = join(dir, 'a.png')
     writeFileSync(png, PNG)
