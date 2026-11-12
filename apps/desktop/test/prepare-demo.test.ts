@@ -15,8 +15,8 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative, resolve } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { dirname, join, relative, resolve } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_FIXTURES_DIR,
   DEMO_FILES,
@@ -253,10 +253,99 @@ describe('prepareDemo refusals', () => {
   })
 })
 
+describe('manifest handling', () => {
+  type Entry = { seedId: string; kind: string; path: string; bytes: number | string; sha256: string | number }
+
+  function miniFixtures(change: (entries: Entry[]) => unknown): string {
+    const fixtures = join(dir, 'mini')
+    const all = manifestFiles(DEFAULT_FIXTURES_DIR)
+    const entries = DEMO_FILES.map((file) => ({ ...all.find((candidate) => candidate.seedId === file.seedId && candidate.kind === file.kind)! }))
+    for (const entry of entries) {
+      mkdirSync(dirname(join(fixtures, entry.path)), { recursive: true })
+      cpSync(join(DEFAULT_FIXTURES_DIR, entry.path), join(fixtures, entry.path))
+    }
+    writeFileSync(join(fixtures, 'manifest.json'), JSON.stringify(change(entries)))
+    return fixtures
+  }
+
+  it('accepts a manifest that lists only the three demo fixtures', () => {
+    const result = prepareDemo({ home, fixturesDir: miniFixtures((entries) => ({ files: entries })) })
+    expect(result.copied).toEqual(DEMO_FILES.map((file) => file.name))
+  })
+
+  it.each([
+    ['a byte count that is not a number', (entry: Entry) => ({ ...entry, bytes: String(entry.bytes) })],
+    ['a hash that is not a string', (entry: Entry) => ({ ...entry, sha256: 123 })],
+    ['a path that is not a string', (entry: Entry) => ({ ...entry, path: 42 })],
+    ['no seed id', (entry: Entry) => ({ ...entry, seedId: undefined })],
+    ['a null entry', () => null],
+  ])('does not use an entry with %s', (_name, damage) => {
+    const fixtures = miniFixtures((entries) => ({ files: entries.map((entry) => (entry.kind === 'pdf' ? damage(entry) : entry)) }))
+    expect(() => prepareDemo({ home, fixturesDir: fixtures })).toThrow(/the manifest has no pdf fixture/)
+    expect(tree(home)).toEqual([])
+  })
+
+  it.each([
+    ['no file list', {}],
+    ['a file list that is not an array', { files: 'receipts' }],
+    ['null', null],
+  ])('refuses a manifest with %s', (_name, manifest) => {
+    const fixtures = miniFixtures(() => manifest)
+    expect(() => prepareDemo({ home, fixturesDir: fixtures })).toThrow(DemoPrepareError)
+    expect(() => prepareDemo({ home, fixturesDir: fixtures })).toThrow(/no file list/)
+    expect(tree(home)).toEqual([])
+  })
+
+  it('refuses a manifest that is not JSON', () => {
+    const fixtures = miniFixtures((entries) => entries)
+    writeFileSync(join(fixtures, 'manifest.json'), '{ not json')
+    expect(() => prepareDemo({ home, fixturesDir: fixtures })).toThrow(/cannot read the fixture manifest/)
+  })
+
+  it('refuses a fixture that the manifest lists but the folder lacks', () => {
+    const fixtures = miniFixtures((entries) => ({ files: entries }))
+    rmSync(join(fixtures, manifestFiles(fixtures).find((entry) => entry.kind === 'png')!.path))
+    expect(() => prepareDemo({ home, fixturesDir: fixtures })).toThrow(DemoPrepareError)
+    expect(() => prepareDemo({ home, fixturesDir: fixtures })).toThrow(/missing or not a plain file/)
+    expect(tree(home)).toEqual([])
+  })
+})
+
+describe('the module', () => {
+  it('does not run the command when it is imported', async () => {
+    const saved = process.env.HOME
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    process.env.HOME = home
+    try {
+      vi.resetModules()
+      await import('../scripts/prepare-demo')
+      expect(tree(home)).toEqual([])
+      expect(log).not.toHaveBeenCalled()
+      expect(error).not.toHaveBeenCalled()
+    } finally {
+      if (saved === undefined) delete process.env.HOME
+      else process.env.HOME = saved
+      log.mockRestore()
+      error.mockRestore()
+    }
+  })
+
+  it('names the copied files in the documents', () => {
+    const demo = readFileSync(join(REPO_ROOT, 'docs/demo.md'), 'utf8')
+    for (const file of DEMO_FILES) expect(demo, file.name).toContain(`\`${file.name}\``)
+    expect(demo).toContain(`"name": "${SAMPLE_PDF}"`)
+    expect(demo).toContain(`~/Rill-Demo/Receipts/${SAMPLE_PDF}`)
+  })
+})
+
 describe('formatNextSteps', () => {
   it('names the folders, the values to answer with and the demo script', () => {
     const text = formatNextSteps(prepareDemo({ home })).join('\n')
     expect(text).toContain(`Demo folder: ${join(home, 'Rill-Demo')}`)
+    expect(text).toContain(`Settings, Folders: add ${join(home, 'Rill-Demo')}\n`)
+    expect(text).toContain(`Copied: ${DEMO_FILES.map((file) => file.name).join(', ')}`)
+    expect(text).not.toContain('Already there')
     expect(text).toContain(`folder      ${join(home, 'Rill-Demo', 'Inbox')}`)
     expect(text).toContain(`CSV file    ${join(home, 'Rill-Demo', 'ledger.csv')}`)
     expect(text).toContain('demo-slack')
