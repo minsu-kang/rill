@@ -23,6 +23,8 @@ const spies = vi.hoisted(() => ({
   flags: [] as number[],
   readdirs: 0,
   failRead: false,
+  chunk: undefined as number | undefined,
+  endAt: undefined as number | undefined,
 }))
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -43,9 +45,11 @@ vi.mock('node:fs', async (importOriginal) => {
       spies.readdirs++
       return (actual.readdirSync as (...a: unknown[]) => unknown)(...args)
     },
-    readSync: (...args: unknown[]) => {
+    readSync: (fd: number, buffer: NodeJS.ArrayBufferView, offset: number, length: number, position: number | null) => {
       if (spies.failRead) throw new Error('simulated read failure')
-      return (actual.readSync as (...a: unknown[]) => unknown)(...args)
+      if (spies.endAt !== undefined && offset >= spies.endAt) return 0
+      const room = spies.endAt === undefined ? length : spies.endAt - offset
+      return actual.readSync(fd, buffer, offset, Math.min(length, room, spies.chunk ?? length), position)
     },
   }
 })
@@ -65,6 +69,8 @@ beforeEach(() => {
   spies.flags.length = 0
   spies.readdirs = 0
   spies.failRead = false
+  spies.chunk = undefined
+  spies.endAt = undefined
 })
 
 afterEach(() => {
@@ -156,9 +162,13 @@ describe('createFsAttachmentStore: ids', () => {
   })
 
   it('does not accept a non-string id', async () => {
+    writeFileSync(join(root, 'undefined.txt'), 'a file named like a missing id')
+    writeFileSync(join(root, `${ID}.txt`), 'content')
     const store = createFsAttachmentStore(root)
     expect(await store.read(undefined as unknown as string)).toBeUndefined()
     expect(await store.read(12345678 as unknown as string)).toBeUndefined()
+    expect(await store.read({ toString: () => ID } as unknown as string)).toBeUndefined()
+    expect(await store.read([ID] as unknown as string)).toBeUndefined()
     expect(spies.opened).toEqual([])
   })
 
@@ -250,6 +260,22 @@ describe('createFsAttachmentStore: unsafe files', () => {
     spies.failRead = true
     await expect(createFsAttachmentStore(root).read(ID)).resolves.toBeUndefined()
     expect(spies.opened).toHaveLength(1)
+    expectEveryDescriptorClosed()
+  })
+
+  it('collects a file that the operating system hands over in pieces', async () => {
+    writeFileSync(join(root, `${ID}.txt`), 'abcdefghij')
+    spies.chunk = 3
+    expect(new TextDecoder().decode(await createFsAttachmentStore(root).read(ID))).toBe('abcdefghij')
+    expectEveryDescriptorClosed()
+  })
+
+  it('returns only the bytes that were read when the file ends sooner than its size said', async () => {
+    writeFileSync(join(root, `${ID}.txt`), 'abcdefghij')
+    spies.endAt = 4
+    const read = await createFsAttachmentStore(root).read(ID)
+    expect(new TextDecoder().decode(read)).toBe('abcd')
+    expect(read?.byteLength).toBe(4)
     expectEveryDescriptorClosed()
   })
 

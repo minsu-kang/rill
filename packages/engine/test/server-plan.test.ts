@@ -264,6 +264,15 @@ describe('planner methods over the websocket', () => {
     expect(db.all('SELECT id FROM plans')).toEqual([])
   })
 
+  it('passes the limit of listPlans on to the engine', async () => {
+    const { url } = await start([{ data: workflowReply(plainWorkflow()) }, { data: workflowReply(plainWorkflow()) }])
+    const { client } = await connect(url)
+    await client.request('plan', planParams({ planId: 'first-plan' }))
+    await client.request('plan', planParams({ planId: 'second-plan' }))
+    expect((await client.request('listPlans', {})).plans).toHaveLength(2)
+    expect((await client.request('listPlans', { limit: 1 })).plans).toHaveLength(1)
+  })
+
   it('reports LLM_UNAVAILABLE when the engine has no model provider', async () => {
     const { url } = await start([], { llm: undefined })
     const { client } = await connect(url)
@@ -386,6 +395,7 @@ describe('error mapping table', () => {
     const auth = await mapped(new PlanError('provider', 'the model provider failed: invalid key sk-123', [], [], { cause: new LlmError('auth', 'invalid key sk-123') }))
     expect(auth.code).toBe('LLM_UNAVAILABLE')
     expect(auth.message).not.toContain('sk-123')
+    expect(auth.message).toBe('the model provider rejected the credentials')
   })
 
   it('maps other provider failures to PLAN_PROVIDER with a fixed message', async () => {
@@ -399,6 +409,7 @@ describe('error mapping table', () => {
   it('maps invalid_after_repair to PLAN_INVALID and lists at most 20 problems as code at pointer', async () => {
     const error = await mapped(new PlanError('invalid_after_repair', 'no valid answer after 3 repair rounds', [], issues(25)))
     expect(error.code).toBe('PLAN_INVALID')
+    expect(error.message).toBe('no valid plan after the repair rounds')
     expect(error.problems).toHaveLength(20)
     expect(error.problems[0]).toBe('config_required at /nodes/0/config')
     expect(error.problems[19]).toBe('config_required at /nodes/19/config')
@@ -411,6 +422,7 @@ describe('error mapping table', () => {
   it('maps invalid_request to INVALID_PARAMS', async () => {
     const error = await mapped(new PlanError('invalid_request', 'a selection needs context.existingWorkflow', [], issues(1)))
     expect(error.code).toBe('INVALID_PARAMS')
+    expect(error.message).toBe('the request does not fit the existing workflow')
     expect(error.problems).toEqual(['config_required at /nodes/0/config'])
   })
 

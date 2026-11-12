@@ -8,7 +8,7 @@ import { waitFor } from './process'
 export type Step =
   | { data: unknown; usage?: Partial<LlmUsage>; model?: string }
   | { error: Error }
-  | { wait: true }
+  | { wait: true; abortDelayMs?: number }
   | { gate: Promise<void>; data: unknown }
 
 export const MODEL = 'claude-sonnet-5-5'
@@ -46,7 +46,12 @@ export class ScriptedProvider implements LlmProvider {
     if ('data' in step && !('gate' in step)) return Promise.resolve(reply(step.data, step.usage, step.model))
     return new Promise<LlmResult>((resolve, reject) => {
       const signal = options?.signal
-      const abort = () => reject(new LlmError('aborted', 'aborted'))
+      const delay = (step as { abortDelayMs?: number }).abortDelayMs
+      const abort = () => {
+        const fail = () => reject(new LlmError('aborted', 'aborted'))
+        if (delay === undefined) fail()
+        else setTimeout(fail, delay)
+      }
       if (signal?.aborted === true) return abort()
       signal?.addEventListener('abort', abort, { once: true })
       if ('gate' in step) void step.gate.then(() => resolve(reply(step.data)))

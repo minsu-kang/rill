@@ -459,6 +459,14 @@ describe('attachment text the model repeats', () => {
     expect(outcome.result.summary).toBe(`Waits for <hidden> Fennecwombat and Zebrafinch`)
   })
 
+  it('does not look for words in a PDF, which cannot be searched offline', async () => {
+    writeFileSync(join(attachments, 'receipt2.pdf'), `%PDF-1.4 ${WORDS}`)
+    const pdf: AttachmentRef = { id: 'receipt2', mediaType: 'application/pdf', name: 'receipt.pdf', bytes: 30 }
+    const { engine } = setup([{ data: workflowReply(plainWorkflow(), `Waits for ${WORDS}`) }])
+    const outcome = await engine.plan(planInput({ attachments: [pdf] }))
+    expect(outcome.result.summary).toBe(`Waits for ${WORDS}`)
+  })
+
   it('leaves the summary alone when no attachment text is involved', async () => {
     const { engine } = setup([{ data: workflowReply(plainWorkflow(), `Waits for ${WORDS}`) }])
     const outcome = await engine.plan(planInput())
@@ -485,6 +493,33 @@ describe('Engine.getPlan and Engine.listPlans', () => {
     expect(engine.listPlans({ limit: Number.NaN })).toHaveLength(3)
     expect(engine.listPlans()[2]).toMatchObject({ kind: 'workflow', summary: 'Does the thing', flagCount: 0, workflowId: null, status: 'planned' })
     expect(engine.listPlans()[0]).toMatchObject({ kind: 'unsupported' })
+  })
+
+  it('returns 50 plans by default and never more than 200', () => {
+    const { engine } = setup()
+    for (let index = 0; index < 205; index++) {
+      engine.store.savePlan({
+        planId: `stored-${index}`,
+        createdAt: index,
+        status: 'failed',
+        effort: 'medium',
+        model: null,
+        requestText: 'x',
+        attachments: [],
+        result: null,
+        meta: null,
+        error: 'e',
+        flagKeys: [],
+        workflowId: null,
+        confirmed: null,
+        workflowHash: null,
+      })
+    }
+    expect(engine.listPlans()).toHaveLength(50)
+    expect(engine.listPlans({ limit: 199 })).toHaveLength(199)
+    expect(engine.listPlans({ limit: 200 })).toHaveLength(200)
+    expect(engine.listPlans({ limit: 201 })).toHaveLength(200)
+    expect(engine.listPlans({ limit: 100000 })).toHaveLength(200)
   })
 })
 
@@ -616,6 +651,15 @@ describe('shutdown', () => {
     expect(engine.getPlan('a').status).toBe('cancelled')
     expect(engine.getPlan('b').status).toBe('cancelled')
     await engine.shutdown()
+  })
+
+  it('does not return before a plan that is slow to stop has stored its record', async () => {
+    const { engine, provider } = setup([{ wait: true, abortDelayMs: 40 }])
+    const plan = engine.plan(planInput({ planId: 'slow' })).catch(() => undefined)
+    await provider.calls(1)
+    await engine.shutdown()
+    expect(engine.getPlan('slow').status).toBe('cancelled')
+    await plan
   })
 
   it('has nothing to wait for when no plan is running', async () => {

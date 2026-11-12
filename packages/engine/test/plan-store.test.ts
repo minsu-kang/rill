@@ -1,11 +1,13 @@
 import type { Workflow } from '@rill/dsl'
-import type { AttachmentRef, PlanMeta, PlanResultBody } from '@rill/protocol'
+import { flagKey, type AttachmentRef, type PlanMeta, type PlanResultBody } from '@rill/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { Db } from '../src/db'
 import {
   PlanDeployedError,
   PlanExistsError,
   PlanNotFoundError,
+  confirmationProblem,
+  plannedRecord,
   workflowHash,
   type StoredPlan,
 } from '../src/plans'
@@ -416,5 +418,71 @@ describe('workflowHash', () => {
     expect(workflowHash({})).toBe(workflowHash(null))
     expect(workflowHash({ nodes: 'x', edges: 5 })).toMatch(hex)
     expect(workflowHash({ nodes: [null, 'x', 3, { retry: 'x', onError: 7 }], edges: [null] })).toMatch(hex)
+  })
+})
+
+describe('confirmationProblem', () => {
+  const keys = (count: number) => Array.from({ length: count }, (_, index) => flagKey({ nodeId: `n${index}`, pointer: '/url', code: 'new_egress_target' }))
+  const listed = (message: string | undefined) => (message?.match(/ at \/url/g) ?? []).length
+
+  it('is satisfied by exactly the flag keys, in any order', () => {
+    expect(confirmationProblem(keys(3), [...keys(3)].reverse())).toBeUndefined()
+    expect(confirmationProblem([], [])).toBeUndefined()
+  })
+
+  it('names each missing flag by node and pointer', () => {
+    const message = confirmationProblem(keys(2), [keys(2)[0]!])
+    expect(message).toContain('not confirmed: n1 at /url')
+    expect(message).not.toContain('n0')
+  })
+
+  it('lists at most 20 missing flags and counts the rest', () => {
+    const twenty = confirmationProblem(keys(20), [])
+    expect(listed(twenty)).toBe(20)
+    expect(twenty).not.toContain('more')
+    const twentyOne = confirmationProblem(keys(21), [])
+    expect(listed(twentyOne)).toBe(20)
+    expect(twentyOne).toContain('and 1 more')
+    const twentyFive = confirmationProblem(keys(25), [])
+    expect(listed(twentyFive)).toBe(20)
+    expect(twentyFive).toContain('and 5 more')
+    expect(twentyFive).not.toContain('n24')
+  })
+
+  it('says so when a key is not valid JSON', () => {
+    expect(confirmationProblem(['not json'], [])).toContain('an unreadable flag')
+  })
+
+  it('counts the keys that are not flags of the plan, in the singular and the plural', () => {
+    const own = keys(1)
+    expect(confirmationProblem(own, [...own, 'x'])).toBe('1 confirmed key is not a flag of this plan')
+    expect(confirmationProblem(own, [...own, 'x', 'y'])).toBe('2 confirmed keys are not a flag of this plan')
+    expect(confirmationProblem(own, [...own, 'x', 'x'])).toBe('1 confirmed key is not a flag of this plan')
+  })
+
+  it('reports both problems in one message', () => {
+    expect(confirmationProblem(keys(1), ['x'])).toMatch(/^confirm every flag before deploying; not confirmed: n0 at \/url; 1 confirmed key is not a flag of this plan$/)
+  })
+})
+
+describe('plannedRecord', () => {
+  it('keeps one key per flag, however often the planner repeats it', () => {
+    const duplicate = { nodeId: 'n1', pointer: '/url', code: 'new_egress_target' as const, message: 'new target' }
+    const other = { ...duplicate, code: 'untrusted_flow' as const }
+    const planned = {
+      kind: 'workflow' as const,
+      workflow,
+      summary: 's',
+      flags: [duplicate, { ...duplicate }, other],
+      needsConfirmation: true,
+      rounds: [],
+      usage,
+      costUsd: 0,
+      model: 'claude-sonnet-5-5',
+      effort: 'medium' as const,
+      fallbackUsed: false,
+    }
+    const { record } = plannedRecord({ planId: 'p-1', text: 'x', attachments: [], effort: 'medium' }, planned, 1)
+    expect(record.flagKeys).toEqual([flagKey(duplicate), flagKey(other)])
   })
 })

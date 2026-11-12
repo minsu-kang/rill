@@ -179,6 +179,7 @@ describe('plan params', () => {
     expect(ok('plan', turn({ role: 'system' }))).toBe(false)
     expect(ok('plan', turn({ text: 'x'.repeat(8000) }))).toBe(true)
     expect(ok('plan', turn({ text: 'x'.repeat(8001) }))).toBe(false)
+    expect(ok('plan', turn({ attachments: Array.from({ length: 5 }, () => ref) }))).toBe(true)
     expect(ok('plan', turn({ attachments: Array.from({ length: 6 }, () => ref) }))).toBe(false)
     expect(ok('plan', turn({ answers: { q1: 1 } }))).toBe(false)
     expect(ok('plan', turn({ result: { kind: 'other' } }))).toBe(false)

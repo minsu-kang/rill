@@ -61,6 +61,20 @@ describe('scrubResultText', () => {
     expect(summaryOf(scrubResultText(workflowBody('Files inv-2024-0042 now'), input()))).not.toMatch(/inv-2024-0042/i)
   })
 
+  it('hides an identifier as a whole even when its parts are words that others used', () => {
+    const attachmentTexts = ['Ref invoice-receipt-77x from the shop']
+    const userTexts = ['file the invoice receipt']
+    expect(summaryOf(scrubResultText(workflowBody('Files invoice-receipt-77x'), input({ attachmentTexts, userTexts })))).toBe('Files <hidden>')
+    expect(summaryOf(scrubResultText(workflowBody('Files INVOICE-RECEIPT-77X'), input({ attachmentTexts, userTexts })))).toBe('Files <hidden>')
+  })
+
+  it('keeps an identifier that the existing workflow has', () => {
+    const existing = receipts()
+    existing.nodes[2]!.config = { file: '/x/ledger-2024.csv', row: ['a'] }
+    const out = scrubResultText(workflowBody('Appends to ledger-2024.csv'), input({ attachmentTexts: ['see ledger-2024.csv'], userTexts: [], existingWorkflow: existing }))
+    expect(summaryOf(out)).toBe('Appends to ledger-2024.csv')
+  })
+
   it('keeps an identifier that the user wrote too', () => {
     const out = scrubResultText(workflowBody('Files INV-2024-0042 now'), input({ userTexts: ['file invoice inv-2024-0042 in my ledger'] }))
     expect(summaryOf(out)).toBe('Files INV-2024-0042 now')
