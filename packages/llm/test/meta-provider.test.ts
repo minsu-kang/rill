@@ -787,3 +787,45 @@ describe('descriptor', () => {
     }
   })
 })
+
+describe('request checks against a capability record that lacks a feature', () => {
+  const base = { model: META_TEST_MODEL, maxTokens: 1000, defaultEffort: 'high' as const }
+  const caps = META_MODELS.find((entry) => entry.id === META_TEST_MODEL)!.capabilities
+
+  it('refuses an image type the record does not list, and a PDF when the record reads none', async () => {
+    const { buildChatRequest } = await import('../src/meta/request')
+    const gif: LlmRequest = request({ messages: [{ role: 'user', content: [{ type: 'image', mediaType: 'image/gif', data: PNG_BASE64 }] }] })
+    expect(() => buildChatRequest({ ...base, capabilities: { ...caps, images: ['image/png'] }, request: gif })).toThrow('does not take image/gif')
+    const pdf: LlmRequest = request({ messages: [{ role: 'user', content: [{ type: 'document', mediaType: 'application/pdf', data: PDF_BASE64 }] }] })
+    expect(() => buildChatRequest({ ...base, capabilities: { ...caps, documents: 'none' }, request: pdf })).toThrow('does not read PDF')
+    expect(() => buildChatRequest({ ...base, capabilities: caps, request: pdf })).not.toThrow()
+  })
+})
+
+describe('usage problems are named', () => {
+  it('says which count is missing or invalid', async () => {
+    const missing = await failure(setup([withUsage({ prompt_tokens: 10 } as unknown as MetaUsageFixture)]).provider.generate(request()))
+    expect(missing.message).toContain('usage.completion_tokens')
+    const noPrompt = await failure(setup([withUsage({ completion_tokens: 10 } as unknown as MetaUsageFixture)]).provider.generate(request()))
+    expect(noPrompt.message).toContain('usage.prompt_tokens')
+  })
+
+  it('keeps the usage it read when a later chunk says usage is null', async () => {
+    const { ChatAccumulator } = await import('../src/meta/reply')
+    const accumulator = new ChatAccumulator()
+    accumulator.push({ data: JSON.stringify({ choices: [], usage: RAW_USAGE }) })
+    accumulator.push({ data: JSON.stringify({ choices: [{ index: 0, delta: { content: 'x' }, finish_reason: 'stop' }], usage: null }) })
+    expect(accumulator.finish().usage).toEqual(RAW_USAGE)
+  })
+})
+
+describe('provider options', () => {
+  it('uses the deadline it was built with when the call names none', async () => {
+    const transport = createFakeTransport({ apiKey: KEY })
+    transport.script({ kind: 'hang' })
+    const provider = new MetaProvider({ model: META_TEST_MODEL, apiKey: KEY, fetch: transport.fetch, timeoutMs: 600 })
+    const started = Date.now()
+    expect((await failure(provider.generate(request()))).kind).toBe('timeout')
+    expect(Date.now() - started).toBeLessThan(3000)
+  })
+})

@@ -70,4 +70,26 @@ describe('pdfPageImages', () => {
     const file = Buffer.concat([Buffer.from('%PDF-1.5\n7 0 obj\n<< /Type /ObjStm /Filter /FlateDecode >>\nstream\n'), bomb, Buffer.from('\nendstream\nendobj\n')])
     expect(pdfPageImages(b64(file))).toBe(50)
   })
+
+  it('draws the inflate limit at 64 MiB: a stream just under it is read, one just over it is not', () => {
+    const MIB64 = 64 * 1024 * 1024
+    const wrap = (inflated: number) => {
+      const text = '<< /Type /Page >>'.repeat(3)
+      const data = deflateSync(Buffer.concat([Buffer.from(text), Buffer.alloc(inflated - text.length)]))
+      return b64(Buffer.concat([Buffer.from('%PDF-1.5\n7 0 obj\n<< /Type /ObjStm /Filter /FlateDecode >>\nstream\n'), data, Buffer.from('\nendstream\nendobj\n')]))
+    }
+    expect(pdfPageImages(wrap(MIB64 - 1000))).toBe(3)
+    expect(pdfPageImages(wrap(MIB64 + 10_000))).toBe(50)
+  })
+
+  it('does not take an object whose type only starts with ObjStm for an object stream', () => {
+    const objects = deflateSync(Buffer.from('<< /Type /Page >>'.repeat(3)))
+    const decoy = Buffer.concat([Buffer.from('%PDF-1.5\n7 0 obj\n<< /Type /ObjStmX /Filter /FlateDecode >>\nstream\n'), objects, Buffer.from('\nendstream\nendobj\n')])
+    expect(pdfPageImages(b64(decoy))).toBe(50)
+  })
+
+  it('goes on to the next object stream after one that cannot be read', () => {
+    const broken = Buffer.from('%PDF-1.5\n7 0 obj\n<< /Type /ObjStm /Filter /FlateDecode >>\nstream\nthis is not zlib data\nendstream\nendobj\n')
+    expect(pdfPageImages(b64(Buffer.concat([broken, objectStream(3)])))).toBe(3)
+  })
 })
