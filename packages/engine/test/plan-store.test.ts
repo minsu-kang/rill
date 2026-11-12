@@ -481,6 +481,11 @@ describe('plannedRecord', () => {
       model: 'claude-sonnet-5-5',
       effort: 'medium' as const,
       fallbackUsed: false,
+      meta: {
+        provider: 'anthropic',
+        effort: { requested: 'medium' as const, effective: 'medium' as const, native: 'medium', collapsed: false },
+        reasoningCapped: false,
+      },
     }
     const { record } = plannedRecord({ planId: 'p-1', text: 'x', attachments: [], effort: 'medium' }, planned, 1)
     expect(record.flagKeys).toEqual([flagKey(duplicate), flagKey(other)])
