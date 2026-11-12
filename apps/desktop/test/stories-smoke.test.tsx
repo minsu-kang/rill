@@ -112,6 +112,9 @@ describe('explain and recipe stories', () => {
     }
     for (const name of ['WithModelTransfer', 'Deployed', 'DeployFailed']) {
       expect(all.some((story) => story.file === 'recipes/DraftPreview.stories.tsx' && story.name === name), name).toBe(true)
+    }
+  })
+})
 
 describe('chat story files', () => {
   it('hold at least ninety stories in the Chat group, and a story file for each of the fifteen chat components', () => {
