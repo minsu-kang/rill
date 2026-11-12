@@ -112,7 +112,7 @@ export function interactionResult(reader: InteractionReader, requestedModel: str
   if (status === 'incomplete' || status === 'requires_continuation') {
     throw new LlmError('truncated', 'the model reply was cut off before it finished; raise maxTokens or shorten the input', billedEarly)
   }
-  if (status === 'cancelled') throw new LlmError('aborted', 'the model provider cancelled the request', billedEarly)
+  if (status === 'cancelled') throw new LlmError('unknown', 'the model provider cancelled the request', billedEarly)
   if (status === 'failed') throw failedInteraction(terminal.errors, secrets, billedEarly)
   if (status !== 'completed') {
     throw new LlmError('invalid_output', `the model provider ended the reply with an unexpected status (${status})`, billedEarly)

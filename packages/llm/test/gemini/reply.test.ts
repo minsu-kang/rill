@@ -193,8 +193,8 @@ describe('Gemini statuses', () => {
     expect(error.usage).toBeUndefined()
   })
 
-  it('cancelled is aborted', async () => {
-    expect((await fails(withStatus('cancelled'))).error.kind).toBe('aborted')
+  it('a cancellation by the server is unknown, because the caller never aborted', async () => {
+    expect((await fails(withStatus('cancelled'))).error.kind).toBe('unknown')
   })
 
   it('failed maps the first error code, or is unknown without one', async () => {
@@ -226,7 +226,7 @@ describe('Gemini stream errors', () => {
     ['invalid_request', 'invalid_request'],
     ['safety', 'refusal'],
     ['prohibited_content', 'refusal'],
-    ['cancelled', 'aborted'],
+    ['cancelled', 'connection'],
     ['something_new', 'unknown'],
   ] as const)('an error event with code %s is %s', async (code, kind) => {
     const { error } = await fails(failing(code))

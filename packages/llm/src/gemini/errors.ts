@@ -19,7 +19,7 @@ const EVENT_KINDS: ReadonlyMap<string, LlmErrorKind> = new Map<string, LlmErrorK
   ['api_error', 'overloaded'],
   ['deadline_exceeded', 'timeout'],
   ['gateway_timeout', 'timeout'],
-  ['cancelled', 'aborted'],
+  ['cancelled', 'connection'],
   ['invalid_request', 'invalid_request'],
   ['failed_precondition', 'invalid_request'],
   ['parameter_unknown', 'invalid_request'],
@@ -52,7 +52,6 @@ function isInvalidKey(message: string): boolean {
 function kindFor(info: HttpErrorInfo): LlmErrorKind | undefined {
   const code = info.code?.toLowerCase()
   if (code !== undefined && REFUSAL_CODES.includes(code)) return 'refusal'
-  if (code === 'cancelled' || info.type === 'CANCELLED') return 'aborted'
   if (info.status === 400 && isInvalidKey(info.message)) return 'auth'
   return undefined
 }
