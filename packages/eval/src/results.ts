@@ -3,6 +3,7 @@ import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isPassingOutcome, type FieldOutcome } from './score'
 import { priceFor } from './pricing'
+import { providerOfSpec } from './spec'
 import type { SentRequest } from './sent'
 import type { FailedAttempt, RunResult, TaskResult } from './runner'
 import type { EvalCase } from './suite'
@@ -206,6 +207,7 @@ function rowOf<O>(task: TaskResult<O>, testCase: ResultCase | undefined, meta: R
     ...(served?.stopReason === undefined || served.stopReason === null ? {} : { stop_reason: served.stopReason }),
     grade: gradeOf(task, meta.fields),
     model: served?.model ?? task.model,
+    provider: providerOfSpec(task.model) ?? null,
     requested_model: task.model,
     fallback_used: task.exchanges.some((exchange) => exchange.fallbackBlocks > 0),
     usage: usageOf(task),
@@ -344,6 +346,7 @@ export function writeResults<O>(dir: string, run: RunResult<O>, meta: ResultsMet
         reps: meta.reps,
         effort: meta.effort,
         models: meta.models,
+        providers: Object.fromEntries(meta.models.map((model) => [model, providerOfSpec(model) ?? null])),
         ...(meta.versions === undefined ? {} : { versions: meta.versions }),
         budget_usd: run.budgetUsd ?? null,
         spent_usd: run.spentUsd,
@@ -353,6 +356,9 @@ export function writeResults<O>(dir: string, run: RunResult<O>, meta: ResultsMet
         tasks: run.tasks.length,
         failed: run.tasks.filter((task) => task.status === 'failed').length,
         skipped: skipped.map((task) => ({ prompt_id: promptId(task.caseId), rep: task.rep, model: task.model, reason: task.skipped ?? 'budget' })),
+        ...(run.notRun === undefined || run.notRun.length === 0
+          ? {}
+          : { not_run: run.notRun.map((entry) => ({ prompt_id: promptId(entry.caseId), model: entry.model, reason: entry.reason })) }),
       },
       null,
       2,

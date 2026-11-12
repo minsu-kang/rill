@@ -5,7 +5,9 @@ import type { LlmProvider, LlmRequest } from '@rill/llm'
 import { llmExtract, type NodeContext } from '@rill/nodes-core'
 import Type from 'typebox'
 import Value from 'typebox/value'
+import { wrapProvider } from '../../record'
 import { summarizeRequest, type SentRequest } from '../../sent'
+import { unsupportedMediaReason } from '../../spec'
 import { PRICE_TABLE_AS_OF } from '../../pricing'
 import { FIELD_NAMES, SCORER_VERSION, scoreFields, type Expected } from '../../score'
 import type { CaseScore, EvalCase, Suite } from '../../suite'
@@ -96,14 +98,13 @@ function selectSeeds(seeds: readonly Seed[], only: string | readonly string[] | 
 }
 
 function tapProvider(provider: LlmProvider, onRequest: (request: LlmRequest) => void): LlmProvider {
-  return {
-    name: provider.name,
-    generate: (request, options) => {
-      onRequest(request)
-      return provider.generate(request, options)
-    },
-  }
+  return wrapProvider(provider, (request, options) => {
+    onRequest(request)
+    return provider.generate(request, options)
+  })
 }
+
+const KIND_MEDIA_TYPES: Readonly<Record<FixtureKind, string | undefined>> = { text: undefined, pdf: 'application/pdf', png: 'image/png' }
 
 function nodeContext(testCase: ExtractCase, fixturesDir: string, llm: LlmProvider): NodeContext {
   const runId = `eval:${testCase.id}`
@@ -208,6 +209,10 @@ export function createExtractSuite(options: ExtractSuiteOptions = {}): ExtractSu
         partial: { vendor: result.vendorPartial },
         tags: Object.fromEntries(FIELD_NAMES.map((field) => [field, result.fields[field].tags])),
       }
+    },
+    unsupportedReason: (testCase, model) => {
+      const mediaType = KIND_MEDIA_TYPES[testCase.kind]
+      return mediaType === undefined ? undefined : unsupportedMediaReason(model, [mediaType])
     },
     estimateInputTokens: (testCase) => {
       if (testCase.kind === 'pdf') return PDF_INPUT_TOKENS

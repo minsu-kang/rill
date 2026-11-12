@@ -192,7 +192,7 @@ describe('writeResults: the contract of the report builder (pinned as written in
     const [row, ...rest] = readJsonl(join(dir, 'baseline', 'results.jsonl'))
     expect(rest).toEqual([])
     expect(Object.keys(row ?? {}).sort()).toEqual(
-      ['attachments', 'attempts', 'fallback_used', 'grade', 'latency_s', 'meta', 'model', 'prompt', 'prompt_id', 'rep', 'requested_model', 'status', 'stop_reason', 'tags', 'usage', 'wall_s'].sort(),
+      ['attachments', 'attempts', 'fallback_used', 'grade', 'latency_s', 'meta', 'model', 'prompt', 'prompt_id', 'provider', 'rep', 'requested_model', 'status', 'stop_reason', 'tags', 'usage', 'wall_s'].sort(),
     )
     expect(row).toMatchObject({
       prompt_id: 'adv-x-pdf',

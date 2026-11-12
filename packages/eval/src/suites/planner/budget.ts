@@ -2,6 +2,7 @@ import { STREAMING_ABOVE_MAX_TOKENS } from '@rill/llm'
 import { createCoreRegistry, type NodeRegistry } from '@rill/nodes-core'
 import { ATTACHMENT_RULES, EFFORT_BUDGETS, MAX_TARGETED_NODES, PLANNER_RULES, catalogText, generationSchema, type PlanEffort } from '@rill/planner'
 import { estimateCallUsd } from '../../pricing'
+import { softCapFactor } from '../../spec'
 import { PDF_INPUT_TOKENS, PNG_INPUT_TOKENS, TEXT_CHARS_PER_TOKEN, TEXT_OVERHEAD_TOKENS } from '../extract/suite'
 import type { ResolvedAttachment } from './attachments'
 import type { CaseSpec } from './schema'
@@ -89,6 +90,6 @@ export function worstCallInputTokens(firstCall: number, maxRepairRounds: number,
 }
 
 export function plannerWorstCaseUsd(model: string, firstCall: number, maxRepairRounds: number, maxOutputTokens: number): number | undefined {
-  const call = estimateCallUsd(model, worstCallInputTokens(firstCall, maxRepairRounds, maxOutputTokens), maxOutputTokens)
+  const call = estimateCallUsd(model, worstCallInputTokens(firstCall, maxRepairRounds, maxOutputTokens), maxOutputTokens * softCapFactor(model))
   return call === undefined ? undefined : call * worstCaseCalls(maxRepairRounds)
 }

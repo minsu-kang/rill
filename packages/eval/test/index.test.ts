@@ -9,13 +9,18 @@ vi.mock('@napi-rs/canvas', () => {
 
 const MODULES = [
   './budget',
+  './check-provider',
+  './cli-providers',
   './normalize',
   './pilot',
   './pricing',
+  './provider-report',
+  './providers',
   './record',
   './reestimate',
   './reestimate-text',
   './runner',
+  './spec',
   './score',
   './stats',
   './sent',

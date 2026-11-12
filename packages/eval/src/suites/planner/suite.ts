@@ -5,7 +5,9 @@ import type { LlmProvider, LlmRequest } from '@rill/llm'
 import { createCoreRegistry, type NodeRegistry } from '@rill/nodes-core'
 import { PlanError, createPlanner, type PlanEffort, type PlanResult, type Planner, type PlannerDeps } from '@rill/planner'
 import { PRICE_TABLE_AS_OF } from '../../pricing'
+import { wrapProvider } from '../../record'
 import { summarizeRequest, type SentRequest } from '../../sent'
+import { unsupportedMediaReason } from '../../spec'
 import type { RunContext, Suite } from '../../suite'
 import { ATTACHMENTS_DIR, ATTACHMENTS_MANIFEST_FILE, createMemoryStore, resolveAttachments, type ResolveOptions, type ResolvedAttachment } from './attachments'
 import { DEFAULT_MAX_REPAIR_ROUNDS, baseInputTokens, effortMaxTokens, firstCallInputTokens, isMeasurableEffort, plannerWorstCaseUsd, unmeasurableEffortMessage } from './budget'
@@ -89,14 +91,13 @@ function select(cases: readonly PlannerCase[], options: PlannerSuiteOptions): Pl
 }
 
 function tapProvider(provider: LlmProvider, onRequest: (request: LlmRequest) => void): LlmProvider {
-  return {
-    name: provider.name,
-    generate: (request, options) => {
-      onRequest(request)
-      return provider.generate(request, options)
-    },
-  }
+  return wrapProvider(provider, (request, options) => {
+    onRequest(request)
+    return provider.generate(request, options)
+  })
 }
+
+const KIND_MEDIA_TYPES = { text: undefined, pdf: 'application/pdf', png: 'image/png' } as const
 
 export function createPlannerSuite(options: PlannerSuiteOptions = {}): PlannerSuite {
   const data = options.data ?? loadPlannerData()
@@ -160,6 +161,13 @@ export function createPlannerSuite(options: PlannerSuiteOptions = {}): PlannerSu
       }
       if (first !== undefined) sentRequests.set(output, summarizeRequest(first))
       return output
+    },
+    unsupportedReason: (testCase, model) => {
+      const mediaTypes = (testCase.spec.context.attachments ?? []).flatMap((attachment) => {
+        const mediaType = KIND_MEDIA_TYPES[attachment.kind]
+        return mediaType === undefined ? [] : [mediaType]
+      })
+      return unsupportedMediaReason(model, mediaTypes)
     },
     score: (testCase, output) => scorePlannerCase(testCase, output),
     estimateInputTokens: (testCase) => firstCallInputTokens(testCase.spec, attachmentsOf(testCase), baseTokens),

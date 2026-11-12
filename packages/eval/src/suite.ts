@@ -31,4 +31,6 @@ export interface Suite<C extends EvalCase, O> {
   score(testCase: C, output: O): CaseScore
   estimateInputTokens?(testCase: C): number
   worstCaseUsd?(testCase: C, model: string, maxOutputTokens: number): number | undefined
+  /** A reason why a model cannot take this case (a PDF for a provider that reads none); the pair is then not run. */
+  unsupportedReason?(testCase: C, model: string): string | undefined
 }

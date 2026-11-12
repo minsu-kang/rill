@@ -1,5 +1,5 @@
 import { roundUpBudget } from './budget'
-import type { EvalProvider, EvalProviderOptions } from './record'
+import type { EvalProvider, EvalProviderOptions, FetchFn } from './record'
 import type { PlannerFactory } from './suites/planner/suite'
 
 export const DEFAULT_BASE_URL = 'https://api.anthropic.com'
@@ -29,6 +29,7 @@ export interface CliIo {
   outRoot?: string
   onSignal?: SignalSubscriber
   planner?: PlannerCliHooks
+  checkProvider?: { fetch?: FetchFn }
 }
 
 export interface PlannerCliHooks {

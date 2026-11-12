@@ -30,11 +30,23 @@ export function worstCallUsd<C extends EvalCase, O>(suite: Suite<C, O>, models: 
   let worst: number | undefined = 0
   for (const model of models) {
     for (const testCase of suite.cases()) {
+      if (suite.unsupportedReason?.(testCase, model) !== undefined) continue
       const call = worstCaseCallUsd(suite, testCase, model, maxOutputTokens)
       worst = worst === undefined || call === undefined ? undefined : Math.max(worst, call)
     }
   }
   return worst
+}
+
+export function worstModelUsd<C extends EvalCase, O>(suite: Suite<C, O>, model: string, maxOutputTokens: number, reps: number): number | undefined {
+  let total = 0
+  for (const testCase of suite.cases()) {
+    if (suite.unsupportedReason?.(testCase, model) !== undefined) continue
+    const call = worstCaseCallUsd(suite, testCase, model, maxOutputTokens)
+    if (call === undefined) return undefined
+    total += call * reps
+  }
+  return total
 }
 
 export function guardReserveUsd(worstUsd: number | undefined, concurrency: number, calls: number): number {

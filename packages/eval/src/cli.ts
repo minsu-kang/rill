@@ -26,8 +26,11 @@ import {
   type SignalSubscriber,
 } from './cli-shared'
 import { PilotDirError, readPilot } from './pilot'
+import { checkProviderMain } from './check-provider'
+import { environmentSecrets, hostList, keysSentence, otherHostLines, providerPlanLines, resolveKeys } from './cli-providers'
 import { PRICE_TABLE_AS_OF, priceFor } from './pricing'
-import { DEFAULT_MAX_OUTPUT_TOKENS, createEvalProvider } from './record'
+import { createSpecProvider, resolveModelSpecs, type ModelSpecInfo } from './providers'
+import { DEFAULT_MAX_OUTPUT_TOKENS } from './record'
 import { reestimate, type PilotData } from './reestimate'
 import { reestimateText } from './reestimate-text'
 import { renderReport } from './report'
@@ -72,7 +75,6 @@ export const LIMITS = {
 } as const
 
 const EFFORTS = ['low', 'medium', 'high'] as const
-const MODEL_ID = /^[a-z0-9][a-z0-9._-]*$/u
 const PROGRESS_EVERY = 10
 const COMMAND = 'pnpm eval extract'
 
@@ -82,7 +84,8 @@ Measures how well models extract amount, date and vendor from receipts.
 Without --yes nothing is sent: it prints the plan, a cost estimate and the command that would run it.
 
 options:
-  --models <a,b,c>        models to compare (default: ${DEFAULT_MODELS.join(',')})
+  --models <a,b,c>        models to compare (default: ${DEFAULT_MODELS.join(',')}); a Claude id, or provider:model for OpenAI, Gemini, Grok and Meta
+                          (openai:gpt-6.1-sol, gemini:gemini-3.8-flash, grok:grok-4.7, meta:muse-spark-1.3)
   --reps <n>              repetitions per case and model (default: ${DEFAULT_REPS})
   --concurrency <n>       calls in flight at once (default: ${DEFAULT_CONCURRENCY})
   --kinds <text,pdf,png>  fixture kinds to include (default: all)
@@ -103,7 +106,8 @@ options:
   --reestimate <dir>      re-estimate the full run from the results directory of a pilot: a projection from the measured usage,
                           a suggested budget and the command to run it; no key, no network, writes nothing;
                           takes --models, --reps, --kinds, --only, --max-output-tokens and --concurrency
-  --yes                   really call the API; needs ANTHROPIC_API_KEY in the environment and --budget-usd
+  --yes                   really call the API; needs --budget-usd and the key of every provider in --models in the environment:
+                          ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, META_API_KEY
   -h, --help              show this text
 
 limits: --reps ${LIMITS.reps.min} to ${LIMITS.reps.max}, --concurrency ${LIMITS.concurrency.min} to ${LIMITS.concurrency.max}
@@ -191,7 +195,7 @@ export function parseCli(argv: readonly string[]): CliConfig {
     if (yes) throw new UsageError('--baselines cannot be combined with --yes: baselines never call the API')
   }
   const models = values.models === undefined ? [...DEFAULT_MODELS] : listOption('--models', values.models)
-  for (const model of models) if (!MODEL_ID.test(model)) throw new UsageError(`--models must list model ids, got: ${model}`)
+  resolveModelSpecs('--models', models)
   const kinds = values.kinds === undefined ? [...FIXTURE_KINDS] : listOption('--kinds', values.kinds)
   for (const kind of kinds) if (!(FIXTURE_KINDS as readonly string[]).includes(kind)) throw new UsageError(`--kinds accepts ${FIXTURE_KINDS.join(', ')}, got: ${kind}`)
   let effort: LlmEffort | undefined
@@ -314,8 +318,17 @@ export function commandLine(config: CliConfig, budgetUsd: number | undefined): s
   return parts.join(' ')
 }
 
-function planText(config: CliConfig, suite: ExtractSuite, estimate: RunEstimate, budgetUsd: number | undefined): string {
+function effectiveHostOf(io: CliIo): string {
+  try {
+    return effectiveEndpoint(io.env).host
+  } catch {
+    return 'api.anthropic.com'
+  }
+}
+
+function planText(config: CliConfig, suite: ExtractSuite, estimate: RunEstimate, budgetUsd: number | undefined, infos: readonly ModelSpecInfo[], io: CliIo): string {
   const cases = suite.cases()
+  const notRun = estimate.perModel.reduce((total, entry) => total + (entry.notRun ?? 0) * config.reps, 0)
   const seeds = new Set(cases.map((testCase) => testCase.group)).size
   const lines = [
     `rill eval: ${suite.name} (suite version ${suite.version})`,
@@ -323,7 +336,7 @@ function planText(config: CliConfig, suite: ExtractSuite, estimate: RunEstimate,
     `cases: ${plural(seeds, 'seed')} x ${plural(config.kinds.length, 'kind')} (${config.kinds.join(', ')}) = ${plural(cases.length, 'case')}${config.pilot ? ' (pilot)' : ''}`,
     `models: ${config.models.join(', ')}`,
     `reps: ${config.reps}`,
-    `calls: ${estimate.calls} (${plural(cases.length, 'case')} x ${plural(config.reps, 'rep')} x ${plural(config.models.length, 'model')})`,
+    `calls: ${estimate.calls} (${plural(cases.length, 'case')} x ${plural(config.reps, 'rep')} x ${plural(config.models.length, 'model')}${notRun === 0 ? '' : `, minus ${notRun} not run`})`,
     `effort: ${config.effort === undefined ? 'low (the node ships it)' : `${config.effort} (override)`}`,
     `fields: ${config.fields}${config.fields === 'default' ? '' : ' (stricter descriptions: null unless the document is a receipt or invoice)'}`,
     `schedule seed ${config.seed}, concurrency ${config.concurrency}, at most ${config.maxAttempts} attempts per call, ${config.maxCallSeconds} s per attempt`,
@@ -331,6 +344,16 @@ function planText(config: CliConfig, suite: ExtractSuite, estimate: RunEstimate,
     `estimate (prices as of ${PRICE_TABLE_AS_OF}):`,
     ...estimate.perModel.map((entry) => `  ${entry.model}: ${plural(entry.calls, 'call')}, ${priceFor(entry.model) === undefined ? 'no price in the price table' : money(entry.usd)}`),
     `  total: ${money(estimate.totalUsd)}`,
+    ...providerPlanLines({
+      infos,
+      env: io.env,
+      suite,
+      estimate,
+      reps: config.reps,
+      maxOutputTokens: config.maxOutputTokens,
+      efforts: config.effort === undefined ? [] : [config.effort],
+      anthropicHost: effectiveHostOf(io),
+    }),
     `assumptions: input tokens per call are chars / ${TEXT_CHARS_PER_TOKEN} + ${TEXT_OVERHEAD_TOKENS} for text (Hangul likely costs more tokens per character, so the text estimate may be low), ${PDF_INPUT_TOKENS} for a PDF and ${PNG_INPUT_TOKENS} for a PNG; output: ${estimate.assumptions.outputTokens} tokens per call; no retries. These are estimates, not measurements.`,
     `thinking: these models think before they answer, and thinking tokens are billed as output tokens, so the real output per call can be far above ${estimate.assumptions.outputTokens}.`,
     `max_tokens: ${config.maxOutputTokens} per request${config.maxOutputTokens === DEFAULT_MAX_OUTPUT_TOKENS ? ' (as the node ships)' : ' (--max-output-tokens)'}; the budget guard reserves input + ${config.maxOutputTokens} output tokens for every call in flight.`,
@@ -366,7 +389,7 @@ function planText(config: CliConfig, suite: ExtractSuite, estimate: RunEstimate,
   }
   lines.push(
     '',
-    'Nothing was sent. To run it for real (needs ANTHROPIC_API_KEY in the environment; --budget-usd is required with --yes):',
+    `Nothing was sent. To run it for real (needs ${keysSentence(infos)} in the environment; --budget-usd is required with --yes):`,
     `  ${commandLine(config, budgetUsd)}`,
     '',
   )
@@ -556,22 +579,24 @@ function reestimateMode(config: CliConfig, given: string, suite: ExtractSuite, i
   return EXIT_OK
 }
 
-async function runYesMode(config: CliConfig, suite: ExtractSuite, io: CliIo, estimate: RunEstimate, budgetUsd: number): Promise<number> {
-  const key = io.env['ANTHROPIC_API_KEY']?.trim() ?? ''
-  if (key === '') {
-    io.stderr('error: ANTHROPIC_API_KEY is not set; --yes needs it in the environment\n')
+async function runYesMode(config: CliConfig, suite: ExtractSuite, io: CliIo, estimate: RunEstimate, budgetUsd: number, infos: readonly ModelSpecInfo[]): Promise<number> {
+  const keys = resolveKeys(infos, io.env)
+  if (keys.error !== undefined) {
+    io.stderr(`error: ${keys.error}\n`)
     return EXIT_ERROR
   }
   if (estimate.unpricedModels.length > 0) {
     io.stderr(`error: no price for model ${estimate.unpricedModels.join(', ')}; the budget guard needs one\n`)
     return EXIT_ERROR
   }
-  const endpoint = effectiveEndpoint(io.env)
-  if (!endpointCheck(config.allowBaseUrl, io, endpoint)) return EXIT_ERROR
+  const usesAnthropic = infos.some((info) => info.provider === 'anthropic')
+  const endpoint = effectiveEndpoint(usesAnthropic ? io.env : {})
+  if (usesAnthropic && !endpointCheck(config.allowBaseUrl, io, endpoint)) return EXIT_ERROR
+  for (const line of otherHostLines(infos)) io.stdout(line)
   const out = outDirFor(config, io)
   assertWritableDir(out)
-  const secrets = [key]
-  io.stdout(`notice: the synthetic fixture documents (receipts as text, PDF and PNG) are sent to ${endpoint.host} for ${config.models.join(', ')}\n`)
+  const secrets = keys.secrets
+  io.stdout(`notice: the synthetic fixture documents (receipts as text, PDF and PNG) are sent to ${hostList(infos, endpoint.host)} for ${config.models.join(', ')}\n`)
   io.stdout(`budget: $${formatUsdPlain(budgetUsd)}, max_tokens ${config.maxOutputTokens} per request, ${estimate.calls} calls planned, results go to ${out}\n`)
   const progress = progressPrinter(io, estimate.calls, out, secrets)
   const interrupt = interruptControls(io, config.maxCallSeconds)
@@ -591,11 +616,11 @@ async function runYesMode(config: CliConfig, suite: ExtractSuite, io: CliIo, est
       stopSignal: interrupt.stop.signal,
       abortSignal: interrupt.abort.signal,
       createProvider: (model, signal, settings) =>
-        createEvalProvider({
+        createSpecProvider({
           model,
           signal,
           clock: io.now,
-          apiKey: key,
+          apiKey: keys.keyOf(model),
           baseURL: endpoint.baseURL,
           maxTokens: settings.maxOutputTokens,
           timeoutMs: config.maxCallSeconds * 1000 + SDK_TIMEOUT_MARGIN_MS,
@@ -620,7 +645,7 @@ async function runYesMode(config: CliConfig, suite: ExtractSuite, io: CliIo, est
     return EXIT_INTERRUPTED
   }
   if (real.stop === 'auth') {
-    io.stderr(`error: the API rejected the credentials (authentication failure); the run stopped at the first one and ${skipped} of ${real.tasks.length} tasks were not run. Check ANTHROPIC_API_KEY and the model access of the key.\n`)
+    io.stderr(`error: the API rejected the credentials (authentication failure); the run stopped at the first one and ${skipped} of ${real.tasks.length} tasks were not run. Check ${keysSentence(infos)} and the model access of the key.\n`)
     return EXIT_ERROR
   }
   if (real.partial === true) {
@@ -632,14 +657,16 @@ async function runYesMode(config: CliConfig, suite: ExtractSuite, io: CliIo, est
 
 export async function main(argv: readonly string[], io: CliIo): Promise<number> {
   if (argv[0] === 'planner') return plannerMain(argv.slice(1), io)
-  let secret: string | undefined
+  if (argv[0] === 'check-provider') return checkProviderMain(argv.slice(1), io)
+  let secrets: string[] = []
   try {
     const config = parseCli(argv)
     if (config.help) {
       io.stdout(USAGE)
       return 0
     }
-    secret = io.env['ANTHROPIC_API_KEY']?.trim()
+    secrets = environmentSecrets(io.env)
+    const infos = resolveModelSpecs('--models', config.models)
     const suite = makeSuite(config, io)
     const problems = verifyFixtures(suite)
     if (problems.length > 0) {
@@ -651,18 +678,18 @@ export async function main(argv: readonly string[], io: CliIo): Promise<number> 
     const estimate = estimateRun({ suite, models: config.models, reps: config.reps })
     const budgetUsd = budgetFor(config, estimate, suite)
     if (!config.yes) {
-      io.stdout(planText(config, suite, estimate, budgetUsd))
+      io.stdout(planText(config, suite, estimate, budgetUsd, infos, io))
       return EXIT_OK
     }
     if (config.budgetUsd === undefined) throw new UsageError('--yes needs --budget-usd')
-    return await runYesMode(config, suite, io, estimate, config.budgetUsd)
+    return await runYesMode(config, suite, io, estimate, config.budgetUsd, infos)
   } catch (error) {
     if (error instanceof UsageError) {
       io.stderr(`error: ${error.message}\n\n${USAGE}`)
       return EXIT_USAGE
     }
     const message = error instanceof Error ? error.message : String(error)
-    io.stderr(`error: ${secret === undefined || secret === '' ? message : message.split(secret).join('[redacted]')}\n`)
+    io.stderr(`error: ${secrets.reduce((text, secret) => text.split(secret).join('[redacted]'), message)}\n`)
     return 1
   }
 }

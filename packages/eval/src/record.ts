@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import {
   AnthropicProvider,
   DEFAULT_TIMEOUT_MS,
+  anthropicExchange,
+  type ExchangeParser,
   type LlmCallOptions,
   type LlmEffort,
   type LlmProvider,
@@ -34,16 +36,6 @@ export interface Recorder {
   exchanges(): Exchange[]
 }
 
-interface ParsedBody {
-  model: string | null
-  stopReason: string | null
-  usage: LlmUsage
-  contentBlockTypes: string[]
-  fallbackBlocks: number
-  thinkingChars: number
-  badReply: string | null
-}
-
 export const DEFAULT_MAX_OUTPUT_TOKENS = 16_000
 export const MAX_USAGE_TOKENS = 1e9
 
@@ -55,84 +47,26 @@ export function isValidTokenCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value < MAX_USAGE_TOKENS
 }
 
-function count(value: unknown): number {
-  return isValidTokenCount(value) ? value : 0
-}
-
-const USAGE_KEYS = ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'] as const
-
-function usageProblem(usage: unknown): string | null {
-  if (!isRecord(usage)) return 'the reply has no usage'
-  for (const key of USAGE_KEYS) {
-    const value = usage[key]
-    const optional = key !== 'input_tokens' && key !== 'output_tokens'
-    if (optional && (value === undefined || value === null)) continue
-    if (!isValidTokenCount(value)) return `the reply has an invalid usage.${key}`
-  }
-  return null
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function parseBody(text: string, success: boolean): ParsedBody {
-  const parsed: ParsedBody = {
-    model: null,
-    stopReason: null,
-    usage: zeroUsage(),
-    contentBlockTypes: [],
-    fallbackBlocks: 0,
-    thinkingChars: 0,
-    badReply: null,
-  }
-  let body: unknown
-  try {
-    body = JSON.parse(text)
-  } catch {
-    if (success) parsed.badReply = text.trim() === '' ? 'the reply body is empty' : 'the reply is not JSON'
-    return parsed
-  }
-  if (!isRecord(body)) {
-    if (success) parsed.badReply = 'the reply is not a JSON object'
-    return parsed
-  }
-  if (success) {
-    parsed.badReply = Array.isArray(body['content']) ? usageProblem(body['usage']) : 'the reply has no content array'
-    if (parsed.badReply !== null) return parsed
-  }
-  if (typeof body['model'] === 'string') parsed.model = body['model']
-  if (typeof body['stop_reason'] === 'string') parsed.stopReason = body['stop_reason']
-  const usage = body['usage']
-  if (isRecord(usage)) {
-    parsed.usage = {
-      inputTokens: count(usage['input_tokens']),
-      outputTokens: count(usage['output_tokens']),
-      cacheReadInputTokens: count(usage['cache_read_input_tokens']),
-      cacheCreationInputTokens: count(usage['cache_creation_input_tokens']),
-    }
-  }
-  const content = body['content']
-  if (Array.isArray(content)) {
-    for (const block of content) {
-      if (!isRecord(block) || typeof block['type'] !== 'string') continue
-      parsed.contentBlockTypes.push(block['type'])
-      if (block['type'] === 'fallback') parsed.fallbackBlocks += 1
-      if (block['type'] === 'thinking' && typeof block['thinking'] === 'string') parsed.thinkingChars += block['thinking'].length
-    }
-  }
-  return parsed
 }
 
 function failureName(error: unknown): string {
   return error instanceof Error ? error.name : 'Error'
 }
 
+function tokenLimitOf(body: Record<string, unknown>): number | null {
+  const nested = body['generation_config']
+  const candidates = [body['max_tokens'], body['max_output_tokens'], body['max_completion_tokens'], isRecord(nested) ? nested['max_output_tokens'] : undefined]
+  const found = candidates.find((value) => typeof value === 'number')
+  return found === undefined ? null : (found as number)
+}
+
 function requestMaxTokens(init: RequestInit | undefined): number | null {
   if (typeof init?.body !== 'string') return null
   try {
     const body: unknown = JSON.parse(init.body)
-    return isRecord(body) && typeof body['max_tokens'] === 'number' ? body['max_tokens'] : null
+    return isRecord(body) ? tokenLimitOf(body) : null
   } catch {
     return null
   }
@@ -142,7 +76,45 @@ function isSuccessStatus(status: number): boolean {
   return status >= 200 && status < 300
 }
 
-export function createRecorder(innerFetch: FetchFn = (input, init) => globalThis.fetch(input, init), clock: () => number = Date.now): Recorder {
+interface BodyRead {
+  text: string
+  bytes: number
+  failure: string | null
+}
+
+function abortedBy(signal: AbortSignal): { promise: Promise<'aborted'>; dispose: () => void } {
+  let listener: (() => void) | undefined
+  const promise = new Promise<'aborted'>((resolve) => {
+    listener = () => resolve('aborted')
+    if (signal.aborted) listener()
+    else signal.addEventListener('abort', listener, { once: true })
+  })
+  return { promise, dispose: () => listener !== undefined && signal.removeEventListener('abort', listener) }
+}
+
+async function readBody(response: Response, signal: AbortSignal | null | undefined): Promise<BodyRead> {
+  const clone = response.clone()
+  const read = clone.arrayBuffer().then(
+    (bytes): BodyRead => ({ text: new TextDecoder().decode(bytes), bytes: bytes.byteLength, failure: null }),
+    (error: unknown): BodyRead => ({ text: '', bytes: 0, failure: failureName(error) }),
+  )
+  if (signal === undefined || signal === null) return read
+  const aborted = abortedBy(signal)
+  try {
+    const first = await Promise.race([read, aborted.promise])
+    if (first !== 'aborted') return first
+    void clone.body?.cancel().catch(() => undefined)
+    return { text: '', bytes: 0, failure: 'AbortError' }
+  } finally {
+    aborted.dispose()
+  }
+}
+
+export function createRecorder(
+  innerFetch: FetchFn = (input, init) => globalThis.fetch(input, init),
+  clock: () => number = Date.now,
+  parser: ExchangeParser = anthropicExchange,
+): Recorder {
   const recorded: Exchange[] = []
   const wrapped: FetchFn = async (input, init) => {
     const startedAtMs = clock()
@@ -169,25 +141,16 @@ export function createRecorder(innerFetch: FetchFn = (input, init) => globalThis
       })
       throw error
     }
-    let text = ''
-    let bodyBytes = 0
-    let failure: string | null = null
-    try {
-      const bytes = await response.clone().arrayBuffer()
-      bodyBytes = bytes.byteLength
-      text = new TextDecoder().decode(bytes)
-    } catch (error) {
-      failure = failureName(error)
-    }
+    const { text, bytes: bodyBytes, failure } = await readBody(response, init?.signal)
     recorded.push({
       startedAtMs,
       durationMs: clock() - startedAtMs,
       status: response.status,
-      requestId: response.headers.get('request-id'),
+      requestId: response.headers.get('request-id') ?? response.headers.get('x-request-id'),
       bodyBytes,
       failure,
       requestMaxTokens: maxTokens,
-      ...parseBody(text, failure === null && isSuccessStatus(response.status)),
+      ...parser.parse(text, failure === null && isSuccessStatus(response.status)),
     })
     return response
   }
@@ -202,19 +165,27 @@ export function createRecorder(innerFetch: FetchFn = (input, init) => globalThis
   }
 }
 
+export function wrapProvider(provider: LlmProvider, generate: LlmProvider['generate']): LlmProvider {
+  return provider.capabilities === undefined ? { name: provider.name, generate } : { name: provider.name, capabilities: provider.capabilities, generate }
+}
+
 export function withEffort(provider: LlmProvider, effort: LlmEffort): LlmProvider {
-  return {
-    name: provider.name,
-    generate: (request: LlmRequest, options?: LlmCallOptions): Promise<LlmResult> => provider.generate({ ...request, effort }, options),
-  }
+  return wrapProvider(provider, (request: LlmRequest, options?: LlmCallOptions): Promise<LlmResult> => provider.generate({ ...request, effort }, options))
 }
 
 export function withSignal(provider: LlmProvider, signal: AbortSignal): LlmProvider {
-  return {
-    name: provider.name,
-    generate: (request: LlmRequest, options?: LlmCallOptions): Promise<LlmResult> =>
-      provider.generate(request, { ...options, signal: options?.signal ?? signal }),
-  }
+  return wrapProvider(provider, (request: LlmRequest, options?: LlmCallOptions): Promise<LlmResult> =>
+    provider.generate(request, { ...options, signal: options?.signal ?? signal }),
+  )
+}
+
+export function withDefaults(provider: LlmProvider, defaults: { maxTokens?: number; timeoutMs?: number }): LlmProvider {
+  return wrapProvider(provider, (request: LlmRequest, options?: LlmCallOptions): Promise<LlmResult> =>
+    provider.generate(
+      defaults.maxTokens === undefined || request.maxTokens !== undefined ? request : { ...request, maxTokens: defaults.maxTokens },
+      defaults.timeoutMs === undefined || options?.timeoutMs !== undefined ? options : { ...options, timeoutMs: defaults.timeoutMs },
+    ),
+  )
 }
 
 export interface EvalProviderOptions {

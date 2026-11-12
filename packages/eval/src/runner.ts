@@ -2,6 +2,7 @@ import { LlmError, type LlmUsage } from '@rill/llm'
 import { estimateCallUsd, costUsd, priceFor } from './pricing'
 import { DEFAULT_MAX_OUTPUT_TOKENS, zeroUsage, type EvalProvider, type Exchange } from './record'
 import { noAnswerOutcomes, type CallStatus } from './score'
+import { modelIdOf, softCapFactor } from './spec'
 import { mulberry32, shuffle } from './stats'
 import type { CaseScore, EvalCase, Suite } from './suite'
 
@@ -126,11 +127,14 @@ export function buildSchedule<C extends EvalCase>(input: {
   models: readonly string[]
   reps: number
   seed: number
+  supported?: (testCase: C, model: string) => boolean
 }): ScheduleEntry<C>[] {
   const entries: Omit<ScheduleEntry<C>, 'index'>[] = []
   for (const testCase of input.cases) {
     for (let rep = 0; rep < input.reps; rep += 1) {
-      for (const model of input.models) entries.push({ testCase, model, rep })
+      for (const model of input.models) {
+        if (input.supported === undefined || input.supported(testCase, model)) entries.push({ testCase, model, rep })
+      }
     }
   }
   return shuffle(entries, mulberry32(input.seed)).map((entry, index) => ({ ...entry, index }))
@@ -192,6 +196,24 @@ export interface RunOptions<C extends EvalCase, O> {
   onTask?: (task: TaskResult<O>) => void
 }
 
+export interface NotRun {
+  caseId: string
+  model: string
+  reason: string
+}
+
+export function unsupportedPairs<C extends EvalCase, O>(suite: Suite<C, O>, models: readonly string[]): NotRun[] {
+  if (suite.unsupportedReason === undefined) return []
+  const pairs: NotRun[] = []
+  for (const model of models) {
+    for (const testCase of suite.cases()) {
+      const reason = suite.unsupportedReason(testCase, model)
+      if (reason !== undefined) pairs.push({ caseId: testCase.id, model, reason })
+    }
+  }
+  return pairs
+}
+
 export interface RunResult<O> {
   tasks: TaskResult<O>[]
   spentUsd: number
@@ -199,6 +221,7 @@ export interface RunResult<O> {
   maxOutputTokens?: number
   stop?: StopReason
   partial?: boolean
+  notRun?: NotRun[]
 }
 
 interface Ledger {
@@ -266,7 +289,7 @@ function inputEstimateOf<C extends EvalCase, O>(suite: Suite<C, O>, testCase: C)
 
 export function worstCaseCallUsd<C extends EvalCase, O>(suite: Suite<C, O>, testCase: C, model: string, maxOutputTokens: number): number | undefined {
   if (suite.worstCaseUsd !== undefined) return suite.worstCaseUsd(testCase, model, maxOutputTokens)
-  return estimateCallUsd(model, inputEstimateOf(suite, testCase), maxOutputTokens)
+  return estimateCallUsd(model, inputEstimateOf(suite, testCase), maxOutputTokens * softCapFactor(model))
 }
 
 interface AttemptView {
@@ -390,7 +413,7 @@ async function executeTask<C extends EvalCase, O>(entry: ScheduleEntry<C>, setti
 
     const badReply = exchanges.find((exchange) => isSuccess(exchange) && exchange.failure === null && exchange.badReply !== null)
     if (!errored && badReply === undefined) {
-      const mismatch = exchanges.find((exchange) => isSuccess(exchange) && (exchange.model === null || !servedModelMatches(entry.model, exchange.model)))
+      const mismatch = exchanges.find((exchange) => isSuccess(exchange) && (exchange.model === null || !servedModelMatches(modelIdOf(entry.model), exchange.model)))
       if (mismatch !== undefined) {
         fail('served_model_mismatch', `requested ${entry.model} but the API served ${mismatch.model ?? 'an unknown model'}`)
         break
@@ -488,7 +511,14 @@ export async function runEval<C extends EvalCase, O>(options: RunOptions<C, O>):
     random: options.random ?? mulberry32(options.seed + 1),
     createProvider: options.createProvider,
   }
-  const schedule = buildSchedule({ cases, models, reps, seed: options.seed })
+  const notRun = unsupportedPairs(suite, models)
+  const schedule = buildSchedule({
+    cases,
+    models,
+    reps,
+    seed: options.seed,
+    ...(notRun.length === 0 ? {} : { supported: (testCase: C, model: string) => suite.unsupportedReason?.(testCase, model) === undefined }),
+  })
   const tasks: TaskResult<O>[] = new Array<TaskResult<O>>(schedule.length)
   let next = 0
   let crash: { error: unknown } | undefined
@@ -541,14 +571,14 @@ export async function runEval<C extends EvalCase, O>(options: RunOptions<C, O>):
   if (crash !== undefined) throw crash.error
   stopRequested()
   const partial = stop !== undefined || tasks.some((task) => task.status === 'skipped')
-  return { tasks, spentUsd: ledger.spent, budgetUsd, maxOutputTokens, ...(stop === undefined ? {} : { stop }), partial }
+  return { tasks, spentUsd: ledger.spent, budgetUsd, maxOutputTokens, ...(stop === undefined ? {} : { stop }), partial, ...(notRun.length === 0 ? {} : { notRun }) }
 }
 
 export const ESTIMATE_OUTPUT_TOKENS = 200
 
 export interface RunEstimate {
   calls: number
-  perModel: { model: string; calls: number; usd: number | undefined }[]
+  perModel: { model: string; calls: number; usd: number | undefined; notRun?: number }[]
   totalUsd: number | undefined
   inputUsd: number | undefined
   usdPerOutputToken: number | undefined
@@ -574,7 +604,14 @@ export function estimateRun<C extends EvalCase, O>(input: {
   let usdPerOutputToken: number | undefined = 0
   const perModel = models.map((model) => {
     let usd: number | undefined = 0
+    let notRun = 0
+    let ran = 0
     for (const testCase of cases) {
+      if (suite.unsupportedReason?.(testCase, model) !== undefined) {
+        notRun += 1
+        continue
+      }
+      ran += 1
       const inputTokens = inputEstimateOf(suite, testCase)
       const call = estimateCallUsd(model, inputTokens, outputTokens)
       const bare = estimateCallUsd(model, inputTokens, 0)
@@ -583,11 +620,11 @@ export function estimateRun<C extends EvalCase, O>(input: {
       inputUsd = inputUsd === undefined || bare === undefined ? undefined : inputUsd + bare * reps
       usdPerOutputToken = usdPerOutputToken === undefined || bare === undefined || withOne === undefined ? undefined : usdPerOutputToken + (withOne - bare) * reps
     }
-    return { model, calls: cases.length * reps, usd }
+    return { model, calls: ran * reps, usd, ...(notRun === 0 ? {} : { notRun }) }
   })
   const unpricedModels = perModel.filter((entry) => priceFor(entry.model) === undefined).map((entry) => entry.model)
   return {
-    calls: cases.length * reps * models.length,
+    calls: perModel.reduce((total, entry) => total + entry.calls, 0),
     perModel,
     totalUsd: unpricedModels.length > 0 ? undefined : perModel.reduce((total, entry) => total + (entry.usd ?? 0), 0),
     inputUsd: unpricedModels.length > 0 ? undefined : inputUsd,

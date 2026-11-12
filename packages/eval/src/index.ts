@@ -1,4 +1,4 @@
-export { formatUsdPlain, guardReserveUsd, money, plural, roundUpBudget, worstCallUsd } from './budget'
+export { formatUsdPlain, guardReserveUsd, money, plural, roundUpBudget, worstCallUsd, worstModelUsd } from './budget'
 export { PilotDirError, readPilot } from './pilot'
 export {
   BUDGET_P90_FACTOR,
@@ -37,8 +37,10 @@ export {
   createEvalProvider,
   createRecorder,
   isValidTokenCount,
+  withDefaults,
   withEffort,
   withSignal,
+  wrapProvider,
   zeroUsage,
   type EvalProvider,
   type EvalProviderOptions,
@@ -58,10 +60,12 @@ export {
   findLlmError,
   runEval,
   servedModelMatches,
+  unsupportedPairs,
   worstCaseCallUsd,
   type FailedAttempt,
   type Failure,
   type FailureClass,
+  type NotRun,
   type ProviderSettings,
   type RunEstimate,
   type RunOptions,
@@ -109,6 +113,49 @@ export {
   type PairKey,
   type WilsonInterval,
 } from './stats'
+export { SOFT_CAP_RESERVE_FACTOR, capabilitiesOfSpec, modelIdOf, providerOfSpec, softCapFactor, unsupportedMediaReason } from './spec'
+export {
+  createSpecProvider,
+  describeSpec,
+  hostsOf,
+  keyNeeds,
+  missingKeysMessage,
+  resolveModelSpecs,
+  type KeyNeed,
+  type ModelSpecInfo,
+} from './providers'
+export { effortLines, groupByProvider, notRunSection, providerCell, providerLines, showProviders, softCapMark } from './provider-report'
+export {
+  environmentSecrets,
+  hostList,
+  keysSentence,
+  onlyClaude,
+  otherHostLines,
+  providerPlanLines,
+  resolveKeys,
+  type ProviderPlanInput,
+  type RunKeys,
+} from './cli-providers'
+export {
+  CHECK_CALL_NAMES,
+  CHECK_DEFAULT_BUDGET_USD,
+  CHECK_USAGE,
+  LIVE_EVALUATORS,
+  PREFIX_TOKENS,
+  checkProviderMain,
+  evaluateLiveChecks,
+  parseCheckProviderArgs,
+  rawUsageNumbers,
+  rawUsageOf,
+  tinyPdf,
+  type CallRecord,
+  type CheckCallName,
+  type CheckProviderConfig,
+  type LiveResult,
+  type LiveStatus,
+  type Measurements,
+  type RawNumbers,
+} from './check-provider'
 export type { CaseScore, EvalCase, RunContext, Suite } from './suite'
 export { summarizeRequest, type SentMessage, type SentPart, type SentRequest } from './sent'
 export {

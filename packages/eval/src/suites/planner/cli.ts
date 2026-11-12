@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { LlmEffort } from '@rill/llm'
-import { formatUsdPlain, guardReserveUsd, money, plural, worstCallUsd } from '../../budget'
+import { formatUsdPlain, guardReserveUsd, money, plural, worstCallUsd, worstModelUsd } from '../../budget'
 import {
   DEFAULT_BASE_URL,
   EXIT_ERROR,
@@ -21,10 +21,11 @@ import {
   timestamp,
   type CliIo,
 } from '../../cli-shared'
+import { environmentSecrets, hostList, keysSentence, otherHostLines, providerPlanLines, resolveKeys } from '../../cli-providers'
 import { PRICE_TABLE_AS_OF, priceFor } from '../../pricing'
-import { createEvalProvider } from '../../record'
+import { createSpecProvider, resolveModelSpecs, type ModelSpecInfo } from '../../providers'
 import { PACKAGE_ROOT, appendPartial, assertWritableDir, writeResults } from '../../results'
-import { breakEvenOutputTokens, estimateRun, runEval, worstCaseCallUsd, type RunEstimate, type RunResult, type TaskResult } from '../../runner'
+import { breakEvenOutputTokens, estimateRun, runEval, type RunEstimate, type RunResult, type TaskResult } from '../../runner'
 import {
   DEFAULT_MAX_REPAIR_ROUNDS,
   REPAIR_MESSAGE_TOKENS,
@@ -65,7 +66,6 @@ export const PLANNER_LIMITS = {
 } as const
 
 const COMMAND = 'pnpm eval planner'
-const MODEL_ID = /^[a-z0-9][a-z0-9._-]*$/u
 
 export const PLANNER_USAGE = `usage: ${COMMAND} [options]
 
@@ -73,7 +73,8 @@ Measures how well models turn a plain-language request into a workflow, a list o
 Without --yes nothing is sent: it prints the plan, the cost estimate and the command that would run it.
 
 options:
-  --model <a,b>           models to compare (default: ${PLANNER_DEFAULT_MODELS.join(',')}); --models is the same option
+  --model <a,b>           models to compare (default: ${PLANNER_DEFAULT_MODELS.join(',')}); --models is the same option; a Claude id, or provider:model
+                          for OpenAI, Gemini, Grok and Meta (openai:gpt-6.1-sol, gemini:gemini-3.8-flash, grok:grok-4.7, meta:muse-spark-1.3)
   --effort <e>            override the effort of every case: ${measurableEfforts().join(', ')} (default: the case's own); xhigh and max stream their reply and cannot be measured
   --group <g>             only this group of cases, or a comma list: ${CATEGORIES.join(', ')}
   --only <ids>            a case id substring, or a comma list of exact case ids
@@ -88,7 +89,8 @@ options:
   --out <dir>             results directory (default: packages/eval/results/planner-<timestamp>)
   --allow-base-url        allow an ANTHROPIC_BASE_URL other than ${DEFAULT_BASE_URL}, or ANTHROPIC_CUSTOM_HEADERS
                           (the key is sent to that host)
-  --yes                   really call the API; needs ANTHROPIC_API_KEY in the environment and --budget-usd
+  --yes                   really call the API; needs --budget-usd and the key of every provider in --model in the environment:
+                          ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, META_API_KEY
   -h, --help              show this text
 
 exit codes: 0 done, 1 runtime error (also: stopped at an authentication failure), 2 usage error,
@@ -162,7 +164,7 @@ export function parsePlannerCli(argv: readonly string[]): PlannerCliConfig {
   if (values.model !== undefined && values.models !== undefined) throw new UsageError('--model and --models are the same option; pass one of them')
   const rawModels = values.model ?? values.models
   const models = rawModels === undefined ? [...PLANNER_DEFAULT_MODELS] : listOption(values.model === undefined ? '--models' : '--model', rawModels)
-  for (const model of models) if (!MODEL_ID.test(model)) throw new UsageError(`--model must list model ids, got: ${model}`)
+  resolveModelSpecs('--model', models)
   let effort: LlmEffort | undefined
   if (values.effort !== undefined) {
     if (!(PLANNER_EFFORTS as readonly string[]).includes(values.effort)) throw new UsageError(`--effort must be one of ${measurableEfforts().join(', ')}`)
@@ -275,16 +277,6 @@ function caseTable(cases: readonly PlannerCase[], effortOverride: LlmEffort | un
   return [line(header), ...rows.map(line)]
 }
 
-function worstTotalUsd(suite: PlannerSuite, model: string, maxOutputTokens: number, reps: number): number | undefined {
-  let total = 0
-  for (const testCase of suite.cases()) {
-    const worst = worstCaseCallUsd(suite, testCase, model, maxOutputTokens)
-    if (worst === undefined) return undefined
-    total += worst * reps
-  }
-  return total
-}
-
 function budgetFor(config: PlannerCliConfig, suite: PlannerSuite, estimate: RunEstimate): number | undefined {
   if (config.budgetUsd !== undefined) return config.budgetUsd
   if (estimate.totalUsd === undefined) return undefined
@@ -292,9 +284,17 @@ function budgetFor(config: PlannerCliConfig, suite: PlannerSuite, estimate: RunE
   return suggestedBudgetUsd(estimate.totalUsd, guardReserveUsd(worst, config.concurrency, estimate.calls))
 }
 
-export function plannerPlanText(config: PlannerCliConfig, suite: PlannerSuite, estimate: RunEstimate, budgetUsd: number | undefined): string {
+export function plannerPlanText(
+  config: PlannerCliConfig,
+  suite: PlannerSuite,
+  estimate: RunEstimate,
+  budgetUsd: number | undefined,
+  env: Readonly<Record<string, string | undefined>> = {},
+): string {
   const cases = suite.cases()
-  const tasks = cases.length * config.reps * config.models.length
+  const infos = resolveModelSpecs('--model', config.models)
+  const tasks = estimate.calls
+  const notRun = cases.length * config.reps * config.models.length - tasks
   const calls = worstCaseCalls(config.maxRepairRounds)
   const worstOne = worstCallUsd(suite, config.models, PLANNER_MAX_OUTPUT_TOKENS)
   const lines = [
@@ -303,7 +303,7 @@ export function plannerPlanText(config: PlannerCliConfig, suite: PlannerSuite, e
     `cases: ${plural(cases.length, 'case')} (${countBy(cases, (testCase) => testCase.group)})`,
     `models: ${config.models.join(', ')}`,
     `reps: ${config.reps}`,
-    `tasks: ${tasks} (${plural(cases.length, 'case')} x ${plural(config.reps, 'rep')} x ${plural(config.models.length, 'model')}), one planner call chain per task`,
+    `tasks: ${tasks} (${plural(cases.length, 'case')} x ${plural(config.reps, 'rep')} x ${plural(config.models.length, 'model')}${notRun === 0 ? '' : `, minus ${notRun} not run`}), one planner call chain per task`,
     `provider calls: ${tasks} planned at one call per task if no plan needs repair; at most ${tasks * calls} (${calls} per task)`,
     `effort: ${config.effort === undefined ? `each case sets its own (${countBy(cases, (testCase) => testCase.spec.effort)})` : `${config.effort} (override)`}; the planner sets max_tokens from it: ${effortTable({ measurableOnly: true })}`,
     `planner: up to ${plural(config.maxRepairRounds, 'repair round')}; worst case ${plural(calls, 'call')} per case = 1 first call + ${config.maxRepairRounds} repair rounds x up to ${TARGETED_CALLS_PER_ROUND} calls (a repair round re-asks once, or repairs up to ${TARGETED_CALLS_PER_ROUND} nodes with one call each)`,
@@ -315,10 +315,20 @@ export function plannerPlanText(config: PlannerCliConfig, suite: PlannerSuite, e
     `estimate (prices as of ${PRICE_TABLE_AS_OF}):`,
     ...estimate.perModel.map((entry) => {
       if (priceFor(entry.model) === undefined) return `  ${entry.model}: ${plural(entry.calls, 'case')}, no price in the price table`
-      const worst = worstTotalUsd(suite, entry.model, PLANNER_MAX_OUTPUT_TOKENS, config.reps)
+      const worst = worstModelUsd(suite, entry.model, PLANNER_MAX_OUTPUT_TOKENS, config.reps)
       return `  ${entry.model}: typical ${money(entry.usd)} (one call per case, no repair), worst case ${money(worst)} (${plural(calls, 'call')} per case, every call at the max_tokens of its effort)`
     }),
-    `  total: typical ${money(estimate.totalUsd)}, worst case ${money(config.models.reduce<number | undefined>((total, model) => (total === undefined ? undefined : addOrUndefined(total, worstTotalUsd(suite, model, PLANNER_MAX_OUTPUT_TOKENS, config.reps))), 0))}`,
+    `  total: typical ${money(estimate.totalUsd)}, worst case ${money(config.models.reduce<number | undefined>((total, model) => (total === undefined ? undefined : addOrUndefined(total, worstModelUsd(suite, model, PLANNER_MAX_OUTPUT_TOKENS, config.reps))), 0))}`,
+    ...providerPlanLines({
+      infos,
+      env,
+      suite,
+      estimate,
+      reps: config.reps,
+      maxOutputTokens: PLANNER_MAX_OUTPUT_TOKENS,
+      efforts: config.effort === undefined ? [] : [config.effort],
+      anthropicHost: effectiveHostOf(env),
+    }),
     `assumptions: input of the first call is ${suite.baseInputTokens} tokens (the rules, the node catalog and the output schema as the planner sends them, measured at chars / 3.5 plus 15%) plus the case text, plus 2400 for a PDF, 2000 for a PNG or chars / 3.5 + 400 for a text attachment; typical output is ${estimate.assumptions.outputTokens} tokens per call (thinking included). These are estimates, not measurements, and need a live pilot.`,
     `guard formula: the budget guard reserves, for every case in flight, ${plural(calls, 'call')} x (input + the max_tokens of the case's effort as output tokens) at the price of the model, where the input is the first-call estimate plus, for each of the ${config.maxRepairRounds} repair rounds, the max_tokens of the case's effort for the previous answer and ${REPAIR_MESSAGE_TOKENS} tokens for the issue list (the history a repair round re-sends); ${calls} = 1 + ${config.maxRepairRounds} repair rounds x ${TARGETED_CALLS_PER_ROUND} calls. Every call is priced at that largest input, so the reserve is an upper bound.`,
   ]
@@ -342,8 +352,16 @@ export function plannerPlanText(config: PlannerCliConfig, suite: PlannerSuite, e
       }
     }
   }
-  lines.push('', 'Nothing was sent. To run it for real (needs ANTHROPIC_API_KEY in the environment; --budget-usd is required with --yes):', `  ${plannerCommandLine(config, budgetUsd)}`, '')
+  lines.push('', `Nothing was sent. To run it for real (needs ${keysSentence(infos)} in the environment; --budget-usd is required with --yes):`, `  ${plannerCommandLine(config, budgetUsd)}`, '')
   return lines.join('\n')
+}
+
+function effectiveHostOf(env: Readonly<Record<string, string | undefined>>): string {
+  try {
+    return effectiveEndpoint(env).host
+  } catch {
+    return 'api.anthropic.com'
+  }
 }
 
 function addOrUndefined(left: number, right: number | undefined): number | undefined {
@@ -370,25 +388,27 @@ function summaryTable(run: RunResult<PlannerOutput>, models: readonly string[]):
   return [line(header), ...rows.map(line)].join('\n')
 }
 
-async function runYesMode(config: PlannerCliConfig, suite: PlannerSuite, io: CliIo, estimate: RunEstimate, budgetUsd: number): Promise<number> {
-  const key = io.env['ANTHROPIC_API_KEY']?.trim() ?? ''
-  if (key === '') {
-    io.stderr('error: ANTHROPIC_API_KEY is not set; --yes needs it in the environment\n')
+async function runYesMode(config: PlannerCliConfig, suite: PlannerSuite, io: CliIo, estimate: RunEstimate, budgetUsd: number, infos: readonly ModelSpecInfo[]): Promise<number> {
+  const keys = resolveKeys(infos, io.env)
+  if (keys.error !== undefined) {
+    io.stderr(`error: ${keys.error}\n`)
     return EXIT_ERROR
   }
   if (estimate.unpricedModels.length > 0) {
     io.stderr(`error: no price for model ${estimate.unpricedModels.join(', ')}; the budget guard needs one\n`)
     return EXIT_ERROR
   }
-  const endpoint = effectiveEndpoint(io.env)
-  if (!endpointCheck(config.allowBaseUrl, io, endpoint)) return EXIT_ERROR
+  const usesAnthropic = infos.some((info) => info.provider === 'anthropic')
+  const endpoint = effectiveEndpoint(usesAnthropic ? io.env : {})
+  if (usesAnthropic && !endpointCheck(config.allowBaseUrl, io, endpoint)) return EXIT_ERROR
+  for (const line of otherHostLines(infos)) io.stdout(line)
   const out = config.out ?? join(io.outRoot ?? join(PACKAGE_ROOT, 'results'), `planner-${timestamp(io.now())}`)
   assertWritableDir(out)
-  const secrets = [key]
-  const createProvider = io.planner?.createProvider ?? createEvalProvider
-  io.stdout(`notice: the case prompts, their folder and connection names, and the synthetic attachments (receipt PDF, PNG and text, two of them with a hostile sentence) are sent to ${endpoint.host} for ${config.models.join(', ')}\n`)
-  io.stdout(`budget: $${formatUsdPlain(budgetUsd)}, max_tokens set by the planner from the effort (${effortTable({ measurableOnly: true })}), ${suite.cases().length * config.reps * config.models.length} tasks planned, results go to ${out}\n`)
-  const total = suite.cases().length * config.reps * config.models.length
+  const secrets = keys.secrets
+  const createProvider = io.planner?.createProvider ?? createSpecProvider
+  io.stdout(`notice: the case prompts, their folder and connection names, and the synthetic attachments (receipt PDF, PNG and text, two of them with a hostile sentence) are sent to ${hostList(infos, endpoint.host)} for ${config.models.join(', ')}\n`)
+  io.stdout(`budget: $${formatUsdPlain(budgetUsd)}, max_tokens set by the planner from the effort (${effortTable({ measurableOnly: true })}), ${estimate.calls} tasks planned, results go to ${out}\n`)
+  const total = estimate.calls
   let done = 0
   const progress = (task: TaskResult<PlannerOutput>): void => {
     done += 1
@@ -416,7 +436,7 @@ async function runYesMode(config: PlannerCliConfig, suite: PlannerSuite, io: Cli
           model,
           signal,
           clock: io.now,
-          apiKey: key,
+          apiKey: keys.keyOf(model),
           baseURL: endpoint.baseURL,
           maxTokens: settings.maxOutputTokens,
           timeoutMs: config.maxCallSeconds * 1000 + SDK_TIMEOUT_MARGIN_MS,
@@ -474,7 +494,7 @@ async function runYesMode(config: PlannerCliConfig, suite: PlannerSuite, io: Cli
     return EXIT_INTERRUPTED
   }
   if (run.stop === 'auth') {
-    io.stderr(`error: the API rejected the credentials (authentication failure); the run stopped at the first one and ${skipped} of ${run.tasks.length} tasks were not run. Check ANTHROPIC_API_KEY and the model access of the key.\n`)
+    io.stderr(`error: the API rejected the credentials (authentication failure); the run stopped at the first one and ${skipped} of ${run.tasks.length} tasks were not run. Check ${keysSentence(infos)} and the model access of the key.\n`)
     return EXIT_ERROR
   }
   if (run.partial === true) {
@@ -485,14 +505,15 @@ async function runYesMode(config: PlannerCliConfig, suite: PlannerSuite, io: Cli
 }
 
 export async function plannerMain(argv: readonly string[], io: CliIo): Promise<number> {
-  let secret: string | undefined
+  let secrets: string[] = []
   try {
     const config = parsePlannerCli(argv)
     if (config.help) {
       io.stdout(PLANNER_USAGE)
       return EXIT_OK
     }
-    secret = io.env['ANTHROPIC_API_KEY']?.trim()
+    secrets = environmentSecrets(io.env)
+    const infos = resolveModelSpecs('--model', config.models)
     const suite = makeSuite(config, io)
     const problems = verifyAttachments(suite.cases().map((testCase) => testCase.spec))
     if (problems.length > 0) {
@@ -502,18 +523,18 @@ export async function plannerMain(argv: readonly string[], io: CliIo): Promise<n
     const estimate = typicalEstimate(config, suite)
     const budgetUsd = budgetFor(config, suite, estimate)
     if (!config.yes) {
-      io.stdout(plannerPlanText(config, suite, estimate, budgetUsd))
+      io.stdout(plannerPlanText(config, suite, estimate, budgetUsd, io.env))
       return EXIT_OK
     }
     if (config.budgetUsd === undefined) throw new UsageError('--yes needs --budget-usd')
-    return await runYesMode(config, suite, io, estimate, config.budgetUsd)
+    return await runYesMode(config, suite, io, estimate, config.budgetUsd, infos)
   } catch (error) {
     if (error instanceof UsageError) {
       io.stderr(`error: ${error.message}\n\n${PLANNER_USAGE}`)
       return EXIT_USAGE
     }
     const message = error instanceof Error ? error.message : String(error)
-    io.stderr(`error: ${secret === undefined || secret === '' ? message : message.split(secret).join('[redacted]')}\n`)
+    io.stderr(`error: ${secrets.reduce((text, secret) => text.split(secret).join('[redacted]'), message)}\n`)
     return EXIT_ERROR
   }
 }

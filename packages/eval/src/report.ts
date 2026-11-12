@@ -1,3 +1,4 @@
+import { effortLines, groupByProvider, notRunSection, providerCell, providerLines, showProviders, softCapMark } from './provider-report'
 import { aggregate, isPassingOutcome, type Aggregate, type FieldMetrics, type ScoredRow } from './score'
 import type { RunResult, TaskResult } from './runner'
 import { clusterBootstrapDelta, clusterBootstrapRatio, mean, percentile, type RatioRow } from './stats'
@@ -136,10 +137,12 @@ function headerSection(input: ReportInput, scoredGroups: number): string[] {
     ...partialNotice(input),
     `- Suite version: ${meta.suiteVersion}`,
     `- Date: ${meta.createdAt}`,
-    `- Models: ${meta.models.length === 0 ? '(none, baselines only)' : meta.models.join(', ')}`,
+    `- Models: ${meta.models.length === 0 ? '(none, baselines only)' : groupByProvider(meta.models).join(', ')}`,
+    ...providerLines(meta.models),
     `- Reps per case: ${meta.reps}`,
     `- Schedule seed: ${meta.seed}`,
     `- Effort: ${effort}`,
+    ...effortLines(meta.models, meta.effort),
     `- Field declarations: ${meta.fields ?? 'default'} (the descriptions the node sends with each field)`,
     `- Comparison: each model as the node ships it, at that effort. This is not a model-only comparison.`,
     `- Refusal fallback: ${meta.fallback ? 'on' : 'off'} for every model.`,
@@ -219,15 +222,17 @@ function vendorPartialCell(tasks: readonly Task[]): string {
 }
 
 function resultsSection(stats: readonly ModelStats[], seed: number): string[] {
+  const withProvider = showProviders(stats.map((entry) => entry.model))
+  const lead = (model: string): string[] => (withProvider ? [providerCell(model), model] : [model])
   return [
     '## Results by model',
     '',
     'Case pass is the share of scored calls where all three fields are right. A refusal or an invalid reply counts as no answer and as a failed case.',
     '',
     ...table(
-      ['Model', 'Case pass (95% CI)', 'Amount', 'Date', 'Vendor', 'Vendor partial', 'No-answer rate', 'Injection'],
+      [...(withProvider ? ['Provider'] : []), 'Model', 'Case pass (95% CI)', 'Amount', 'Date', 'Vendor', 'Vendor partial', 'No-answer rate', 'Injection'],
       stats.map((entry) => [
-        entry.model,
+        ...lead(entry.model),
         intervalCell(entry.rows, casePassRatio, seed, true),
         intervalCell(entry.rows, fieldRatio('amount'), seed, false),
         intervalCell(entry.rows, fieldRatio('date'), seed, false),
@@ -301,8 +306,8 @@ function performanceSection(stats: readonly ModelStats[]): string[] {
           num(percentile(latencies, 95)),
           num(mean(scored.map((task) => task.usage.inputTokens)), 0),
           num(mean(scored.map((task) => task.usage.outputTokens)), 0),
-          usd(total),
-          total === undefined || receipts === 0 ? 'n/a' : usd((total / receipts) * 100),
+          softCapMark(entry.model, usd(total)),
+          softCapMark(entry.model, total === undefined || receipts === 0 ? 'n/a' : usd((total / receipts) * 100)),
         ]
       }),
     ),
@@ -502,7 +507,7 @@ function truncatedSection(run: RunResult<unknown>): string[] {
 
 export function renderReport(input: ReportInput): string {
   const { run, meta } = input
-  const stats = meta.models.map((model) => statsOf(run, model))
+  const stats = groupByProvider(meta.models).map((model) => statsOf(run, model))
   const seeds = new Set(
     run.tasks.filter((task) => isScored(task) && (meta.models.includes(task.model) || meta.models.length === 0)).map((task) => task.group),
   ).size
@@ -511,6 +516,7 @@ export function renderReport(input: ReportInput): string {
   else {
     lines.push(
       ...resultsSection(stats, meta.seed),
+      ...notRunSection(run),
       ...pooledSection(stats),
       ...performanceSection(stats),
       ...breakdownSection('By difficulty', stats, (row) => row.category),
