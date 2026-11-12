@@ -1,4 +1,5 @@
 import type OpenAI from 'openai'
+import { APIConnectionError } from 'openai'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   LlmError,
@@ -493,6 +494,44 @@ describe('streaming', () => {
       expect(transport.requests).toHaveLength(1)
       expect(transport.openBodies()).toBe(0)
     }
+  })
+
+  it.each([
+    ['an event: error frame', { event: 'error', data: { type: 'error', code: 'server_error', message: 'boom', param: null, sequence_number: 0 } }, 'overloaded'],
+    ['a data-only error frame', { data: { type: 'error', code: 'server_error', message: 'boom', param: null, sequence_number: 0 } }, 'overloaded'],
+    ['a rate-limit error frame', { event: 'error', data: { type: 'error', code: 'rate_limit_exceeded', message: 'slow', param: null, sequence_number: 0 } }, 'rate_limit'],
+    ['a frame that carries an error object', { data: { error: { code: 'server_error', message: 'boom' } } }, 'overloaded'],
+  ] as const)('does not retry when %s is the very first thing streamed', async (_label, frame, kind) => {
+    const { transport, provider } = setup(sseReply([frame]), ok(true))
+    const error = await failure(provider.generate(big))
+    expect(error.kind).toBe(kind)
+    expect(transport.requests).toHaveLength(1)
+    expect(transport.sleeps).toEqual([])
+  })
+
+  it('still retries a transport error that the SDK raises before any frame', async () => {
+    let calls = 0
+    const reply = responseBody('completed', OK_TEXT)
+    const client = {
+      responses: {
+        create: async () =>
+          (async function* () {
+            calls += 1
+            if (calls === 1) throw new APIConnectionError({ message: 'socket hang up' })
+            for (const event of streamEvents(reply)) yield event.data
+          })(),
+      },
+    } as unknown as OpenAI
+    const sleeps: number[] = []
+    const provider = new OpenAiProvider({ model: OPENAI_MODEL, apiKey: CONFORMANCE_API_KEY, client, sleep: async (ms) => void sleeps.push(ms) })
+    expect((await provider.generate(big)).data).toEqual(CONFORMANCE_DATA)
+    expect(calls).toBe(2)
+  })
+
+  it('does not retry when the first frame is not JSON', async () => {
+    const { transport, provider } = setup({ kind: 'sse', chunks: ['data: {not json\n\n'], then: 'end' }, ok(true))
+    expect((await failure(provider.generate(big))).kind).toBe('invalid_output')
+    expect(transport.requests).toHaveLength(1)
   })
 
   it('treats a stream that ends after some events without a final one as a dropped connection and does not retry', async () => {

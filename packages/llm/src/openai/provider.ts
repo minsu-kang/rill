@@ -1,4 +1,4 @@
-import OpenAI from 'openai'
+import OpenAI, { APIConnectionError, APIError } from 'openai'
 import { DEFAULT_TIMEOUT_MS, STREAMING_ABOVE_MAX_TOKENS } from '../anthropic'
 import type { LlmCapabilities } from '../capabilities'
 import { modelCapabilities } from '../descriptor'
@@ -42,6 +42,8 @@ export function createOpenAiClient(options: { apiKey: string; fetch?: FetchFn; b
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   })
 }
+
+const isFrameError = (error: unknown): boolean => error instanceof APIError && !(error instanceof APIConnectionError) && error.status === undefined
 
 export class OpenAiProvider implements LlmProvider {
   readonly name = 'openai'
@@ -110,6 +112,7 @@ export class OpenAiProvider implements LlmProvider {
           if (event.type === 'error') throw codeError(event.code, event.message, this.secrets)
         }
       } catch (error) {
+        if (isFrameError(error)) attempt.outputStarted()
         throw streamFailure(error, call, this.secrets)
       }
       if (call.signal.aborted) throw call.abortError()
