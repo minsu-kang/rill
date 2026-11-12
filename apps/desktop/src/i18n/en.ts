@@ -1,3 +1,4 @@
+import { chatEn } from './chat.en'
 import type { ko } from './ko'
 import { explainEn } from './explain.en'
 import { recipesEn } from './recipes.en'
@@ -77,4 +78,5 @@ export const en: Record<keyof typeof ko, string> = {
   'workspace.loadError': 'Could not load: {message}',
   ...explainEn,
   ...recipesEn,
+  ...chatEn,
 }

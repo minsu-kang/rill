@@ -1,5 +1,6 @@
 import { explainKo } from './explain.ko'
 import { recipesKo } from './recipes.ko'
+import { chatKo } from './chat.ko'
 
 export const ko = {
   'app.name': 'Rill',
@@ -76,4 +77,5 @@ export const ko = {
   'workspace.loadError': '불러오지 못했어요: {message}',
   ...explainKo,
   ...recipesKo,
+  ...chatKo,
 }
