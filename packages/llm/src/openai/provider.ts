@@ -25,6 +25,7 @@ export interface OpenAiProviderOptions {
   baseURL?: string
   sleep?: (ms: number) => Promise<void>
   random?: () => number
+  maxRetries?: number
   timeoutMs?: number
   maxTokens?: number
 }
@@ -66,6 +67,7 @@ export class OpenAiProvider implements LlmProvider {
   private readonly maxTokens: number
   private readonly sleep: ((ms: number) => Promise<void>) | undefined
   private readonly random: (() => number) | undefined
+  private readonly maxRetries: number | undefined
 
   constructor(options: OpenAiProviderOptions) {
     if (!OPENAI_MODELS.some((entry) => entry.id === options.model)) {
@@ -78,6 +80,7 @@ export class OpenAiProvider implements LlmProvider {
     this.secrets = [options.apiKey]
     this.sleep = options.sleep
     this.random = options.random
+    this.maxRetries = options.maxRetries
     this.client =
       options.client ??
       createOpenAiClient({
@@ -104,6 +107,7 @@ export class OpenAiProvider implements LlmProvider {
         remainingMs: call.remainingMs,
         ...(this.sleep === undefined ? {} : { sleep: this.sleep }),
         ...(this.random === undefined ? {} : { random: this.random }),
+        ...(this.maxRetries === undefined ? {} : { maxRetries: this.maxRetries }),
       })
       return readResponse(reply, { requestedModel: this.modelId, secrets: this.secrets, restore: built.restore, startedAt })
     } finally {

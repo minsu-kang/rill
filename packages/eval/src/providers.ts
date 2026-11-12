@@ -98,7 +98,7 @@ export function createSpecProvider(options: EvalProviderOptions): EvalProvider {
   const info = describeSpec(options.model)
   if (info.provider === 'anthropic') return createEvalProvider({ ...options, model: info.model })
   const recorder = createRecorder(options.fetch, options.clock, providerDescriptor(info.provider).exchange)
-  const base = providerDescriptor(info.provider).create({ model: info.model, apiKey: options.apiKey, fetch: recorder.fetch })
+  const base = providerDescriptor(info.provider).create({ model: info.model, apiKey: options.apiKey, fetch: recorder.fetch, maxRetries: 0 })
   const limited = withDefaults(base, {
     maxTokens: options.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),

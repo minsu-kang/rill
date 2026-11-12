@@ -29,6 +29,7 @@ export interface ProviderFactoryOptions {
   baseURL?: string
   sleep?: (ms: number) => Promise<void>
   random?: () => number
+  maxRetries?: number
 }
 
 export interface ProviderDescriptor {

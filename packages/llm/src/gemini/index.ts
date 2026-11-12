@@ -20,6 +20,7 @@ export const geminiDescriptor: ProviderDescriptor = {
       ...(options.baseURL === undefined ? {} : { baseURL: options.baseURL }),
       ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
       ...(options.random === undefined ? {} : { random: options.random }),
+      ...(options.maxRetries === undefined ? {} : { maxRetries: options.maxRetries }),
     }),
 }
 

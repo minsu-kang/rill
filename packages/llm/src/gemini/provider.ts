@@ -25,6 +25,7 @@ export interface GeminiProviderOptions {
   baseURL?: string
   sleep?: (ms: number) => Promise<void>
   random?: () => number
+  maxRetries?: number
   timeoutMs?: number
   maxTokens?: number
 }
@@ -107,6 +108,7 @@ export class GeminiProvider implements LlmProvider {
         shouldRetry: (error) => error.category !== 'quota_exceeded',
         ...(this.options.sleep === undefined ? {} : { sleep: this.options.sleep }),
         ...(this.options.random === undefined ? {} : { random: this.options.random }),
+        ...(this.options.maxRetries === undefined ? {} : { maxRetries: this.options.maxRetries }),
       })
     } finally {
       call.dispose()

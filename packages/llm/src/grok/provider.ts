@@ -18,6 +18,7 @@ export interface GrokProviderOptions {
   effort?: LlmEffort
   sleep?: (ms: number) => Promise<void>
   random?: () => number
+  maxRetries?: number
 }
 
 interface Finished {
@@ -77,6 +78,7 @@ export class GrokProvider implements LlmProvider {
         remainingMs: () => call.remainingMs(),
         sleep: this.options.sleep,
         random: this.options.random,
+        ...(this.options.maxRetries === undefined ? {} : { maxRetries: this.options.maxRetries }),
       })
       const reply = readReply(terminal, { secrets: [this.options.apiKey], requestId })
       return {

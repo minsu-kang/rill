@@ -19,6 +19,7 @@ export interface MetaProviderOptions {
   baseURL?: string
   sleep?: (ms: number) => Promise<void>
   random?: () => number
+  maxRetries?: number
   maxTokens?: number
   timeoutMs?: number
 }
@@ -90,6 +91,7 @@ export class MetaProvider implements LlmProvider {
         remainingMs: () => call.remainingMs(),
         ...(this.options.sleep === undefined ? {} : { sleep: this.options.sleep }),
         ...(this.options.random === undefined ? {} : { random: this.options.random }),
+        ...(this.options.maxRetries === undefined ? {} : { maxRetries: this.options.maxRetries }),
       })
       return toResult(reply, this.modelId, startedAt)
     } finally {
