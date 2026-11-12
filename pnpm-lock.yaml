@@ -149,6 +149,18 @@ importers:
         specifier: ^1.4.6
         version: 1.4.6
 
+  packages/recipes:
+    dependencies:
+      '@rill/dsl':
+        specifier: workspace:*
+        version: link:../dsl
+      '@rill/nodes-core':
+        specifier: workspace:*
+        version: link:../nodes-core
+      typebox:
+        specifier: ^1.4.6
+        version: 1.4.6
+
 packages:
 
   '@anthropic-ai/sdk@1.8.0':
