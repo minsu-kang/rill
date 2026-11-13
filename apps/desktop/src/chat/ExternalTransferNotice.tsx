@@ -1,7 +1,7 @@
 import { useT } from '../i18n'
 import styles from './ExternalTransferNotice.module.css'
 
-export type TransferItem = 'request' | 'attachments' | 'memory'
+export type TransferItem = 'request' | 'attachments' | 'memory' | 'agent'
 
 export interface ExternalTransferNoticeProps {
   items: readonly TransferItem[]

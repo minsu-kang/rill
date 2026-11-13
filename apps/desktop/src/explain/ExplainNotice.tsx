@@ -6,6 +6,7 @@ import styles from './ExplainNotice.module.css'
 
 export interface ExplainNoticeProps {
   model?: { provider: string; model: string }
+  agentSent?: boolean
   effort: ExplainEffort
   skipNext: boolean
   onSkipNextChange(value: boolean): void
@@ -14,7 +15,7 @@ export interface ExplainNoticeProps {
   headingRef?: RefCallback<HTMLElement>
 }
 
-export function ExplainNotice({ model, effort, skipNext, onSkipNextChange, onSend, onCancel, headingRef }: ExplainNoticeProps) {
+export function ExplainNotice({ model, agentSent = false, effort, skipNext, onSkipNextChange, onSend, onCancel, headingRef }: ExplainNoticeProps) {
   const t = useT()
   const headingId = useId()
   return (
@@ -23,6 +24,7 @@ export function ExplainNotice({ model, effort, skipNext, onSkipNextChange, onSen
         {t('explain.notice.heading')}
       </h3>
       <p className={styles.body}>{t('explain.notice.body')}</p>
+      {agentSent ? <p className={styles.body}>{t('explain.notice.agent')}</p> : null}
       <p className={styles.target}>
         {model === undefined ? (
           t('explain.notice.targetUnknown')

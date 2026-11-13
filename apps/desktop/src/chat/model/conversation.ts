@@ -140,7 +140,7 @@ export function conversationReducer(state: ConversationState, action: Conversati
 
 export function planParams(
   state: ConversationState,
-  input: { planId: string; text: string; answers?: Record<string, string>; editContext?: { workflowId: string; nodeId?: string } },
+  input: { planId: string; text: string; answers?: Record<string, string>; editContext?: { workflowId: string; nodeId?: string }; agentId?: string },
 ): MethodParams<'plan'> {
   const entries: ConversationEntry[] =
     input.answers === undefined ? state.entries : [...state.entries, { role: 'user', text: '', attachments: [], answers: { ...input.answers } }]
@@ -152,6 +152,7 @@ export function planParams(
     effort: state.effort,
     useMemory: state.useMemory,
   }
+  if (input.agentId !== undefined) params.agentId = input.agentId
   if (input.editContext !== undefined) {
     params.workflowId = input.editContext.workflowId
     if (input.editContext.nodeId !== undefined) params.selection = { nodeId: input.editContext.nodeId }

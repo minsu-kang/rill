@@ -4,6 +4,7 @@ import {
   MEMORY_MAX_ITEMS,
   RillError,
   validateParams,
+  type Agent,
   type LlmModelsResult,
   type MemoryItem,
   type MethodName,
@@ -13,6 +14,7 @@ import {
   type PlanResultBody,
 } from '@rill/protocol'
 import type { EngineClient } from './client'
+import { createFakeAgents, type FakeAgents } from './fake-agents'
 
 export type PlanOutcome = { result: PlanResultBody; meta: PlanMeta }
 
@@ -20,13 +22,27 @@ export interface FakePlanData {
   models: LlmModelsResult
   script: (params: MethodParams<'plan'>) => PlanOutcome | RillError | 'hang'
   memory: MemoryItem[]
+  agents?: readonly Agent[]
+  activeAgentId?: string
   deployId?: string
   delayMs?: number
   now?: () => number
   seed?: ReadonlyArray<{ planId: string; result: PlanResultBody }>
 }
 
-const HANDLED = ['plan', 'cancelPlan', 'deployPlan', 'llmModels', 'listMemory', 'saveMemory', 'deleteMemory'] as const satisfies readonly MethodName[]
+const HANDLED = [
+  'plan',
+  'cancelPlan',
+  'deployPlan',
+  'llmModels',
+  'listMemory',
+  'saveMemory',
+  'deleteMemory',
+  'listAgents',
+  'saveAgent',
+  'deleteAgent',
+  'setActiveAgent',
+] as const satisfies readonly MethodName[]
 type Handled = (typeof HANDLED)[number]
 
 const MAX_PENDING = 2
@@ -74,12 +90,16 @@ interface PlanRecord {
   workflowId?: string
 }
 
-export function withPlanMethods(client: EngineClient, data: FakePlanData): EngineClient & { pendingPlans(): string[] } {
+export type FakePlanClient = EngineClient & { pendingPlans(): string[]; planAgentIds(): Array<string | undefined>; agents: FakeAgents }
+
+export function withPlanMethods(client: EngineClient, data: FakePlanData): FakePlanClient {
   const records = new Map<string, PlanRecord>()
   for (const item of data.seed ?? []) records.set(item.planId, { result: structuredClone(item.result), flagKeys: item.result.kind === 'workflow' ? item.result.flags.map(flagKey) : [] })
   const pending = new Map<string, (error: RillError) => void>()
   const memory: MemoryItem[] = structuredClone(data.memory)
   const now = data.now ?? Date.now
+  const agents = createFakeAgents({ ...(data.agents === undefined ? {} : { agents: data.agents }), ...(data.activeAgentId === undefined ? {} : { activeId: data.activeAgentId }), now })
+  const planAgents: Array<string | undefined> = []
   let memorySerial = 0
   let deploySerial = 0
 
@@ -89,8 +109,10 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): Engin
   })
 
   function plan(params: MethodParams<'plan'>): Promise<MethodResult<'plan'>> {
+    agents.resolve(params.agentId)
     if (records.has(params.planId) || pending.has(params.planId)) throw new RillError('PLAN_EXISTS', 'a plan with this id already exists')
     if (pending.size >= MAX_PENDING) throw new RillError('PLAN_BUSY', `too many plans are running (at most ${MAX_PENDING} at a time)`)
+    planAgents.push(params.agentId)
     const answer = data.script(structuredClone(params))
     return new Promise((resolve, reject) => {
       pending.set(params.planId, reject)
@@ -167,6 +189,10 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): Engin
     listMemory: () => ({ items: structuredClone(memory) }),
     saveMemory,
     deleteMemory,
+    listAgents: () => agents.list(),
+    saveAgent: (params) => agents.save(params),
+    deleteAgent: (params) => agents.remove(params),
+    setActiveAgent: (params) => agents.setActive(params),
   }
 
   return {
@@ -179,5 +205,7 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): Engin
     },
     onEvent: (listener) => client.onEvent(listener),
     pendingPlans: () => [...pending.keys()],
+    planAgentIds: () => [...planAgents],
+    agents,
   }
 }

@@ -20,3 +20,7 @@ type Story = StoryObj<typeof meta>
 export const RequestOnly: Story = { name: 'Request only', args: { items: ['request'] } }
 
 export const AttachmentsAndNotes: Story = { name: 'Attachments and notes', args: { items: ['request', 'attachments', 'memory'] } }
+
+export const WithAgentSettings: Story = { name: 'With agent settings', args: { items: ['request', 'attachments', 'memory', 'agent'] } }
+
+export const RequestAndAgentSettings: Story = { name: 'Request and agent settings', args: { items: ['request', 'agent'] } }

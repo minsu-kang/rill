@@ -1,15 +1,17 @@
 import { METHODS, RillError, type ExplainResult, type MethodName, type MethodParams, type MethodResult } from '@rill/protocol'
 import Value from 'typebox/value'
 import type { EngineClient } from './client'
+import type { FakeAgents } from './fake-agents'
 
 export type ExplainScript = (params: MethodParams<'explainRun'>) => ExplainResult | RillError | 'hang'
 
-export function withExplainMethod(client: EngineClient, script: ExplainScript): EngineClient {
+export function withExplainMethod(client: EngineClient, script: ExplainScript, options: { agents?: Pick<FakeAgents, 'resolve'> } = {}): EngineClient {
   return {
     onEvent: (listener) => client.onEvent(listener),
     request: async <M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> => {
       if (method !== 'explainRun') return client.request(method, params)
       if (!Value.Check(METHODS.explainRun.params, params)) throw new RillError('INVALID_PARAMS', 'invalid explainRun params')
+      options.agents?.resolve((params as MethodParams<'explainRun'>).agentId)
       const answer = script(params)
       if (answer === 'hang') return new Promise<MethodResult<M>>(() => undefined)
       if (answer instanceof RillError) throw answer

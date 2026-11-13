@@ -37,6 +37,8 @@ export const metas = {
   nullCost: metaOf({ costUsd: null }),
   memory: metaOf({ memoryUsed: 3 }),
   memoryDropped: metaOf({ memoryUsed: 18, memoryDropped: 2 }),
+  agent: metaOf({ agentUsed: { id: 'agent-terse', name: 'Terse reviewer' }, agentDropped: 0 }),
+  agentDropped: metaOf({ agentDropped: 1 }),
   reasoningCapped: metaOf({ reasoningCapped: true }),
   costNote: metaOf({ costNote: 'The price of cached prompt tokens is counted at the full input rate, so the real cost can be lower.' }),
 } satisfies Record<string, PlanMeta>

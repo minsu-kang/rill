@@ -1,5 +1,6 @@
 import type { AttachmentRef, NodeInfo } from '@rill/protocol'
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import { agentIdForRequest, errorCodeOf, sendsAgentText, useAgents } from '../engine/agents'
 import type { EngineClient } from '../engine/client'
 import { useT, type MessageKey } from '../i18n'
 import { ClampedText } from './ClampedText'
@@ -65,6 +66,7 @@ const EXAMPLES = ['chat.panel.example1', 'chat.panel.example2', 'chat.panel.exam
 export function Conversation(props: ConversationProps) {
   const { client, port, catalog, hints, editContext, newId, onDeployed, onClearEditContext, modelsState, onRetryModels, memoryCount, tabId, panelId, labelledBy, hidden, active, canOpenNew, onNewChat, initialEntries, initialDraft } = props
   const t = useT()
+  const { state: agentsState, store: agentsStore } = useAgents(client)
   const [state, dispatch] = useReducer(conversationReducer, undefined, () => ({
     ...initialConversation(),
     entries: [...(initialEntries ?? [])],
@@ -155,7 +157,11 @@ export function Conversation(props: ConversationProps) {
       return
     }
     const planId = newId()
-    const params = planParams({ ...state, useMemory: memoryInUse(state.useMemory, memoryCount) }, { planId, text, ...(answersGiven === undefined ? {} : { answers: answersGiven }), ...(editContext === undefined ? {} : { editContext }) })
+    const agentId = agentIdForRequest(agentsStore.getState())
+    const params = planParams(
+      { ...state, useMemory: memoryInUse(state.useMemory, memoryCount) },
+      { planId, text, ...(answersGiven === undefined ? {} : { answers: answersGiven }), ...(editContext === undefined ? {} : { editContext }), ...(agentId === undefined ? {} : { agentId }) },
+    )
     busy.current = true
     running.current = planId
     dispatch({ type: 'submit', text, ...(answersGiven === undefined ? {} : { answers: answersGiven }) })
@@ -164,6 +170,7 @@ export function Conversation(props: ConversationProps) {
         if (settle(planId) && alive.current) dispatch({ type: 'planned', planId, result: result.result, meta: result.meta })
       },
       (failure: unknown) => {
+        if (errorCodeOf(failure) === 'AGENT_NOT_FOUND') void agentsStore.refresh()
         if (settle(planId) && alive.current) dispatch({ type: 'failed', error: planErrorKey(failure) })
       },
     )
@@ -321,6 +328,7 @@ export function Conversation(props: ConversationProps) {
           model={model}
           models={models}
           memoryCount={memoryCount}
+          agentSent={sendsAgentText(agentsState)}
           editContext={editContext}
           port={port}
           busy={planning}

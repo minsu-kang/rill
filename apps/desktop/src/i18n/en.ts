@@ -1,3 +1,4 @@
+import { agentsEn } from './agents.en'
 import { appEn } from './app.en'
 import { chatEn } from './chat.en'
 import type { ko } from './ko'
@@ -80,5 +81,6 @@ export const en: Record<keyof typeof ko, string> = {
   ...explainEn,
   ...recipesEn,
   ...chatEn,
+  ...agentsEn,
   ...appEn,
 }

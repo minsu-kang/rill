@@ -1,4 +1,4 @@
-import { RillError, type MethodName, type MethodParams, type MethodResult } from '@rill/protocol'
+import { RillError, type Agent, type MethodName, type MethodParams, type MethodResult } from '@rill/protocol'
 import { vi } from 'vitest'
 import type { EngineClient } from '../src/engine/client'
 import { createFakeClient } from '../src/engine/fake-client'
@@ -11,6 +11,8 @@ export type Script = FakePlanData['script']
 export interface WorldOptions {
   models?: FakePlanData['models']
   memory?: FakePlanData['memory']
+  agents?: readonly Agent[]
+  activeAgentId?: string
   script?: Script
   delayMs?: number
   intercept?: (method: MethodName, params: unknown) => Promise<unknown> | undefined
@@ -37,6 +39,8 @@ export function makeWorld(options: WorldOptions = {}) {
     script: options.script ?? (() => outcomeOf(results.workflow)),
     memory: options.memory ?? [...memoryFixtures.three],
     deployId: 'wf-new',
+    ...(options.agents === undefined ? {} : { agents: options.agents }),
+    ...(options.activeAgentId === undefined ? {} : { activeAgentId: options.activeAgentId }),
     ...(options.delayMs === undefined ? {} : { delayMs: options.delayMs }),
   }
   const planClient = withPlanMethods(base, data)
@@ -53,5 +57,5 @@ export function makeWorld(options: WorldOptions = {}) {
   }
   const planCalls = (): Array<MethodParams<'plan'>> => calls.filter((call) => call.method === 'plan').map((call) => call.params as MethodParams<'plan'>)
   const callsOf = (method: MethodName): Call[] => calls.filter((call) => call.method === method)
-  return { client, calls, planCalls, callsOf, onEvent }
+  return { client, calls, planCalls, callsOf, onEvent, planAgentIds: planClient.planAgentIds, agents: planClient.agents }
 }

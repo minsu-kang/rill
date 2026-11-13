@@ -1,5 +1,6 @@
 import type { ExplainEffort, ExplainResult, RunSummary } from '@rill/protocol'
 import { useId, useRef, useState } from 'react'
+import { sendsAgentText, useAgentsState } from '../engine/agents'
 import type { EngineClient } from '../engine/client'
 import { useT } from '../i18n'
 import { useStepFocus } from '../ui/useStepFocus'
@@ -24,13 +25,15 @@ export function ExplainPanel({ client, run, model, onAction, onProposeFix }: Exp
   const reasonId = useId()
   const effortId = useId()
   const { state, open, cancelNotice, send, reset } = useExplain(client, run?.id)
+  const agents = useAgentsState(client)
+  const agentSent = sendsAgentText(agents)
   const [effort, setEffort] = useState<ExplainEffort>('medium')
   const [skipNext, setSkipNext] = useState(false)
   const [accepted, setAccepted] = useState<string | undefined>(undefined)
   const [sentTo, setSentTo] = useState<string | undefined>(undefined)
   const root = useRef<HTMLElement>(null)
   const anchor = useStepFocus(state.phase, { scope: run?.id, container: root })
-  const target = model === undefined ? '' : `${model.provider}\u0000${model.model}`
+  const target = `${model === undefined ? '' : `${model.provider}\u0000${model.model}`}\u0000${agentSent ? agents.activeId : ''}`
   const allowed = canExplain(run)
 
   const dispatch = (value: ExplainEffort): void => {
@@ -97,7 +100,7 @@ export function ExplainPanel({ client, run, model, onAction, onProposeFix }: Exp
         </>
       )}
       {state.phase === 'confirming' && (
-        <ExplainNotice headingRef={anchor} model={model} effort={state.effort} skipNext={skipNext} onSkipNextChange={setSkipNext} onSend={confirm} onCancel={cancelNotice} />
+        <ExplainNotice headingRef={anchor} model={model} agentSent={agentSent} effort={state.effort} skipNext={skipNext} onSkipNextChange={setSkipNext} onSend={confirm} onCancel={cancelNotice} />
       )}
       {state.phase === 'asking' && (
         <div className={styles.asking}>

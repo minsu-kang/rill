@@ -2,6 +2,7 @@ import { isTrigger, type Workflow } from '@rill/dsl'
 import {
   METHODS,
   RillError,
+  type Agent,
   type EngineEvent,
   type ExplainResult,
   type LlmModelsResult,
@@ -57,6 +58,8 @@ export interface FakeWorldOptions {
   plan?: FakePlanData['script']
   planDelayMs?: number
   explain?: ExplainScript
+  agents?: readonly Agent[]
+  activeAgentId?: string
   recipes?: FakeRecipeData
   control?: Partial<FakeWorldControl>
 }
@@ -100,10 +103,12 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
     models,
     script: options.plan ?? (() => outcomeOf(results.workflow)),
     memory: [...memoryFixtures.three],
+    ...(options.agents === undefined ? {} : { agents: options.agents }),
+    ...(options.activeAgentId === undefined ? {} : { activeAgentId: options.activeAgentId }),
     ...(options.planDelayMs === undefined ? {} : { delayMs: options.planDelayMs }),
   })
   const recipes = withRecipeMethods(planned, options.recipes ?? fixtureRecipeData())
-  const inner = withExplainMethod(recipes, options.explain ?? DEFAULT_EXPLAIN)
+  const inner = withExplainMethod(recipes, options.explain ?? DEFAULT_EXPLAIN, { agents: planned.agents })
 
   function register(id: string, workflow: Workflow): void {
     registry.set(id, { id, workflow: structuredClone(workflow), active: false, createdAt: Date.now() })

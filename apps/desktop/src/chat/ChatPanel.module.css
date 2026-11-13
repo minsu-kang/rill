@@ -22,8 +22,19 @@
   font-size: var(--font-size-lg);
 }
 
-.modelText {
+.subrow {
+  display: flex;
   flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+
+.modelText {
+  flex: 1 1 140px;
+  min-width: 0;
   max-width: 100%;
   padding: 0;
   border: 0;

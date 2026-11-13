@@ -5,6 +5,7 @@ import type { EngineClient } from '../engine/client'
 import { useT } from '../i18n'
 import { ChatTabs } from './ChatTabs'
 import type { AttachmentPort } from './Composer'
+import { AgentPicker } from './AgentPicker'
 import { Conversation, type ConversationStatus } from './Conversation'
 import { MemoryPanel } from './MemoryPanel'
 import { ModelPicker } from './ModelPicker'
@@ -124,13 +125,16 @@ export function ChatPanel(props: ChatPanelProps) {
             </button>
           ))}
         </div>
-        {model === undefined ? null : view === 'model' ? (
-          <span className={styles.modelText}>{modelText}</span>
-        ) : (
-          <button type="button" className={styles.modelText} title={t('chat.panel.modelOpen')} onClick={() => setView('model')}>
-            {modelText}
-          </button>
-        )}
+        <div className={styles.subrow}>
+          {model === undefined ? null : view === 'model' ? (
+            <span className={styles.modelText}>{modelText}</span>
+          ) : (
+            <button type="button" className={styles.modelText} title={t('chat.panel.modelOpen')} onClick={() => setView('model')}>
+              {modelText}
+            </button>
+          )}
+          <AgentPicker client={client} />
+        </div>
       </header>
       {view === 'chat' ? (
         <ChatTabs

@@ -1,5 +1,6 @@
 import type { ExplainEffort } from '@rill/protocol'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { agentIdForRequest, agentsStoreFor, errorCodeOf } from '../engine/agents'
 import type { EngineClient } from '../engine/client'
 import { explainErrorKey, explainReducer, IDLE_EXPLAIN, type ExplainAction, type ExplainState } from './model/explain-state'
 
@@ -58,13 +59,15 @@ export function useExplain(client: EngineClient, runId: string | undefined): Exp
       const requestId = counter.current
       inflight.current = requestId
       apply({ type: 'send', effort, requestId })
-      client.request('explainRun', { runId, effort }).then(
+      const agentId = agentIdForRequest(agentsStoreFor(client).getState())
+      client.request('explainRun', { runId, effort, ...(agentId === undefined ? {} : { agentId }) }).then(
         (result) => {
           if (inflight.current !== requestId) return
           inflight.current = undefined
           apply({ type: 'succeeded', requestId, result })
         },
         (error: unknown) => {
+          if (errorCodeOf(error) === 'AGENT_NOT_FOUND') void agentsStoreFor(client).refresh()
           if (inflight.current !== requestId) return
           inflight.current = undefined
           apply({ type: 'failed', requestId, key: explainErrorKey(error) })

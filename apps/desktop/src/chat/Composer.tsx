@@ -23,6 +23,7 @@ export interface ComposerProps {
   model: LlmModelInfo | undefined
   models: LlmModelsResult | undefined
   memoryCount: number | undefined
+  agentSent?: boolean
   editContext?: { workflowId: string; nodeId?: string }
   port: AttachmentPort
   busy: boolean
@@ -193,6 +194,7 @@ export function Composer(props: ComposerProps) {
   if (state.attachments.length > 0) transfer.push('attachments')
   const memoryOn = memoryInUse(state.useMemory, memoryCount)
   if (memoryOn) transfer.push('memory')
+  if (props.agentSent === true) transfer.push('agent')
   const attachCount = state.attachments.length + pending.length
   const notesOff = !optionsOpen && !state.useMemory && memoryCount !== undefined && memoryCount > 0
 

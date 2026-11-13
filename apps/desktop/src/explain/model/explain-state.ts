@@ -43,6 +43,7 @@ const ERROR_KEYS: Readonly<Record<string, MessageKey>> = Object.freeze({
   EXPLAIN_PROVIDER: 'explain.error.provider',
   EXPLAIN_INVALID: 'explain.error.invalid',
   INVALID_PARAMS: 'explain.error.params',
+  AGENT_NOT_FOUND: 'explain.error.agentNotFound',
 })
 
 export function explainErrorKey(error: unknown): MessageKey {

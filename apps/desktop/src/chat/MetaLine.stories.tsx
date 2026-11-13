@@ -32,3 +32,7 @@ export const NotesDropped: Story = { name: 'Notes left out', args: { meta: metas
 export const ReasoningCapped: Story = { name: 'Reasoning capped', args: { meta: metas.reasoningCapped } }
 
 export const WithCostNote: Story = { name: 'With a cost note', args: { meta: metas.costNote } }
+
+export const WithAgent: Story = { name: 'With an agent', args: { meta: metas.agent } }
+
+export const AgentLeftOut: Story = { name: 'Agent settings left out', args: { meta: metas.agentDropped } }
