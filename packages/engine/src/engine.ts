@@ -128,8 +128,14 @@ export interface EngineExplainInput {
   signal?: AbortSignal
 }
 
-function planAgent(agent: Agent): PlanAgent {
-  return { id: agent.id, name: agent.name, persona: agent.persona, instructions: agent.instructions }
+function planAgent(agent: Agent, skills: ReadonlyArray<Pick<Skill, 'name' | 'body'>>): PlanAgent {
+  return {
+    id: agent.id,
+    name: agent.name,
+    persona: agent.persona,
+    instructions: agent.instructions,
+    ...(skills.length === 0 ? {} : { skills: skills.map(({ name, body }) => ({ name, body })) }),
+  }
 }
 
 export class WorkflowValidationError extends Error {
@@ -347,7 +353,7 @@ export class Engine {
           ...(existingWorkflow === undefined ? {} : { existingWorkflow }),
           ...(notes.length === 0 ? {} : { memory: notes.map((note) => note.text) }),
           ...(isEmptyPolicy(policy) ? {} : { rules: policy }),
-          ...(agent === undefined ? {} : { agent: planAgent(agent) }),
+          ...(agent === undefined ? {} : { agent: planAgent(agent, this.store.skillsOf(agent.skillIds ?? [])) }),
         },
         signal,
       }
@@ -502,7 +508,7 @@ export class Engine {
       workflow,
       registry: this.registry,
       secrets,
-      ...(agent === undefined ? {} : { agent: planAgent(agent) }),
+      ...(agent === undefined ? {} : { agent: planAgent(agent, this.store.skillsOf(agent.skillIds ?? [])) }),
       ...(input.effort === undefined ? {} : { effort: input.effort }),
       signal: controller.signal,
     })

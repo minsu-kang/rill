@@ -7,6 +7,7 @@ import {
   AgentSchema,
   ERROR_CODES,
   METHODS,
+  PlanMetaSchema,
   SKILL_BODY_MAX_CHARS,
   SKILL_DESCRIPTION_MAX_CHARS,
   SKILL_MAX_ITEMS,
@@ -16,6 +17,7 @@ import {
   checkAgentSkillIds,
   parseAgentSkillProblemLine,
   validateParams,
+  type PlanMeta,
 } from '../src/index'
 
 const skill = {
@@ -249,6 +251,27 @@ describe('agentSkillProblemLine and parseAgentSkillProblemLine', () => {
     for (const line of ['', 'skills', 'skills.nope: x', 'name.too_long: x', 'skills.unknown', 'skills.unknown:', 'skill.unknown: x']) {
       expect(parseAgentSkillProblemLine(line), line).toBeUndefined()
     }
+  })
+})
+
+describe('skillsUsed in the plan meta', () => {
+  const meta: PlanMeta = {
+    rounds: [],
+    usage: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+    costUsd: null,
+    model: 'm',
+    effort: 'low',
+    fallbackUsed: false,
+  }
+
+  it('is an optional count', () => {
+    const valid = (value: unknown) => Value.Check(PlanMetaSchema, value)
+    expect(valid(meta)).toBe(true)
+    expect(valid({ ...meta, skillsUsed: 0 })).toBe(true)
+    expect(valid({ ...meta, skillsUsed: 3 })).toBe(true)
+    expect(valid({ ...meta, skillsUsed: -1 })).toBe(false)
+    expect(valid({ ...meta, skillsUsed: 1.5 })).toBe(false)
+    expect(valid({ ...meta, skillsUsed: '1' })).toBe(false)
   })
 })
 

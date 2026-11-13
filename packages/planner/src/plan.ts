@@ -391,6 +391,7 @@ class Run {
       memoryDropped: this.memory.dropped,
       ...(this.agent.used ? { agentUsed: { id: this.request.context.agent!.id, name: this.request.context.agent!.name } } : {}),
       agentDropped: this.agent.dropped,
+      ...(this.agent.used && this.agent.skills !== undefined ? { skillsUsed: this.agent.skills } : {}),
     }
   }
 

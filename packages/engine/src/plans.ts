@@ -179,6 +179,7 @@ export function plannedRecord(source: PlanSource, planned: PlanResult, createdAt
     memoryDropped: planned.meta.memoryDropped,
     ...(planned.meta.agentUsed === undefined ? {} : { agentUsed: { id: planned.meta.agentUsed.id, name: planned.meta.agentUsed.name } }),
     agentDropped: planned.meta.agentDropped,
+    ...(planned.meta.skillsUsed === undefined ? {} : { skillsUsed: planned.meta.skillsUsed }),
   }
   const record: StoredPlan = {
     planId: source.planId,

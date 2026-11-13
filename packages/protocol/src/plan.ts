@@ -155,6 +155,7 @@ export const PlanMetaSchema = Type.Object(
     memoryDropped: Type.Optional(Type.Integer({ minimum: 0 })),
     agentUsed: Type.Optional(Type.Object({ id: IdSchema, name: Type.String({ minLength: 1, maxLength: AGENT_NAME_MAX_CHARS }) }, closed)),
     agentDropped: Type.Optional(Type.Integer({ minimum: 0 })),
+    skillsUsed: Type.Optional(Type.Integer({ minimum: 0 })),
   },
   closed,
 )
