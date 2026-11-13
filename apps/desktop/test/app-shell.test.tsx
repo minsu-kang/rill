@@ -168,7 +168,7 @@ describe('the workflow selector', () => {
     const en = createTranslator('en')
     const header = view.container.querySelector<HTMLElement>('[data-rill-region="workflow-switcher"]')!
     expect(within(header).getByRole('heading', { level: 2, name: '웹훅을 슬랙으로 전달' })).toBeTruthy()
-    expect(within(header).getByLabelText(en('app.wf.switcher.label')).getAttribute('title')).toBe(en('app.wf.switcher.tooltip'))
+    expect(within(header).getByLabelText(en('app.wf.switcher.label')).getAttribute('title')).toBe(`웹훅을 슬랙으로 전달\n${en('app.wf.switcher.tooltip')}`)
     expect(await violations(view.container)).toEqual([])
   })
 

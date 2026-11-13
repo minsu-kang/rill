@@ -50,7 +50,7 @@
   background: var(--surface-sunken);
 }
 
-.titleBox:focus-within {
+.titleBox:has(> select:focus-visible) {
   outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: 0;
 }

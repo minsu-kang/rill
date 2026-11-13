@@ -112,11 +112,11 @@ describe.each(['ko', 'en'] as const)('WorkflowHeader (%s)', (locale) => {
     expect(chevron.getAttribute('aria-hidden')).toBe('true')
     expect(chevron.getAttribute('focusable')).toBe('false')
     expect(chevron.parentElement).toBe(select(locale).parentElement)
-    expect(select(locale).getAttribute('title')).toBe(t('app.wf.switcher.tooltip'))
+    expect(select(locale).getAttribute('title')).toBe(`${RECEIPT.name}\n${t('app.wf.switcher.tooltip')}`)
     many.unmount()
     const single = renderThemed(<Harness workflows={[RECEIPT]} />, { locale })
     expect(single.container.querySelector('svg')).toBeNull()
-    expect(select(locale).getAttribute('title')).toBeNull()
+    expect(select(locale).getAttribute('title')).toBe(RECEIPT.name)
     expect(heading(RECEIPT.name)).toBeTruthy()
     expect(select(locale).options).toHaveLength(1)
   })
@@ -177,12 +177,13 @@ describe.each(['ko', 'en'] as const)('WorkflowHeader (%s)', (locale) => {
 describe('WorkflowHeader: text from the engine', () => {
   const LONG = '가나다라마바사 '.repeat(70)
 
-  it('shows a very long name as one line of text with the full text in its title', () => {
+  it('shows a very long name as one line of text, with the full text in the title of the select that lies over it', () => {
     const long: WorkflowSummary = { ...RECEIPT, name: LONG }
     const view = renderThemed(<Harness workflows={[long, DAILY]} />)
     const title = heading(LONG.trim())
     expect(title.textContent).toBe(LONG)
-    expect(title.getAttribute('title')).toBe(LONG)
+    expect(select().getAttribute('title')).toBe(`${LONG}\n${createTranslator('ko')('app.wf.switcher.tooltip')}`)
+    expect(title.hasAttribute('title')).toBe(false)
     expect(title.className).toMatch(/name/)
     expect(view.container.querySelectorAll('h2')).toHaveLength(1)
     expect(rule('.name')).toMatch(/white-space:\s*nowrap/)
@@ -196,7 +197,7 @@ describe('WorkflowHeader: text from the engine', () => {
     const visible = '<img src=x onerror=alert(1)> ‹U+202E›exe.txt ‹U+200B›‹U+2066›zero‹U+2069›'
     const title = screen.getByRole('heading', { level: 2 })
     expect(title.textContent).toBe(visible)
-    expect(title.getAttribute('title')).toBe(visible)
+    expect(select().getAttribute('title')).toBe(`${visible}\n${createTranslator('ko')('app.wf.switcher.tooltip')}`)
     expect(view.container.querySelector('img, b, script')).toBeNull()
     expect(view.container.textContent).not.toMatch(/[\u202E\u200B\u2066\u2069]/)
     expect(copies(view.container, 'trigger.<b>x</b>@1')).toHaveLength(1)
@@ -233,8 +234,9 @@ describe('WorkflowHeader: the look of the title', () => {
     expect(rule('.titleBox')).toMatch(/position:\s*relative/)
   })
 
-  it('draws the focus ring on the title box and a quiet hover only when there is something to pick', () => {
-    expect(rule('.titleBox:focus-within')).toMatch(/outline:\s*var\(--focus-ring-width\) solid var\(--focus-ring\)/)
+  it('draws the focus ring on the title box only for keyboard focus, like every other control, and a quiet hover only when there is something to pick', () => {
+    expect(rule('.titleBox:has(> select:focus-visible)')).toMatch(/outline:\s*var\(--focus-ring-width\) solid var\(--focus-ring\)/)
+    expect(CSS).not.toMatch(/focus-within/)
     expect(rule('.pick:hover')).toMatch(/background:\s*var\(--surface-sunken\)/)
   })
 

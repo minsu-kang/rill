@@ -26,11 +26,9 @@ export function WorkflowHeader({ list, selectedId, summary, onSelect }: Workflow
         labelHidden
         className={many ? `${styles.titleBox} ${styles.pick}` : styles.titleBox}
         selectClassName={styles.overlay}
-        selectTitle={many ? t('app.wf.switcher.tooltip') : undefined}
+        selectTitle={many ? `${name}\n${t('app.wf.switcher.tooltip')}` : name}
       >
-        <h2 className={styles.name} title={name}>
-          {name}
-        </h2>
+        <h2 className={styles.name}>{name}</h2>
         {many ? (
           <svg className={styles.chevron} viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
             <path d="M4 6l4 4 4-4" />

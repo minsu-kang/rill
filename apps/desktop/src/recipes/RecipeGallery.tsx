@@ -5,7 +5,7 @@ import { SafeText } from '../ui/SafeText'
 import { allTags, filterRecipes, nodeTypeBase, sendsToModelProvider } from './model/filter'
 import styles from './RecipeGallery.module.css'
 import { TransferMark } from '../ui/TransferMark'
-import hidden from '../ui/TransferMark.module.css'
+import hidden from '../ui/visuallyHidden.module.css'
 
 export interface RecipeGalleryProps {
   recipes: readonly RecipeInfo[]

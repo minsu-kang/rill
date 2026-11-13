@@ -9,6 +9,7 @@ import { HostProvider } from '../src/app/host'
 import { SETTINGS_SECTIONS } from '../src/app/settings/types'
 import { fakeSettings } from '../src/engine/fake-host'
 import { createTranslator, type Locale } from '../src/i18n'
+import visuallyHidden from '../src/ui/visuallyHidden.module.css'
 import { violations } from './axe'
 import { renderThemed } from './render'
 
@@ -40,7 +41,7 @@ async function neverTabsTo(user: ReturnType<typeof userEvent.setup>, element: HT
 }
 
 describe('the visually hidden style that the titles reuse', () => {
-  const rule = css('ui/TransferMark.module.css').match(/(?:^|\n)\.hidden\s*\{([^}]*)\}/)![1]!
+  const rule = css('ui/visuallyHidden.module.css').match(/(?:^|\n)\.hidden\s*\{([^}]*)\}/)![1]!
 
   it('takes the element out of the flow and clips it to nothing, as the labels of the app already do', () => {
     expect(rule).toMatch(/position:\s*absolute/)
@@ -63,7 +64,7 @@ describe.each(['ko', 'en'] as const)('the Recipes screen (%s)', (locale) => {
     const { view, user } = mount({ tab: 'recipes' }, locale)
     const heading = await screen.findByRole('heading', { level: 2, name: t('recipes.heading') })
     expect(heading.textContent).toBe(t('recipes.heading'))
-    expect(heading.className).toMatch(/hidden/)
+    expect(heading.className).toBe(visuallyHidden.hidden)
     expect(heading.className).not.toMatch(/heading/)
     expect(heading.tabIndex).toBe(-1)
     expect(screen.getByRole('region', { name: t('recipes.heading') })).toBe(heading.closest('section'))
@@ -80,7 +81,7 @@ describe.each(['ko', 'en'] as const)('the Recipes screen (%s)', (locale) => {
     await user.click(screen.getByRole('button', { name: t('recipes.form.back') }))
     const heading = await screen.findByRole('heading', { level: 2, name: t('recipes.heading') })
     await waitFor(() => expect(document.activeElement).toBe(heading))
-    expect(heading.className).toMatch(/hidden/)
+    expect(heading.className).toBe(visuallyHidden.hidden)
   })
 
   it('has no accessibility violations', async () => {
@@ -98,7 +99,7 @@ describe.each(['ko', 'en'] as const)('the Settings screen (%s)', (locale) => {
     const name = t(`app.settings.section.${section}`)
     const heading = await screen.findByRole('heading', { level: 2, name })
     expect(heading.textContent).toBe(name)
-    expect(heading.className).toMatch(/hidden/)
+    expect(heading.className).toBe(visuallyHidden.hidden)
     expect(heading.className).not.toMatch(/heading/)
     expect(heading.tabIndex).toBe(-1)
     expect(navButton(locale, section).getAttribute('aria-current')).toBe('page')
@@ -114,7 +115,7 @@ describe.each(['ko', 'en'] as const)('the Settings screen (%s)', (locale) => {
       await user.click(navButton(locale, section))
       const heading = await screen.findByRole('heading', { level: 2, name: t(`app.settings.section.${section}`) })
       await waitFor(() => expect(document.activeElement).toBe(heading))
-      expect(heading.className).toMatch(/hidden/)
+      expect(heading.className).toBe(visuallyHidden.hidden)
     }
   })
 

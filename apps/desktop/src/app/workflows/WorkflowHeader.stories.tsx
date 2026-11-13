@@ -45,8 +45,8 @@ type Story = StoryObj<typeof Controlled>
 export const ManyWorkflows: Story = { name: 'Several workflows (chevron, active)' }
 export const TwoWorkflows: Story = { args: { list: ready([receipt, daily]) } }
 export const OneWorkflow: Story = { name: 'One workflow (no chevron)', args: { list: ready([receipt]) } }
-export const KeyboardFocus: Story = {
-  name: 'Keyboard focus on the title',
+export const FocusedByMouseNoRing: Story = {
+  name: 'Focused by the mouse (no ring)',
   play: async ({ canvasElement }) => {
     canvasElement.querySelector('select')?.focus()
   },
