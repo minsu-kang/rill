@@ -13,7 +13,7 @@ const TRUSTED_HINTS: Record<string, RegExp[]> = {
   path_outside_roots: [/^allowed folders: [^\n]*$/],
   inside_watched_folder: [/^write the file to another folder or narrow the trigger pattern$/],
   channel_on_webhook: [/^a webhook connection posts to its own channel: remove the channel of this step( or use a bot connection: [^\n]*)?$/],
-  connection_kind_mismatch: [/^configured (slack|http|webhookSecret) connections: [^\n]*$/, /^no (slack|http|webhookSecret) connections are configured$/],
+  connection_kind_mismatch: [/^configured (slack|http|webhookSecret|google|microsoft) connections: [^\n]*$/, /^no (slack|http|webhookSecret|google|microsoft) connections are configured$/],
 }
 
 const NODE_CONFIG = /^\/nodes\/(\d+)\/config(\/.*)?$/

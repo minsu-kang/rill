@@ -137,7 +137,7 @@ describe('recipeProblems', () => {
         sample: { folder: '/Users/demo/in', ledger: '/Users/demo/ledger.csv', slack: 'slack-ops' },
       })
       expect(recipeProblems(recipe)).toEqual([])
-      for (const kind of ['slack', 'http', 'webhookSecret'] as const) {
+      for (const kind of ['slack', 'http', 'webhookSecret', 'google', 'microsoft'] as const) {
         expect(recipeProblems({ ...recipe, params: [folder, file, { ...slack, connectionKind: kind }] }), kind).toEqual([])
       }
     })

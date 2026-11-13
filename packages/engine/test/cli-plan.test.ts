@@ -53,6 +53,28 @@ describe('parseConnections', () => {
     ])
   })
 
+  it('reads google and microsoft connections, tells their kind to the resolver and to the planner, and never offers the token', () => {
+    const google = 'ya29.TOKENMARKER0123456789'
+    const microsoft = 'eyJTOKENMARKER0123456789.payload.sig'
+    const { resolver, planConnections } = parseConnections(
+      JSON.stringify({ sheets: { secret: google, kind: 'google' }, drive: { secret: microsoft, kind: 'microsoft' }, api: { secret: 'k', kind: 'http' }, bare: 'plain-secret' }),
+    )
+    expect(resolver.get('sheets')).toBe(google)
+    expect(resolver.get('drive')).toBe(microsoft)
+    expect(resolver.kindOf?.('sheets')).toBe('google')
+    expect(resolver.kindOf?.('drive')).toBe('microsoft')
+    expect(resolver.kindOf?.('api')).toBe('http')
+    expect(resolver.kindOf?.('bare')).toBeUndefined()
+    expect(resolver.kindOf?.('missing')).toBeUndefined()
+    for (const name of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) expect(resolver.kindOf?.(name), name).toBeUndefined()
+    expect(planConnections).toEqual([
+      { name: 'sheets', kind: 'google' },
+      { name: 'drive', kind: 'microsoft' },
+      { name: 'api', kind: 'http' },
+    ])
+    expect(JSON.stringify(planConnections)).not.toContain('TOKENMARKER')
+  })
+
   it('tells the planner whether a slack connection is a webhook or a bot, and never offers the token', () => {
     const token = 'xoxb-SLACKTOKENMARKER0123'
     const { planConnections } = parseConnections(
@@ -101,8 +123,8 @@ describe('parseConnections', () => {
     expect(odd.resolver.get('constructor')).toBe('c')
   })
 
-  it('rejects a kind that is not slack, http or webhookSecret, without echoing the secret', () => {
-    for (const kind of ['discord', '', 'SLACK', 3, null, undefined, ['slack']]) {
+  it('rejects a kind that is not slack, http, webhookSecret, google or microsoft, without echoing the secret', () => {
+    for (const kind of ['discord', '', 'SLACK', 'Google', 'oauth', 'microsoft ', 3, null, undefined, ['slack']]) {
       const text = JSON.stringify({ team: { secret: SECRET, ...(kind === undefined ? {} : { kind }) } })
       let error: unknown
       try {
@@ -409,7 +431,7 @@ describe('rill-engine serve with the planner', () => {
   it('documents the new option, the connection forms, --allow and the API key in the help text', () => {
     const result = runSync('--db', join(dir, 'h.db'))
     expect(result.status).toBe(2)
-    for (const text of ['--attachments-dir', 'ANTHROPIC_API_KEY', '"kind"', 'slack', 'webhookSecret', '--allow', '0700']) {
+    for (const text of ['--attachments-dir', 'ANTHROPIC_API_KEY', '"kind"', 'slack', 'webhookSecret', 'google', 'microsoft', '--allow', '0700']) {
       expect(result.stderr, text).toContain(text)
     }
   })

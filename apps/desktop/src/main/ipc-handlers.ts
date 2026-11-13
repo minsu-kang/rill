@@ -181,7 +181,7 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
       supersede(provider)
       await keyChanged(provider, await deps.secrets.clearProviderKey(provider))
     },
-    [CHANNELS.secretsSetConnection]: async (connection: { name: string; kind: 'slack' | 'http' | 'webhookSecret'; secret: string }) => {
+    [CHANNELS.secretsSetConnection]: async (connection: { name: string; kind: 'slack' | 'http' | 'webhookSecret' | 'google' | 'microsoft'; secret: string }) => {
       if (await deps.secrets.setConnection(connection)) restartEngine()
     },
     [CHANNELS.secretsSetCustomConnection]: async ({ name, auth }: { name: string; auth: CustomAuth }) => {

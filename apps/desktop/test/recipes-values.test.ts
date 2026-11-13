@@ -155,15 +155,19 @@ describe('visibleConnections', () => {
     { name: 'slack-dev', kind: 'slack' },
     { name: 'api', kind: 'http' },
     { name: 'secret', kind: 'webhookSecret' },
+    { name: 'sheets', kind: 'google' },
+    { name: 'drive', kind: 'microsoft' },
   ]
 
   it('keeps the connections of the kind the param asks for', () => {
     expect(visibleConnections(param({ id: 'c', kind: 'connection', connectionKind: 'slack' }), connections).map((item) => item.name)).toEqual(['slack-ops', 'slack-dev'])
     expect(visibleConnections(param({ id: 'c', kind: 'connection', connectionKind: 'http' }), connections).map((item) => item.name)).toEqual(['api'])
+    expect(visibleConnections(param({ id: 'c', kind: 'connection', connectionKind: 'google' }), connections).map((item) => item.name)).toEqual(['sheets'])
+    expect(visibleConnections(param({ id: 'c', kind: 'connection', connectionKind: 'microsoft' }), connections).map((item) => item.name)).toEqual(['drive'])
   })
 
   it('keeps every connection when the param names no kind, and none for a param that is not a connection', () => {
-    expect(visibleConnections(param({ id: 'c', kind: 'connection' }), connections)).toHaveLength(4)
+    expect(visibleConnections(param({ id: 'c', kind: 'connection' }), connections)).toHaveLength(6)
     expect(visibleConnections(param({ id: 'c', kind: 'text', connectionKind: 'slack' }), connections)).toEqual([])
   })
 

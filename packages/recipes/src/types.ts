@@ -3,7 +3,7 @@ import Type from 'typebox'
 export const PARAM_KINDS = ['folder', 'file', 'glob', 'text', 'number', 'cron', 'url', 'connection'] as const
 export type ParamKind = (typeof PARAM_KINDS)[number]
 
-export const CONNECTION_KINDS = ['slack', 'http', 'webhookSecret'] as const
+export const CONNECTION_KINDS = ['slack', 'http', 'webhookSecret', 'google', 'microsoft'] as const
 export type ConnectionKindName = (typeof CONNECTION_KINDS)[number]
 
 export const MAX_PARAM_STRING_CHARS = 500

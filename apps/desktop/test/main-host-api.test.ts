@@ -78,6 +78,8 @@ describe('argument schemas', () => {
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: { saveAnyway: false } }],
       [CHANNELS.secretsClearProviderKey, { provider: 'grok' }],
       [CHANNELS.secretsSetConnection, { name: 'n'.repeat(64), kind: 'http', secret: 's' }],
+      [CHANNELS.secretsSetConnection, { name: 'sheets', kind: 'google', secret: 'ya29.TOKENMARKER0123456789' }],
+      [CHANNELS.secretsSetConnection, { name: 'drive', kind: 'microsoft', secret: 'eyJTOKENMARKER0123456789.payload.sig' }],
       [CHANNELS.secretsRemoveConnection, { name: 'team' }],
       [CHANNELS.dialogsPickFolder, undefined],
       [CHANNELS.dialogsPickFile, { kind: 'attachment' }],
@@ -116,6 +118,8 @@ describe('argument schemas', () => {
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: null }],
       [CHANNELS.secretsClearProviderKey, { provider: 'anthropic', value: 'k' }],
       [CHANNELS.secretsSetConnection, { name: 'team', kind: 'discord', secret: 's' }],
+      [CHANNELS.secretsSetConnection, { name: 'team', kind: 'Google', secret: 's' }],
+      [CHANNELS.secretsSetConnection, { name: 'team', kind: 'oauth', secret: 's' }],
       [CHANNELS.secretsSetConnection, { name: 'team', secret: 's' }],
       [CHANNELS.secretsRemoveConnection, {}],
       [CHANNELS.dialogsPickFile, { kind: 'folder' }],
@@ -235,8 +239,8 @@ describe('provider table', () => {
     for (const id of LLM_PROVIDER_IDS) expect(PROVIDER_KEY_ENV[id], id).toBe(providerDescriptor(id).keyEnv)
   })
 
-  it('lists the three connection kinds the engine accepts', () => {
-    expect([...CONNECTION_KINDS]).toEqual(['slack', 'http', 'webhookSecret'])
+  it('lists the five connection kinds the engine accepts', () => {
+    expect([...CONNECTION_KINDS]).toEqual(['slack', 'http', 'webhookSecret', 'google', 'microsoft'])
   })
 })
 

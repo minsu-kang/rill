@@ -89,8 +89,9 @@ describe('listRecipes', () => {
   it('says which file extension and which kind of connection a parameter takes', () => {
     expect(check(RecipeParamInfoSchema, { ...info.params[3], extension: '.json' })).toBe(true)
     expect(check(RecipeParamInfoSchema, { ...info.params[3], extension: 5 })).toBe(false)
-    for (const kind of ['slack', 'http', 'webhookSecret']) expect(check(RecipeParamInfoSchema, { ...info.params[4], connectionKind: kind }), kind).toBe(true)
+    for (const kind of ['slack', 'http', 'webhookSecret', 'google', 'microsoft']) expect(check(RecipeParamInfoSchema, { ...info.params[4], connectionKind: kind }), kind).toBe(true)
     expect(check(RecipeParamInfoSchema, { ...info.params[4], connectionKind: 'email' })).toBe(false)
+    for (const kind of ['Google', 'oauth', 'microsoft ', '']) expect(check(RecipeParamInfoSchema, { ...info.params[4], connectionKind: kind }), kind).toBe(false)
     expect(check(RecipeParamInfoSchema, { ...info.params[4], connectionKind: 5 })).toBe(false)
   })
 })

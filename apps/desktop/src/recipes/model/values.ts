@@ -5,7 +5,7 @@ export type FormValues = Record<string, string>
 
 export interface HostConnection {
   name: string
-  kind: 'slack' | 'http' | 'webhookSecret'
+  kind: 'slack' | 'http' | 'webhookSecret' | 'google' | 'microsoft'
 }
 
 export type ValueError = 'required' | 'too_long' | 'not_a_number' | 'below_min' | 'above_max' | 'template_text' | 'too_many'

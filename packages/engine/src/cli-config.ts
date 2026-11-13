@@ -12,7 +12,7 @@ export interface LoadedConnections {
   planConnections: PlanConnection[]
 }
 
-const KINDS: readonly string[] = ['slack', 'http', 'webhookSecret']
+const KINDS: readonly string[] = ['slack', 'http', 'webhookSecret', 'google', 'microsoft']
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -31,6 +31,7 @@ function slackMode(kind: string, secret: string): Pick<PlanConnection, 'slack'> 
 function connectionsFromTable(table: unknown, source: string): LoadedConnections {
   if (!isObject(table)) throw new UsageError(`${source} must be a JSON object that maps names to secrets`)
   const secrets = new Map<string, string>()
+  const kinds = new Map<string, string>()
   const planConnections: PlanConnection[] = []
   for (const [name, entry] of Object.entries(table)) {
     if (typeof entry === 'string') {
@@ -45,9 +46,10 @@ function connectionsFromTable(table: unknown, source: string): LoadedConnections
       throw badEntry(name, `needs a "kind" of ${KINDS.join(', ')}`)
     }
     secrets.set(name, entry.secret)
+    kinds.set(name, entry.kind)
     planConnections.push({ name, kind: entry.kind as PlanConnection['kind'], ...slackMode(entry.kind, entry.secret) })
   }
-  return { resolver: { get: (id) => secrets.get(id) }, planConnections }
+  return { resolver: { get: (id) => secrets.get(id), kindOf: (id) => kinds.get(id) }, planConnections }
 }
 
 export function parseConnections(text: string): LoadedConnections {

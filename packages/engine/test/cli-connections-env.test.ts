@@ -157,3 +157,42 @@ describe('rill-engine with RILL_CONNECTIONS', () => {
     expect(result.stderr).toContain('RILL_CONNECTIONS')
   })
 })
+
+describe('rill-engine with an account connection', () => {
+  const TOKEN = 'ya29.TOKENMARKER0123456789'
+  const workflow = (node: Record<string, unknown>): string => {
+    const file = join(dir, 'account.json')
+    writeFileSync(file, JSON.stringify({ schemaVersion: 1, name: 'account', nodes: [{ id: 't1', type: 'trigger.manual@1', config: {} }, { id: 'n1', ...node }], edges: [{ from: 't1', to: 'n1' }] }))
+    return file
+  }
+  const httpStep = (connection: string) => ({ type: 'http.request@1', config: { url: 'http://127.0.0.1:9/ingest', method: 'POST', body: { a: 1 }, auth: { connection } } })
+
+  it('refuses a plain http.request that names a google entry of the connections file, before any request', () => {
+    const connections = join(dir, 'connections.json')
+    writeFileSync(connections, JSON.stringify({ sheets: { secret: TOKEN, kind: 'google' }, drive: { secret: 'eyJTOKENMARKER0123456789.payload.sig', kind: 'microsoft' } }))
+    for (const [name, label] of [['sheets', 'Google'], ['drive', 'Microsoft']] as const) {
+      const result = runCli(['run', workflow(httpStep(name)), '--db', join(dir, `${name}.db`), '--connections', connections], {})
+      expect(result.status, name).toBe(1)
+      expect(result.stdout).toContain(`connection ${name} is a ${label} connection`)
+      expect(result.stdout).not.toContain('network error')
+      expect(result.stdout + result.stderr).not.toContain('TOKENMARKER')
+    }
+  })
+
+  it('refuses the same through RILL_CONNECTIONS, and sends nothing with an entry that has no kind', () => {
+    const refused = runCli(['run', workflow(httpStep('sheets')), '--db', join(dir, 'r1.db')], { RILL_CONNECTIONS: JSON.stringify({ sheets: { secret: TOKEN, kind: 'google' } }) })
+    expect(refused.status).toBe(1)
+    expect(refused.stdout).toContain('connection sheets is a Google connection')
+    const untyped = runCli(['run', workflow(httpStep('sheets')), '--db', join(dir, 'r2.db')], { RILL_CONNECTIONS: JSON.stringify({ sheets: TOKEN }) })
+    expect(untyped.status).toBe(1)
+    expect(untyped.stdout).toContain('network error')
+    expect(untyped.stdout).not.toContain('is a Google connection')
+  })
+
+  it('fails a google step with an unknown connection without touching the network', () => {
+    const step = { type: 'google.sheets.append@1', config: { connection: 'nobody', spreadsheetId: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms', values: ['a'] } }
+    const result = runCli(['run', workflow(step), '--db', join(dir, 'u.db')], {})
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain('unknown connection: nobody')
+  })
+})

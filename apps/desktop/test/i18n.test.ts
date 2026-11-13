@@ -1,3 +1,4 @@
+import { RECIPE_CONNECTION_KINDS } from '@rill/protocol'
 import { describe, expect, it } from 'vitest'
 import { createTranslator, type DictionaryKey, type MessageKey } from '../src/i18n'
 import { en } from '../src/i18n/en'
@@ -122,5 +123,15 @@ describe('createTranslator with several placeholders', () => {
   it('fills each of them', () => {
     expect(createTranslator('en')('graph.edgeLabelWhen', { from: 'a', to: 'b', when: 'c' })).toBe('Connection from a to b, when c')
     expect(createTranslator('ko')('graph.edgeLabelWhen', { from: 'a', to: 'b', when: 'c' })).toBe('a에서 b까지 연결, 조건 c')
+  })
+})
+
+describe('connection kind labels', () => {
+  it('has a label in both languages for every connection kind a recipe can ask for', () => {
+    for (const kind of RECIPE_CONNECTION_KINDS) {
+      const key = `recipes.kind.${kind}` as DictionaryKey
+      expect(en[key], key).toBeTruthy()
+      expect(ko[key], key).toBeTruthy()
+    }
   })
 })

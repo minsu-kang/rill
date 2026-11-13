@@ -25,7 +25,7 @@ Connections can also come from the RILL_CONNECTIONS environment variable, which 
 
 serve reads its access token from the RILL_TOKEN environment variable (16 or more characters from A-Z, a-z, 0-9 and !#$%&'*+-.^_\`|~) and prints a generated one when it is not set.
 
-Connections file: a JSON object that maps a connection name to either a secret string or {"secret": "...", "kind": "slack" | "http" | "webhookSecret"}. Nodes can use both forms. Only the second form is offered to the planner, by name and kind and never with the secret.
+Connections file: a JSON object that maps a connection name to either a secret string or {"secret": "...", "kind": "slack" | "http" | "webhookSecret" | "google" | "microsoft"}. Nodes can use both forms; a google or microsoft secret is an OAuth access token that only the spreadsheet nodes use. Only the second form is offered to the planner, by name and kind and never with the secret.
 
 Planning: serve answers the planner methods (plan, cancelPlan, getPlan, listPlans, deployPlan) with the chosen provider and the key in its environment variable (ANTHROPIC_API_KEY unless --llm-provider says otherwise). It can only propose file paths inside the --allow folders, so without --allow it cannot propose reading or writing files. Plan attachments are read from --attachments-dir (created with mode 0700 when missing, and inside an --allow folder when any is given). A client puts each file there as <id>.<ext> and sends only the id over the protocol.`
 

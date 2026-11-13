@@ -16,8 +16,8 @@ export const PROVIDER_KEY_ENV: Readonly<Record<ProviderId, string>> = {
   meta: 'META_API_KEY',
 }
 
-export const CONNECTION_KINDS = ['slack', 'http', 'webhookSecret'] as const
-export const ConnectionKindSchema = Type.Union([Type.Literal('slack'), Type.Literal('http'), Type.Literal('webhookSecret')])
+export const CONNECTION_KINDS = ['slack', 'http', 'webhookSecret', 'google', 'microsoft'] as const
+export const ConnectionKindSchema = Type.Union([Type.Literal('slack'), Type.Literal('http'), Type.Literal('webhookSecret'), Type.Literal('google'), Type.Literal('microsoft')])
 export type ConnectionKind = Type.Static<typeof ConnectionKindSchema>
 
 export const AUTH_TYPES = ['none', 'apiKey', 'bearer', 'basic'] as const

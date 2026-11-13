@@ -67,6 +67,8 @@ export const recipesKo = {
   'recipes.kind.slack': '슬랙',
   'recipes.kind.http': 'HTTP',
   'recipes.kind.webhookSecret': '웹훅 시크릿',
+  'recipes.kind.google': 'Google',
+  'recipes.kind.microsoft': 'Microsoft',
   'recipes.cron.weekdays': '평일 오전 9시',
   'recipes.cron.monthly': '매월 1일 오전 9시',
   'recipes.cron.daily': '매일 오전 9시',

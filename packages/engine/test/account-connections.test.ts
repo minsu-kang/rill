@@ -1,6 +1,7 @@
 import { createCoreRegistry } from '@rill/nodes-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Db } from '../src/db'
+import { parseConnections } from '../src/cli-config'
 import { Engine } from '../src/engine'
 import { linearWorkflow } from './helpers'
 
@@ -121,5 +122,67 @@ describe('the spreadsheet nodes through the real executor', () => {
     expect(result.status).toBe('failed')
     expect(fetchSpy).toHaveBeenCalledTimes(2)
     expect(result.error).toBe('node n1 failed: HTTP 503')
+  })
+})
+
+describe('a connections file with account connections through the real executor', () => {
+  const file = JSON.stringify({
+    sheets: { secret: GOOGLE_TOKEN, kind: 'google' },
+    drive: { secret: MICROSOFT_TOKEN, kind: 'microsoft' },
+    api: { secret: 'plain-api-key', kind: 'http' },
+    bare: GOOGLE_TOKEN,
+  })
+
+  function engineFromFile() {
+    const { resolver, planConnections } = parseConnections(file)
+    return new Engine({ db: Db.open(':memory:'), registry: createCoreRegistry(), sleep: async () => {}, random: () => 1, connections: resolver, planConnections })
+  }
+
+  for (const [name, label] of [['sheets', 'Google'], ['drive', 'Microsoft']] as const) {
+    it(`refuses a plain http.request that names the ${label} entry of the file before any request`, async () => {
+      const fetchSpy = vi.fn(async () => new Response('ok'))
+      vi.stubGlobal('fetch', fetchSpy)
+      const { result } = await run(engineFromFile(), { url: 'https://collect.example.test/ingest', method: 'POST', body: { a: 1 }, auth: { connection: name } })
+      expect(result.status).toBe('failed')
+      expect(result.error).toBe(`node n1 failed: connection ${name} is a ${label} connection`)
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(JSON.stringify(result)).not.toContain('TOKENMARKER')
+    })
+  }
+
+  it('still sends through the http entry of the file and through an entry without a kind', async () => {
+    const fetchSpy = vi.fn(async () => new Response('ok'))
+    vi.stubGlobal('fetch', fetchSpy)
+    expect((await run(engineFromFile(), { url: 'https://api.example.test/x', auth: { connection: 'api' } })).result.status).toBe('succeeded')
+    expect((await run(engineFromFile(), { url: 'https://api.example.test/x', auth: { connection: 'bare' } })).result.status).toBe('succeeded')
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('runs the spreadsheet nodes with the entries of the file and refuses the entry of another kind', async () => {
+    const seen: string[] = []
+    vi.stubGlobal('fetch', async (input: URL | string, init?: RequestInit) => {
+      seen.push(`${String(input).split('?')[0]} ${new Headers(init?.headers).get('authorization')}`)
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+    const engine = engineFromFile()
+    const ok = engine.deploy(
+      linearWorkflow([
+        trigger,
+        { id: 'n1', type: 'google.sheets.append@1', config: { connection: 'sheets', spreadsheetId: SHEET, values: ['a'] } },
+        { id: 'n2', type: 'microsoft.excel.append@1', config: { connection: 'drive', filePath: 'Receipts/ledger.xlsx', table: 'Expenses', values: ['a'] } },
+      ]),
+    )
+    expect((await engine.startRun(ok)).status).toBe('succeeded')
+    expect(seen).toEqual([
+      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET}/values/Sheet1:append Bearer ${GOOGLE_TOKEN}`,
+      `https://graph.microsoft.com/v1.0/me/drive/root:/Receipts/ledger.xlsx:/workbook/tables/Expenses/rows/add Bearer ${MICROSOFT_TOKEN}`,
+    ])
+    seen.length = 0
+    const wrong = engine.deploy(
+      linearWorkflow([trigger, { id: 'n1', type: 'google.sheets.append@1', config: { connection: 'api', spreadsheetId: SHEET, values: ['a'] } }]),
+    )
+    const result = await engine.startRun(wrong)
+    expect(result.error).toBe('node n1 failed: connection api is a http connection, not a google connection')
+    expect(seen).toEqual([])
   })
 })

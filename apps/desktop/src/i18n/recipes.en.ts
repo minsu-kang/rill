@@ -69,6 +69,8 @@ export const recipesEn: Record<keyof typeof recipesKo, string> = {
   'recipes.kind.slack': 'Slack',
   'recipes.kind.http': 'HTTP',
   'recipes.kind.webhookSecret': 'Webhook secret',
+  'recipes.kind.google': 'Google',
+  'recipes.kind.microsoft': 'Microsoft',
   'recipes.cron.weekdays': 'Weekdays at 9:00',
   'recipes.cron.monthly': 'First of the month at 9:00',
   'recipes.cron.daily': 'Every day at 9:00',
