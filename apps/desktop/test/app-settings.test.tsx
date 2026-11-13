@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { withHostModels } from '../src/app/fake-world'
+import { withHostConfigured } from '../src/app/glue/host-models'
 import { HostProvider } from '../src/app/host'
 import { SettingsScreen } from '../src/app/settings/SettingsScreen'
 import type { SettingsSectionId } from '../src/app/settings/types'
@@ -56,7 +57,7 @@ function Harness({ host, client, connection, section, onSection }: Required<Pick
 
 function show(options: Options = {}) {
   const host = options.host ?? createFakeHost(options.init ?? {}, { restartDelayMs: 0 })
-  const client = 'client' in options ? options.client : withHostModels(baseClient(), host)
+  const client = 'client' in options ? options.client : withHostConfigured(withHostModels(baseClient(), host), host.state().settings.configuredProviders)
   const view = renderThemed(
     <HostProvider host={host}>
       <Harness host={host} client={client} connection={options.connection} section={options.section} onSection={options.onSection} />

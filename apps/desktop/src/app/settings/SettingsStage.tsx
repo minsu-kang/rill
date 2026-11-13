@@ -5,6 +5,7 @@ import { fakeData } from '../../fixtures'
 import { HostError, type HostApi } from '../../shared/host-api'
 import { useEngineConnection, type ConnectFn } from '../connection'
 import { withHostModels } from '../fake-world'
+import { useHostConfigured } from '../glue/host-models'
 import { HostProvider } from '../host'
 import { SettingsScreen } from './SettingsScreen'
 import type { SettingsSectionId } from './types'
@@ -28,7 +29,8 @@ function Inner({ host, section }: { host: HostApi; section: SettingsSectionId })
   const connection = useEngineConnection(host, { connect })
   const state = useSettings(host)
   const [current, setCurrent] = useState(section)
-  return <SettingsScreen state={state} client={connection.client} connection={connection} section={current} onSectionChange={setCurrent} />
+  const client = useHostConfigured(connection.client, state.settings?.configuredProviders)
+  return <SettingsScreen state={state} client={client} connection={connection} section={current} onSectionChange={setCurrent} />
 }
 
 export function SettingsStage(props: SettingsStageProps) {

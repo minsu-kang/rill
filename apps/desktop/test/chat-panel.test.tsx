@@ -549,7 +549,7 @@ describe('ChatPanel: models and views', () => {
   it('shows a clear message and a disabled composer when nothing is configured', async () => {
     show({ models: modelsNothingConfigured })
     expect(await screen.findByText('No model is ready')).toBeTruthy()
-    expect(screen.getByText(/No model provider has a key/)).toBeTruthy()
+    expect(screen.getByText(/Add a provider key in Settings/)).toBeTruthy()
     expect(box().disabled).toBe(true)
     expect(sendButton().disabled).toBe(true)
   })

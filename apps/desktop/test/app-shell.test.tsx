@@ -55,6 +55,21 @@ async function workflowsLoaded(): Promise<void> {
 afterEach(() => vi.restoreAllMocks())
 
 describe('App shell', () => {
+  it('lets the person pick a provider whose key is saved although the engine was started with another provider', async () => {
+    const { world, user } = mount({ hostInit: { settings: fakeSettings({ provider: 'anthropic', configuredProviders: ['openai'], allowedFolders: ['/Users/demo/Receipts'] }) } })
+    await connected()
+    const chat = screen.getByRole('complementary', { name: t('app.region.chat') })
+    await user.click(within(chat).getByRole('button', { name: t('chat.panel.tabModel') }))
+    const openai = await within(chat).findByRole('group', { name: /OpenAI/ })
+    await waitFor(() => expect(within(openai).queryByText(t('chat.model.keyNeeded'))).toBeNull())
+    const gemini = within(chat).getByRole('group', { name: /Gemini/ })
+    expect(within(gemini).getByText(t('chat.model.keyNeeded'))).toBeTruthy()
+    const update = vi.spyOn(world.host.settings, 'update')
+    await user.click(within(openai).getAllByRole('button')[0]!)
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ provider: 'openai' }))
+  })
+
   it('renders the three regions with landmarks, the top bar, the tabs and the engine status', async () => {
     const { view } = mount({ hostInit: { settings: KEYED } })
     expect(screen.getByRole('banner', { name: t('app.region.top') })).toBeTruthy()

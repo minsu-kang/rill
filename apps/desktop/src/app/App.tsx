@@ -12,6 +12,7 @@ import { FirstRunCard, firstRunDone, type FirstRunTarget } from './FirstRunCard'
 import { ActionConfirm } from './ActionConfirm'
 import { COMPOSER, fillChatDraft, handleExplainAction, nodeExists, type ConfirmText, type ExplainActionDeps } from './glue/actions'
 import { createAttachmentPort } from './glue/attachments'
+import { useHostConfigured } from './glue/host-models'
 import { useConfirm } from './glue/useConfirm'
 import { useEditContext } from './glue/editContext'
 import { useEngineData } from './glue/useEngineData'
@@ -50,7 +51,9 @@ export function App({ initial = {} }: AppProps) {
   const connection = useEngineConnection(host, { connect })
   const settings = useSettings(host)
   const connected = connection.state === 'connected'
-  const client = connection.client ?? connection.previous
+  const live = useHostConfigured(connection.client, settings.settings?.configuredProviders)
+  const earlier = useHostConfigured(connection.previous, settings.settings?.configuredProviders)
+  const client = live ?? earlier
   const list = useWorkflowList(client)
   const data = useEngineData(client)
   const ping = usePing(connection.client)
@@ -211,7 +214,7 @@ export function App({ initial = {} }: AppProps) {
 
   let main
   if (tab === 'settings') {
-    main = <SettingsScreen state={settings} client={connection.client} connection={connection} section={settingsSection} onSectionChange={setSettingsSection} />
+    main = <SettingsScreen state={settings} client={live} connection={connection} section={settingsSection} onSectionChange={setSettingsSection} />
   } else if (tab === 'recipes') {
     main =
       client === undefined ? (
