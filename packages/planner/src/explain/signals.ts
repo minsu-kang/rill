@@ -51,6 +51,13 @@ function fileSignal(message: string): FailureSignal | undefined {
   return undefined
 }
 
+const SLACK_RETRYABLE = /^Slack: (ratelimited|internal_error|fatal_error|service_unavailable|request_timeout)$/
+
+function slackSignal(message: string): FailureSignal | undefined {
+  if (/^HTTP 4\d\d\b/.test(message) && !message.startsWith('HTTP 429')) return 'slack_error'
+  return message.startsWith('Slack: ') && !SLACK_RETRYABLE.test(message) ? 'slack_error' : undefined
+}
+
 function specific(type: string, message: string): FailureSignal | undefined {
   switch (baseType(type)) {
     case 'file.read':
@@ -58,7 +65,7 @@ function specific(type: string, message: string): FailureSignal | undefined {
     case 'llm.extract':
       return fileSignal(message) ?? firstMatch(LLM_RULES, message) ?? 'llm_extract_failed'
     case 'notify.slack':
-      return /^HTTP 4\d\d\b/.test(message) && !message.startsWith('HTTP 429') ? 'slack_error' : undefined
+      return slackSignal(message)
     case 'csv.append':
       return 'csv_error'
     case 'condition':

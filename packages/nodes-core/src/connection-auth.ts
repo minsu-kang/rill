@@ -1,3 +1,5 @@
+import { slackSecretParts } from './slack-connection'
+
 export type ConnectionAuth =
   | { type: 'none' }
   | { type: 'apiKey'; in: 'header' | 'query'; name: string; value: string }
@@ -152,6 +154,10 @@ export function secretParts(secret: string): string[] {
       return [...(auth.password === '' ? [] : [auth.password]), login, Buffer.from(login, 'utf8').toString('base64')]
     }
   }
+}
+
+export function connectionSecretParts(secret: string): string[] {
+  return [...slackSecretParts(secret), ...secretParts(secret)]
 }
 
 function lowerHex(text: string): string {

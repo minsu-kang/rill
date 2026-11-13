@@ -90,7 +90,7 @@ describe('node roles', () => {
       'file.read@1': { '/path': 'path' },
       'llm.extract@1': { '/file': 'path' },
       'http.request@1': { '/url': 'url', '/auth/connection': 'connection' },
-      'notify.slack@1': { '/connection': 'connection', '/text': 'message' },
+      'notify.slack@1': { '/connection': 'connection', '/channel': 'recipient', '/text': 'message' },
     })
   })
 
@@ -116,6 +116,7 @@ describe('role helpers', () => {
     expect(isEgressField(get('http.request@1'), '/url')).toBe(true)
     expect(isEgressField(get('http.request@1'), '/auth/connection')).toBe(true)
     expect(isEgressField(get('notify.slack@1'), '/connection')).toBe(true)
+    expect(isEgressField(get('notify.slack@1'), '/channel')).toBe(true)
     expect(isEgressField(get('notify.slack@1'), '/text')).toBe(false)
     expect(isEgressField(get('csv.append@1'), '/file')).toBe(true)
     expect(isEgressField(get('trigger.webhook@1'), '/secretConnection')).toBe(false)
