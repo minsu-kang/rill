@@ -84,7 +84,7 @@ flowchart LR
 | --- | --- |
 | `@rill/dsl` | The workflow format: schema, version, reference syntax, graph and reference checks, issue codes. |
 | `@rill/protocol` | Message types and schemas between the engine and its clients, plus the WebSocket client. |
-| `@rill/nodes-core` | The 12 built-in nodes (4 triggers, 8 actions) and the shared validator. One definition per node gives the planner its catalog, the validator its rules and the executor its code. |
+| `@rill/nodes-core` | The 14 built-in nodes (4 triggers, 10 actions) and the shared validator. One definition per node gives the planner its catalog, the validator its rules and the executor its code. |
 | `@rill/engine` | Durable executor, scheduler, folder watch, webhook listener, SQLite store, WebSocket server and the `rill-engine` command line. |
 | `@rill/llm` | One `LlmProvider` interface over five providers, with declared capabilities, usage and a dated price table. |
 | `@rill/planner` | Request to workflow: generation, validation, repair, patch mode, provenance flags, memory, agents and failure explanation. |
