@@ -72,6 +72,9 @@ const SHOWN: Readonly<Record<string, (t: Translate) => string[]>> = {
   [`${APP_SCREEN} RecipesScreen`]: (t) => [t('recipes.heading'), t('recipes.search')],
   [`${APP_SCREEN} GeneralSettings`]: (t) => [t('app.general.heading'), t('app.general.language'), t('app.general.openAtLogin')],
   [`${APP_SCREEN} NarrowRecipes`]: (t) => [t('recipes.heading'), t('recipes.search')],
+  [`${APP_SCREEN} OneWorkflow`]: (t) => [t('app.top.engine.connected'), '영수증 정리', t('app.wf.trigger.folderWatch'), t('app.wf.actions.dryRun')],
+  [`${APP_SCREEN} TwoWorkflows`]: (t) => [t('app.top.engine.connected'), '웹훅을 슬랙으로 전달', t('app.wf.trigger.webhook'), t('app.wf.actions.activate')],
+  [`${APP_SCREEN} LongWorkflowName`]: (t) => [t('app.top.engine.connected'), '매일 아침 받은 편지함의 영수증을 모아서', t('app.wf.actions.dryRun')],
 }
 
 describe('story files', () => {

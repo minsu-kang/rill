@@ -135,6 +135,43 @@ describe('the workflow selector', () => {
     expect(label?.className).toMatch(/labelHidden/)
   })
 
+  it('is the title of the page too: the name, the state and the trigger are drawn once, and the run controls do not draw them again', async () => {
+    const { view, user } = mount({ hostInit: { settings: KEYED } })
+    await workflowsLoaded()
+    const header = view.container.querySelector<HTMLElement>('[data-rill-region="workflow-switcher"]')!
+    const copies = (root: HTMLElement, text: string) => [...root.querySelectorAll<HTMLElement>('*')].filter((item) => item.tagName !== 'OPTION' && item.children.length === 0 && item.textContent === text)
+    expect(within(header).getAllByRole('heading')).toHaveLength(1)
+    expect(copies(header, '웹훅을 슬랙으로 전달')).toEqual([within(header).getByRole('heading', { level: 2, name: '웹훅을 슬랙으로 전달' })])
+    expect(copies(header, t('app.wf.inactive'))).toHaveLength(1)
+    expect(copies(header, t('app.wf.trigger.webhook'))).toHaveLength(1)
+    const actions = screen.getByRole('region', { name: t('app.wf.actions.label') })
+    expect(header.contains(actions)).toBe(false)
+    expect(actions.querySelector('h1, h2, h3')).toBeNull()
+    for (const text of ['웹훅을 슬랙으로 전달', t('app.wf.inactive'), t('app.wf.trigger.webhook')]) expect(copies(actions, text)).toHaveLength(0)
+    await user.click(await screen.findByRole('button', { name: t('app.wf.actions.activate') }))
+    await waitFor(() => expect(copies(header, t('app.wf.active'))).toHaveLength(1))
+    expect(copies(header, t('app.wf.inactive'))).toHaveLength(0)
+    expect(within(header).getByRole('heading', { level: 2, name: '웹훅을 슬랙으로 전달' })).toBeTruthy()
+    await user.click(await screen.findByRole('button', { name: t('app.wf.actions.deactivate') }))
+    await user.click(within(await screen.findByRole('dialog', { name: t('app.deactivate.title') })).getByRole('button', { name: t('app.deactivate.confirm') }))
+    await waitFor(() => expect(copies(header, t('app.wf.inactive'))).toHaveLength(1))
+    expect(copies(header, t('app.wf.active'))).toHaveLength(0)
+    await user.selectOptions(screen.getByLabelText(t('app.wf.switcher.label')), ids.workflows.receipt)
+    await waitFor(() => expect(within(header).getByRole('heading', { level: 2, name: '영수증 정리' })).toBeTruthy())
+    expect(copies(header, t('app.wf.active'))).toHaveLength(1)
+    expect(copies(header, t('app.wf.trigger.folderWatch'))).toHaveLength(1)
+  })
+
+  it('has the tooltip of the select in English, and no axe violation with the header', async () => {
+    const { view } = mount({ hostInit: { settings: KEYED }, locale: 'en' })
+    await workflowsLoaded()
+    const en = createTranslator('en')
+    const header = view.container.querySelector<HTMLElement>('[data-rill-region="workflow-switcher"]')!
+    expect(within(header).getByRole('heading', { level: 2, name: '웹훅을 슬랙으로 전달' })).toBeTruthy()
+    expect(within(header).getByLabelText(en('app.wf.switcher.label')).getAttribute('title')).toBe(en('app.wf.switcher.tooltip'))
+    expect(await violations(view.container)).toEqual([])
+  })
+
   it('is gone on the other tabs and comes back with the Workflows tab', async () => {
     const { user } = mount({ hostInit: { settings: KEYED } })
     await workflowsLoaded()

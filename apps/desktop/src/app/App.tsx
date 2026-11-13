@@ -29,7 +29,7 @@ import { useSettings } from './settings/useSettings'
 import { TopBar, type AppTab } from './TopBar'
 import { useWorkflowList } from './workflows/useWorkflowList'
 import { WorkflowActions } from './workflows/WorkflowActions'
-import { WorkflowSwitcher } from './workflows/WorkflowSwitcher'
+import { WorkflowHeader } from './workflows/WorkflowHeader'
 
 export interface AppProps {
   initial?: {
@@ -276,7 +276,7 @@ export function App({ initial = {} }: AppProps) {
     main = (
       <div className={styles.workflows}>
         <div className={styles.switcherRow} data-rill-region="workflow-switcher">
-          <WorkflowSwitcher list={list} selectedId={workflowId} onSelect={selection.selectWorkflow} labelHidden />
+          <WorkflowHeader list={list} selectedId={workflowId} summary={summary} onSelect={selection.selectWorkflow} />
         </div>
         {settings.settings === undefined || firstRunDone(settings.settings) ? null : <FirstRunCard settings={settings.settings} onOpen={openSettings} />}
         {client === undefined ? (

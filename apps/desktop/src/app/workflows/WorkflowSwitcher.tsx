@@ -1,5 +1,5 @@
 import type { WorkflowSummary } from '@rill/protocol'
-import { useId } from 'react'
+import { useId, type ReactNode } from 'react'
 import { useT } from '../../i18n'
 import { escapeInvisible, truncate } from '../../model/text'
 import controls from '../controls.module.css'
@@ -12,11 +12,15 @@ export interface WorkflowSwitcherProps {
   selectedId: string | undefined
   onSelect(workflowId: string): void
   labelHidden?: boolean
+  className?: string
+  selectClassName?: string
+  selectTitle?: string
+  children?: ReactNode
 }
 
 const MAX_NAME = 48
 
-export function WorkflowSwitcher({ list, selectedId, onSelect, labelHidden = false }: WorkflowSwitcherProps) {
+export function WorkflowSwitcher({ list, selectedId, onSelect, labelHidden = false, className, selectClassName, selectTitle, children }: WorkflowSwitcherProps) {
   const t = useT()
   const id = useId()
   const { status, workflows } = list
@@ -38,11 +42,12 @@ export function WorkflowSwitcher({ list, selectedId, onSelect, labelHidden = fal
 
   const known = selectedId === undefined || workflows.some((workflow) => workflow.id === selectedId)
   return (
-    <div className={styles.switcher}>
+    <div className={className === undefined ? styles.switcher : `${styles.switcher} ${className}`}>
+      {children}
       <label className={labelHidden ? styles.labelHidden : styles.switcherLabel} htmlFor={id}>
         {t('app.wf.switcher.label')}
       </label>
-      <select id={id} className={controls.input} value={selectedId ?? ''} onChange={(event) => onSelect(event.target.value)}>
+      <select id={id} className={selectClassName ?? controls.input} title={selectTitle} value={selectedId ?? ''} onChange={(event) => onSelect(event.target.value)}>
         {selectedId === undefined ? <option value="" disabled /> : null}
         {known ? null : <option value={selectedId}>{t('app.wf.switcher.pending')}</option>}
         {workflows.map((workflow) => (
@@ -55,8 +60,11 @@ export function WorkflowSwitcher({ list, selectedId, onSelect, labelHidden = fal
   )
 }
 
+export function triggerText(t: ReturnType<typeof useT>, triggerType: string): string {
+  const kind = triggerKind(triggerType)
+  return kind === 'other' ? truncate(escapeInvisible(triggerType), 24) : t(`app.wf.trigger.${kind}`)
+}
+
 function optionText(t: ReturnType<typeof useT>, workflow: WorkflowSummary): string {
-  const kind = triggerKind(workflow.triggerType)
-  const trigger = kind === 'other' ? truncate(escapeInvisible(workflow.triggerType), 24) : t(`app.wf.trigger.${kind}`)
-  return t('app.wf.option', { name: truncate(escapeInvisible(workflow.name), MAX_NAME), trigger, state: t(workflow.active ? 'app.wf.active' : 'app.wf.inactive') })
+  return t('app.wf.option', { name: truncate(escapeInvisible(workflow.name), MAX_NAME), trigger: triggerText(t, workflow.triggerType), state: t(workflow.active ? 'app.wf.active' : 'app.wf.inactive') })
 }

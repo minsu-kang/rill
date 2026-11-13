@@ -30,7 +30,7 @@
 
 
 .switcherRow {
-  max-width: 480px;
+  min-width: 0;
 }
 
 .workspace {

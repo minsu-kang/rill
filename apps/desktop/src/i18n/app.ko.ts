@@ -253,6 +253,7 @@ export const appKo = {
   'app.wf.switcher.retry': '다시 시도',
   'app.wf.switcher.empty': '아직 워크플로우가 없어요. 오른쪽 대화창에 만들고 싶은 자동화를 써 보거나, 레시피 탭에서 골라 보세요.',
   'app.wf.switcher.pending': '새 워크플로우',
+  'app.wf.switcher.tooltip': '워크플로우 바꾸기',
   'app.wf.active': '활성',
   'app.wf.inactive': '비활성',
   'app.wf.trigger.manual': '수동',

@@ -86,11 +86,6 @@ export function WorkflowActions({ client, workflowId, summary, catalog, onRunSta
 
   return (
     <section className={styles.actions} aria-label={t('app.wf.actions.label')}>
-      <div className={styles.head}>
-        <h2 className={styles.name}>{escapeInvisible(summary.name)}</h2>
-        <span className={summary.active ? controls.chipOk : controls.chip}>{t(summary.active ? 'app.wf.active' : 'app.wf.inactive')}</span>
-        <span className={controls.chip}>{kind === 'other' ? truncate(escapeInvisible(summary.triggerType), 24) : t(`app.wf.trigger.${kind}`)}</span>
-      </div>
       <div className={controls.row}>
         <button type="button" ref={dryRun} data-action="dryRun" className={controls.button} disabled={off} onClick={() => open({ kind: 'payload', mode: 'dry' })}>
           {t('app.wf.actions.dryRun')}

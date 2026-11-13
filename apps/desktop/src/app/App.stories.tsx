@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { fakeSettings } from '../engine/fake-host'
 import { explainCases } from '../fixtures/explain'
-import { ids } from '../fixtures'
+import { fakeData, ids, receiptWorkflow } from '../fixtures'
 import { createTranslator, type Locale } from '../i18n'
 import { AppStage } from './AppStage'
 
@@ -24,6 +24,8 @@ async function press(canvasElement: HTMLElement, text: string, inside: string): 
   }
   throw new Error(`no button ${text}`)
 }
+
+const LONG_NAME = '매일 아침 받은 편지함의 영수증을 모아서 월별 장부에 정리하고 팀 채널에 요약을 보내는 아주 긴 이름의 워크플로우 '.repeat(3).trim()
 
 export const FirstRun: Story = { name: 'First run', args: { world: { workflows: [] } } }
 
@@ -81,4 +83,25 @@ export const GeneralSettings: Story = {
 export const NarrowRecipes: Story = {
   name: 'Narrow window, recipes',
   args: { width: 700, world: { hostInit: { settings: ready } }, initial: { tab: 'recipes' } },
+}
+
+export const OneWorkflow: Story = {
+  name: 'One workflow',
+  args: { world: { hostInit: { settings: ready }, workflows: [fakeData.workflows[0]!] }, initial: { workflowId: ids.workflows.receipt } },
+}
+
+export const TwoWorkflows: Story = {
+  name: 'Two workflows',
+  args: { world: { hostInit: { settings: ready }, workflows: [fakeData.workflows[0]!, fakeData.workflows[2]!] }, initial: { workflowId: ids.workflows.webhook } },
+}
+
+export const LongWorkflowName: Story = {
+  name: 'Long workflow name',
+  args: {
+    world: {
+      hostInit: { settings: ready },
+      workflows: [{ ...fakeData.workflows[0]!, workflow: { ...receiptWorkflow, name: LONG_NAME } }, fakeData.workflows[1]!],
+    },
+    initial: { workflowId: ids.workflows.receipt },
+  },
 }

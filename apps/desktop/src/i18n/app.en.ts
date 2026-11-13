@@ -255,6 +255,7 @@ export const appEn: Record<keyof typeof appKo, string> = {
   'app.wf.switcher.retry': 'Try again',
   'app.wf.switcher.empty': 'No workflows yet. Describe an automation in the chat on the right, or pick one in the Recipes tab.',
   'app.wf.switcher.pending': 'New workflow',
+  'app.wf.switcher.tooltip': 'Switch workflow',
   'app.wf.active': 'Active',
   'app.wf.inactive': 'Inactive',
   'app.wf.trigger.manual': 'Manual',
