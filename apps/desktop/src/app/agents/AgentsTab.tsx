@@ -8,6 +8,7 @@ import { AgentsScreen } from './AgentsScreen'
 import styles from './AgentsTab.module.css'
 import { HooksScreen } from './HooksScreen'
 import { RulesScreen } from './RulesScreen'
+import { SkillsScreen } from './SkillsScreen'
 import { SubNav } from './SubNav'
 
 export interface AgentsSectionContext {
@@ -31,6 +32,11 @@ export const AGENTS_SECTIONS = [
     id: 'agents',
     label: 'agents.nav.agents',
     render: ({ client, files }) => <AgentsScreen client={client} {...(files === undefined ? {} : { files })} />,
+  },
+  {
+    id: 'skills',
+    label: 'agents.nav.skills',
+    render: ({ client, files }) => <SkillsScreen client={client} {...(files === undefined ? {} : { files })} />,
   },
   {
     id: 'rules',

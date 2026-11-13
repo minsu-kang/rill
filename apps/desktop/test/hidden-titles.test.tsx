@@ -146,6 +146,7 @@ describe.each(['ko', 'en'] as const)('the Agents tab (%s)', (locale) => {
 
   it.each([
     ['agents', 'agents.screen.title'],
+    ['skills', 'skills.screen.title'],
     ['rules', 'rules.screen.title'],
     ['hooks', 'agents.hooks.screen.title'],
   ] as const)('keeps the title of the %s screen for screen readers and does not draw it, because the sub-navigation names it', async (section, key) => {
@@ -162,6 +163,7 @@ describe.each(['ko', 'en'] as const)('the Agents tab (%s)', (locale) => {
 
   it.each([
     ['agents', 'agents.screen.title'],
+    ['skills', 'skills.screen.title'],
     ['rules', 'rules.screen.title'],
     ['hooks', 'agents.hooks.screen.title'],
   ] as const)('has no accessibility violations on the %s screen', async (section, key) => {

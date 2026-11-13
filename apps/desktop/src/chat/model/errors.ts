@@ -1,3 +1,4 @@
+import { parseAgentSkillProblemLine, parseSkillProblemLine } from '@rill/protocol'
 import type { MessageKey } from '../../i18n'
 
 const KEYS: Readonly<Record<string, MessageKey>> = {
@@ -18,6 +19,11 @@ const KEYS: Readonly<Record<string, MessageKey>> = {
   AGENT_FULL: 'chat.error.AGENT_FULL',
   AGENT_DUPLICATE: 'chat.error.AGENT_DUPLICATE',
   AGENT_BUILTIN: 'chat.error.AGENT_BUILTIN',
+  AGENT_NOT_ASSISTANT: 'skills.error.AGENT_NOT_ASSISTANT',
+  SKILL_INVALID: 'skills.error.SKILL_INVALID',
+  SKILL_FULL: 'skills.error.SKILL_FULL',
+  SKILL_DUPLICATE: 'skills.error.SKILL_DUPLICATE',
+  SKILL_NOT_FOUND: 'skills.error.SKILL_NOT_FOUND',
   INVALID_PARAMS: 'chat.error.INVALID_PARAMS',
   INVALID_WORKFLOW: 'chat.error.INVALID_WORKFLOW',
   NOT_FOUND: 'chat.error.NOT_FOUND',
@@ -51,10 +57,32 @@ function ruleErrorKey(code: string, error: unknown): MessageKey | undefined {
   return kinds.size === 2 ? 'chat.error.rule.both' : kinds.has('type') ? 'chat.error.rule.node' : 'chat.error.rule.host'
 }
 
+const SKILL_RULE_KEYS: Readonly<Record<string, MessageKey>> = {
+  unknown: 'skills.error.agentSkillsUnknown',
+  too_many: 'skills.error.agentSkillsTooMany',
+  too_large: 'skills.error.agentSkillsTooLarge',
+}
+
+function problemLines(error: unknown): string[] {
+  const problems = (error as { problems?: unknown }).problems
+  return Array.isArray(problems) ? problems.filter((line): line is string => typeof line === 'string') : []
+}
+
+function skillErrorKey(code: string, error: unknown): MessageKey | undefined {
+  if (code === 'AGENT_INVALID') {
+    const rule = problemLines(error).flatMap((line) => parseAgentSkillProblemLine(line) ?? [])[0]
+    return rule === undefined ? undefined : SKILL_RULE_KEYS[rule]
+  }
+  if (code === 'SKILL_INVALID') return problemLines(error).some((line) => parseSkillProblemLine(line)?.rule === 'too_large_for_agent') ? 'skills.error.tooLargeForAgent' : undefined
+  return undefined
+}
+
 export function planErrorKey(error: unknown): MessageKey {
   const code = codeOf(error)
   const ruled = code === undefined ? undefined : ruleErrorKey(code, error)
   if (ruled !== undefined) return ruled
+  const skilled = code === undefined ? undefined : skillErrorKey(code, error)
+  if (skilled !== undefined) return skilled
   return code !== undefined && Object.hasOwn(KEYS, code) ? KEYS[code]! : 'chat.error.generic'
 }
 

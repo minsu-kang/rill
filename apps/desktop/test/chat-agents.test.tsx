@@ -249,6 +249,15 @@ describe('the transfer notice names the agent settings', () => {
     await waitFor(() => expect(notice()).not.toContain(en['chat.transfer.item.agent']))
   })
 
+  it('lists them for an agent that has only skills, because the text of its skills is sent', async () => {
+    const onlySkills = agentOf('agent-only-skills', { name: 'Only skills', skillIds: ['skill-slack'] })
+    show({ agents: [onlySkills, noText] })
+    await ready()
+    expect(notice()).toBe(`${en['chat.transfer.lead']} your request, notes`)
+    await userEvent.setup().selectOptions(picker(), onlySkills.id)
+    await waitFor(() => expect(notice()).toContain(en['chat.transfer.item.agent']))
+  })
+
   it('follows an edit of the active agent that empties its text', async () => {
     const { world } = show({ agents: [terse], activeAgentId: terse.id })
     await ready()
@@ -280,6 +289,22 @@ describe('what an answer says about the agent', () => {
     renderThemed(<MetaLine meta={hostile} />, { locale: 'en' })
     expect(document.querySelector('img')).toBeNull()
     expect(screen.getByText(/Agent <img src=x onerror=alert\(1\)>‹U\+202E›/)).toBeTruthy()
+  })
+
+  it('says how many skills were in the agent settings that were sent, and nothing when there were none', () => {
+    const { unmount } = renderThemed(<MetaLine meta={{ ...metas.agent, skillsUsed: 2 }} />, { locale: 'en' })
+    expect(screen.getByText('Used 2 skills')).toBeTruthy()
+    unmount()
+    const one = renderThemed(<MetaLine meta={{ ...metas.agent, skillsUsed: 1 }} />, { locale: 'en' })
+    expect(screen.getByText('Used 1 skill')).toBeTruthy()
+    one.unmount()
+    renderThemed(<MetaLine meta={{ ...metas.agent, skillsUsed: 0 }} />, { locale: 'en' })
+    expect(screen.queryByText(/skill/)).toBeNull()
+  })
+
+  it('says it in Korean', () => {
+    renderThemed(<MetaLine meta={{ ...metas.agent, skillsUsed: 2 }} />, { locale: 'ko' })
+    expect(screen.getByText(ko['chat.meta.skillsUsed.other'].replace('{count}', '2'))).toBeTruthy()
   })
 
   it('shows nothing about agents when none was used', () => {

@@ -1,4 +1,4 @@
-import { AGENT_DEFAULT_ID, type Agent, type AgentField, type AgentFields } from '@rill/protocol'
+import { AGENT_DEFAULT_ID, type Agent, type AgentField, type AgentFields, type AgentKind } from '@rill/protocol'
 import { useSyncExternalStore } from 'react'
 import type { EngineClient } from '../../../engine/client'
 import type { FileProblem, ParsedAgentFile } from '../agent-file'
@@ -7,6 +7,7 @@ import { draftOf, emptyDraft, sameDraft, type AgentDraft } from './draft'
 export interface ReviewState {
   fileName: string
   base: AgentFields | undefined
+  kind?: AgentKind
   fileProblems: FileProblem[]
   name: string
   description: string
@@ -23,6 +24,8 @@ export type ViewAction =
   | { type: 'select'; id: string }
   | { type: 'create' }
   | { type: 'edit'; field: AgentField; value: string; base: AgentDraft }
+  | { type: 'setKind'; kind: AgentKind; base: AgentDraft }
+  | { type: 'setSkills'; skillIds: readonly string[]; base: AgentDraft }
   | { type: 'revert' }
   | { type: 'saved'; id: string }
   | { type: 'review'; fileName: string; parsed: ParsedAgentFile }
@@ -41,6 +44,14 @@ export function viewReducer(state: ViewState, action: ViewAction): ViewState {
       const next = { ...(state.edits ?? action.base), [action.field]: action.value }
       return { ...state, edits: sameDraft(next, action.base) ? undefined : next }
     }
+    case 'setKind': {
+      const next = { ...(state.edits ?? action.base), kind: action.kind }
+      return { ...state, edits: sameDraft(next, action.base) ? undefined : next }
+    }
+    case 'setSkills': {
+      const next = { ...(state.edits ?? action.base), skillIds: [...action.skillIds] }
+      return { ...state, edits: sameDraft(next, action.base) ? undefined : next }
+    }
     case 'revert':
       return { ...state, edits: undefined }
     case 'saved':
@@ -51,6 +62,7 @@ export function viewReducer(state: ViewState, action: ViewAction): ViewState {
         review: {
           fileName: action.fileName,
           base: action.parsed.fields,
+          ...(action.parsed.kind === undefined ? {} : { kind: action.parsed.kind }),
           fileProblems: action.parsed.problems.filter((problem) => problem.kind === 'file'),
           name: action.parsed.fields?.name ?? '',
           description: action.parsed.fields?.description ?? '',

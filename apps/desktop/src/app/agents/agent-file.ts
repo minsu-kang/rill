@@ -1,4 +1,4 @@
-import { normaliseAgentFields, type AgentField, type AgentFields, type AgentRule } from '@rill/protocol'
+import { AGENT_KINDS, normaliseAgentFields, type AgentField, type AgentFields, type AgentKind, type AgentRule } from '@rill/protocol'
 
 export const AGENT_FILE_MAX_BYTES = 64 * 1024
 
@@ -9,6 +9,7 @@ export type FileProblemCode =
   | 'front_matter_unclosed'
   | 'front_matter_line'
   | 'unknown_key'
+  | 'invalid_kind'
   | 'duplicate_key'
   | 'heading_missing'
   | 'heading_duplicate'
@@ -21,6 +22,7 @@ export type FileProblem = { kind: 'file'; code: FileProblemCode; line?: number }
 
 export interface ParsedAgentFile {
   fields: AgentFields | undefined
+  kind?: AgentKind
   problems: FileProblem[]
 }
 
@@ -45,12 +47,12 @@ function trimBlankLines(lines: readonly string[]): string {
   return lines.slice(start, end).join('\n')
 }
 
-export function serialiseAgentFile(fields: AgentFields): SerialisedAgentFile {
+export function serialiseAgentFile(fields: AgentFields, kind: AgentKind = 'assistant'): SerialisedAgentFile {
   const reserved = [fields.persona, fields.instructions].some((text) => text.split('\n').some((line) => HEADING_LIKE.test(line)))
   if (reserved) return { ok: false, reason: 'heading_in_text' }
   const description = fields.description === '' ? 'description:' : `description: ${fields.description}`
   const section = (heading: string, body: string): string[] => [heading, '', ...(body === '' ? [] : [body, ''])]
-  const text = [FENCE, `name: ${fields.name}`, description, FENCE, '', ...section(PERSONA, fields.persona), ...section(INSTRUCTIONS, fields.instructions)].join('\n')
+  const text = [FENCE, `name: ${fields.name}`, description, ...(kind === 'reviewer' ? ['kind: reviewer'] : []), FENCE, '', ...section(PERSONA, fields.persona), ...section(INSTRUCTIONS, fields.instructions)].join('\n')
   return { ok: true, text }
 }
 
@@ -63,7 +65,7 @@ export function parseAgentFile(input: string): ParsedAgentFile {
   if (close < 0) return { fields: undefined, problems: [fileProblem('front_matter_unclosed')] }
 
   const problems: FileProblem[] = []
-  const values: Record<'name' | 'description', string | undefined> = { name: undefined, description: undefined }
+  const values: Record<'name' | 'description' | 'kind', string | undefined> = { name: undefined, description: undefined, kind: undefined }
   for (let index = 1; index < close; index++) {
     const match = KEY_LINE.exec(lines[index]!)
     if (match === null) {
@@ -71,7 +73,7 @@ export function parseAgentFile(input: string): ParsedAgentFile {
       continue
     }
     const key = match[1]!
-    if (key !== 'name' && key !== 'description') {
+    if (key !== 'name' && key !== 'description' && key !== 'kind') {
       problems.push(fileProblem('unknown_key', index + 1))
       continue
     }
@@ -80,6 +82,7 @@ export function parseAgentFile(input: string): ParsedAgentFile {
       continue
     }
     values[key] = match[2] ?? ''
+    if (key === 'kind' && !AGENT_KINDS.some((kind) => kind === values.kind)) problems.push(fileProblem('invalid_kind', index + 1))
   }
 
   const personaAt: number[] = []
@@ -110,7 +113,8 @@ export function parseAgentFile(input: string): ParsedAgentFile {
   if (RESERVED.test(raw.persona) || RESERVED.test(raw.instructions)) problems.push(fileProblem('reserved_text'))
   const checked = normaliseAgentFields(raw)
   if (!checked.ok) problems.push(...checked.problems.map((problem): FileProblem => ({ kind: 'field', field: problem.field, rule: problem.rule })))
-  return { fields: problems.length === 0 && checked.ok ? checked.fields : raw, problems }
+  const kind = AGENT_KINDS.find((candidate) => candidate === values.kind)
+  return { fields: problems.length === 0 && checked.ok ? checked.fields : raw, ...(kind === undefined ? {} : { kind }), problems }
 }
 
 export function problemFields(problems: readonly FileProblem[]): ReadonlySet<AgentField> {

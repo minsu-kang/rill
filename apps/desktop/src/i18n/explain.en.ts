@@ -59,7 +59,7 @@ export const explainEn: Record<keyof typeof explainKo, string> = {
   'explain.reason.cancelled': 'A cancelled run is not explained.',
   'explain.notice.heading': 'What is sent to the model provider',
   'explain.notice.body': 'The step record (secrets are hidden) is sent to the model provider.',
-  'explain.notice.agent': 'Your agent settings (persona and instructions) are sent too.',
+  'explain.notice.agent': 'Your agent settings (persona, instructions and skills) are sent too.',
   'explain.notice.target': 'Sent to: {provider} · {model}',
   'explain.notice.targetUnknown': 'Sent to: a model provider that is not known yet',
   'explain.notice.effort': 'Explanation depth: {effort}',

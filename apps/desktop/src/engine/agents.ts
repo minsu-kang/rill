@@ -1,4 +1,4 @@
-import { AGENT_DEFAULT_ID, agentNameKey, type Agent, type AgentFields } from '@rill/protocol'
+import { AGENT_DEFAULT_ID, agentNameKey, type Agent, type AgentFields, type AgentKind } from '@rill/protocol'
 import { useSyncExternalStore } from 'react'
 import type { EngineClient } from './client'
 
@@ -15,8 +15,26 @@ export interface AgentsStore {
   watch(listener: () => void): () => void
   refresh(): Promise<void>
   select(id: string): Promise<void>
-  save(input: AgentFields & { id?: string }): Promise<Agent>
+  save(input: AgentInput): Promise<Agent>
   remove(id: string): Promise<boolean>
+}
+
+export type AgentInput = AgentFields & { id?: string; kind?: AgentKind; skillIds?: string[] }
+
+export function kindOf(agent: Pick<Agent, 'kind'>): AgentKind {
+  return agent.kind ?? 'assistant'
+}
+
+export function skillIdsOf(agent: Pick<Agent, 'skillIds'>): readonly string[] {
+  return agent.skillIds ?? []
+}
+
+export function assistantsOf(agents: readonly Agent[]): Agent[] {
+  return agents.filter((agent) => kindOf(agent) === 'assistant')
+}
+
+export function reviewersOf(agents: readonly Agent[]): Agent[] {
+  return agents.filter((agent) => kindOf(agent) === 'reviewer')
 }
 
 const INITIAL: AgentsState = { status: 'loading', agents: [], activeId: AGENT_DEFAULT_ID }
@@ -151,5 +169,5 @@ export function agentIdForRequest(state: AgentsState): string | undefined {
 export function sendsAgentText(state: AgentsState): boolean {
   if (agentIdForRequest(state) === undefined) return false
   const agent = activeAgentOf(state)
-  return agent !== undefined && (agent.persona !== '' || agent.instructions !== '')
+  return agent !== undefined && (agent.persona !== '' || agent.instructions !== '' || skillIdsOf(agent).length > 0)
 }

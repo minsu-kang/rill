@@ -157,6 +157,8 @@ export const chatKo = {
   'chat.meta.memoryDropped.one': '메모 {count}개는 들어가지 못했어요',
   'chat.meta.memoryDropped.other': '메모 {count}개는 들어가지 못했어요',
   'chat.meta.agentUsed': '에이전트 {name}',
+  'chat.meta.skillsUsed.one': '스킬 {count}개 사용',
+  'chat.meta.skillsUsed.other': '스킬 {count}개 사용',
   'chat.meta.agentDropped': '에이전트 설정에 예약된 문구가 들어 있어서 쓰지 않았어요',
   'chat.meta.reasoningCapped': '모델의 생각 길이가 출력 한도로 제한됐어요',
   'chat.error.dismiss': '닫기',

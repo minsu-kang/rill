@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { useAgents } from '../engine/agents'
+import { assistantsOf, useAgents } from '../engine/agents'
 import type { EngineClient } from '../engine/client'
 import { useT, type MessageKey } from '../i18n'
 import { ErrorNotice } from './ErrorNotice'
@@ -45,7 +45,7 @@ export function AgentPicker({ client }: AgentPickerProps) {
         </label>
         {state.status === 'ready' ? (
           <select id={id} className={styles.select} value={state.activeId} title={active === undefined || active.builtin ? undefined : markHidden(active.name)} onChange={(event) => change(event.target.value)}>
-            {state.agents.map((agent) => (
+            {assistantsOf(state.agents).map((agent) => (
               <option key={agent.id} value={agent.id}>
                 {label(agent)}
               </option>

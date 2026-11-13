@@ -1,10 +1,26 @@
-import { AGENT_FIELD_LIMITS, AGENT_FIELDS, AGENT_NAME_MAX_INPUT_CHARS, AGENT_DESCRIPTION_MAX_INPUT_CHARS, AGENT_PERSONA_MAX_INPUT_CHARS, AGENT_INSTRUCTIONS_MAX_INPUT_CHARS, isMultiLineAgentField, type Agent, type AgentField, type AgentRule } from '@rill/protocol'
-import { useId, type FormEvent, type RefCallback } from 'react'
+import {
+  AGENT_FIELD_LIMITS,
+  AGENT_FIELDS,
+  AGENT_KINDS,
+  AGENT_NAME_MAX_INPUT_CHARS,
+  AGENT_DESCRIPTION_MAX_INPUT_CHARS,
+  AGENT_PERSONA_MAX_INPUT_CHARS,
+  AGENT_INSTRUCTIONS_MAX_INPUT_CHARS,
+  isMultiLineAgentField,
+  type Agent,
+  type AgentField,
+  type AgentKind,
+  type AgentRule,
+} from '@rill/protocol'
+import { Fragment, useId, type FormEvent, type RefCallback } from 'react'
+import { kindOf } from '../../engine/agents'
+import type { SkillsState } from '../../engine/skills'
 import { useT, type MessageKey, type Translate } from '../../i18n'
 import { SafeText } from '../../ui/SafeText'
 import controls from '../controls.module.css'
 import styles from './AgentsScreen.module.css'
-import { countOf, draftProblems, hasProblems, type AgentDraft } from './model/draft'
+import { countOf, draftProblems, hasProblems, skillsProblem, type AgentDraft } from './model/draft'
+import { SkillsPicker } from './SkillsPicker'
 
 export interface AgentEditorProps {
   agent: Agent | undefined
@@ -15,8 +31,12 @@ export interface AgentEditorProps {
   busy: boolean
   error: MessageKey | undefined
   status: MessageKey | undefined
+  skills: SkillsState
   headingRef?: RefCallback<HTMLElement>
   onChange(field: AgentField, value: string): void
+  onKind(kind: AgentKind): void
+  onSkills(ids: string[]): void
+  onRetrySkills(): void
   onSave(): void
   onRevert(): void
   onDelete(): void
@@ -90,10 +110,41 @@ function FieldBox({ field, value, rule, disabled, onChange }: { field: AgentFiel
   )
 }
 
-export function AgentEditor({ agent, creating, draft, dirty, inUse, busy, error, status, headingRef, onChange, onSave, onRevert, onDelete, onUse, onExport }: AgentEditorProps) {
+function KindField({ kind, locked, disabled, onChange }: { kind: AgentKind; locked: boolean; disabled: boolean; onChange(kind: AgentKind): void }) {
+  const t = useT()
+  const id = useId()
+  const hint = `${id}-hint`
+  const lock = `${id}-lock`
+  return (
+    <div className={styles.field}>
+      <label htmlFor={id} className={styles.label}>
+        {t('agents.field.kind')}
+      </label>
+      <select id={id} className={styles.select} value={kind} disabled={disabled || locked} aria-describedby={locked ? `${hint} ${lock}` : hint} onChange={(event) => onChange(event.target.value as AgentKind)}>
+        {AGENT_KINDS.map((value) => (
+          <option key={value} value={value}>
+            {t(`agents.kind.${value}`)}
+          </option>
+        ))}
+      </select>
+      <p id={hint} className={styles.hint}>
+        {t(`agents.kind.hint.${kind}`)}
+      </p>
+      {locked ? (
+        <p id={lock} className={styles.hint}>
+          {t('agents.kind.lockedInUse')}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+export function AgentEditor({ agent, creating, draft, dirty, inUse, busy, error, status, skills, headingRef, onChange, onKind, onSkills, onRetrySkills, onSave, onRevert, onDelete, onUse, onExport }: AgentEditorProps) {
   const t = useT()
   const problems = draftProblems(draft)
-  const canSave = !hasProblems(problems) && (creating || dirty)
+  const skillsFailed = skills.status === 'ready' && skillsProblem(draft.skillIds, skills.skills) !== undefined
+  const canSave = !hasProblems(problems) && !skillsFailed && (creating || dirty)
+  const reviewer = !creating && agent !== undefined && kindOf(agent) === 'reviewer'
 
   function submit(event: FormEvent): void {
     event.preventDefault()
@@ -132,8 +183,12 @@ export function AgentEditor({ agent, creating, draft, dirty, inUse, busy, error,
       </h3>
       <form className={styles.form} onSubmit={submit} noValidate>
         {AGENT_FIELDS.map((field) => (
-          <FieldBox key={field} field={field} value={draft[field]} rule={problems[field]} disabled={busy} onChange={(value) => onChange(field, value)} />
+          <Fragment key={field}>
+            <FieldBox field={field} value={draft[field]} rule={problems[field]} disabled={busy} onChange={(value) => onChange(field, value)} />
+            {field === 'description' ? <KindField kind={draft.kind} locked={inUse && !creating} disabled={busy} onChange={onKind} /> : null}
+          </Fragment>
         ))}
+        <SkillsPicker skills={skills} value={draft.skillIds} disabled={busy} onChange={onSkills} onRetry={onRetrySkills} />
         {dirty ? <p className={controls.note}>{t('agents.editor.unsaved')}</p> : null}
         {error === undefined ? null : (
           <p className={controls.error} role="alert">
@@ -151,9 +206,11 @@ export function AgentEditor({ agent, creating, draft, dirty, inUse, busy, error,
           ) : null}
           {creating ? null : (
             <>
-              <button type="button" className={controls.button} disabled={busy || inUse || dirty} aria-describedby={dirty ? 'agents-use-hint' : undefined} onClick={onUse}>
-                {t(inUse ? 'agents.editor.inUse' : 'agents.editor.use')}
-              </button>
+              {reviewer ? null : (
+                <button type="button" className={controls.button} disabled={busy || inUse || dirty} aria-describedby={dirty ? 'agents-use-hint' : undefined} onClick={onUse}>
+                  {t(inUse ? 'agents.editor.inUse' : 'agents.editor.use')}
+                </button>
+              )}
               {onExport === undefined ? null : (
                 <button type="button" className={controls.button} disabled={busy || dirty} aria-describedby={dirty ? 'agents-use-hint' : undefined} onClick={onExport}>
                   {t('agents.export.button')}
@@ -170,6 +227,7 @@ export function AgentEditor({ agent, creating, draft, dirty, inUse, busy, error,
             {t('agents.editor.saveFirst')}
           </p>
         ) : null}
+        {reviewer ? <p className={controls.note}>{t('agents.editor.reviewerNote')}</p> : null}
       </form>
       <p className={controls.ok} role="status" hidden={status === undefined}>
         {status === undefined ? '' : t(status)}

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { agentFixtures } from '../../fixtures/agents'
-import { pause, typeInto } from '../../story-utils/dom'
+import { skillFixtures } from '../../fixtures/skills'
+import { chooseOption, pause, typeInto } from '../../story-utils/dom'
 import { AgentsStage, type AgentsStageProps } from './AgentsStage'
 
 const meta: Meta<typeof AgentsStage> = { title: 'App/Agents/AgentsScreen', component: AgentsStage }
@@ -143,5 +144,80 @@ export const Export: Story = {
   play: async ({ canvasElement }) => {
     await pause(80)
     pressByText(canvasElement, 'button', /^Export…$|^내보내기…$/)
+  },
+}
+
+const withSkills: AgentsStageProps = { height: 1500, agents: [...agentFixtures.few, ...agentFixtures.skilled, ...agentFixtures.reviewers], skills: skillFixtures.few, activeAgentId: 'agent-terse' }
+
+export const KindAndSkillsInTheList: Story = { name: 'Kind chips and skill counts in the list', args: withSkills }
+
+export const AgentWithSkillsSelected: Story = {
+  name: 'An agent with skills is selected',
+  args: withSkills,
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    pressByText(canvasElement, 'ul button', /Receipts helper/)
+  },
+}
+
+export const ReviewerSelected: Story = {
+  name: 'A reviewer is selected',
+  args: withSkills,
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    pressByText(canvasElement, 'ul button', /Safety reviewer/)
+  },
+}
+
+export const KindChangedToReviewer: Story = {
+  name: 'The kind is changed to reviewer, not saved',
+  args: withSkills,
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    pressByText(canvasElement, 'ul button', /Plain tone only/)
+    await pause(40)
+    chooseOption(canvasElement.querySelector<HTMLSelectElement>('select'), 'reviewer')
+  },
+}
+
+export const SkillsOnTheBudget: Story = {
+  name: 'Skills close to the limit of 6,000 characters',
+  args: { height: 1500, agents: [{ ...agentFixtures.few[0]!, skillIds: ['skill-big-a', 'skill-big-b'] }], skills: skillFixtures.big, activeAgentId: 'default' },
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    pressByText(canvasElement, 'ul button', /Terse reviewer/)
+  },
+}
+
+export const NoSkillsToPick: Story = {
+  name: 'No skills exist yet',
+  args: { ...few, height: 1500, skills: [] },
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    pressByText(canvasElement, 'ul button', /Plain tone only/)
+  },
+}
+
+export const ReviewerFileImport: Story = {
+  name: 'Import review of a reviewer file',
+  args: {
+    ...withSkills,
+    textPicks: [{ name: 'Strict reviewer.md', text: ['---', 'name: Strict reviewer', 'description: Made in another app', 'kind: reviewer', '---', '', '# Persona', '', 'Strict and calm.', '', '# Instructions', '', 'Say what could go wrong.', ''].join('\n') }],
+  },
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    pressImport(canvasElement)
+  },
+}
+
+export const InvalidKindImport: Story = {
+  name: 'Import review with an invalid kind',
+  args: {
+    ...withSkills,
+    textPicks: [{ name: 'Strict reviewer.md', text: ['---', 'name: Strict reviewer', 'description: Made in another app', 'kind: admin', '---', '', '# Persona', '', 'Strict and calm.', '', '# Instructions', '', 'Say what could go wrong.', ''].join('\n') }],
+  },
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    pressImport(canvasElement)
   },
 }

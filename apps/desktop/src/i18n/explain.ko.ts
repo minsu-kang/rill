@@ -57,7 +57,7 @@ export const explainKo = {
   'explain.reason.cancelled': '취소된 실행은 설명하지 않아요.',
   'explain.notice.heading': '모델 제공자로 보내는 내용',
   'explain.notice.body': '단계 기록(비밀값은 가려짐)을 모델 제공자로 보냅니다.',
-  'explain.notice.agent': '에이전트 설정(페르소나와 지침)도 함께 보냅니다.',
+  'explain.notice.agent': '에이전트 설정(페르소나, 지침, 스킬)도 함께 보냅니다.',
   'explain.notice.target': '보내는 곳: {provider} · {model}',
   'explain.notice.targetUnknown': '보내는 곳: 아직 알 수 없는 모델 제공자',
   'explain.notice.effort': '설명 깊이: {effort}',

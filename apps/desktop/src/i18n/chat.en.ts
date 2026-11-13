@@ -158,6 +158,8 @@ export const chatEn: Record<keyof typeof chatKo, string> = {
   'chat.meta.memoryDropped.one': '{count} note did not fit and was left out',
   'chat.meta.memoryDropped.other': '{count} notes did not fit and were left out',
   'chat.meta.agentUsed': 'Agent {name}',
+  'chat.meta.skillsUsed.one': 'Used {count} skill',
+  'chat.meta.skillsUsed.other': 'Used {count} skills',
   'chat.meta.agentDropped': 'The agent settings were left out because they contained reserved text',
   'chat.meta.reasoningCapped': 'The thinking of the model was limited by the output size',
   'chat.error.dismiss': 'Dismiss',

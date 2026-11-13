@@ -15,6 +15,7 @@ import { fakeSettings } from '../src/engine/fake-host'
 import { catalog, fakeData } from '../src/fixtures'
 import { agentFixtures } from '../src/fixtures/agents'
 import { memoryFixtures, models, outcomeOf, results } from '../src/fixtures/plan'
+import { skillFixtures } from '../src/fixtures/skills'
 import { createTranslator } from '../src/i18n'
 import { violations } from './axe'
 import { renderThemed } from './render'
@@ -56,7 +57,7 @@ describe('SubNav', () => {
 })
 
 function clientOf() {
-  return withPlanMethods(createFakeClient(fakeData), { models, script: () => outcomeOf(results.workflow), memory: [...memoryFixtures.three], agents: agentFixtures.few })
+  return withPlanMethods(createFakeClient(fakeData), { models, script: () => outcomeOf(results.workflow), memory: [...memoryFixtures.three], agents: agentFixtures.few, skills: skillFixtures.few })
 }
 
 function Host({ initial = 'agents' }: { initial?: AgentsSectionId }) {
@@ -66,9 +67,37 @@ function Host({ initial = 'agents' }: { initial?: AgentsSectionId }) {
 }
 
 describe('AgentsTab', () => {
-  it('lists its screens from one table, Agents first, Rules second and Hooks third', () => {
-    expect(AGENTS_SECTIONS.map((section) => section.id)).toEqual(['agents', 'rules', 'hooks'])
-    expect(AGENTS_SECTIONS.map((section) => section.label)).toEqual(['agents.nav.agents', 'agents.nav.rules', 'agents.nav.hooks'])
+  it('lists its screens from one table, Agents first, Skills second, Rules third and Hooks fourth', () => {
+    expect(AGENTS_SECTIONS.map((section) => section.id)).toEqual(['agents', 'skills', 'rules', 'hooks'])
+    expect(AGENTS_SECTIONS.map((section) => section.label)).toEqual(['agents.nav.agents', 'agents.nav.skills', 'agents.nav.rules', 'agents.nav.hooks'])
+  })
+
+  it('switches to the Skills screen and back, and keeps the focus on the button that was pressed', async () => {
+    const user = userEvent.setup()
+    renderThemed(<Host />, { locale: 'en' })
+    await screen.findByRole('list', { name: 'Agent list' })
+    const nav = screen.getByRole('navigation', { name: 'Agent settings' })
+    expect(within(nav).getAllByRole('button').map((item) => item.textContent)).toEqual(['Agents', 'Skills', 'Rules', 'Hooks'])
+    await user.click(within(nav).getByRole('button', { name: 'Skills' }))
+    expect(await screen.findByRole('list', { name: 'Skill list' })).toBeTruthy()
+    expect(screen.queryByRole('list', { name: 'Agent list' })).toBeNull()
+    expect(within(nav).getByRole('button', { name: 'Skills' }).getAttribute('aria-current')).toBe('page')
+    expect(document.activeElement).toBe(within(nav).getByRole('button', { name: 'Skills' }))
+    await user.click(within(nav).getByRole('button', { name: 'Agents' }))
+    expect(await screen.findByRole('list', { name: 'Agent list' })).toBeTruthy()
+  })
+
+  it('keeps an unsaved edit of a skill while the Agents screen is open', async () => {
+    const user = userEvent.setup()
+    renderThemed(<Host initial="skills" />, { locale: 'en' })
+    await screen.findByRole('list', { name: 'Skill list' })
+    await user.click(within(screen.getByRole('list', { name: 'Skill list' })).getByRole('button', { name: /Slack message style/ }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Name' }), { target: { value: 'Renamed in a hurry' } })
+    const nav = screen.getByRole('navigation', { name: 'Agent settings' })
+    await user.click(within(nav).getByRole('button', { name: 'Agents' }))
+    await screen.findByRole('list', { name: 'Agent list' })
+    await user.click(within(nav).getByRole('button', { name: 'Skills' }))
+    expect(((await screen.findByRole('textbox', { name: 'Name' })) as HTMLInputElement).value).toBe('Renamed in a hurry')
   })
 
   it('shows the Agents screen first, with the sub-navigation above it', async () => {

@@ -30,10 +30,10 @@ const subNav = (): HTMLElement => within(main()).getByRole('navigation', { name:
 const saved = (): HTMLElement => screen.getByRole('region', { name: 'Saved hooks' })
 
 describe('the Hooks entry of the Agents tab in the app', () => {
-  it('is the third entry of the sub-navigation, and opens the Hooks screen', async () => {
+  it('is the last entry of the sub-navigation, and opens the Hooks screen', async () => {
     const { user } = mount({ tab: 'agents' })
     await screen.findByRole('list', { name: 'Agent list' })
-    expect(within(subNav()).getAllByRole('button').map((button) => button.textContent)).toEqual(['Agents', 'Rules', 'Hooks'])
+    expect(within(subNav()).getAllByRole('button').map((button) => button.textContent)).toEqual(['Agents', 'Skills', 'Rules', 'Hooks'])
     await user.click(within(subNav()).getByRole('button', { name: 'Hooks' }))
     expect(await screen.findByRole('heading', { level: 2, name: 'Hooks' })).toBeTruthy()
     expect(within(subNav()).getByRole('button', { name: 'Hooks' }).getAttribute('aria-current')).toBe('page')

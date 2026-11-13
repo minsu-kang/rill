@@ -17,12 +17,14 @@ import {
   type PlanMeta,
   type PlanResultBody,
   type Rule,
+  type Skill,
 } from '@rill/protocol'
 import { baseNodeType } from '../model/rules'
 import type { EngineClient } from './client'
 import { createFakeAgents, type FakeAgents } from './fake-agents'
 import { createFakeHooks, type FakeHooks } from './fake-hooks'
 import { createFakeRules, metaUnderCap, type FakeRules, type RuleViolationScript } from './fake-rules'
+import { createFakeSkills, type FakeSkills } from './fake-skills'
 
 export type PlanOutcome = { result: PlanResultBody; meta: PlanMeta }
 
@@ -34,6 +36,7 @@ export interface FakePlanData {
   memory: MemoryItem[]
   agents?: readonly Agent[]
   activeAgentId?: string
+  skills?: readonly Skill[]
   rules?: readonly Rule[]
   violations?: RuleViolationScript
   hooks?: readonly Hook[]
@@ -57,6 +60,9 @@ const HANDLED = [
   'saveAgent',
   'deleteAgent',
   'setActiveAgent',
+  'listSkills',
+  'saveSkill',
+  'deleteSkill',
   'listRules',
   'saveRule',
   'deleteRule',
@@ -118,7 +124,7 @@ function activeModelOf(result: LlmModelsResult): LlmModelInfo | undefined {
   return active === null ? undefined : result.models.find((model) => model.provider === active.provider && model.id === active.model)
 }
 
-export type FakePlanClient = EngineClient & { pendingPlans(): string[]; planAgentIds(): Array<string | undefined>; agents: FakeAgents; rules: FakeRules; hooks: FakeHooks }
+export type FakePlanClient = EngineClient & { pendingPlans(): string[]; planAgentIds(): Array<string | undefined>; agents: FakeAgents; skills: FakeSkills; rules: FakeRules; hooks: FakeHooks }
 
 export function withPlanMethods(client: EngineClient & { emit?: (event: EngineEvent) => void }, data: FakePlanData): FakePlanClient {
   const records = new Map<string, PlanRecord>()
@@ -126,7 +132,8 @@ export function withPlanMethods(client: EngineClient & { emit?: (event: EngineEv
   const pending = new Map<string, (error: RillError) => void>()
   const memory: MemoryItem[] = structuredClone(data.memory)
   const now = data.now ?? Date.now
-  const agents = createFakeAgents({ ...(data.agents === undefined ? {} : { agents: data.agents }), ...(data.activeAgentId === undefined ? {} : { activeId: data.activeAgentId }), now })
+  const skills = createFakeSkills({ ...(data.skills === undefined ? {} : { skills: data.skills }), now })
+  const agents = createFakeAgents({ ...(data.agents === undefined ? {} : { agents: data.agents }), ...(data.activeAgentId === undefined ? {} : { activeId: data.activeAgentId }), skills: skills.all, now })
   const rules = createFakeRules({ ...(data.rules === undefined ? {} : { rules: data.rules }), ...(data.violations === undefined ? {} : { violations: data.violations }), now })
   const hooks = createFakeHooks({ ...(data.hooks === undefined ? {} : { hooks: data.hooks }), ...(data.hookLog === undefined ? {} : { log: data.hookLog }), now })
   const planAgents: Array<string | undefined> = []
@@ -225,6 +232,13 @@ export function withPlanMethods(client: EngineClient & { emit?: (event: EngineEv
     saveAgent: (params) => agents.save(params),
     deleteAgent: (params) => agents.remove(params),
     setActiveAgent: (params) => agents.setActive(params),
+    listSkills: () => skills.list(),
+    saveSkill: (params) => skills.save(params, agents.skillLists()),
+    deleteSkill: (params) => {
+      const answer = skills.remove(params)
+      if (answer.deleted) agents.dropSkill(params.id)
+      return answer
+    },
     listRules: () => rules.list(),
     saveRule: async (params) => {
       const { nodes } = await client.request('nodeCatalog', {})
@@ -258,6 +272,7 @@ export function withPlanMethods(client: EngineClient & { emit?: (event: EngineEv
     pendingPlans: () => [...pending.keys()],
     planAgentIds: () => [...planAgents],
     agents,
+    skills,
     rules,
     hooks,
   }

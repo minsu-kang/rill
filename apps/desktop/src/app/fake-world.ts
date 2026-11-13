@@ -13,6 +13,7 @@ import {
   type MethodResult,
   type NodeInfo,
   type Rule,
+  type Skill,
 } from '@rill/protocol'
 import Value from 'typebox/value'
 import type { EngineClient } from '../engine/client'
@@ -66,6 +67,7 @@ export interface FakeWorldOptions {
   activeAgentId?: string
   hooks?: readonly Hook[]
   hookLog?: readonly HookLogEntry[]
+  skills?: readonly Skill[]
   recipes?: FakeRecipeData
   control?: Partial<FakeWorldControl>
 }
@@ -147,6 +149,7 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
     ...(options.activeAgentId === undefined ? {} : { activeAgentId: options.activeAgentId }),
     ...(options.hooks === undefined ? {} : { hooks: options.hooks }),
     ...(options.hookLog === undefined ? {} : { hookLog: options.hookLog }),
+    ...(options.skills === undefined ? {} : { skills: options.skills }),
     connections: async () => (await host.settings.get()).connections,
     ...(options.planDelayMs === undefined ? {} : { delayMs: options.planDelayMs }),
   })

@@ -17,6 +17,7 @@ function reviewOf(text: string, fileName = 'Imported helper.md'): ReviewState {
   return {
     fileName,
     base: parsed.fields,
+    ...(parsed.kind === undefined ? {} : { kind: parsed.kind }),
     fileProblems: parsed.problems.filter((problem) => problem.kind === 'file'),
     name: parsed.fields?.name ?? '',
     description: parsed.fields?.description ?? '',
@@ -66,3 +67,6 @@ export const LongText: Story = {
   args: args(reviewOf(FILE.replace('Calm and brief.', 'Calm and brief. '.repeat(35)).replace('Name every default you pick.', 'A very long line of instructions. '.repeat(80)))),
 }
 
+export const ReviewerFile: Story = { name: 'A file of a reviewer', args: args(reviewOf(FILE.replace('description: Made in another app', 'description: Made in another app\nkind: reviewer'))) }
+
+export const InvalidKind: Story = { name: 'A kind that is neither', args: args(reviewOf(FILE.replace('description: Made in another app', 'description: Made in another app\nkind: admin'))) }

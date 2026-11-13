@@ -33,4 +33,27 @@ const twelve: Agent[] = Array.from({ length: 12 }, (_, index) =>
   agentOf(`agent-${String(index + 1).padStart(2, '0')}`, { name: `Agent ${String(index + 1).padStart(2, '0')}`, description: `Agent number ${index + 1}`, persona: 'Brief.', instructions: 'Be short.' }),
 )
 
-export const agentFixtures = { few, long, hostile, twelve }
+const skilled: Agent[] = [
+  agentOf('agent-skilled', {
+    name: 'Receipts helper',
+    description: 'Files receipts with a checklist',
+    persona: 'Careful and plain.',
+    instructions: 'Follow the skills you were given.',
+    kind: 'assistant',
+    skillIds: ['skill-receipts', 'skill-slack'],
+  }),
+]
+
+const reviewers: Agent[] = [
+  agentOf('agent-reviewer', {
+    name: 'Safety reviewer',
+    description: 'Looks for risky settings and side effects',
+    persona: 'A strict second pair of eyes.',
+    instructions: 'Say what could go wrong. Do not rewrite the workflow.',
+    kind: 'reviewer',
+    skillIds: ['skill-receipts'],
+  }),
+  agentOf('agent-reviewer-ko', { name: '꼼꼼한 검토자', description: '빠진 단계를 찾아요', persona: '차분하게 짚어 준다.', instructions: '문제가 있으면 먼저 말한다.', kind: 'reviewer', skillIds: [] }),
+]
+
+export const agentFixtures = { few, long, hostile, twelve, skilled, reviewers }

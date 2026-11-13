@@ -1,4 +1,5 @@
 import { AGENT_MAX_ITEMS, type Agent } from '@rill/protocol'
+import { kindOf, skillIdsOf } from '../../engine/agents'
 import { useT } from '../../i18n'
 import { SafeText } from '../../ui/SafeText'
 import controls from '../controls.module.css'
@@ -41,15 +42,22 @@ export function AgentList({ agents, activeId, selectedId, creating, onSelect, on
       <ul className={styles.list} aria-label={t('agents.list.label')}>
         {agents.map((agent) => {
           const selected = !creating && agent.id === selectedId
+          const kind = kindOf(agent)
+          const skills = skillIdsOf(agent).length
           return (
             <li key={agent.id}>
               <button type="button" className={styles.item} aria-current={selected ? 'true' : undefined} onClick={() => onSelect(agent.id)}>
                 <span className={styles.itemName}>{agent.builtin ? t('agents.default.name') : <SafeText text={agent.name} />}</span>
                 <span className={styles.itemMeta}>
                   {agent.builtin ? <span className={styles.chip}>{t('agents.list.builtin')}</span> : null}
-                  {agent.id === activeId ? <span className={styles.chipActive}>{t('agents.list.active')}</span> : null}
+                  {agent.id === activeId && kind === 'assistant' ? <span className={styles.chipActive}>{t('agents.list.active')}</span> : null}
                 </span>
                 <span className={styles.itemText}>{agent.builtin ? t('agents.default.description') : <SafeText text={agent.description} />}</span>
+                <span className={styles.itemFoot}>
+                  <span className={kind === 'reviewer' ? styles.chipReviewer : styles.chip}>{t(`agents.kind.${kind}`)}</span>
+                  {skills > 0 ? <span className={styles.itemNote}>{t('agents.list.skills', { count: skills })}</span> : null}
+                  {kind === 'reviewer' ? <span className={styles.itemNote}>{t('agents.list.reviewerUse')}</span> : null}
+                </span>
               </button>
             </li>
           )

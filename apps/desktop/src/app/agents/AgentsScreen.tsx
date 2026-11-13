@@ -1,10 +1,11 @@
-import { AGENT_DEFAULT_ID, type AgentField } from '@rill/protocol'
+import { AGENT_DEFAULT_ID, type AgentField, type AgentKind } from '@rill/protocol'
 import { useRef, useState } from 'react'
 import { TransferIcon } from '../../ui/TransferMark'
 import { plainText } from '../../chat/model/clamp'
 import { planErrorKey } from '../../chat/model/errors'
-import { useAgents } from '../../engine/agents'
+import { kindOf, useAgents } from '../../engine/agents'
 import type { EngineClient } from '../../engine/client'
+import { useSkills } from '../../engine/skills'
 import { useT, type MessageKey } from '../../i18n'
 import { HostError, type HostApi } from '../../shared/host-api'
 import { useStepFocus } from '../../ui/useStepFocus'
@@ -18,7 +19,7 @@ import { AgentImportReview } from './AgentImportReview'
 import { parseAgentFile, serialiseAgentFile } from './agent-file'
 import { AgentList } from './AgentList'
 import styles from './AgentsScreen.module.css'
-import { draftOf } from './model/draft'
+import { draftOf, saveInput } from './model/draft'
 import { exportFileName, reviewOutcome } from './model/review'
 import { selectionOf, useAgentsView, type ViewAction } from './model/view'
 
@@ -37,6 +38,7 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
   const t = useT()
   const { state: agents, store } = useAgents(client)
   const { state: view, store: viewStore } = useAgentsView(client)
+  const { state: skills, store: skillsStore } = useSkills(client)
   const action = useAction(actionError)
   const [status, setStatus] = useState<MessageKey | undefined>(undefined)
   const [asking, setAsking] = useState<Asking | undefined>(undefined)
@@ -75,13 +77,22 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
     viewStore.dispatch({ type: 'edit', field, value, base: selection.baseline })
   }
 
+  function editKind(kind: AgentKind): void {
+    setStatus(undefined)
+    viewStore.dispatch({ type: 'setKind', kind, base: selection.baseline })
+  }
+
+  function editSkills(skillIds: string[]): void {
+    setStatus(undefined)
+    viewStore.dispatch({ type: 'setSkills', skillIds, base: selection.baseline })
+  }
+
   function save(): void {
-    const draft = selection.draft
-    const id = selection.creating ? undefined : agent?.id
+    const input = saveInput(selection.draft, selection.baseline, selection.creating ? undefined : agent?.id)
     const creating = selection.creating
     setStatus(undefined)
     void action.run(async () => {
-      const saved = await store.save({ ...draft, ...(id === undefined ? {} : { id }) })
+      const saved = await store.save(input)
       viewStore.dispatch({ type: 'saved', id: saved.id })
       setStatus(creating ? 'agents.status.created' : 'agents.status.saved')
     })
@@ -99,10 +110,10 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
 
   function saveImport(): void {
     if (outcome?.fields === undefined || !outcome.canSave) return
-    const fields = outcome.fields
+    const input = { ...outcome.fields, ...(outcome.kind === undefined ? {} : { kind: outcome.kind }) }
     setStatus(undefined)
     void action.run(async () => {
-      const saved = await store.save(fields)
+      const saved = await store.save(input)
       viewStore.dispatch({ type: 'saved', id: saved.id })
       setStatus('agents.status.imported')
     })
@@ -110,7 +121,7 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
 
   function exportFile(): void {
     if (files === undefined || agent === undefined || agent.builtin) return
-    const serialised = serialiseAgentFile(draftOf(agent))
+    const serialised = serialiseAgentFile(draftOf(agent), kindOf(agent))
     setStatus(undefined)
     if (!serialised.ok) {
       setExportProblem(true)
@@ -207,8 +218,12 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
               busy={action.busy}
               error={asking?.kind === 'delete' ? undefined : exportProblem ? 'agents.export.headingInText' : action.error}
               status={status}
+              skills={skills}
               headingRef={heading}
               onChange={edit}
+              onKind={editKind}
+              onSkills={editSkills}
+              onRetrySkills={() => void skillsStore.refresh()}
               onSave={save}
               onRevert={() => go({ type: 'revert' })}
               onDelete={() => {

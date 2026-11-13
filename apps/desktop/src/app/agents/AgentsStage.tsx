@@ -1,4 +1,4 @@
-import { RillError, type Agent, type MethodName, type MethodParams, type MethodResult } from '@rill/protocol'
+import { RillError, type Agent, type MethodName, type MethodParams, type MethodResult, type Skill } from '@rill/protocol'
 import { useMemo } from 'react'
 import type { EngineClient } from '../../engine/client'
 import { createFakeClient } from '../../engine/fake-client'
@@ -11,6 +11,7 @@ import { AgentsScreen } from './AgentsScreen'
 
 export interface AgentsStageProps {
   agents?: readonly Agent[]
+  skills?: readonly Skill[]
   activeAgentId?: string
   list?: 'hang' | 'fail'
   failSave?: string
@@ -24,6 +25,7 @@ function clientOf(props: AgentsStageProps): EngineClient {
     script: () => outcomeOf(results.workflow),
     memory: [...memoryFixtures.three],
     ...(props.agents === undefined ? {} : { agents: props.agents }),
+    ...(props.skills === undefined ? {} : { skills: props.skills }),
     ...(props.activeAgentId === undefined ? {} : { activeAgentId: props.activeAgentId }),
   })
   return {

@@ -5,6 +5,7 @@ import { withPlanMethods } from '../../engine/fake-plan'
 import { catalog, fakeData } from '../../fixtures'
 import { agentFixtures } from '../../fixtures/agents'
 import { hookConnections, hookFixtures, hookLogFixtures } from '../../fixtures/hooks'
+import { skillFixtures } from '../../fixtures/skills'
 import { memoryFixtures, models, outcomeOf, results } from '../../fixtures/plan'
 import { ruleFixtures, violationFixtures } from '../../fixtures/rules'
 import { Page } from '../Page'
@@ -21,7 +22,8 @@ function Demo({ initial }: { initial: AgentsSectionId }) {
         models,
         script: () => outcomeOf(results.workflow),
         memory: [...memoryFixtures.three],
-        agents: agentFixtures.few,
+        agents: [...agentFixtures.few, ...agentFixtures.skilled, ...agentFixtures.reviewers],
+        skills: skillFixtures.few,
         activeAgentId: 'agent-terse',
         rules: ruleFixtures.some,
         violations: () => violationFixtures.one,
@@ -44,6 +46,8 @@ function Demo({ initial }: { initial: AgentsSectionId }) {
 const base = { client: createFakeClient(fakeData), catalog, section: 'agents', onSectionChange: () => undefined } as const
 
 export const AgentsScreenOpen: Story = { name: 'The Agents screen', args: base, render: () => <Demo initial="agents" /> }
+
+export const SkillsScreenOpen: Story = { name: 'The Skills screen', args: base, render: () => <Demo initial="skills" /> }
 
 export const RulesScreenOpen: Story = { name: 'The Rules screen', args: base, render: () => <Demo initial="rules" /> }
 

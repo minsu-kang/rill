@@ -29,6 +29,7 @@ export function MetaLine({ meta }: MetaLineProps) {
       {meta.memoryUsed !== undefined && meta.memoryUsed > 0 ? <li>{t('chat.meta.memoryUsed', { count: meta.memoryUsed })}</li> : null}
       {meta.memoryDropped !== undefined && meta.memoryDropped > 0 ? <li>{t('chat.meta.memoryDropped', { count: meta.memoryDropped })}</li> : null}
       {meta.agentUsed === undefined ? null : <li>{t('chat.meta.agentUsed', { name: plainText(meta.agentUsed.name, 40) })}</li>}
+      {meta.skillsUsed !== undefined && meta.skillsUsed > 0 ? <li>{t('chat.meta.skillsUsed', { count: meta.skillsUsed })}</li> : null}
       {meta.agentDropped !== undefined && meta.agentDropped > 0 ? <li>{t('chat.meta.agentDropped')}</li> : null}
       {meta.reasoningCapped === true ? <li>{t('chat.meta.reasoningCapped')}</li> : null}
       {meta.costNote === undefined ? null : (

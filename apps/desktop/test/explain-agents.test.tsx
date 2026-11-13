@@ -123,6 +123,15 @@ describe('the notice of an explanation names the agent settings', () => {
     expect(screen.queryByText(en['explain.notice.agent'])).toBeNull()
   })
 
+  it('shows the line for an agent that has only skills, and says that skills are sent', async () => {
+    const { client } = world([{ ...terse, id: 'agent-skills', name: 'Skills only', persona: '', instructions: '', skillIds: ['skill-slack'] }], 'agent-skills')
+    await loaded(client)
+    mount(client)
+    await userEvent.setup().click(ask())
+    expect(screen.getByText(en['explain.notice.agent'])).toBeTruthy()
+    expect(en['explain.notice.agent']).toContain('skills')
+  })
+
   it('is in Korean too', async () => {
     const { client } = world(agentFixtures.few, terse.id)
     await loaded(client)

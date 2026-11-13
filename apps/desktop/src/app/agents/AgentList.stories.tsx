@@ -26,3 +26,13 @@ export const Creating: Story = { args: frame(agentFixtures.few, { activeId: 'def
 export const AtTheLimit: Story = { name: 'At the limit', args: frame(agentFixtures.twelve, { activeId: 'agent-01', selectedId: 'agent-12' }) }
 
 export const HostileNames: Story = { name: 'Hostile and long names', args: frame([...agentFixtures.hostile, ...agentFixtures.long], { activeId: 'agent-long', selectedId: 'agent-hostile' }) }
+
+export const KindsAndSkills: Story = {
+  name: 'Assistants, reviewers and skills',
+  args: frame([...agentFixtures.few, ...agentFixtures.skilled, ...agentFixtures.reviewers], { activeId: 'agent-skilled', selectedId: 'agent-reviewer' }),
+}
+
+export const ReviewerSelected: Story = {
+  name: 'A reviewer is selected',
+  args: frame([...agentFixtures.skilled, ...agentFixtures.reviewers], { activeId: 'default', selectedId: 'agent-reviewer' }),
+}
