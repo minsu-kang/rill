@@ -1,10 +1,11 @@
 import { RULE_MAX_ITEMS, RillError, type MethodName, type MethodParams, type MethodResult, type NodeInfo, type Rule } from '@rill/protocol'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { RulesScreen } from '../src/app/agents/RulesScreen'
 import type { EngineClient } from '../src/engine/client'
 import { createFakeClient } from '../src/engine/fake-client'
+import { rulesStoreFor } from '../src/engine/rules'
 import { withPlanMethods } from '../src/engine/fake-plan'
 import type { RuleViolationScript } from '../src/engine/fake-rules'
 import type { RuleViolation } from '../src/model/rules'
@@ -596,6 +597,32 @@ describe('the planning effort cap', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('follows a cap that changes elsewhere after this screen raised the cap itself', async () => {
+    const { user, client } = mount({ rules: [rule('r-cap', 'maxPlanEffort', 'low')] })
+    await ready()
+    await user.selectOptions(capSelect(), 'high')
+    await user.click(within(cap()).getByRole('button', { name: 'Save' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Raise the cap' }))
+    await waitFor(() => expect(capSelect().value).toBe('high'))
+    await act(async () => {
+      await rulesStoreFor(client).save('maxPlanEffort', 'low')
+    })
+    expect(capSelect().value).toBe('low')
+  })
+
+  it('follows a cap that is set elsewhere after this screen removed the cap', async () => {
+    const { user, client } = mount({ rules: [CAP_RULE] })
+    await ready()
+    await user.selectOptions(capSelect(), 'none')
+    await user.click(within(cap()).getByRole('button', { name: 'Save' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove rule' }))
+    await waitFor(() => expect(within(cap()).getByRole('status').textContent).toBe('The cap was removed.'))
+    await act(async () => {
+      await rulesStoreFor(client).save('maxPlanEffort', 'medium')
+    })
+    expect(capSelect().value).toBe('medium')
+  })
+
   it('speaks Korean in the cap controls and in the dialog that raises it', async () => {
     const { user } = mount({ locale: 'ko', rules: [rule('r-cap', 'maxPlanEffort', 'low')] })
     const region = await screen.findByRole('region', { name: ko['rules.cap.title'] })
@@ -759,6 +786,15 @@ describe('the limit of 30 rules', () => {
     expect(screen.getByText('All 30 places are used. Remove a rule to add another.')).toBeTruthy()
     typeHost('one-more.example.com')
     for (const region of [forbidden(), hosts()]) expect((within(region).getByRole('button', { name: 'Add' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('keeps Add off for a node type that is chosen at the limit, and sends nothing when the form is submitted', async () => {
+    const { user, callsOf } = mount({ rules: full })
+    await ready()
+    await user.selectOptions(nodeSelect(), 'delay')
+    expect((within(forbidden()).getByRole('button', { name: 'Add' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.submit(nodeSelect().closest('form')!)
+    expect(callsOf('saveRule')).toEqual([])
   })
 
   it('has a note with the role note, and no note below the limit', async () => {
@@ -962,6 +998,13 @@ describe('existing workflows', () => {
     await user.click(within(existing()).getByRole('button', { name: 'Check again' }))
     await waitFor(() => expect(status.textContent).toBe('1 workflow breaks a rule.'))
     expect(within(existing()).getByRole('status')).toBe(status)
+  })
+
+  it('shows no empty status line while it shows the error', async () => {
+    mount({ intercept: (method) => (method === 'checkRules' ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined) })
+    await ready()
+    await within(existing()).findByRole('alert')
+    expect(within(existing()).queryByRole('status')).toBeNull()
   })
 
   it('says it could not check, and checks again on the button', async () => {
