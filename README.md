@@ -136,7 +136,7 @@ The short version. [docs/security.md](docs/security.md) has the threat model, th
 
 ## Evaluation
 
-Two suites run on synthetic data and write a markdown report each (`pnpm eval extract`, `pnpm eval planner`). The extraction node is measured now. The planner suite is built and approved (48 cases) and waits for the owner's run.
+Two suites run on synthetic data and write a markdown report each (`pnpm eval extract`, `pnpm eval planner`). The extraction node is measured now. The planner suite is built and approved (61 cases) and waits for the owner's run.
 
 ### Extraction: amount, date and vendor from a receipt
 
@@ -161,7 +161,7 @@ A later Haiku-only run with a stricter wording of the field descriptions (one re
 
 ### Planner: request to workflow, questions or refusal
 
-Not run yet. The suite has 48 approved cases: 20 easy, 10 ambiguous (the right answer is a question), 8 unsupported (the right answer is a refusal), 6 with attachments (two with an injected instruction) and 4 patch requests. `pnpm eval planner --dry` prints the cost estimate and a suggested budget without any call. Date and suite version fill in when the owner runs it.
+Not run yet. The suite has 61 approved cases: 25 easy, 10 ambiguous (the right answer is a question), 7 unsupported (the right answer is a refusal), 8 with attachments (four with an injected instruction), 4 patch requests and 7 memory cases (the request depends on saved notes; one of them carries an injected instruction in its attachment). `pnpm eval planner --dry` prints the cost estimate and a suggested budget without any call. Date and suite version fill in when the owner runs it.
 
 | Metric | claude-haiku-5-5 | claude-sonnet-5-5 | claude-opus-5-5 |
 | --- | --- | --- | --- |
