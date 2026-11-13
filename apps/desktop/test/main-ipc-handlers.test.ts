@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AttachmentError, createAttachmentStore } from '../src/main/attachments'
 import { createConfigStore } from '../src/main/config-store'
 import { createIpcHandlers, type DialogLike } from '../src/main/ipc-handlers'
+import type { KeyChecker } from '../src/main/key-check'
 import { createSecretStore, type SafeStorageLike } from '../src/main/secret-store'
-import { CHANNELS, HostError, hostErrorCode, validateResult, type Channel, type EngineInfo, type EngineStatus } from '../src/shared/host-api'
+import { CHANNELS, HostError, MAX_SECRET_LENGTH, hostErrorCode, validateResult, type Channel, type EngineInfo, type EngineStatus, type KeyVerdict } from '../src/shared/host-api'
 
 const MARKER = 'IPC-MARKER'
 const KEY = `sk-ant-${MARKER}-key`
@@ -26,7 +27,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-function harness(options: { available?: boolean; picks?: string[] } = {}) {
+function harness(options: { available?: boolean; picks?: string[]; verdict?: KeyVerdict } = {}) {
   const safeStorage: SafeStorageLike & { available: boolean } = {
     available: options.available ?? true,
     isEncryptionAvailable: () => safeStorage.available,
@@ -43,7 +44,8 @@ function harness(options: { available?: boolean; picks?: string[] } = {}) {
   const dialog: DialogLike = { showOpenDialog: showOpenDialog as DialogLike['showOpenDialog'] }
   const app = { quit: vi.fn() }
   const loginItem = { set: vi.fn() }
-  const handlers = createIpcHandlers({ config, secrets, supervisor, attachments, dialog, app, loginItem })
+  const keyCheck = vi.fn<KeyChecker>(async () => options.verdict ?? { status: 'valid' })
+  const handlers = createIpcHandlers({ config, secrets, supervisor, attachments, dialog, app, loginItem, keyCheck })
   const call = (channel: Channel, args?: unknown) => handlers[channel](args)
   const allow = async (...folders: string[]) => {
     for (const folder of folders) {
@@ -51,7 +53,7 @@ function harness(options: { available?: boolean; picks?: string[] } = {}) {
       await call(CHANNELS.dialogsPickFolder)
     }
   }
-  return { handlers, call, allow, picks, supervisor, dialog, showOpenDialog, app, loginItem, safeStorage, config, secrets }
+  return { handlers, call, allow, picks, supervisor, dialog, showOpenDialog, app, loginItem, safeStorage, config, secrets, keyCheck }
 }
 
 async function failure(promise: Promise<unknown>): Promise<Error> {
@@ -78,6 +80,9 @@ describe('ipc handlers: shape', () => {
       [CHANNELS.settingsUpdate, 'text'],
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic' }],
       [CHANNELS.secretsSetProviderKey, { provider: 'nope', value: 'k' }],
+      [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: { force: true } }],
+      [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: { saveAnyway: 'yes' } }],
+      [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', saveAnyway: true }],
       [CHANNELS.secretsClearProviderKey, undefined],
       [CHANNELS.secretsSetConnection, { name: 'a', kind: 'ftp', secret: 's' }],
       [CHANNELS.secretsRemoveConnection, { name: '' }],
@@ -94,6 +99,7 @@ describe('ipc handlers: shape', () => {
     expect(h.supervisor.restart).not.toHaveBeenCalled()
     expect(h.app.quit).not.toHaveBeenCalled()
     expect(h.showOpenDialog).not.toHaveBeenCalled()
+    expect(h.keyCheck).not.toHaveBeenCalled()
     expect(await h.secrets.configuredProviders()).toEqual([])
   })
 
@@ -252,7 +258,7 @@ describe('ipc handlers: settings', () => {
     const h = harness()
     const logs: string[] = []
     h.supervisor.status.mockReturnValue({ state: 'running', restarts: 0, token: 'leak' } as never)
-    const handlers = createIpcHandlers({ config: h.config, secrets: h.secrets, supervisor: h.supervisor, attachments: createAttachmentStore({ dir: join(dir, 'a') }), dialog: h.dialog, app: h.app, loginItem: h.loginItem, log: (line) => logs.push(line) })
+    const handlers = createIpcHandlers({ config: h.config, secrets: h.secrets, supervisor: h.supervisor, attachments: createAttachmentStore({ dir: join(dir, 'a') }), dialog: h.dialog, app: h.app, loginItem: h.loginItem, keyCheck: h.keyCheck, log: (line) => logs.push(line) })
     expect(await failure(handlers[CHANNELS.engineStatus](undefined))).toMatchObject({ message: 'INTERNAL' })
     expect(logs).toEqual([`result of ${CHANNELS.engineStatus} did not match its schema`])
   })
@@ -266,9 +272,9 @@ describe('ipc handlers: settings', () => {
 })
 
 describe('ipc handlers: secrets', () => {
-  it('returns nothing from secrets calls, whatever the outcome', async () => {
+  it('returns the verdict from setProviderKey and nothing from the other secrets calls', async () => {
     const h = harness()
-    expect(await h.call(CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: KEY })).toBeUndefined()
+    expect(await h.call(CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: KEY })).toEqual({ verdict: { status: 'valid' } })
     expect(await h.call(CHANNELS.secretsClearProviderKey, { provider: 'anthropic' })).toBeUndefined()
     expect(await h.call(CHANNELS.secretsSetConnection, { name: 'team', kind: 'slack', secret: HOOK })).toBeUndefined()
     expect(await h.call(CHANNELS.secretsRemoveConnection, { name: 'team' })).toBeUndefined()
@@ -325,6 +331,7 @@ describe('ipc handlers: secrets', () => {
       dialog: h.dialog,
       app: h.app,
       loginItem: h.loginItem,
+      keyCheck: h.keyCheck,
     })
     const calls: Array<[Channel, unknown]> = [
       [CHANNELS.settingsGet, undefined],
@@ -339,6 +346,157 @@ describe('ipc handlers: secrets', () => {
       expect(String(error.stack)).not.toContain(MARKER)
       expect((error as { cause?: unknown }).cause).toBeUndefined()
     }
+  })
+})
+
+describe('ipc handlers: key check before saving', () => {
+  const set = (h: ReturnType<typeof harness>, extra: Record<string, unknown> = {}, provider = 'anthropic', value = KEY) =>
+    h.call(CHANNELS.secretsSetProviderKey, { provider, value, ...extra })
+
+  it('asks the checker once with the provider and the key, then saves a valid key and returns the verdict', async () => {
+    const h = harness({ verdict: { status: 'valid' } })
+    expect(await set(h)).toEqual({ verdict: { status: 'valid' } })
+    expect(h.keyCheck).toHaveBeenCalledTimes(1)
+    expect(h.keyCheck).toHaveBeenCalledWith('anthropic', KEY)
+    expect(await h.secrets.getProviderKey('anthropic')).toBe(KEY)
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
+  })
+
+  it('saves an unverified key and returns the verdict with its reason', async () => {
+    const h = harness({ verdict: { status: 'unverified', reason: 'network' } })
+    expect(await set(h)).toEqual({ verdict: { status: 'unverified', reason: 'network' } })
+    expect(await h.secrets.getProviderKey('anthropic')).toBe(KEY)
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses an invalid key with KEY_INVALID, saves nothing and does not restart the engine', async () => {
+    const h = harness({ verdict: { status: 'invalid', reason: 'unauthorized' } })
+    const error = await failure(set(h))
+    expect(hostErrorCode(error)).toBe('KEY_INVALID')
+    expect(error.message).toBe('KEY_INVALID')
+    expect(String(error.stack)).not.toContain(MARKER)
+    expect((error as { cause?: unknown }).cause).toBeUndefined()
+    expect(await h.secrets.configuredProviders()).toEqual([])
+    expect(await h.secrets.getProviderKey('anthropic')).toBeUndefined()
+    expect(h.supervisor.restart).not.toHaveBeenCalled()
+  })
+
+  it('keeps an earlier key when a new one is refused', async () => {
+    const h = harness()
+    await set(h)
+    h.keyCheck.mockResolvedValueOnce({ status: 'invalid', reason: 'rejected' })
+    expect(hostErrorCode(await failure(set(h, {}, 'anthropic', `${KEY}-new`)))).toBe('KEY_INVALID')
+    expect(await h.secrets.getProviderKey('anthropic')).toBe(KEY)
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
+  })
+
+  it('saves an invalid key when saveAnyway is true, still checks it, and returns the invalid verdict', async () => {
+    const h = harness({ verdict: { status: 'invalid', reason: 'unauthorized' } })
+    expect(await set(h, { options: { saveAnyway: true } })).toEqual({ verdict: { status: 'invalid', reason: 'unauthorized' } })
+    expect(h.keyCheck).toHaveBeenCalledTimes(1)
+    expect(await h.secrets.getProviderKey('anthropic')).toBe(KEY)
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses an invalid key when saveAnyway is false or absent from the options', async () => {
+    const h = harness({ verdict: { status: 'invalid', reason: 'rejected' } })
+    expect(hostErrorCode(await failure(set(h, { options: { saveAnyway: false } })))).toBe('KEY_INVALID')
+    expect(hostErrorCode(await failure(set(h, { options: {} })))).toBe('KEY_INVALID')
+    expect(await h.secrets.configuredProviders()).toEqual([])
+  })
+
+  it('restarts only when something was saved and the chosen provider changed', async () => {
+    const h = harness()
+    await set(h)
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
+    expect(await set(h)).toEqual({ verdict: { status: 'valid' } })
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
+    await set(h, {}, 'openai', `${KEY}-2`)
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
+    expect(await h.secrets.configuredProviders()).toEqual(['anthropic', 'openai'])
+  })
+
+  it('does not check or send anything when there is no keychain', async () => {
+    const h = harness({ available: false })
+    expect(hostErrorCode(await failure(set(h)))).toBe('NO_KEYCHAIN')
+    expect(h.keyCheck).not.toHaveBeenCalled()
+    expect(h.supervisor.restart).not.toHaveBeenCalled()
+  })
+
+  it('rejects arguments that do not validate before any request: unknown option, wrong type, over-long key', async () => {
+    const h = harness()
+    const bad: Array<Record<string, unknown>> = [
+      { options: { force: true } },
+      { options: { saveAnyway: 'yes' } },
+      { options: { saveAnyway: 1 } },
+      { options: 'saveAnyway' },
+      { options: null },
+      { saveAnyway: true },
+      { value: 'x'.repeat(MAX_SECRET_LENGTH + 1) },
+      { value: '' },
+    ]
+    for (const extra of bad) {
+      const error = await failure(h.call(CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: KEY, ...extra }))
+      expect(hostErrorCode(error), JSON.stringify(extra)).toBe('INVALID_ARGUMENTS')
+    }
+    expect(h.keyCheck).not.toHaveBeenCalled()
+    expect(h.supervisor.restart).not.toHaveBeenCalled()
+  })
+
+  it('accepts a key of the longest allowed length', async () => {
+    const h = harness()
+    const long = 'k'.repeat(MAX_SECRET_LENGTH)
+    expect(await set(h, {}, 'anthropic', long)).toEqual({ verdict: { status: 'valid' } })
+    expect(h.keyCheck).toHaveBeenCalledWith('anthropic', long)
+  })
+
+  it('turns a failing checker into INTERNAL without the key, and saves nothing', async () => {
+    const h = harness()
+    h.keyCheck.mockRejectedValueOnce(new Error(`checker broke ${KEY}`))
+    const error = await failure(set(h))
+    expect(error.message).toBe('INTERNAL')
+    expect(String(error.stack)).not.toContain(MARKER)
+    expect(await h.secrets.configuredProviders()).toEqual([])
+    expect(h.supervisor.restart).not.toHaveBeenCalled()
+  })
+
+  it('turns a checker answer that is not a verdict into INTERNAL', async () => {
+    const h = harness()
+    h.keyCheck.mockResolvedValueOnce({ status: 'maybe' } as never)
+    expect(hostErrorCode(await failure(set(h)))).toBe('INTERNAL')
+    expect(await h.secrets.configuredProviders()).toEqual([])
+  })
+
+  it('puts neither the key nor a verdict detail anywhere else: results, logs and errors carry only the fixed shapes', async () => {
+    const logs: string[] = []
+    const base = harness()
+    const handlers = createIpcHandlers({
+      config: base.config,
+      secrets: base.secrets,
+      supervisor: base.supervisor,
+      attachments: createAttachmentStore({ dir: join(dir, 'a') }),
+      dialog: base.dialog,
+      app: base.app,
+      loginItem: base.loginItem,
+      keyCheck: base.keyCheck,
+      log: (line) => logs.push(line),
+    })
+    const seen: unknown[] = []
+    for (const verdict of [
+      { status: 'valid' },
+      { status: 'unverified', reason: 'timeout' },
+      { status: 'invalid', reason: 'unauthorized' },
+    ] as KeyVerdict[]) {
+      base.keyCheck.mockResolvedValueOnce(verdict)
+      const outcome = await handlers[CHANNELS.secretsSetProviderKey]({ provider: 'openai', value: `${KEY}-${verdict.status}` }).then(
+        (result) => result,
+        (error: Error) => ({ message: error.message, stack: error.stack }),
+      )
+      seen.push(outcome)
+    }
+    expect(JSON.stringify([seen, logs])).not.toContain(MARKER)
+    expect(validateResult(CHANNELS.secretsSetProviderKey, seen[0])).toBe(true)
+    expect(validateResult(CHANNELS.secretsSetProviderKey, seen[1])).toBe(true)
   })
 })
 
@@ -391,6 +549,7 @@ describe('ipc handlers: dialogs and attachments', () => {
       dialog: h.dialog,
       app: h.app,
       loginItem: h.loginItem,
+      keyCheck: h.keyCheck,
     })
     expect(await failure(full[CHANNELS.attachmentsAddFromBytes]({ name: 'a.txt', bytes: new Uint8Array([1]) }))).toMatchObject({ message: 'ATTACHMENT_REJECTED' })
   })

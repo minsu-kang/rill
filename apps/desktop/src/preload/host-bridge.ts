@@ -55,7 +55,8 @@ export function createHostApi(ipc: IpcLike): HostApi {
       update: (patch) => call(CHANNELS.settingsUpdate, patch),
     },
     secrets: {
-      setProviderKey: (provider, value) => call(CHANNELS.secretsSetProviderKey, { provider, value }),
+      setProviderKey: (provider, value, options) =>
+        call(CHANNELS.secretsSetProviderKey, options === undefined ? { provider, value } : { provider, value, options }),
       clearProviderKey: (provider) => call(CHANNELS.secretsClearProviderKey, { provider }),
       setConnection: (connection) => call(CHANNELS.secretsSetConnection, { name: connection.name, kind: connection.kind, secret: connection.secret }),
       removeConnection: (name) => call(CHANNELS.secretsRemoveConnection, { name }),

@@ -68,6 +68,9 @@ describe('argument schemas', () => {
       [CHANNELS.settingsUpdate, { model: null }],
       [CHANNELS.settingsUpdate, {}],
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k'.repeat(2000) }],
+      [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: {} }],
+      [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: { saveAnyway: true } }],
+      [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: { saveAnyway: false } }],
       [CHANNELS.secretsClearProviderKey, { provider: 'grok' }],
       [CHANNELS.secretsSetConnection, { name: 'n'.repeat(64), kind: 'http', secret: 's' }],
       [CHANNELS.secretsRemoveConnection, { name: 'team' }],
@@ -98,6 +101,9 @@ describe('argument schemas', () => {
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'a\u0000b' }],
       [CHANNELS.secretsSetConnection, { name: 'team', kind: 'http', secret: 'a\u0000b' }],
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', extra: true }],
+      [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: { force: true } }],
+      [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: { saveAnyway: 'true' } }],
+      [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: null }],
       [CHANNELS.secretsClearProviderKey, { provider: 'anthropic', value: 'k' }],
       [CHANNELS.secretsSetConnection, { name: 'team', kind: 'discord', secret: 's' }],
       [CHANNELS.secretsSetConnection, { name: 'team', secret: 's' }],
@@ -154,7 +160,8 @@ describe('result schemas', () => {
     expect(validateResult(CHANNELS.attachmentsAddFromPath, REF)).toBe(true)
     expect(validateResult(CHANNELS.dialogsPickFolder, undefined)).toBe(true)
     expect(validateResult(CHANNELS.dialogsPickFolder, '/a')).toBe(true)
-    expect(validateResult(CHANNELS.secretsSetProviderKey, undefined)).toBe(true)
+    expect(validateResult(CHANNELS.secretsSetProviderKey, { verdict: { status: 'valid' } })).toBe(true)
+    expect(validateResult(CHANNELS.secretsClearProviderKey, undefined)).toBe(true)
   })
 
   it('reject results with extra fields, such as a secret', () => {
@@ -217,6 +224,37 @@ describe('provider table', () => {
 
   it('lists the three connection kinds the engine accepts', () => {
     expect([...CONNECTION_KINDS]).toEqual(['slack', 'http', 'webhookSecret'])
+  })
+})
+
+describe('key check contract', () => {
+  const result = (verdict: unknown) => validateResult(CHANNELS.secretsSetProviderKey, { verdict })
+
+  it('accepts exactly the three verdicts with their reasons', () => {
+    expect(result({ status: 'valid' })).toBe(true)
+    for (const reason of ['unauthorized', 'rejected', 'malformed']) expect(result({ status: 'invalid', reason }), reason).toBe(true)
+    for (const reason of ['forbidden', 'rate_limited', 'server_error', 'network', 'timeout', 'unexpected_status']) {
+      expect(result({ status: 'unverified', reason }), reason).toBe(true)
+    }
+  })
+
+  it('rejects another status, a reason of the other kind, a missing reason and extra fields', () => {
+    expect(result({ status: 'maybe' })).toBe(false)
+    expect(result({ status: 'invalid' })).toBe(false)
+    expect(result({ status: 'unverified' })).toBe(false)
+    expect(result({ status: 'invalid', reason: 'timeout' })).toBe(false)
+    expect(result({ status: 'unverified', reason: 'unauthorized' })).toBe(false)
+    expect(result({ status: 'valid', reason: 'network' })).toBe(false)
+    expect(result({ status: 'unverified', reason: 'network', body: 'text' })).toBe(false)
+    expect(result(undefined)).toBe(false)
+    expect(validateResult(CHANNELS.secretsSetProviderKey, undefined)).toBe(false)
+    expect(validateResult(CHANNELS.secretsSetProviderKey, { verdict: { status: 'valid' }, key: 'k' })).toBe(false)
+  })
+
+  it('names KEY_INVALID among the host error codes and reads it out of a remote error', () => {
+    expect(HOST_ERROR_CODES).toContain('KEY_INVALID')
+    expect(hostErrorCode(new Error("Error invoking remote method 'rill:secrets:set-provider-key': Error: KEY_INVALID"))).toBe('KEY_INVALID')
+    expect(hostErrorCode(new Error('KEY_INVALIDS'))).toBe('INTERNAL')
   })
 })
 

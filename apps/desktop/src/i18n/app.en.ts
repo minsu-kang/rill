@@ -12,6 +12,7 @@ export const appEn: Record<keyof typeof appKo, string> = {
   'app.error.host.SECRETS_UNREADABLE': 'The saved secrets cannot be read. Enter the keys and connections again.',
   'app.error.host.ENGINE_UNAVAILABLE': 'The engine is not available. Wait until it has restarted.',
   'app.error.host.ATTACHMENT_REJECTED': 'This file cannot be accepted.',
+  'app.error.host.KEY_INVALID': 'The provider did not accept this key. Check the key again. If you want to use it anyway, you can save it as it is.',
   'app.error.host.INTERNAL': 'An unknown error happened. Try again.',
   'app.engine.state.starting': 'Engine starting',
   'app.engine.state.running': 'Engine running',

@@ -4,6 +4,7 @@ import { createHostApi, type IpcLike } from '../src/preload/host-bridge'
 import { CHANNELS, ENGINE_STATUS_EVENT, HOST_API_METHODS, hostErrorCode, type AttachmentRef } from '../src/shared/host-api'
 
 const REF: AttachmentRef = { id: 'abcdefgh1234', mediaType: 'text/plain', name: 'a.txt', bytes: 3 }
+const VERDICT = { verdict: { status: 'valid' } }
 const SETTINGS = { allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [], encryptionAvailable: true }
 
 type Handler = (event: unknown, payload: unknown) => void
@@ -67,6 +68,7 @@ describe('preload bridge: calls', () => {
       [CHANNELS.settingsUpdate]: SETTINGS,
       [CHANNELS.attachmentsAddFromPath]: REF,
       [CHANNELS.attachmentsAddFromBytes]: REF,
+      [CHANNELS.secretsSetProviderKey]: VERDICT,
     })
     const api = createHostApi(ipc)
     await api.engine.info()
@@ -75,6 +77,7 @@ describe('preload bridge: calls', () => {
     await api.settings.get()
     await api.settings.update({ openAtLogin: true })
     await api.secrets.setProviderKey('anthropic', 'k')
+    await api.secrets.setProviderKey('openai', 'k2', { saveAnyway: true })
     await api.secrets.clearProviderKey('anthropic')
     await api.secrets.setConnection({ name: 'team', kind: 'slack', secret: 's' })
     await api.secrets.removeConnection('team')
@@ -90,6 +93,7 @@ describe('preload bridge: calls', () => {
       [CHANNELS.settingsGet],
       [CHANNELS.settingsUpdate, { openAtLogin: true }],
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k' }],
+      [CHANNELS.secretsSetProviderKey, { provider: 'openai', value: 'k2', options: { saveAnyway: true } }],
       [CHANNELS.secretsClearProviderKey, { provider: 'anthropic' }],
       [CHANNELS.secretsSetConnection, { name: 'team', kind: 'slack', secret: 's' }],
       [CHANNELS.secretsRemoveConnection, { name: 'team' }],
@@ -108,6 +112,9 @@ describe('preload bridge: calls', () => {
     const attempts: Array<Promise<unknown>> = [
       api.secrets.setProviderKey('anthropic', ''),
       api.secrets.setProviderKey('nope' as never, 'k'),
+      api.secrets.setProviderKey('anthropic', 'k', { force: true } as never),
+      api.secrets.setProviderKey('anthropic', 'k', { saveAnyway: 'yes' } as never),
+      api.secrets.setProviderKey('anthropic', 'k', 'saveAnyway' as never),
       api.secrets.setConnection({ name: 'a', kind: 'ftp' as never, secret: 's' }),
       api.settings.update({ extra: 1 } as never),
       api.attachments.addFromPath(5 as never),
@@ -135,6 +142,33 @@ describe('preload bridge: calls', () => {
     const second = await api.secrets.removeConnection('team').catch((error: Error) => error)
     expect((second as Error).message).toBe('INTERNAL')
     expect(String((second as Error).stack)).not.toContain('SECRET')
+  })
+
+  it('lets KEY_INVALID cross as the code only', async () => {
+    const refused = new Error("Error invoking remote method 'rill:secrets:set-provider-key': Error: KEY_INVALID sk-ant-SECRET")
+    const { ipc } = fakeIpc({ [CHANNELS.secretsSetProviderKey]: refused })
+    const error = await createHostApi(ipc).secrets.setProviderKey('anthropic', 'k').catch((caught: Error) => caught)
+    expect(hostErrorCode(error)).toBe('KEY_INVALID')
+    expect((error as Error).message).toBe('KEY_INVALID')
+    expect(String((error as Error).stack)).not.toContain('SECRET')
+  })
+
+  it('returns the verdict of setProviderKey and rejects a result that is not one', async () => {
+    const verdicts = [
+      { verdict: { status: 'valid' } },
+      { verdict: { status: 'invalid', reason: 'unauthorized' } },
+      { verdict: { status: 'unverified', reason: 'timeout' } },
+    ]
+    for (const result of verdicts) {
+      const { ipc } = fakeIpc({ [CHANNELS.secretsSetProviderKey]: result })
+      expect(await createHostApi(ipc).secrets.setProviderKey('anthropic', 'k')).toEqual(result)
+    }
+    const bad = [undefined, {}, { verdict: { status: 'maybe' } }, { verdict: { status: 'valid', body: 'leak' } }, { verdict: { status: 'invalid', reason: 'timeout' } }, { verdict: { status: 'valid' }, key: 'leak' }]
+    for (const result of bad) {
+      const { ipc } = fakeIpc({ [CHANNELS.secretsSetProviderKey]: result })
+      const error = await createHostApi(ipc).secrets.setProviderKey('anthropic', 'k').catch((caught: Error) => caught)
+      expect((error as Error).message, JSON.stringify(result)).toBe('INTERNAL')
+    }
   })
 
   it('rejects a result that does not match its schema', async () => {

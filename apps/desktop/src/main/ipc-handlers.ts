@@ -1,14 +1,17 @@
 import { ATTACHMENT_EXTENSIONS, AttachmentError, type AttachmentStore } from './attachments'
 import { ConfigError, normalizeFolder, type ConfigStore } from './config-store'
 import type { EngineSupervisor } from './engine-supervisor'
+import type { KeyChecker } from './key-check'
 import { SecretStoreError, type SecretStore } from './secret-store'
 import {
   CHANNELS,
   HostError,
+  isKeyVerdict,
   validateArgs,
   validateResult,
   type Channel,
   type ProviderId,
+  type SetProviderKeyOptions,
   type Settings,
   type SettingsPatch,
 } from '../shared/host-api'
@@ -34,6 +37,7 @@ export interface IpcDeps {
   dialog: DialogLike
   app: AppLike
   loginItem: { set(enabled: boolean): void }
+  keyCheck: KeyChecker
   log?: (message: string) => void
 }
 
@@ -122,8 +126,13 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
       if (engineChanged) restartEngine()
       return currentSettings()
     },
-    [CHANNELS.secretsSetProviderKey]: async ({ provider, value }: { provider: ProviderId; value: string }) => {
+    [CHANNELS.secretsSetProviderKey]: async ({ provider, value, options }: { provider: ProviderId; value: string; options?: SetProviderKeyOptions }) => {
+      if (!deps.secrets.encryptionAvailable()) throw new HostError('NO_KEYCHAIN')
+      const verdict = await deps.keyCheck(provider, value)
+      if (!isKeyVerdict(verdict)) throw new HostError('INTERNAL')
+      if (verdict.status === 'invalid' && options?.saveAnyway !== true) throw new HostError('KEY_INVALID')
       await keyChanged(provider, await deps.secrets.setProviderKey(provider, value))
+      return { verdict }
     },
     [CHANNELS.secretsClearProviderKey]: async ({ provider }: { provider: ProviderId }) => {
       await keyChanged(provider, await deps.secrets.clearProviderKey(provider))

@@ -3,18 +3,22 @@ import {
   CONNECTION_KINDS,
   ConnectionNameSchema,
   HostError,
+  KeyVerdictSchema,
   MAX_FILE_NAME_LENGTH,
   MAX_FOLDERS,
   ModelSchema,
   PROVIDER_IDS,
   SecretValueSchema,
+  SetProviderKeyOptionsSchema,
   findNameCollision,
   isByteInput,
   type AttachmentRef,
   type EngineInfo,
   type EngineStatus,
   type HostApi,
+  type KeyVerdict,
   type ProviderId,
+  type SetProviderKeyOptions,
   type Settings,
 } from '../shared/host-api'
 
@@ -33,9 +37,12 @@ export interface FakeHostSnapshot extends FakeHostState {
 
 export type FakeHost = HostApi & { state(): FakeHostSnapshot; setEngine(status: EngineStatus): void }
 
+export type FakeKeyCheck = (provider: ProviderId, key: string) => KeyVerdict | Promise<KeyVerdict>
+
 export interface FakeHostOptions {
   restartDelayMs?: number
   info?: EngineInfo
+  keyChecks?: FakeKeyCheck
 }
 
 const MIB = 1024 * 1024
@@ -105,6 +112,7 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
   const listeners = new Set<(status: EngineStatus) => void>()
   const delay = options.restartDelayMs ?? 150
   const info = options.info ?? FAKE_ENGINE_INFO
+  const keyChecks: FakeKeyCheck = options.keyChecks ?? (() => ({ status: 'valid' }))
   let restartCalls = 0
   let restartTimer: ReturnType<typeof setTimeout> | undefined
   let folderSerial = 0
@@ -200,11 +208,21 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
       },
     },
     secrets: {
-      async setProviderKey(provider: ProviderId, value: string) {
+      async setProviderKey(provider: ProviderId, value: string, options?: SetProviderKeyOptions) {
+        if (
+          !PROVIDER_IDS.includes(provider) ||
+          !Value.Check(SecretValueSchema, value) ||
+          (options !== undefined && !Value.Check(SetProviderKeyOptionsSchema, options))
+        ) {
+          throw new HostError('INVALID_ARGUMENTS')
+        }
         requireKeychain()
-        if (!PROVIDER_IDS.includes(provider) || !Value.Check(SecretValueSchema, value)) throw new HostError('INVALID_ARGUMENTS')
+        const verdict = await keyChecks(provider, value)
+        if (!Value.Check(KeyVerdictSchema, verdict)) throw new HostError('INTERNAL')
+        if (verdict.status === 'invalid' && options?.saveAnyway !== true) throw new HostError('KEY_INVALID')
         if (!settings.configuredProviders.includes(provider)) settings.configuredProviders = [...settings.configuredProviders, provider]
         if (settings.provider === provider) engineChanged()
+        return { verdict }
       },
       async clearProviderKey(provider) {
         requireKeychain()

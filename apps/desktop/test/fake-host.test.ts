@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createFakeHost, fakeSettings } from '../src/engine/fake-host'
-import { HostError, MAX_FOLDERS, hostErrorCode, type EngineStatus } from '../src/shared/host-api'
+import { HostError, MAX_FOLDERS, MAX_SECRET_LENGTH, hostErrorCode, type EngineStatus, type KeyVerdict } from '../src/shared/host-api'
 
 const MARKER = 'fake-secret-MARKER-0123456789'
 
@@ -111,6 +111,59 @@ describe('createFakeHost secrets', () => {
     expect(host.state().restartCalls).toBe(0)
     await host.secrets.setProviderKey('anthropic', MARKER)
     expect(host.state().restartCalls).toBe(1)
+  })
+})
+
+describe('createFakeHost key checks', () => {
+  it('answers valid by default and saves the key', async () => {
+    const host = createFakeHost()
+    expect(await host.secrets.setProviderKey('anthropic', MARKER)).toEqual({ verdict: { status: 'valid' } })
+    expect((await host.settings.get()).configuredProviders).toEqual(['anthropic'])
+  })
+
+  it('asks the check function with the provider and the key, once per call', async () => {
+    const keyChecks = vi.fn((): KeyVerdict => ({ status: 'unverified', reason: 'network' }))
+    const host = createFakeHost({}, { keyChecks })
+    expect(await host.secrets.setProviderKey('gemini', MARKER)).toEqual({ verdict: { status: 'unverified', reason: 'network' } })
+    expect(keyChecks).toHaveBeenCalledTimes(1)
+    expect(keyChecks).toHaveBeenCalledWith('gemini', MARKER)
+    expect((await host.settings.get()).configuredProviders).toEqual(['gemini'])
+  })
+
+  it('waits for a check function that answers later', async () => {
+    const host = createFakeHost({}, { keyChecks: async () => ({ status: 'valid' }) })
+    expect(await host.secrets.setProviderKey('openai', MARKER)).toEqual({ verdict: { status: 'valid' } })
+  })
+
+  it('refuses an invalid key with KEY_INVALID and saves nothing, unless saveAnyway is true', async () => {
+    const host = createFakeHost({}, { restartDelayMs: 0, keyChecks: () => ({ status: 'invalid', reason: 'unauthorized' }) })
+    expect(await codeOf(host.secrets.setProviderKey('anthropic', MARKER))).toBe('KEY_INVALID')
+    expect(await codeOf(host.secrets.setProviderKey('anthropic', MARKER, { saveAnyway: false }))).toBe('KEY_INVALID')
+    expect((await host.settings.get()).configuredProviders).toEqual([])
+    expect(host.state().restartCalls).toBe(0)
+    expect(await host.secrets.setProviderKey('anthropic', MARKER, { saveAnyway: true })).toEqual({ verdict: { status: 'invalid', reason: 'unauthorized' } })
+    expect((await host.settings.get()).configuredProviders).toEqual(['anthropic'])
+    expect(host.state().restartCalls).toBe(1)
+  })
+
+  it('mirrors the real argument checks: unknown option, wrong type, over-long key, and no check before them', async () => {
+    const keyChecks = vi.fn((): KeyVerdict => ({ status: 'valid' }))
+    const host = createFakeHost({}, { keyChecks })
+    expect(await codeOf(host.secrets.setProviderKey('anthropic', MARKER, { force: true } as never))).toBe('INVALID_ARGUMENTS')
+    expect(await codeOf(host.secrets.setProviderKey('anthropic', MARKER, { saveAnyway: 'yes' } as never))).toBe('INVALID_ARGUMENTS')
+    expect(await codeOf(host.secrets.setProviderKey('anthropic', 'k'.repeat(MAX_SECRET_LENGTH + 1)))).toBe('INVALID_ARGUMENTS')
+    expect(await codeOf(host.secrets.setProviderKey('nope' as never, MARKER))).toBe('INVALID_ARGUMENTS')
+    expect(keyChecks).not.toHaveBeenCalled()
+  })
+
+  it('does not check a key when there is no keychain, and refuses a function that does not return a verdict', async () => {
+    const keyChecks = vi.fn((): KeyVerdict => ({ status: 'valid' }))
+    const locked = createFakeHost({ settings: fakeSettings({ encryptionAvailable: false }) }, { keyChecks })
+    expect(await codeOf(locked.secrets.setProviderKey('anthropic', MARKER))).toBe('NO_KEYCHAIN')
+    expect(keyChecks).not.toHaveBeenCalled()
+    const odd = createFakeHost({}, { keyChecks: () => ({ status: 'maybe' }) as never })
+    expect(await codeOf(odd.secrets.setProviderKey('anthropic', MARKER))).toBe('INTERNAL')
+    expect((await odd.settings.get()).configuredProviders).toEqual([])
   })
 })
 

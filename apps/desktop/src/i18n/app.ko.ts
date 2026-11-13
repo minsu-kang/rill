@@ -10,6 +10,7 @@ export const appKo = {
   'app.error.host.SECRETS_UNREADABLE': '저장된 비밀값을 읽을 수 없어요. 키와 연결을 다시 입력해 주세요.',
   'app.error.host.ENGINE_UNAVAILABLE': '엔진을 쓸 수 없어요. 엔진이 다시 시작될 때까지 기다려 주세요.',
   'app.error.host.ATTACHMENT_REJECTED': '이 파일은 받을 수 없어요.',
+  'app.error.host.KEY_INVALID': '이 키는 제공사가 받아 주지 않았어요. 키를 다시 확인해 주세요. 그래도 쓰려면 그대로 저장할 수 있어요.',
   'app.error.host.INTERNAL': '알 수 없는 오류가 났어요. 다시 시도해 주세요.',
   'app.engine.state.starting': '엔진 시작 중',
   'app.engine.state.running': '엔진 실행 중',

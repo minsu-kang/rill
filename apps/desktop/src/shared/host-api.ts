@@ -78,7 +78,30 @@ export const SettingsPatchSchema = Type.Object(
   closed,
 )
 
-export const SetProviderKeyArgsSchema = Type.Object({ provider: ProviderIdSchema, value: SecretValueSchema }, closed)
+export const KEY_INVALID_REASONS = ['unauthorized', 'rejected', 'malformed'] as const
+export const KEY_UNVERIFIED_REASONS = ['forbidden', 'rate_limited', 'server_error', 'network', 'timeout', 'unexpected_status'] as const
+
+const InvalidReasonSchema = Type.Union([Type.Literal('unauthorized'), Type.Literal('rejected'), Type.Literal('malformed')])
+const UnverifiedReasonSchema = Type.Union([
+  Type.Literal('forbidden'),
+  Type.Literal('rate_limited'),
+  Type.Literal('server_error'),
+  Type.Literal('network'),
+  Type.Literal('timeout'),
+  Type.Literal('unexpected_status'),
+])
+
+export const KeyVerdictSchema = Type.Union([
+  Type.Object({ status: Type.Literal('valid') }, closed),
+  Type.Object({ status: Type.Literal('invalid'), reason: InvalidReasonSchema }, closed),
+  Type.Object({ status: Type.Literal('unverified'), reason: UnverifiedReasonSchema }, closed),
+])
+export const SetProviderKeyOptionsSchema = Type.Object({ saveAnyway: Type.Optional(Type.Boolean()) }, closed)
+export const SetProviderKeyArgsSchema = Type.Object(
+  { provider: ProviderIdSchema, value: SecretValueSchema, options: Type.Optional(SetProviderKeyOptionsSchema) },
+  closed,
+)
+export const SetProviderKeyResultSchema = Type.Object({ verdict: KeyVerdictSchema }, closed)
 export const ClearProviderKeyArgsSchema = Type.Object({ provider: ProviderIdSchema }, closed)
 export const SetConnectionArgsSchema = Type.Object(
   { name: ConnectionNameSchema, kind: ConnectionKindSchema, secret: SecretValueSchema },
@@ -99,6 +122,11 @@ export type Settings = Type.Static<typeof SettingsSchema>
 export type SettingsPatch = Type.Static<typeof SettingsPatchSchema>
 export type ConnectionSummary = Type.Static<typeof ConnectionSummarySchema>
 export type EngineState = EngineStatus['state']
+export type KeyVerdict = Type.Static<typeof KeyVerdictSchema>
+export type KeyInvalidReason = Type.Static<typeof InvalidReasonSchema>
+export type KeyUnverifiedReason = Type.Static<typeof UnverifiedReasonSchema>
+export type SetProviderKeyOptions = Type.Static<typeof SetProviderKeyOptionsSchema>
+export type SetProviderKeyResult = Type.Static<typeof SetProviderKeyResultSchema>
 
 export interface HostApi {
   engine: {
@@ -112,7 +140,7 @@ export interface HostApi {
     update(patch: SettingsPatch): Promise<Settings>
   }
   secrets: {
-    setProviderKey(provider: ProviderId, value: string): Promise<void>
+    setProviderKey(provider: ProviderId, value: string, options?: SetProviderKeyOptions): Promise<SetProviderKeyResult>
     clearProviderKey(provider: ProviderId): Promise<void>
     setConnection(connection: { name: string; kind: ConnectionKind; secret: string }): Promise<void>
     removeConnection(name: string): Promise<void>
@@ -166,7 +194,7 @@ export const CONTRACTS: Record<Channel, { args: Type.TSchema; result: Type.TSche
   [CHANNELS.engineRestart]: { args: Type.Undefined(), result: Type.Undefined() },
   [CHANNELS.settingsGet]: { args: Type.Undefined(), result: SettingsSchema },
   [CHANNELS.settingsUpdate]: { args: SettingsPatchSchema, result: SettingsSchema },
-  [CHANNELS.secretsSetProviderKey]: { args: SetProviderKeyArgsSchema, result: Type.Undefined() },
+  [CHANNELS.secretsSetProviderKey]: { args: SetProviderKeyArgsSchema, result: SetProviderKeyResultSchema },
   [CHANNELS.secretsClearProviderKey]: { args: ClearProviderKeyArgsSchema, result: Type.Undefined() },
   [CHANNELS.secretsSetConnection]: { args: SetConnectionArgsSchema, result: Type.Undefined() },
   [CHANNELS.secretsRemoveConnection]: { args: RemoveConnectionArgsSchema, result: Type.Undefined() },
@@ -185,6 +213,10 @@ export function validateArgs(channel: Channel, args: unknown): boolean {
 
 export function validateResult(channel: Channel, result: unknown): boolean {
   return Value.Check(CONTRACTS[channel].result, result)
+}
+
+export function isKeyVerdict(value: unknown): value is KeyVerdict {
+  return Value.Check(KeyVerdictSchema, value)
 }
 
 export function validateStatus(value: unknown): value is EngineStatus {
@@ -214,6 +246,7 @@ export const HOST_ERROR_CODES = [
   'SECRETS_UNREADABLE',
   'ENGINE_UNAVAILABLE',
   'ATTACHMENT_REJECTED',
+  'KEY_INVALID',
   'INTERNAL',
 ] as const
 export type HostErrorCode = (typeof HOST_ERROR_CODES)[number]

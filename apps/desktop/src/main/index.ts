@@ -8,6 +8,7 @@ import { createAttachmentStore } from './attachments'
 import { createConfigStore } from './config-store'
 import { createEngineSupervisor, type ForkLike } from './engine-supervisor'
 import { createIpcHandlers, type DialogLike } from './ipc-handlers'
+import { createKeyChecker } from './key-check'
 import { applyLoginItem, launchedHidden } from './login-item'
 import { createSecretStore, type SafeStorageLike } from './secret-store'
 import { runSmoke, watchCspConsole } from './smoke'
@@ -81,6 +82,7 @@ async function start(): Promise<void> {
     dialog: dialogAdapter,
     app: { quit: () => app.quit() },
     loginItem: { set: (enabled) => applyLoginItem(app, enabled) },
+    keyCheck: createKeyChecker({ fetch: (url, init) => fetch(url, init) }),
     log,
   })
   const updateSettings = handlers[CHANNELS.settingsUpdate]
