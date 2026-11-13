@@ -141,4 +141,25 @@ export const Patch: Story = {
   render: () => <Demo world={patchWorld} editContext={{ workflowId: 'wf-receipt', nodeId: 'extract' }} initialEntries={patchEntries} initialDraft="그리고 금액이 10만원을 넘으면 따로 알려 줘" />,
 }
 
+async function pressAll(canvasElement: HTMLElement, selector: string, times: number): Promise<void> {
+  for (let round = 0; round < times; round += 1) {
+    canvasElement.querySelector<HTMLButtonElement>(selector)?.click()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  }
+}
+
+export const ThreeChats: Story = {
+  name: 'Three chats',
+  args: unused,
+  render: () => <Demo world={plainWorld} initialEntries={patchEntries} />,
+  play: ({ canvasElement }) => pressAll(canvasElement, '[data-rill-new-tab]', 2),
+}
+
+export const CloseConfirmation: Story = {
+  name: 'Close confirmation',
+  args: unused,
+  render: () => <Demo world={plainWorld} initialEntries={patchEntries} />,
+  play: ({ canvasElement }) => pressAll(canvasElement, '[data-rill-cell] button', 1),
+}
+
 export const EditContextWithoutModel: Story = { name: 'Edit context without a model', args: unused, render: () => <Demo world={nothingWorld} editContext={{ workflowId: 'wf-receipt' }} /> }

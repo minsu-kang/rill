@@ -30,6 +30,13 @@ async function ready(): Promise<void> {
   await screen.findByText('Anthropic · Claude Opus 5.5')
 }
 
+const newTabButton = (): HTMLButtonElement => screen.getByRole('button', { name: 'Open a new chat' }) as HTMLButtonElement
+
+function closeActiveTab(confirm = true): void {
+  fireEvent.click(screen.getByRole('button', { name: /^Close / }))
+  if (confirm) fireEvent.click(screen.getByRole('button', { name: 'Close the chat' }))
+}
+
 function openOptions(): void {
   const toggle = screen.getByRole('button', { name: 'Options' })
   if (toggle.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle)
@@ -153,7 +160,7 @@ describe('ChatPanel: cancel and errors', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('Planning was cancelled')
     expect(box().value).toBe('this never answers')
     expect(sendButton().disabled).toBe(false)
-    expect((screen.getByRole('button', { name: 'New chat' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(newTabButton().disabled).toBe(false)
     expect(world.callsOf('cancelPlan')).toHaveLength(1)
   })
 
@@ -425,7 +432,7 @@ describe('ChatPanel: effort, memory, edit context, attachments', () => {
     expect(screen.queryByText('Attachments 1/5')).toBeNull()
   })
 
-  it('asks the port to remove the unsent files on a new chat, and keeps the ones that were sent', async () => {
+  it('asks the port to remove the unsent files when the chat is closed, and keeps the ones that were sent', async () => {
     const remove = vi.fn(async () => undefined)
     show({}, { port: { ...port, remove } })
     await ready()
@@ -436,7 +443,7 @@ describe('ChatPanel: effort, memory, edit context, attachments', () => {
     await screen.findByText(workflowSummary)
     fireEvent.change(input, { target: { files: [new File(['hello'], 'unsent-file.txt', { type: 'text/plain' })] } })
     await waitFor(() => expect(screen.getByText('Attachments 1/5')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
+    closeActiveTab()
     expect(remove).toHaveBeenCalledTimes(1)
     expect(remove).toHaveBeenCalledWith('att-panel-15-xxxxxxxx')
     expect(screen.queryByText('Attachments 1/5')).toBeNull()
@@ -466,15 +473,16 @@ describe('ChatPanel: effort, memory, edit context, attachments', () => {
     expect(remove).toHaveBeenCalledWith('att-panel-12-xxxxxxxx')
   })
 
-  it('survives a port without remove or whose remove fails on a new chat and on unmount', async () => {
+  it('survives a port without remove or whose remove fails when a chat is closed and on unmount', async () => {
     for (const remove of [undefined, vi.fn(() => Promise.reject(new Error('no')))]) {
       const { unmount } = show({}, { port: remove === undefined ? port : { ...port, remove } })
       await ready()
       const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
       fireEvent.change(input, { target: { files: [new File(['hello'], 'a.txt', { type: 'text/plain' })] } })
       await waitFor(() => expect(screen.getByText('Attachments 1/5')).toBeTruthy())
-      fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
-      fireEvent.change(input, { target: { files: [new File(['hello'], 'b.txt', { type: 'text/plain' })] } })
+      await act(async () => undefined)
+      closeActiveTab()
+      fireEvent.change(document.querySelector<HTMLInputElement>('input[type="file"]')!, { target: { files: [new File(['hello'], 'b.txt', { type: 'text/plain' })] } })
       await waitFor(() => expect(screen.getByText('Attachments 1/5')).toBeTruthy())
       unmount()
     }
@@ -494,28 +502,39 @@ describe('ChatPanel: effort, memory, edit context, attachments', () => {
 })
 
 describe('ChatPanel: new chat and the turn limit', () => {
-  it('starts a new chat: the conversation goes and the effort stays', async () => {
+  it('opens a new chat tab with an empty conversation and the defaults, and keeps the first one', async () => {
     show()
     await ready()
     fireEvent.click(screen.getByRole('radio', { name: 'Careful' }))
     ask('first request')
     await screen.findByText(workflowSummary)
-    fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
-    expect(screen.queryByText(workflowSummary)).toBeNull()
+    fireEvent.click(newTabButton())
     expect(screen.queryByRole('article')).toBeNull()
     expect(screen.getByText('What would you like to automate?')).toBeTruthy()
-    expect(screen.getByRole('radio', { name: 'Careful' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: 'Normal' }).getAttribute('aria-checked')).toBe('true')
     expect(box().value).toBe('')
+    fireEvent.click(screen.getByRole('tab', { name: 'first request' }))
+    expect(screen.getByText(workflowSummary)).toBeTruthy()
+    expect(screen.getByRole('radio', { name: 'Careful' }).getAttribute('aria-checked')).toBe('true')
   })
 
-  it('cannot start a new chat while a plan is running', async () => {
+  it('can open a new chat while a plan is running in another one', async () => {
     show({ script: scripted(['hang']) })
     await ready()
     ask('x')
     await screen.findByRole('button', { name: 'Cancel' })
-    expect((screen.getByRole('button', { name: 'New chat' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(newTabButton().disabled).toBe(false)
+    fireEvent.click(newTabButton())
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: 'x' }))
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     await screen.findByRole('alert')
+  })
+
+  it('has no New chat button any more', async () => {
+    show()
+    await ready()
+    expect(screen.queryByRole('button', { name: 'New chat' })).toBeNull()
   })
 
   const pairs = (count: number): ConversationEntry[] =>

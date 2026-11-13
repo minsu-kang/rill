@@ -23,7 +23,7 @@ export interface ExplainActionDeps {
   selectRun?(runId: string): void
 }
 
-export const COMPOSER = 'textarea[data-rill-composer]'
+export const COMPOSER = 'textarea[data-rill-composer]:not([data-rill-inactive])'
 const PATH_KEYS = ['file', 'path']
 const MAX_PATH_SHOWN = 240
 

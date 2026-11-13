@@ -33,6 +33,7 @@ export interface ComposerProps {
   onSend(): void
   onCancel(): void
   onClearEditContext(): void
+  inactive?: boolean
 }
 
 function PaperclipIcon() {
@@ -216,6 +217,7 @@ export function Composer(props: ComposerProps) {
       <textarea
         ref={text}
         data-rill-composer=""
+        {...(props.inactive === true ? { 'data-rill-inactive': '' } : {})}
         className={styles.text}
         aria-label={t('chat.composer.label')}
         placeholder={t('chat.composer.placeholder')}

@@ -80,35 +80,6 @@ button.modelText:hover {
   cursor: not-allowed;
 }
 
-.view {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.view[hidden] {
-  display: none;
-}
-
-.log {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--space-3);
-  min-height: 0;
-  padding: var(--space-4);
-  overflow-y: auto;
-}
-
-.bottom {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4) var(--space-4);
-  border-top: 1px solid var(--border-subtle);
-}
-
 .page {
   flex: 1;
   min-height: 0;
@@ -116,80 +87,19 @@ button.modelText:hover {
   overflow-y: auto;
 }
 
-.empty {
+.conversations {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-4) 0;
+  min-height: 0;
 }
 
-.emptyTitle {
-  margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: 700;
+.conversations[hidden] {
+  display: none;
 }
 
-.emptyHint,
 .note {
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
-}
-
-.examples {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.example {
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  text-align: left;
-  cursor: pointer;
-}
-
-.example:disabled {
-  color: var(--text-muted);
-  cursor: not-allowed;
-}
-
-.summary {
-  margin: 0;
-}
-
-.thinking {
-  align-self: flex-start;
-  padding: var(--space-2) var(--space-3);
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-lg);
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.noModel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-3);
-  border: 1px solid var(--status-abandoned-border);
-  border-radius: var(--radius-md);
-  background: var(--status-abandoned-bg);
-  color: var(--status-abandoned-text);
-}
-
-.noModel .note {
-  color: inherit;
-}
-
-.row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
 }

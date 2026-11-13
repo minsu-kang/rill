@@ -561,6 +561,42 @@ describe('transfer badge, dialogs and the chat drawer', () => {
   })
 })
 
+describe('chat tabs and the chat aside', () => {
+  it('keeps every chat tab, draft and conversation while the aside is closed and opened again', async () => {
+    const { user, view } = mount({ hostInit: { settings: KEYED } })
+    const toggle = await screen.findByRole('button', { name: t('app.top.chat.open') })
+    const chat = view.container.querySelector('[data-rill-region="chat"]') as HTMLElement
+    await user.click(toggle)
+    expect(chat.getAttribute('data-open')).toBe('true')
+    const composer = (): HTMLTextAreaElement => within(chat).getByRole('textbox', { name: t('chat.composer.label') }) as HTMLTextAreaElement
+    await within(chat).findByText('Anthropic · Claude Opus 5.5')
+    await user.type(composer(), '첫 번째 초안')
+    await user.click(within(chat).getByRole('button', { name: t('chat.tabs.new') }))
+    await user.type(composer(), '두 번째 초안')
+    await user.click(composer())
+    await user.keyboard('{Escape}')
+    expect(chat.getAttribute('data-open')).toBe('false')
+    await user.click(toggle)
+    expect(chat.getAttribute('data-open')).toBe('true')
+    const tabs = within(chat).getAllByRole('tab')
+    expect(tabs).toHaveLength(2)
+    expect(tabs[1]!.getAttribute('aria-selected')).toBe('true')
+    expect(composer().value).toBe('두 번째 초안')
+    await user.click(tabs[0]!)
+    expect(composer().value).toBe('첫 번째 초안')
+  })
+
+  it('keeps the chat tabs when the person visits another screen and comes back', async () => {
+    const { user } = mount({ hostInit: { settings: KEYED } })
+    await connected()
+    const chat = screen.getByRole('complementary', { name: t('app.region.chat') })
+    await user.click(await within(chat).findByRole('button', { name: t('chat.tabs.new') }))
+    await user.click(tab('설정'))
+    await user.click(tab('워크플로우'))
+    expect(within(chat).getAllByRole('tab')).toHaveLength(2)
+  })
+})
+
 describe('secrets', () => {
   it('keeps every secret out of the page after a scripted session with the fake host', async () => {
     const { user, world } = mount({ hostInit: { settings: KEYED }, initial: { workflowId: ids.workflows.receipt, runId: ids.runs.receiptFailed } })
