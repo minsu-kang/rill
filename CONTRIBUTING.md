@@ -9,6 +9,7 @@ Every path has one code owner, @minsu-kang (`.github/CODEOWNERS`). A pull reques
 - Run `pnpm check`. It runs the linter, the type check and every test, and it must pass.
 - Keep a change to one purpose, and add or update the tests that prove it.
 - Read `AGENTS.md` and the `AGENTS.md` of each package you change. They list the rules that tests enforce and the things that are easy to break.
+- By opening a pull request you agree that your contribution is licensed under the MIT License of this repository.
 - Do not commit secrets, real receipts or personal data. The evaluation data is synthetic, and the folders `packages/eval/results/` and `apps/desktop/release/` stay out of git.
 
 ## Pull request titles and releases

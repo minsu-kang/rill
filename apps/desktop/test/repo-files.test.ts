@@ -186,3 +186,20 @@ describe('the release setup', () => {
     for (const type of ['feat', 'fix']) expect(validate).toMatch(new RegExp(`\\n {12}${type}\\n`))
   })
 })
+
+describe('the license', () => {
+  it('is the MIT License of the maintainer, named in the license file, the root package and the README', () => {
+    const license = read('LICENSE')
+    expect(license.startsWith('MIT License\n')).toBe(true)
+    expect(license).toContain('Copyright (c) 2026 Minsu Kang')
+    expect(license).toContain('Permission is hereby granted, free of charge')
+    expect((JSON.parse(read('package.json')) as { license: string }).license).toBe('MIT')
+    expect(read('README.md')).toMatch(/## License\n\nMIT\. See \[LICENSE\]\(LICENSE\)\./)
+  })
+
+  it('says in the README that the project is unrelated to Rill Data and that product names belong to their owners', () => {
+    const readme = read('README.md')
+    expect(readme).toContain('unrelated to Rill Data, Inc. and its open-source BI tool of the same name')
+    expect(readme).toContain('are trademarks of their owners')
+  })
+})

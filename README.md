@@ -8,7 +8,7 @@ Rill is a desktop app for macOS. You type what you want ("when a receipt PDF lan
 
 Status: early development, not released. The engine, the planner, the five model providers, the recipes, the failure explanation and every screen of the app are built and tested. The macOS installer (ad hoc signed, not notarized) builds. The planner evaluation has run twice, on one model (see [Evaluation](#evaluation)).
 
-Rill is an independent project and has no affiliation with any workflow-automation vendor.
+Rill is an independent project. It has no affiliation with any workflow-automation vendor, and it is unrelated to Rill Data, Inc. and its open-source BI tool of the same name. All product and company names mentioned here, such as Slack, Google, Microsoft, Anthropic and OpenAI, are trademarks of their owners.
 
 ## The demo scene
 
@@ -204,7 +204,7 @@ How to read it:
 
 ## License
 
-To be decided before the repository goes public.
+MIT. See [LICENSE](LICENSE).
 
 ## Contributing
 
