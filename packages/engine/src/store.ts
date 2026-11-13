@@ -1,7 +1,23 @@
 import { randomUUID } from 'node:crypto'
 import type { Workflow } from '@rill/dsl'
 import type { Journal, JournalEntry } from '@rill/nodes-core'
-import { MEMORY_MAX_ITEMS, RULE_MAX_ITEMS, type AttachmentRef, type MemoryItem, type PlanMeta, type PlanResultBody, type PlanSummary, type Rule, type RuleKind } from '@rill/protocol'
+import {
+  AGENT_DEFAULT_ID,
+  AGENT_MAX_ITEMS,
+  MEMORY_MAX_ITEMS,
+  RULE_MAX_ITEMS,
+  agentNameKey,
+  type Agent,
+  type AgentFields,
+  type AttachmentRef,
+  type MemoryItem,
+  type PlanMeta,
+  type PlanResultBody,
+  type PlanSummary,
+  type Rule,
+  type RuleKind,
+} from '@rill/protocol'
+import { AgentBuiltinError, AgentDuplicateError, AgentFullError, AgentNotFoundError, builtinAgent, normaliseAgent } from './agents'
 import type { Db } from './db'
 import { MemoryDuplicateError, MemoryFullError, memoryKey, normaliseMemoryText } from './memory'
 import { PlanDeployedError, PlanExistsError, PlanNotFoundError, type StoredPlan } from './plans'
@@ -167,6 +183,32 @@ interface RawMemory {
   updated_at: number
 }
 
+interface RawAgent {
+  id: string
+  name: string
+  description: string
+  persona: string
+  instructions: string
+  created_at: number
+  updated_at: number
+}
+
+const AGENT_COLUMNS = 'id, name, description, persona, instructions, created_at, updated_at'
+const ACTIVE_AGENT_KEY = 'active_agent'
+
+function toAgent(row: RawAgent): Agent {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    persona: row.persona,
+    instructions: row.instructions,
+    builtin: false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
 interface RawPlan {
   id: string
   created_at: number
@@ -183,10 +225,11 @@ interface RawPlan {
   workflow_id: string | null
   confirmed: string | null
   memory_ids: string
+  agent_id: string | null
 }
 
 const PLAN_COLUMNS =
-  'id, created_at, status, effort, model, request_text, attachments, result, meta, error, workflow_hash, flag_keys, workflow_id, confirmed, memory_ids'
+  'id, created_at, status, effort, model, request_text, attachments, result, meta, error, workflow_hash, flag_keys, workflow_id, confirmed, memory_ids, agent_id'
 
 function toStoredPlan(row: RawPlan): StoredPlan {
   return {
@@ -204,6 +247,7 @@ function toStoredPlan(row: RawPlan): StoredPlan {
     workflowId: row.workflow_id,
     confirmed: parseJson(row.confirmed) as string[] | null,
     memoryIds: JSON.parse(row.memory_ids) as string[],
+    ...(row.agent_id === null ? {} : { agentId: row.agent_id }),
     workflowHash: row.workflow_hash,
   }
 }
@@ -543,7 +587,7 @@ export class Store {
   savePlan(record: StoredPlan): void {
     const refs = record.attachments.map(({ id, mediaType, name, bytes }) => ({ id, mediaType, name, bytes }))
     const added = this.db.run(
-      `INSERT INTO plans (${PLAN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+      `INSERT INTO plans (${PLAN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
       record.planId,
       record.createdAt,
       record.status,
@@ -559,6 +603,7 @@ export class Store {
       record.workflowId,
       record.confirmed === null ? null : JSON.stringify(record.confirmed),
       JSON.stringify(record.memoryIds ?? []),
+      record.agentId ?? null,
     )
     if (added === 0) throw new PlanExistsError(record.planId)
   }
@@ -677,6 +722,88 @@ export class Store {
 
   deleteRule(id: string): boolean {
     return this.db.run('DELETE FROM rules WHERE id = ?', id) > 0
+  }
+
+  listAgents(): { agents: Agent[]; activeId: string } {
+    const rows = this.db.all<RawAgent>(`SELECT ${AGENT_COLUMNS} FROM agents ORDER BY name_key, rowid`).map(toAgent)
+    return { agents: [builtinAgent(), ...rows], activeId: this.activeAgentId() }
+  }
+
+  getAgent(id: string): Agent | undefined {
+    if (id === AGENT_DEFAULT_ID) return builtinAgent()
+    const row = this.db.get<RawAgent>(`SELECT ${AGENT_COLUMNS} FROM agents WHERE id = ?`, id)
+    return row === undefined ? undefined : toAgent(row)
+  }
+
+  saveAgent(input: AgentFields & { id?: string }): Agent {
+    if (input.id === AGENT_DEFAULT_ID) throw new AgentBuiltinError()
+    const fields = normaliseAgent(input)
+    const key = agentNameKey(fields.name)
+    return this.db.transaction(() => {
+      const at = this.now()
+      if (input.id !== undefined) {
+        const row = this.db.get<RawAgent>(`SELECT ${AGENT_COLUMNS} FROM agents WHERE id = ?`, input.id)
+        if (!row) throw new AgentNotFoundError()
+        if (this.db.get('SELECT 1 AS found FROM agents WHERE name_key = ? AND id != ?', key, input.id) !== undefined) throw new AgentDuplicateError()
+        this.db.run(
+          'UPDATE agents SET name = ?, name_key = ?, description = ?, persona = ?, instructions = ?, updated_at = ? WHERE id = ?',
+          fields.name,
+          key,
+          fields.description,
+          fields.persona,
+          fields.instructions,
+          at,
+          input.id,
+        )
+        return { ...toAgent(row), ...fields, updatedAt: at }
+      }
+      if (this.db.get('SELECT 1 AS found FROM agents WHERE name_key = ?', key) !== undefined) throw new AgentDuplicateError()
+      const count = this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM agents')?.n ?? 0
+      if (count >= AGENT_MAX_ITEMS) throw new AgentFullError(AGENT_MAX_ITEMS)
+      const id = randomUUID()
+      this.db.run(
+        'INSERT INTO agents (id, name, name_key, description, persona, instructions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        id,
+        fields.name,
+        key,
+        fields.description,
+        fields.persona,
+        fields.instructions,
+        at,
+        at,
+      )
+      return { id, ...fields, builtin: false, createdAt: at, updatedAt: at }
+    })
+  }
+
+  deleteAgent(id: string): boolean {
+    if (id === AGENT_DEFAULT_ID) throw new AgentBuiltinError()
+    return this.db.transaction(() => {
+      const deleted = this.db.run('DELETE FROM agents WHERE id = ?', id) > 0
+      if (deleted && this.storedActiveAgentId() === id) this.db.run('DELETE FROM app_state WHERE key = ?', ACTIVE_AGENT_KEY)
+      return deleted
+    })
+  }
+
+  setActiveAgent(id: string): void {
+    this.db.transaction(() => {
+      if (id === AGENT_DEFAULT_ID) {
+        this.db.run('DELETE FROM app_state WHERE key = ?', ACTIVE_AGENT_KEY)
+        return
+      }
+      if (this.db.get('SELECT 1 AS found FROM agents WHERE id = ?', id) === undefined) throw new AgentNotFoundError()
+      this.db.run('INSERT INTO app_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', ACTIVE_AGENT_KEY, id)
+    })
+  }
+
+  private storedActiveAgentId(): string | undefined {
+    return this.db.get<{ value: string }>('SELECT value FROM app_state WHERE key = ?', ACTIVE_AGENT_KEY)?.value
+  }
+
+  private activeAgentId(): string {
+    const stored = this.storedActiveAgentId()
+    if (stored === undefined || this.db.get('SELECT 1 AS found FROM agents WHERE id = ?', stored) === undefined) return AGENT_DEFAULT_ID
+    return stored
   }
 
   journal(): Journal {

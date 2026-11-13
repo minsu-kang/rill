@@ -35,7 +35,7 @@ describe('the rules migration', () => {
     raw.close()
 
     const db = Db.open(path)
-    expect(db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version').map((row) => row.version)).toEqual([1, 2, 3, 4, 5, 6])
+    expect(db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version').map((row) => row.version)).toEqual([1, 2, 3, 4, 5, 6, 7])
     expect(db.get('SELECT id, name, dsl, active, created_at FROM workflows')).toEqual({ id: 'w', name: 'wf', dsl: '{}', active: 1, created_at: 5 })
     expect(db.get('SELECT id, text, text_key FROM memory_items')).toEqual({ id: 'm', text: 'Note', text_key: 'note' })
     expect(db.all('SELECT * FROM rules')).toEqual([])

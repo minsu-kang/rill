@@ -1,5 +1,6 @@
 import { RetrySchema, WorkflowEdgeSchema, WorkflowNodeSchema, WorkflowSchema } from '@rill/dsl'
 import Type from 'typebox'
+import { AGENT_NAME_MAX_CHARS } from './agents'
 
 export const IdSchema = Type.String({ minLength: 1, maxLength: 128 })
 
@@ -152,6 +153,8 @@ export const PlanMetaSchema = Type.Object(
     costNote: Type.Optional(Type.String()),
     memoryUsed: Type.Optional(Type.Integer({ minimum: 0 })),
     memoryDropped: Type.Optional(Type.Integer({ minimum: 0 })),
+    agentUsed: Type.Optional(Type.Object({ id: IdSchema, name: Type.String({ minLength: 1, maxLength: AGENT_NAME_MAX_CHARS }) }, closed)),
+    agentDropped: Type.Optional(Type.Integer({ minimum: 0 })),
   },
   closed,
 )
@@ -174,6 +177,7 @@ export const PlanRecordSchema = Type.Object(
     workflowId: nullable(IdSchema),
     confirmed: nullable(Type.Array(Type.String())),
     memoryIds: Type.Optional(Type.Array(IdSchema)),
+    agentId: Type.Optional(IdSchema),
   },
   closed,
 )

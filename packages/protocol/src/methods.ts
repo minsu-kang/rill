@@ -1,5 +1,13 @@
 import { WorkflowSchema } from '@rill/dsl'
 import Type from 'typebox'
+import {
+  AGENT_DESCRIPTION_MAX_INPUT_CHARS,
+  AGENT_INSTRUCTIONS_MAX_INPUT_CHARS,
+  AGENT_MAX_ITEMS,
+  AGENT_NAME_MAX_INPUT_CHARS,
+  AGENT_PERSONA_MAX_INPUT_CHARS,
+  AgentSchema,
+} from './agents'
 import { ExplainEffortSchema, ExplainResultSchema } from './explain'
 import { LlmModelsResultSchema } from './llm'
 import { MEMORY_MAX_INPUT_CHARS, MEMORY_MAX_ITEMS, MemoryItemSchema } from './memory'
@@ -130,6 +138,7 @@ export const METHODS = {
         workflowId: Type.Optional(id),
         selection: Type.Optional(Type.Object({ nodeId: id }, closed)),
         useMemory: Type.Optional(Type.Boolean()),
+        agentId: Type.Optional(id),
       },
       closed,
     ),
@@ -184,8 +193,33 @@ export const METHODS = {
       ),
     }),
   },
+  listAgents: {
+    params: noParams,
+    result: Type.Object({ agents: Type.Array(AgentSchema, { maxItems: AGENT_MAX_ITEMS + 1 }), activeId: id }, closed),
+  },
+  saveAgent: {
+    params: Type.Object(
+      {
+        id: Type.Optional(id),
+        name: Type.String({ maxLength: AGENT_NAME_MAX_INPUT_CHARS }),
+        description: Type.String({ maxLength: AGENT_DESCRIPTION_MAX_INPUT_CHARS }),
+        persona: Type.String({ maxLength: AGENT_PERSONA_MAX_INPUT_CHARS }),
+        instructions: Type.String({ maxLength: AGENT_INSTRUCTIONS_MAX_INPUT_CHARS }),
+      },
+      closed,
+    ),
+    result: Type.Object({ agent: AgentSchema }, closed),
+  },
+  deleteAgent: {
+    params: Type.Object({ id }, closed),
+    result: Type.Object({ deleted: Type.Boolean() }),
+  },
+  setActiveAgent: {
+    params: Type.Object({ id }, closed),
+    result: noResult,
+  },
   explainRun: {
-    params: Type.Object({ runId: id, effort: Type.Optional(ExplainEffortSchema) }, closed),
+    params: Type.Object({ runId: id, effort: Type.Optional(ExplainEffortSchema), agentId: Type.Optional(id) }, closed),
     result: ExplainResultSchema,
   },
   listRecipes: {
@@ -228,6 +262,11 @@ export const ERROR_CODES = [
   'RULE_DUPLICATE',
   'RULE_NOT_FOUND',
   'RULE_VIOLATION',
+  'AGENT_INVALID',
+  'AGENT_FULL',
+  'AGENT_DUPLICATE',
+  'AGENT_NOT_FOUND',
+  'AGENT_BUILTIN',
   'RUN_NOT_EXPLAINABLE',
   'EXPLAIN_BUSY',
   'EXPLAIN_PROVIDER',

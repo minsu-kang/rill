@@ -126,7 +126,7 @@ Five methods turn a request into a workflow and deploy it after the user has con
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `plan` | `planId`, `text`, `turns`, `attachments`, `effort`, optional `workflowId`, `selection` and `useMemory` | `planId`, `result`, `meta` |
+| `plan` | `planId`, `text`, `turns`, `attachments`, `effort`, optional `workflowId`, `selection`, `useMemory` and `agentId` | `planId`, `result`, `meta` |
 | `cancelPlan` | `planId` | `cancelled` |
 | `getPlan` | `planId` | `plan` (the stored record) |
 | `listPlans` | optional `limit` (1 to 200) | `plans` (summaries, newest first) |
@@ -156,7 +156,7 @@ A flag marks a node field whose value did not come from the user's own words (`a
 
 ### Records and errors
 
-A record has the status `planned`, `failed` or `cancelled`, the effort, the request text, the attachment references, the ids of the memory notes the plan loaded (`memoryIds`), the result and the meta of a planned record, and the confirmed keys once it is deployed. A failed or cancelled record keeps a fixed error text and the redacted repair rounds, never the model's reply.
+A record has the status `planned`, `failed` or `cancelled`, the effort, the request text, the attachment references, the ids of the memory notes the plan loaded (`memoryIds`), the id of the agent when a saved agent was used (`agentId`, absent for the built-in agent and for plans stored before agents existed), the result and the meta of a planned record, and the confirmed keys once it is deployed. A failed or cancelled record keeps a fixed error text and the redacted repair rounds, never the model's reply.
 
 The meta of a planned record (returned by `plan` and stored in the record that `getPlan` returns) holds `rounds`, `usage`, `costUsd`, `model`, `effort` (the level the client asked for) and `fallbackUsed`, and these fields about the provider:
 
@@ -185,6 +185,11 @@ All four are optional in the protocol schema. A plan stored before they existed 
 | `MEMORY_INVALID` | The note breaks a rule; `problems` names the rule that failed, never the text |
 | `MEMORY_FULL` | The 20 note places are taken; delete one first |
 | `MEMORY_DUPLICATE` | A note with the same text, ignoring case and spacing, is already saved |
+| `AGENT_INVALID` | An agent text breaks a rule; `problems` lists `<field>.<rule>: <fixed sentence>`, never the text |
+| `AGENT_FULL` | The 12 agent places are taken; delete one first |
+| `AGENT_DUPLICATE` | An agent with the same name, ignoring case and spacing, is already saved |
+| `AGENT_NOT_FOUND` | A saved agent with this id does not exist (`saveAgent` with an `id`, `setActiveAgent`, and `agentId` on `plan` or `explainRun`) |
+| `AGENT_BUILTIN` | The built-in agent `default` cannot be saved over or deleted |
 
 ## Workflow checks
 
@@ -331,6 +336,37 @@ A `maxPlanEffort` rule lowers the effort of a `plan` request that is above it to
 ### Storage
 
 Migration 6 creates `rules` (`id`, `kind`, `value`, `created_at`, `UNIQUE (kind, value)`) and a unique partial index that allows one `maxPlanEffort` row. A database from before this migration migrates forward and keeps its data.
+
+## Agent methods
+
+An agent is a name with a persona and instructions that the user writes. The user picks the active one in the chat, and the planner and the failure explanation follow it. An agent is created, changed, deleted or made active only by an explicit request to one of these four methods. No plan, plan result, attachment, run data, imported file or model answer does it, and the planner package has no database access at all.
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `listAgents` | none | `agents`, the built-in agent first and then the saved agents by name, and `activeId` |
+| `saveAgent` | `name`, `description`, `persona`, `instructions`, optional `id` | `agent` |
+| `deleteAgent` | `id` | `deleted` |
+| `setActiveAgent` | `id` | nothing |
+
+An agent is `{ id, name, description, persona, instructions, builtin, createdAt, updatedAt }`. `saveAgent` without `id` creates an agent under a new random id (the client does not choose it). With an `id` it edits that agent: the id and `createdAt` stay and `updatedAt` moves, and an unknown id is `AGENT_NOT_FOUND`. `deleteAgent` answers `false` for an id that is not there. The four methods work when the engine has no model provider.
+
+The built-in agent has the id `default`. It is not stored: it is always the first entry of `listAgents` with `builtin: true`, an empty persona and empty instructions and both timestamps 0. It cannot be saved over or deleted (`AGENT_BUILTIN`), and `setActiveAgent` accepts it. An app shows its own translated name and description for it, never the text of the engine.
+
+The active agent is one row in the table `app_state` (key `active_agent`), and no row means `default`. `setActiveAgent` with an unknown id is `AGENT_NOT_FOUND`. Deleting the active agent makes `default` active again in the same transaction. A stored id that points at an agent that is not there reads as `default`. The engine itself never reads the active agent for a request: the client sends `agentId` with `plan` and `explainRun`, and an absent `agentId` means `default`, whatever the active agent is. An unknown `agentId` is `AGENT_NOT_FOUND`, answered before the model is called, before a plan record is written and before a plan id is used.
+
+### Rules for an agent
+
+`saveAgent` applies these rules before it stores anything (`normaliseAgentFields` in `@rill/protocol`, the same function the app uses for its hints):
+
+- Every field is normalised to NFC and trimmed. In the name and the description every run of spaces inside the text becomes one space. In the persona and the instructions the inner text is kept as it is.
+- The name has 1 to 60 characters and is one line. The description has 0 to 200 characters and is one line. The persona has 0 to 600 characters and the instructions 0 to 3000, and both may hold line feeds. Characters are counted as code points, so an emoji counts once.
+- No control character (a carriage return and a tab included; in the persona and the instructions only the line feed is allowed), no line or paragraph separator, no bidirectional formatting character, no invisible format character and no lone surrogate. These are the classes of a memory note; the zero-width joiner and non-joiner stay allowed.
+- No two agents have the same name once the case is folded (`Straße` and `STRASSE` are the same name). The built-in agent does not reserve a name.
+- At most 12 agents are saved. The count and the insert run in one transaction. Editing an agent when the list is full is allowed, and a duplicate name is reported before a full list.
+
+The protocol caps each text at four times its limit (240, 800, 2400 and 12000 characters), only to bound the payload. The error of a rejected agent carries `<field>.<rule>` for every field that fails (the rule is one of `empty`, `control_character`, `line_separator`, `bidi_format`, `format_character`, `too_long`) and never the text. The agent text is user text like a note: it is not logged, not copied into an error, an event or a plan record, and an unexpected failure of `saveAgent` logs only the error name.
+
+Storage: migration 6 creates `agents` (`id`, `name`, `name_key` unique, `description`, `persona`, `instructions`, `created_at`, `updated_at`) and `app_state` (`key`, `value`), and adds the nullable `agent_id` to `plans`. A database from before the migration keeps its plans, notes and workflows; its plans read with no `agentId`. The unique key is the case-folded name. `PROTOCOL_VERSION` is still 1: the methods and the optional fields are additive, and the closed `PlanRecord` and `PlanMeta` results are the only thing an older client rejects.
 
 ## Explain method
 

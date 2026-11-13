@@ -92,8 +92,8 @@ export class RuleViolationError extends Error {
 
 const CONTROL = /\p{Cc}/u
 const SEPARATOR = /[\p{Zl}\p{Zp}]/u
-const BIDI = /[؜‎‏‪-‮⁦-⁩]/u
-const FORMAT = /(?![‌‍])\p{Cf}|[\u{e0100}-\u{e01ef}]/u
+const BIDI = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u
+const FORMAT = /(?![\u200c\u200d])\p{Cf}|[\u{e0100}-\u{e01ef}]/u
 const SPACE = /\s/u
 const ASCII_ONLY = /^\p{ASCII}*$/u
 const LABEL = /^[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?$/

@@ -23,6 +23,7 @@ interface PlanSource {
   attachments: AttachmentRef[]
   effort: PlanEffort
   memoryIds?: readonly string[]
+  agentId?: string
 }
 
 export class PlanNotFoundError extends Error {
@@ -133,6 +134,7 @@ export function toPlanRecord(stored: StoredPlan): PlanRecord {
     workflowId: stored.workflowId,
     confirmed: stored.confirmed,
     memoryIds: stored.memoryIds ?? [],
+    ...(stored.agentId === undefined ? {} : { agentId: stored.agentId }),
   }
 }
 
@@ -191,6 +193,7 @@ export function plannedRecord(source: PlanSource, planned: PlanResult, createdAt
     workflowId: null,
     confirmed: null,
     memoryIds: [...(source.memoryIds ?? [])],
+    ...(source.agentId === undefined ? {} : { agentId: source.agentId }),
     workflowHash: result.kind === 'workflow' ? workflowHash(result.workflow) : null,
   }
   return { record, outcome: { planId: source.planId, result, meta } }
@@ -236,6 +239,7 @@ export function failedRecord(source: PlanSource, error: unknown, createdAt: numb
     workflowId: null,
     confirmed: null,
     memoryIds: [...(source.memoryIds ?? [])],
+    ...(source.agentId === undefined ? {} : { agentId: source.agentId }),
     workflowHash: null,
   }
 }

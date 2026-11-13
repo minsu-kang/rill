@@ -119,6 +119,23 @@ export const MIGRATIONS: string[] = [
   );
   CREATE UNIQUE INDEX rules_one_effort_cap ON rules(kind) WHERE kind = 'maxPlanEffort';
   `,
+  `
+  CREATE TABLE agents (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    persona TEXT NOT NULL,
+    instructions TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE app_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  ALTER TABLE plans ADD COLUMN agent_id TEXT;
+  `,
 ]
 
 export function migrate(db: Db): void {

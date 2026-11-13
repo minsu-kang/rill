@@ -13,24 +13,28 @@ import {
   type PlanRequest,
   type PlanResult,
 } from '@rill/planner'
-import type {
-  AttachmentRef,
-  LlmModelsResult,
-  MemoryItem,
-  NodeInfo,
-  PlanEffort,
-  PlanRecord,
-  PlanSummary,
-  PlanTurn,
-  RecipeDraft,
-  RecipeInfo,
-  RecipeValues,
-  Rule,
-  RuleKind,
-  RunSummary,
-  StepDetail,
-  WorkflowSummary,
+import {
+  AGENT_DEFAULT_ID,
+  type Agent,
+  type AgentFields,
+  type AttachmentRef,
+  type LlmModelsResult,
+  type MemoryItem,
+  type NodeInfo,
+  type PlanEffort,
+  type PlanRecord,
+  type PlanSummary,
+  type PlanTurn,
+  type RecipeDraft,
+  type RecipeInfo,
+  type RecipeValues,
+  type Rule,
+  type RuleKind,
+  type RunSummary,
+  type StepDetail,
+  type WorkflowSummary,
 } from '@rill/protocol'
+import { AgentNotFoundError } from './agents'
 import { createFsAttachmentStore, recordReads } from './attachments'
 import { systemClock, type Clock } from './clock'
 import type { Db } from './db'
@@ -98,6 +102,7 @@ export interface EnginePlanInput {
   workflowId?: string
   selection?: { nodeId: string }
   useMemory?: boolean
+  agentId?: string
 }
 
 interface PendingPlan {
@@ -108,6 +113,7 @@ interface PendingPlan {
 export interface EngineExplainInput {
   runId: string
   effort?: ExplainEffort
+  agentId?: string
   signal?: AbortSignal
 }
 
@@ -262,13 +268,14 @@ export class Engine {
   async plan(input: EnginePlanInput): Promise<PlanOutcome> {
     const llm = this.llm
     if (llm === undefined) throw new LlmUnavailableError()
+    const agent = this.resolveAgent(input.agentId)
     if (this.pendingPlans.has(input.planId) || this.store.hasPlan(input.planId)) throw new PlanExistsError(input.planId)
     if (this.pendingPlans.size >= this.maxConcurrentPlans) throw new PlanBusyError(this.maxConcurrentPlans)
     const existingWorkflow = input.workflowId === undefined ? undefined : this.store.getWorkflow(input.workflowId)
     const controller = new AbortController()
     const pending: PendingPlan = { controller, done: Promise.resolve() }
     this.pendingPlans.set(input.planId, pending)
-    const run = this.runPlan(llm, input, existingWorkflow, controller.signal)
+    const run = this.runPlan(llm, input, existingWorkflow, controller.signal, agent)
     pending.done = run.then(
       () => undefined,
       () => undefined,
@@ -281,6 +288,7 @@ export class Engine {
     input: EnginePlanInput,
     existingWorkflow: Workflow | undefined,
     signal: AbortSignal,
+    agent: Agent | undefined,
   ): Promise<PlanOutcome> {
     try {
       const reads = this.attachmentStore === undefined ? undefined : recordReads(this.attachmentStore)
@@ -294,6 +302,14 @@ export class Engine {
       const memoryIds = notes.map((note) => note.id)
       const policy = this.policy()
       const cap = this.effortCap()
+      const source = {
+        planId: input.planId,
+        text: input.text,
+        attachments: input.attachments,
+        effort: input.effort,
+        memoryIds,
+        ...(agent === undefined ? {} : { agentId: agent.id }),
+      }
       const request: PlanRequest = {
         text: input.text,
         turns: input.turns,
@@ -315,7 +331,7 @@ export class Engine {
       try {
         planned = await planner.plan(request)
       } catch (error) {
-        this.store.savePlan(failedRecord({ ...input, memoryIds }, error, this.now()))
+        this.store.savePlan(failedRecord(source, error, this.now()))
         throw error
       }
       if (reads !== undefined) {
@@ -330,7 +346,7 @@ export class Engine {
           }),
         }
       }
-      const { record, outcome } = plannedRecord({ ...input, memoryIds }, planned, this.now())
+      const { record, outcome } = plannedRecord(source, planned, this.now())
       this.store.savePlan(record)
       return outcome
     } finally {
@@ -428,6 +444,7 @@ export class Engine {
     const run = this.store.getRunSummary(input.runId)
     const llm = this.llm
     if (llm === undefined) throw new LlmUnavailableError('explaining')
+    this.resolveAgent(input.agentId)
     if (this.pendingExplains.size >= this.maxConcurrentExplains) throw new ExplainBusyError(this.maxConcurrentExplains)
     const steps = this.store.listStepDetails(input.runId)
     if (!isExplainable(run, steps)) throw new RunNotExplainableError()
@@ -472,6 +489,29 @@ export class Engine {
       input.signal?.removeEventListener('abort', forward)
       this.pendingExplains.delete(pending)
     }
+  }
+
+  private resolveAgent(agentId: string | undefined): Agent | undefined {
+    if (agentId === undefined || agentId === AGENT_DEFAULT_ID) return undefined
+    const agent = this.store.getAgent(agentId)
+    if (agent === undefined) throw new AgentNotFoundError()
+    return agent
+  }
+
+  listAgents(): { agents: Agent[]; activeId: string } {
+    return this.store.listAgents()
+  }
+
+  saveAgent(input: AgentFields & { id?: string }): Agent {
+    return this.store.saveAgent(input)
+  }
+
+  deleteAgent(id: string): boolean {
+    return this.store.deleteAgent(id)
+  }
+
+  setActiveAgent(id: string): void {
+    this.store.setActiveAgent(id)
   }
 
   listMemory(): MemoryItem[] {

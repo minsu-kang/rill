@@ -21,6 +21,7 @@ import {
   type ServerMessage,
 } from '@rill/protocol'
 import { WebSocketServer, type RawData, type WebSocket } from 'ws'
+import { AgentBuiltinError, AgentDuplicateError, AgentFullError, AgentInvalidError, AgentNotFoundError } from '../agents'
 import { WorkflowBusyError, WorkflowValidationError, type Engine } from '../engine'
 import { ExplainBusyError, RunNotExplainableError } from '../explain'
 import { MemoryDuplicateError, MemoryFullError, MemoryInvalidError } from '../memory'
@@ -40,7 +41,7 @@ const OPEN = 1
 const CLOSED = 3
 const TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]{16,}$/
 const MAX_PROBLEMS = 20
-const NAME_ONLY_ERROR_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan', 'saveMemory', 'saveRule', 'deleteRule', 'explainRun', 'instantiateRecipe'])
+const NAME_ONLY_ERROR_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan', 'saveMemory', 'saveRule', 'deleteRule', 'saveAgent', 'explainRun', 'instantiateRecipe'])
 
 export interface RillServerOptions {
   engine: Engine
@@ -146,6 +147,11 @@ function toErrorBody(method: string, error: unknown): ErrorBody {
   if (error instanceof RuleFullError) return { code: 'RULE_FULL', message: error.message }
   if (error instanceof RuleDuplicateError) return { code: 'RULE_DUPLICATE', message: error.message }
   if (error instanceof RuleNotFoundError) return { code: 'RULE_NOT_FOUND', message: error.message }
+  if (error instanceof AgentInvalidError) return { code: 'AGENT_INVALID', message: 'the agent is not valid', problems: error.problems }
+  if (error instanceof AgentFullError) return { code: 'AGENT_FULL', message: error.message }
+  if (error instanceof AgentDuplicateError) return { code: 'AGENT_DUPLICATE', message: error.message }
+  if (error instanceof AgentNotFoundError) return { code: 'AGENT_NOT_FOUND', message: error.message }
+  if (error instanceof AgentBuiltinError) return { code: 'AGENT_BUILTIN', message: error.message }
   if (error instanceof LlmError && error.kind === 'auth') return authBody(error)
   if (error instanceof AttachmentError) return { code: 'ATTACHMENT_REJECTED', message: error.message }
   if (error instanceof LlmUnavailableError) return { code: 'LLM_UNAVAILABLE', message: error.message }
@@ -440,11 +446,23 @@ export class RillServer {
       saveRule: (params) => ({ rule: engine.saveRule(params) }),
       deleteRule: (params) => ({ deleted: engine.deleteRule(params.id) }),
       checkRules: () => ({ violations: engine.checkRules() }),
+      listAgents: () => engine.listAgents(),
+      saveAgent: (params) => ({ agent: engine.saveAgent(params) }),
+      deleteAgent: (params) => ({ deleted: engine.deleteAgent(params.id) }),
+      setActiveAgent: (params) => {
+        engine.setActiveAgent(params.id)
+        return {}
+      },
       llmModels: () => engine.llmModels(),
       listRecipes: () => ({ recipes: engine.listRecipes() }),
       instantiateRecipe: (params) => engine.instantiateRecipe(params),
       explainRun: async (params, signal) => {
-        const result = await engine.explainRun({ runId: params.runId, ...(params.effort === undefined ? {} : { effort: params.effort }), signal })
+        const result = await engine.explainRun({
+          runId: params.runId,
+          ...(params.effort === undefined ? {} : { effort: params.effort }),
+          ...(params.agentId === undefined ? {} : { agentId: params.agentId }),
+          signal,
+        })
         return {
           runId: params.runId,
           explanation: result.explanation,
