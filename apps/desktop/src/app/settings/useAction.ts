@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MessageKey } from '../../i18n'
+import { useKeepFocus } from '../../ui/useKeepFocus'
 import { hostErrorKey } from './errors'
 
 export interface ActionState {
@@ -14,6 +15,8 @@ export function useAction(mapError: (error: unknown) => MessageKey = hostErrorKe
   const [error, setError] = useState<MessageKey | undefined>(undefined)
   const running = useRef(false)
   const alive = useRef(true)
+
+  useKeepFocus(busy)
 
   useEffect(() => {
     alive.current = true
