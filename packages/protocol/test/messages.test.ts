@@ -136,6 +136,7 @@ describe('METHODS', () => {
       [
         'activate',
         'cancelPlan',
+        'checkRules',
         'deactivate',
         'deleteMemory',
         'deleteRule',

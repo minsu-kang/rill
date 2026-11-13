@@ -17,6 +17,8 @@ const valid = [
   { type: 'workflow.activated', at: 1, workflowId: 'w' },
   { type: 'workflow.deactivated', at: 1, workflowId: 'w' },
   { type: 'workflow.deleted', at: 1, workflowId: 'w' },
+  { type: 'run.blocked', at: 1, workflowId: 'w', codes: ['rule_violation'] },
+  { type: 'run.blocked', at: 1, workflowId: 'w', codes: [] },
 ]
 
 describe('EngineEventSchema', () => {
@@ -37,6 +39,10 @@ describe('EngineEventSchema', () => {
       { type: 'workflow.deleted', at: 1 },
       { type: 'workflow.deleted', at: 1, workflowId: '' },
       { type: 'workflow.deleted', at: 1, workflowId: 'w', extra: true },
+      { type: 'run.blocked', at: 1, workflowId: 'w' },
+      { type: 'run.blocked', at: 1, codes: ['rule_violation'] },
+      { type: 'run.blocked', at: 1, workflowId: 'w', codes: [1] },
+      { type: 'run.blocked', at: 1, workflowId: 'w', codes: [], extra: true },
       null,
       'run.started',
     ]

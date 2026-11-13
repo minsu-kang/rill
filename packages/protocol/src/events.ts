@@ -42,6 +42,7 @@ export const EngineEventSchema = Type.Union([
   Type.Object({ type: Type.Literal('workflow.activated'), at, workflowId: id }, closed),
   Type.Object({ type: Type.Literal('workflow.deactivated'), at, workflowId: id }, closed),
   Type.Object({ type: Type.Literal('workflow.deleted'), at, workflowId: id }, closed),
+  Type.Object({ type: Type.Literal('run.blocked'), at, workflowId: id, codes: Type.Array(Type.String()) }, closed),
 ])
 
 export type EngineEvent = Type.Static<typeof EngineEventSchema>

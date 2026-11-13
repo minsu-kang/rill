@@ -37,6 +37,7 @@ export function checkWorkflow(workflow: Workflow, ctx: DecodeContext, sites: rea
       registry: ctx.registry,
       allowedRoots: ctx.context.allowedRoots,
       connections: ctx.context.connections.map((connection) => connection.name),
+      ...(ctx.context.rules === undefined ? {} : { policy: ctx.context.rules }),
     }),
     ...connectionKindIssues(workflow, ctx.registry, ctx.context.connections),
     ...slackChannelIssues(workflow, ctx.registry, ctx.context.connections),

@@ -1,5 +1,5 @@
 import { capIssues, isWarningIssue, type PlanIssue, type Workflow } from '@rill/dsl'
-import { LlmError, capabilitiesOf, costUsd, type LlmCapabilities, type LlmMessage, type LlmPart, type LlmRequest, type LlmResult, type LlmUsage } from '@rill/llm'
+import { EFFORT_LEVELS, LlmError, capabilitiesOf, costUsd, type LlmCapabilities, type LlmMessage, type LlmPart, type LlmRequest, type LlmResult, type LlmUsage } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
 import { ATTACHMENT_RULES, attachmentModule } from './attachments'
 import { createNameGuard } from './attachments/names'
@@ -142,6 +142,7 @@ class Run {
   private readonly ctx: DecodeContext
   private readonly capabilities: LlmCapabilities
   private readonly effort: ResolvedEffort
+  private readonly cappedByRule: boolean
   private readonly memory: MemoryPrompt
   private readonly trusted: string[]
   private attachmentTexts: string[] = []
@@ -159,7 +160,9 @@ class Run {
     this.attachments = deps.attachments ?? attachmentModule
     this.registry = deps.registry
     this.capabilities = capabilitiesOf(deps.provider)
-    this.effort = resolveEffort(this.capabilities, request.effort)
+    const cap = request.maxEffort
+    this.cappedByRule = cap !== undefined && EFFORT_LEVELS.indexOf(request.effort) > EFFORT_LEVELS.indexOf(cap)
+    this.effort = resolveEffort(this.capabilities, this.cappedByRule ? cap! : request.effort)
     this.memory = buildMemoryPrompt(request.context.memory, this.attachments.randomHex ?? defaultRandomHex)
     this.trusted = trustedTexts(request)
     this.mode = request.selection === undefined ? 'create' : 'patch'
@@ -375,7 +378,7 @@ class Run {
     const capped = this.capabilities.reasoningCappedByMaxTokens
     return {
       provider: this.deps.provider.name,
-      effort: { requested: this.request.effort, ...this.effort },
+      effort: { requested: this.request.effort, ...this.effort, cappedByRule: this.cappedByRule },
       reasoningCapped: capped,
       ...(capped ? {} : { costNote: SOFT_CAP_NOTE }),
       memoryUsed: this.memory.used.length,

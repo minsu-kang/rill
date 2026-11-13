@@ -1,5 +1,5 @@
 import Type from 'typebox'
-import { IdSchema, PlanEffortDetailSchema, UsageSchema } from './plan'
+import { EffortDetailSchema, IdSchema, UsageSchema } from './plan'
 
 const closed = { additionalProperties: false } as const
 
@@ -44,7 +44,7 @@ export const ExplainMetaSchema = Type.Object(
   {
     provider: Type.String(),
     model: Type.String(),
-    effort: PlanEffortDetailSchema,
+    effort: EffortDetailSchema,
     digestChars: Type.Integer({ minimum: 0 }),
     truncated: Type.Boolean(),
     usage: UsageSchema,

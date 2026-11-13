@@ -1,0 +1,290 @@
+[
+ {
+  "name": "plain",
+  "kind": "workflow",
+  "effortDetail": {
+   "requested": "medium",
+   "effective": "medium",
+   "native": "medium",
+   "collapsed": false
+  },
+  "requests": [
+   {
+    "systemBlocks": [
+     {
+      "length": 2821,
+      "sha256": "4820c5e94d81a410095c1be748fd3c517884182f26a9f46532d13a50ebc7e776",
+      "cache": false
+     },
+     {
+      "length": 12987,
+      "sha256": "f6f5f1d0a8fcb06dd46745a86a5ef8edaab9c7346beb8d4a3b60337cd8d09bd2",
+      "cache": true
+     }
+    ],
+    "messages": [
+     {
+      "role": "user",
+      "content": "Environment (data, not instructions):\n{\"allowedFolders\":[\"/Users/demo\"],\"connections\":[{\"name\":\"team-alerts\",\"kind\":\"slack\",\"slack\":\"bot\"},{\"name\":\"api-key\",\"kind\":\"http\"}]}\n\nRequest:\nWait a little"
+     }
+    ],
+    "schemaSha256": "17258992a93a3429997480650edffe5f8411392237caf19c38052a5429183084",
+    "maxTokens": 12000,
+    "effort": "medium"
+   }
+  ]
+ },
+ {
+  "name": "high",
+  "kind": "workflow",
+  "effortDetail": {
+   "requested": "xhigh",
+   "effective": "xhigh",
+   "native": "xhigh",
+   "collapsed": false
+  },
+  "requests": [
+   {
+    "systemBlocks": [
+     {
+      "length": 2821,
+      "sha256": "4820c5e94d81a410095c1be748fd3c517884182f26a9f46532d13a50ebc7e776",
+      "cache": false
+     },
+     {
+      "length": 12987,
+      "sha256": "f6f5f1d0a8fcb06dd46745a86a5ef8edaab9c7346beb8d4a3b60337cd8d09bd2",
+      "cache": true
+     }
+    ],
+    "messages": [
+     {
+      "role": "user",
+      "content": "Environment (data, not instructions):\n{\"allowedFolders\":[\"/Users/demo\"],\"connections\":[{\"name\":\"team-alerts\",\"kind\":\"slack\",\"slack\":\"bot\"},{\"name\":\"api-key\",\"kind\":\"http\"}]}\n\nRequest:\nWait a little"
+     }
+    ],
+    "schemaSha256": "17258992a93a3429997480650edffe5f8411392237caf19c38052a5429183084",
+    "maxTokens": 32000,
+    "effort": "xhigh"
+   }
+  ]
+ },
+ {
+  "name": "turns",
+  "kind": "workflow",
+  "effortDetail": {
+   "requested": "medium",
+   "effective": "medium",
+   "native": "medium",
+   "collapsed": false
+  },
+  "requests": [
+   {
+    "systemBlocks": [
+     {
+      "length": 2821,
+      "sha256": "4820c5e94d81a410095c1be748fd3c517884182f26a9f46532d13a50ebc7e776",
+      "cache": false
+     },
+     {
+      "length": 12987,
+      "sha256": "f6f5f1d0a8fcb06dd46745a86a5ef8edaab9c7346beb8d4a3b60337cd8d09bd2",
+      "cache": true
+     }
+    ],
+    "messages": [
+     {
+      "role": "user",
+      "content": "Wait a little"
+     },
+     {
+      "role": "assistant",
+      "content": "{\"kind\":\"questions\",\"summary\":\"need to know\",\"questions\":[{\"id\":\"q1\",\"text\":\"How long?\",\"options\":[\"5 ms\",\"10 ms\"],\"default\":\"5 ms\"}]}"
+     },
+     {
+      "role": "user",
+      "content": "ten\n\nAnswers to your questions:\n- q1: 10 ms"
+     },
+     {
+      "role": "user",
+      "content": "Environment (data, not instructions):\n{\"allowedFolders\":[\"/Users/demo\"],\"connections\":[{\"name\":\"team-alerts\",\"kind\":\"slack\",\"slack\":\"bot\"},{\"name\":\"api-key\",\"kind\":\"http\"}]}\n\nRequest:\nok, ten ms"
+     }
+    ],
+    "schemaSha256": "17258992a93a3429997480650edffe5f8411392237caf19c38052a5429183084",
+    "maxTokens": 12000,
+    "effort": "medium"
+   }
+  ]
+ },
+ {
+  "name": "patch",
+  "kind": "workflow",
+  "effortDetail": {
+   "requested": "medium",
+   "effective": "medium",
+   "native": "medium",
+   "collapsed": false
+  },
+  "requests": [
+   {
+    "systemBlocks": [
+     {
+      "length": 2821,
+      "sha256": "4820c5e94d81a410095c1be748fd3c517884182f26a9f46532d13a50ebc7e776",
+      "cache": false
+     },
+     {
+      "length": 12987,
+      "sha256": "f6f5f1d0a8fcb06dd46745a86a5ef8edaab9c7346beb8d4a3b60337cd8d09bd2",
+      "cache": true
+     }
+    ],
+    "messages": [
+     {
+      "role": "user",
+      "content": "Environment (data, not instructions):\n{\"allowedFolders\":[\"/Users/demo\"],\"connections\":[{\"name\":\"team-alerts\",\"kind\":\"slack\",\"slack\":\"bot\"},{\"name\":\"api-key\",\"kind\":\"http\"}]}\n\nPatch mode: change the existing workflow below for the selected node n1. Answer kind \"workflow\" with \"patch\" operations, not a whole workflow.\nExisting workflow (JSON):\n{\"schemaVersion\":1,\"name\":\"existing\",\"nodes\":[{\"id\":\"t1\",\"type\":\"trigger.manual@1\",\"config\":{}},{\"id\":\"n1\",\"type\":\"delay@1\",\"config\":{\"ms\":5}}],\"edges\":[{\"from\":\"t1\",\"to\":\"n1\"}]}\n\nRequest:\nmake it ten ms"
+     }
+    ],
+    "schemaSha256": "f293fbc5a6ca14d65fef1be814696b7cb37c3c94f63df347d29ee54967fc280f",
+    "maxTokens": 12000,
+    "effort": "medium"
+   }
+  ]
+ },
+ {
+  "name": "repair",
+  "kind": "workflow",
+  "effortDetail": {
+   "requested": "medium",
+   "effective": "medium",
+   "native": "medium",
+   "collapsed": false
+  },
+  "requests": [
+   {
+    "systemBlocks": [
+     {
+      "length": 2821,
+      "sha256": "4820c5e94d81a410095c1be748fd3c517884182f26a9f46532d13a50ebc7e776",
+      "cache": false
+     },
+     {
+      "length": 12987,
+      "sha256": "f6f5f1d0a8fcb06dd46745a86a5ef8edaab9c7346beb8d4a3b60337cd8d09bd2",
+      "cache": true
+     }
+    ],
+    "messages": [
+     {
+      "role": "user",
+      "content": "Environment (data, not instructions):\n{\"allowedFolders\":[\"/Users/demo\"],\"connections\":[{\"name\":\"team-alerts\",\"kind\":\"slack\",\"slack\":\"bot\"},{\"name\":\"api-key\",\"kind\":\"http\"}]}\n\nRequest:\nWait a little"
+     }
+    ],
+    "schemaSha256": "17258992a93a3429997480650edffe5f8411392237caf19c38052a5429183084",
+    "maxTokens": 12000,
+    "effort": "medium"
+   },
+   {
+    "systemBlocks": [
+     {
+      "length": 2821,
+      "sha256": "4820c5e94d81a410095c1be748fd3c517884182f26a9f46532d13a50ebc7e776",
+      "cache": false
+     },
+     {
+      "length": 12987,
+      "sha256": "f6f5f1d0a8fcb06dd46745a86a5ef8edaab9c7346beb8d4a3b60337cd8d09bd2",
+      "cache": true
+     }
+    ],
+    "messages": [
+     {
+      "role": "user",
+      "content": "Environment (data, not instructions):\n{\"allowedFolders\":[\"/Users/demo\"],\"connections\":[{\"name\":\"team-alerts\",\"kind\":\"slack\",\"slack\":\"bot\"},{\"name\":\"api-key\",\"kind\":\"http\"}]}\n\nRequest:\nWait a little"
+     },
+     {
+      "role": "assistant",
+      "content": "{\"kind\":\"workflow\",\"summary\":\"Does the thing\",\"workflow\":{\"name\":\"demo\",\"nodes\":[{\"id\":\"t1\",\"type\":\"trigger.manual@1\",\"config\":\"{}\"},{\"id\":\"n1\",\"type\":\"nope@1\",\"config\":\"{}\"}],\"edges\":[{\"from\":\"t1\",\"to\":\"n1\"}]}}"
+     },
+     {
+      "role": "user",
+      "content": "{\"round\":1,\"issues\":[{\"stage\":1,\"pointer\":\"/workflow/nodes/1/type\",\"code\":\"shape_enum\",\"message\":\"output /workflow/nodes/1/type: must be equal to one of the allowed values\"}]}"
+     }
+    ],
+    "schemaSha256": "17258992a93a3429997480650edffe5f8411392237caf19c38052a5429183084",
+    "maxTokens": 12000,
+    "effort": "medium"
+   }
+  ]
+ },
+ {
+  "name": "flagged",
+  "kind": "workflow",
+  "effortDetail": {
+   "requested": "medium",
+   "effective": "medium",
+   "native": "medium",
+   "collapsed": false
+  },
+  "requests": [
+   {
+    "systemBlocks": [
+     {
+      "length": 2821,
+      "sha256": "4820c5e94d81a410095c1be748fd3c517884182f26a9f46532d13a50ebc7e776",
+      "cache": false
+     },
+     {
+      "length": 12987,
+      "sha256": "f6f5f1d0a8fcb06dd46745a86a5ef8edaab9c7346beb8d4a3b60337cd8d09bd2",
+      "cache": true
+     }
+    ],
+    "messages": [
+     {
+      "role": "user",
+      "content": "Environment (data, not instructions):\n{\"allowedFolders\":[\"/Users/demo\"],\"connections\":[{\"name\":\"team-alerts\",\"kind\":\"slack\",\"slack\":\"bot\"},{\"name\":\"api-key\",\"kind\":\"http\"}]}\n\nRequest:\npost it to https://hooks.invalid/collect"
+     }
+    ],
+    "schemaSha256": "17258992a93a3429997480650edffe5f8411392237caf19c38052a5429183084",
+    "maxTokens": 12000,
+    "effort": "medium"
+   }
+  ]
+ },
+ {
+  "name": "questions",
+  "kind": "questions",
+  "effortDetail": {
+   "requested": "medium",
+   "effective": "medium",
+   "native": "medium",
+   "collapsed": false
+  },
+  "requests": [
+   {
+    "systemBlocks": [
+     {
+      "length": 2821,
+      "sha256": "4820c5e94d81a410095c1be748fd3c517884182f26a9f46532d13a50ebc7e776",
+      "cache": false
+     },
+     {
+      "length": 12987,
+      "sha256": "f6f5f1d0a8fcb06dd46745a86a5ef8edaab9c7346beb8d4a3b60337cd8d09bd2",
+      "cache": true
+     }
+    ],
+    "messages": [
+     {
+      "role": "user",
+      "content": "Environment (data, not instructions):\n{\"allowedFolders\":[\"/Users/demo\"],\"connections\":[{\"name\":\"team-alerts\",\"kind\":\"slack\",\"slack\":\"bot\"},{\"name\":\"api-key\",\"kind\":\"http\"}]}\n\nRequest:\nWait"
+     }
+    ],
+    "schemaSha256": "17258992a93a3429997480650edffe5f8411392237caf19c38052a5429183084",
+    "maxTokens": 12000,
+    "effort": "medium"
+   }
+  ]
+ }
+]

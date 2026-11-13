@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readdirSync, statSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import { assertPathAllowed, compileGlob, folderWatchSees, type FolderWatchConfig, type GlobMatcher } from '@rill/nodes-core'
+import { RuleViolationError } from '../rules'
 import { DuplicateFileError } from '../store'
 import type { TriggerHost, TriggerRuntime } from './types'
 
@@ -105,7 +106,7 @@ export class FolderRuntime implements TriggerRuntime {
         )
         entry.done = true
       } catch (error) {
-        if (error instanceof DuplicateFileError) entry.done = true
+        if (error instanceof DuplicateFileError || error instanceof RuleViolationError) entry.done = true
         else if (!entry.reported) {
           entry.reported = true
           this.report(error)

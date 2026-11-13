@@ -111,6 +111,12 @@ export function workflowHash(workflow: unknown): string {
     .digest('hex')
 }
 
+function withCapFlag(meta: PlanMeta | null): PlanMeta | null {
+  const detail = meta?.effortDetail
+  if (meta === null || detail === undefined || typeof detail.cappedByRule === 'boolean') return meta
+  return { ...meta, effortDetail: { ...detail, cappedByRule: false } }
+}
+
 export function toPlanRecord(stored: StoredPlan): PlanRecord {
   return {
     planId: stored.planId,
@@ -121,7 +127,7 @@ export function toPlanRecord(stored: StoredPlan): PlanRecord {
     requestText: stored.requestText,
     attachments: stored.attachments,
     result: stored.result,
-    meta: stored.meta,
+    meta: withCapFlag(stored.meta),
     error: stored.error,
     flagKeys: stored.flagKeys,
     workflowId: stored.workflowId,
@@ -163,6 +169,7 @@ export function plannedRecord(source: PlanSource, planned: PlanResult, createdAt
       effective: planned.meta.effort.effective,
       native: planned.meta.effort.native,
       collapsed: planned.meta.effort.collapsed,
+      cappedByRule: planned.meta.effort.cappedByRule,
     },
     reasoningCapped: planned.meta.reasoningCapped,
     ...(planned.meta.costNote === undefined ? {} : { costNote: planned.meta.costNote }),

@@ -6,7 +6,7 @@ import {
   type WorkflowNode,
 } from '@rill/dsl'
 import type { LlmProvider } from '@rill/llm'
-import { RetryableError, type ActionNodeDefinition, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
+import { RetryableError, hostCheckFor, type ActionNodeDefinition, type ConnectionResolver, type NodeRegistry, type Policy } from '@rill/nodes-core'
 import Value from 'typebox/value'
 import type { EngineEventInput } from './events'
 import type { RunRow, Store } from './store'
@@ -65,6 +65,7 @@ export interface ExecutorDeps {
   allowedRoots: string[] | undefined
   connections: ConnectionResolver
   llm?: LlmProvider
+  policy?: () => Policy
   emit: (event: EngineEventInput) => void
 }
 
@@ -76,6 +77,7 @@ export class RunExecutor {
   private readonly allowedRoots: string[] | undefined
   private readonly connections: ConnectionResolver
   private readonly llm: LlmProvider | undefined
+  private readonly policy: (() => Policy) | undefined
   private readonly emit: (event: EngineEventInput) => void
 
   constructor(deps: ExecutorDeps) {
@@ -86,6 +88,7 @@ export class RunExecutor {
     this.allowedRoots = deps.allowedRoots
     this.connections = deps.connections
     this.llm = deps.llm
+    this.policy = deps.policy
     this.emit = deps.emit
   }
 
@@ -96,6 +99,7 @@ export class RunExecutor {
     if (!order) return this.failRun(run.id, 'graph contains a cycle', outputs)
     const nodes = new Map(workflow.nodes.map((n) => [n.id, n]))
     const settled = new Map<string, 'done' | 'skipped'>()
+    const hostAllowed = hostCheckFor(this.policy?.())
     this.store.abandonRunningAttempts(run.id)
     this.store.markRunRunning(run.id)
     this.emit({ type: 'run.started', runId: run.id, workflowId: run.workflowId, dryRun: run.dryRun })
@@ -128,7 +132,7 @@ export class RunExecutor {
         settled.set(id, 'done')
         continue
       }
-      const outcome = await this.runNode(run, node, def, outputs)
+      const outcome = await this.runNode(run, node, def, outputs, hostAllowed)
       if (outcome.ok) {
         outputs[id] = outcome.output
         settled.set(id, 'done')
@@ -157,6 +161,7 @@ export class RunExecutor {
     node: WorkflowNode,
     def: ActionNodeDefinition,
     outputs: Record<string, unknown>,
+    hostAllowed: ((url: string) => boolean) | undefined,
   ): Promise<NodeOutcome> {
     const idempotencyKey = `${run.id}:${node.id}`
     let config: unknown
@@ -202,6 +207,7 @@ export class RunExecutor {
             allowedRoots: this.allowedRoots,
             connections: this.connections,
             llm: this.llm,
+            ...(hostAllowed === undefined ? {} : { hostAllowed }),
           })) ?? null
         this.store.finishAttempt(run.id, node.id, attempt, { status: 'succeeded', output })
         this.emit({ type: 'step.succeeded', runId: run.id, nodeId: node.id, attempt })

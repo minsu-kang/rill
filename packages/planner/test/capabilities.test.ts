@@ -226,14 +226,14 @@ describe('the planner and provider capabilities: effort', () => {
     expect(call.request.maxTokens).toBe(EFFORT_BUDGETS.high.maxTokens)
     expect(call.options?.timeoutMs).toBe(EFFORT_BUDGETS.high.timeoutMs)
     expect(result.effort).toBe('xhigh')
-    expect(result.meta.effort).toEqual({ requested: 'xhigh', effective: 'high', native: 'high', collapsed: true })
+    expect(result.meta.effort).toEqual({ requested: 'xhigh', effective: 'high', native: 'high', collapsed: true, cappedByRule: false })
   })
 
   it('reports an uncollapsed level for the Anthropic defaults', async () => {
     const provider = new FakeProvider(planned())
     const result = await createPlanner({ provider, registry }).plan(request({ effort: 'max' }))
     expect(provider.calls[0]!.request.effort).toBe('max')
-    expect(result.meta.effort).toEqual({ requested: 'max', effective: 'max', native: 'max', collapsed: false })
+    expect(result.meta.effort).toEqual({ requested: 'max', effective: 'max', native: 'max', collapsed: false, cappedByRule: false })
     expect(result.meta.provider).toBe('fake')
   })
 

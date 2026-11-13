@@ -341,7 +341,7 @@ describe('PlanMetaSchema', () => {
   })
 
   it('accepts the provider fields, and a meta stored before they existed', () => {
-    const detail = { requested: 'xhigh', effective: 'high', native: 'high', collapsed: true }
+    const detail = { requested: 'xhigh', effective: 'high', native: 'high', collapsed: true, cappedByRule: false }
     expect(valid({ ...meta, provider: 'gemini', effortDetail: detail, reasoningCapped: true })).toBe(true)
     expect(valid({ ...meta, provider: 'grok', effortDetail: { ...detail, collapsed: false }, reasoningCapped: false, costNote: 'soft cap' })).toBe(true)
     expect(valid(meta)).toBe(true)
@@ -349,7 +349,7 @@ describe('PlanMetaSchema', () => {
   })
 
   it('rejects malformed provider fields', () => {
-    const detail = { requested: 'xhigh', effective: 'high', native: 'high', collapsed: true }
+    const detail = { requested: 'xhigh', effective: 'high', native: 'high', collapsed: true, cappedByRule: false }
     expect(valid({ ...meta, provider: 7 })).toBe(false)
     expect(valid({ ...meta, reasoningCapped: 'yes' })).toBe(false)
     expect(valid({ ...meta, costNote: 1 })).toBe(false)

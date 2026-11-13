@@ -1,4 +1,5 @@
 import { nextCronTime, parseCron, type CronSpec, type CronTriggerConfig, type CronZone } from '@rill/nodes-core'
+import { RuleViolationError } from '../rules'
 import type { TriggerHost, TriggerRuntime } from './types'
 
 export const CATCH_UP_GRACE_MS = 60_000
@@ -79,6 +80,7 @@ export class CronRuntime implements TriggerRuntime {
       })
       this.lastFireAt = now
     } catch (error) {
+      if (error instanceof RuleViolationError) return
       this.host.emit({
         type: 'trigger.error',
         workflowId: this.workflowId,

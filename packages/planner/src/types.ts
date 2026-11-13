@@ -1,5 +1,6 @@
 import type { PlanIssue, Workflow, WorkflowEdge, WorkflowNode } from '@rill/dsl'
 import type { ImageMediaType, LlmEffort, LlmUsage } from '@rill/llm'
+import type { Policy } from '@rill/nodes-core'
 
 export type PlanEffort = LlmEffort
 
@@ -53,12 +54,15 @@ export interface PlanConnection {
   slack?: 'webhook' | 'bot'
 }
 
+export type PlanRules = Policy
+
 export interface PlanContext {
   connections: PlanConnection[]
   allowedRoots: string[]
   existingWorkflow?: Workflow
   attachmentsRoot: string
   memory?: readonly string[]
+  rules?: PlanRules
 }
 
 export interface PlanRequest {
@@ -66,6 +70,7 @@ export interface PlanRequest {
   turns: PlanTurn[]
   attachments: AttachmentRef[]
   effort: PlanEffort
+  maxEffort?: PlanEffort
   selection?: { nodeId: string }
   context: PlanContext
   signal?: AbortSignal
@@ -103,9 +108,13 @@ export interface PlanEffortMeta {
   collapsed: boolean
 }
 
+export interface PlanEffortDetail extends PlanEffortMeta {
+  cappedByRule: boolean
+}
+
 export interface PlanProviderMeta {
   provider: string
-  effort: PlanEffortMeta
+  effort: PlanEffortDetail
   reasoningCapped: boolean
   costNote?: string
   memoryUsed: number

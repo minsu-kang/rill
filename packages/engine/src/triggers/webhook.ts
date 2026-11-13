@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { WebhookTriggerConfig } from '@rill/nodes-core'
+import { RuleViolationError } from '../rules'
 import type { TriggerHost, TriggerRuntime } from './types'
 
 const MAX_BODY_BYTES = 1_048_576
@@ -183,8 +184,9 @@ export class WebhookHub {
         body,
       })
       send(res, 202, { runId })
-    } catch {
-      send(res, 500, { error: 'internal error' })
+    } catch (error) {
+      if (error instanceof RuleViolationError) send(res, 403, { error: 'blocked by a rule' })
+      else send(res, 500, { error: 'internal error' })
     }
   }
 }
@@ -206,6 +208,7 @@ export class WebhookRuntime implements TriggerRuntime {
       try {
         return host.fire(workflowId, request)
       } catch (error) {
+        if (error instanceof RuleViolationError) throw error
         host.emit({
           type: 'trigger.error',
           workflowId,

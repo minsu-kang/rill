@@ -1,5 +1,5 @@
 import { isWarningIssue, type PlanIssue, type Workflow } from '@rill/dsl'
-import { validateWorkflow, type NodeRegistry } from '@rill/nodes-core'
+import { validateWorkflow, type NodeRegistry, type Policy } from '@rill/nodes-core'
 import { connectionKindIssues, type PlanConnection } from '@rill/planner'
 import type { RecipeDraft, RecipeInfo, RecipeSummary } from '@rill/protocol'
 import { RECIPES, findRecipe, instantiateRecipe, recipeNodeTypes, type ParamValues, type Recipe } from '@rill/recipes'
@@ -28,6 +28,7 @@ export interface RecipeContext {
   registry: NodeRegistry
   allowedRoots: string[] | undefined
   connections: readonly PlanConnection[]
+  policy?: Policy
 }
 
 const MODEL_NODES: ReadonlySet<string> = new Set(['llm.extract'])
@@ -76,6 +77,7 @@ export function draftFromRecipe(recipeId: string, values: ParamValues, context: 
       registry: context.registry,
       allowedRoots: context.allowedRoots,
       connections: context.connections.map((connection) => connection.name),
+      ...(context.policy === undefined ? {} : { policy: context.policy }),
     }),
     ...connectionKindIssues(result.workflow, context.registry, context.connections),
   ]

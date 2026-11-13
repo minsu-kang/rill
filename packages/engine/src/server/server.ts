@@ -33,7 +33,7 @@ import {
   PlanNotFoundError,
 } from '../plans'
 import { RecipeInvalidError, RecipeNotFoundError } from '../recipes'
-import { RuleDuplicateError, RuleFullError, RuleInvalidError, RuleNotFoundError } from '../rules'
+import { RuleDuplicateError, RuleFullError, RuleInvalidError, RuleNotFoundError, RuleViolationError } from '../rules'
 import { NotFoundError } from '../store'
 
 const OPEN = 1
@@ -137,6 +137,11 @@ function toErrorBody(method: string, error: unknown): ErrorBody {
   if (error instanceof MemoryInvalidError) return { code: 'MEMORY_INVALID', message: 'the note is not valid', problems: error.problems }
   if (error instanceof MemoryFullError) return { code: 'MEMORY_FULL', message: error.message }
   if (error instanceof MemoryDuplicateError) return { code: 'MEMORY_DUPLICATE', message: error.message }
+  if (error instanceof RuleViolationError) {
+    return method === 'activate'
+      ? { code: 'ACTIVATION_FAILED', message: error.message }
+      : { code: 'RULE_VIOLATION', message: error.message, problems: issueProblems(error.issues) }
+  }
   if (error instanceof RuleInvalidError) return { code: 'RULE_INVALID', message: 'the rule is not valid', problems: error.problems }
   if (error instanceof RuleFullError) return { code: 'RULE_FULL', message: error.message }
   if (error instanceof RuleDuplicateError) return { code: 'RULE_DUPLICATE', message: error.message }
@@ -434,6 +439,7 @@ export class RillServer {
       listRules: () => ({ rules: engine.listRules() }),
       saveRule: (params) => ({ rule: engine.saveRule(params) }),
       deleteRule: (params) => ({ deleted: engine.deleteRule(params.id) }),
+      checkRules: () => ({ violations: engine.checkRules() }),
       llmModels: () => engine.llmModels(),
       listRecipes: () => ({ recipes: engine.listRecipes() }),
       instantiateRecipe: (params) => engine.instantiateRecipe(params),

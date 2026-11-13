@@ -25,7 +25,7 @@ export function metaOf(overrides: Partial<PlanMeta> = {}): PlanMeta {
     model: 'claude-opus-5-5',
     provider: 'anthropic',
     effort: 'medium',
-    effortDetail: { requested: 'medium', effective: 'medium', native: 'medium', collapsed: false },
+    effortDetail: { requested: 'medium', effective: 'medium', native: 'medium', collapsed: false, cappedByRule: false },
     fallbackUsed: false,
     ...overrides,
   }
@@ -33,7 +33,7 @@ export function metaOf(overrides: Partial<PlanMeta> = {}): PlanMeta {
 
 export const metas = {
   plain: metaOf(),
-  collapsed: metaOf({ effort: 'high', effortDetail: { requested: 'xhigh', effective: 'high', native: 'high', collapsed: true } }),
+  collapsed: metaOf({ effort: 'high', effortDetail: { requested: 'xhigh', effective: 'high', native: 'high', collapsed: true, cappedByRule: false } }),
   nullCost: metaOf({ costUsd: null }),
   memory: metaOf({ memoryUsed: 3 }),
   memoryDropped: metaOf({ memoryUsed: 18, memoryDropped: 2 }),

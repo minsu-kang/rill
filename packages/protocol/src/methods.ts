@@ -7,6 +7,7 @@ import {
   AttachmentRefSchema,
   IdSchema,
   PlanEffortSchema,
+  PlanIssueSchema,
   PlanMetaSchema,
   PlanRecordSchema,
   PlanResultBodySchema,
@@ -173,6 +174,15 @@ export const METHODS = {
   deleteRule: {
     params: Type.Object({ id }, closed),
     result: Type.Object({ deleted: Type.Boolean() }),
+  },
+  checkRules: {
+    params: noParams,
+    result: Type.Object({
+      violations: Type.Array(
+        Type.Object({ workflowId: id, name: Type.String(), issues: Type.Array(PlanIssueSchema, { maxItems: 20 }) }, closed),
+        { maxItems: 200 },
+      ),
+    }),
   },
   explainRun: {
     params: Type.Object({ runId: id, effort: Type.Optional(ExplainEffortSchema) }, closed),

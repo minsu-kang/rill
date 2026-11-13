@@ -1,5 +1,5 @@
-import { isTrigger, isWarningIssue, type PlanIssue, type Workflow } from '@rill/dsl'
-import { assertPathAllowed, validateWorkflow, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
+import { capIssues, isTrigger, isWarningIssue, type PlanIssue, type Workflow } from '@rill/dsl'
+import { assertPathAllowed, isEmptyPolicy, policyIssues, validateWorkflow, type ConnectionResolver, type NodeRegistry, type Policy } from '@rill/nodes-core'
 import type { LlmProvider } from '@rill/llm'
 import {
   createExplainer,
@@ -53,7 +53,7 @@ import {
 } from './plans'
 import { RunQueue } from './queue'
 import { draftFromRecipe, listRecipeInfos } from './recipes'
-import { RuleNotFoundError, normaliseRule } from './rules'
+import { RuleNotFoundError, RuleViolationError, normaliseRule } from './rules'
 import { NotFoundError, Store, type RunRow } from './store'
 import { TriggerManager } from './triggers/manager'
 import type { FireOptions } from './triggers/types'
@@ -78,6 +78,15 @@ export interface EngineOptions {
   maxConcurrentPlans?: number
   maxConcurrentExplains?: number
   maxRepairRounds?: number
+}
+
+export const MAX_CHECK_WORKFLOWS = 200
+export const MAX_CHECK_ISSUES = 20
+
+export interface RuleCheckEntry {
+  workflowId: string
+  name: string
+  issues: PlanIssue[]
 }
 
 export interface EnginePlanInput {
@@ -182,6 +191,7 @@ export class Engine {
       allowedRoots: options.allowedRoots,
       connections,
       llm: options.llm,
+      policy: () => this.policy(),
       emit: (event) => this.bus.emit(event),
     })
     this.triggers = new TriggerManager({
@@ -194,6 +204,7 @@ export class Engine {
       allowedRoots: options.allowedRoots,
       connections,
       webhookPort: options.webhookPort ?? 0,
+      ruleIssues: (workflow) => this.ruleIssues(workflow),
     })
   }
 
@@ -210,8 +221,39 @@ export class Engine {
     return this.store.saveWorkflow(workflow)
   }
 
+  private policy(): Policy {
+    const rules = this.store.listRules()
+    return {
+      forbiddenNodes: rules.filter((rule) => rule.kind === 'forbidNode').map((rule) => rule.value),
+      allowedHosts: rules.filter((rule) => rule.kind === 'allowHost').map((rule) => rule.value),
+    }
+  }
+
+  private effortCap(): PlanEffort | undefined {
+    return this.store.listRules().find((rule) => rule.kind === 'maxPlanEffort')?.value as PlanEffort | undefined
+  }
+
+  private ruleIssues(workflow: Workflow): PlanIssue[] {
+    const policy = this.policy()
+    return isEmptyPolicy(policy) ? [] : policyIssues(workflow, policy)
+  }
+
+  checkRules(): RuleCheckEntry[] {
+    const policy = this.policy()
+    if (isEmptyPolicy(policy)) return []
+    const entries: RuleCheckEntry[] = []
+    for (const stored of this.store.listStoredWorkflows()) {
+      const issues = policyIssues(stored.workflow, policy)
+      if (issues.length === 0) continue
+      entries.push({ workflowId: stored.id, name: stored.name, issues: capIssues(issues, { max: MAX_CHECK_ISSUES }) })
+      if (entries.length >= MAX_CHECK_WORKFLOWS) break
+    }
+    return entries
+  }
+
   private validated(input: unknown): Workflow {
-    const issues = validateWorkflow(input, { registry: this.registry, allowedRoots: this.allowedRoots })
+    const policy = this.policy()
+    const issues = validateWorkflow(input, { registry: this.registry, allowedRoots: this.allowedRoots, ...(isEmptyPolicy(policy) ? {} : { policy }) })
     const errors = issues.filter((issue) => !isWarningIssue(issue))
     if (errors.length > 0) throw new WorkflowValidationError(errors.map((issue) => issue.message), errors)
     return input as Workflow
@@ -250,11 +292,14 @@ export class Engine {
       })
       const notes = input.useMemory === false ? [] : this.store.listMemory()
       const memoryIds = notes.map((note) => note.id)
+      const policy = this.policy()
+      const cap = this.effortCap()
       const request: PlanRequest = {
         text: input.text,
         turns: input.turns,
         attachments: input.attachments,
         effort: input.effort,
+        ...(cap === undefined ? {} : { maxEffort: cap }),
         ...(input.selection === undefined ? {} : { selection: input.selection }),
         context: {
           connections: this.planConnections,
@@ -262,6 +307,7 @@ export class Engine {
           attachmentsRoot: this.attachmentsRoot ?? '',
           ...(existingWorkflow === undefined ? {} : { existingWorkflow }),
           ...(notes.length === 0 ? {} : { memory: notes.map((note) => note.text) }),
+          ...(isEmptyPolicy(policy) ? {} : { rules: policy }),
         },
         signal,
       }
@@ -329,6 +375,7 @@ export class Engine {
     payload: unknown = {},
     options: { dryRun?: boolean; deferStart?: boolean } = {},
   ): { runId: string; done: Promise<RunResult> } {
+    this.assertRules(workflowId)
     const run = this.store.createRun({ workflowId, payload, dryRun: options.dryRun ?? false })
     return { runId: run.id, done: this.track(run, options.deferStart ?? false) }
   }
@@ -462,10 +509,12 @@ export class Engine {
   }
 
   instantiateRecipe(input: { recipeId: string; values: RecipeValues }): RecipeDraft {
+    const policy = this.policy()
     return draftFromRecipe(input.recipeId, input.values, {
       registry: this.registry,
       allowedRoots: this.allowedRoots,
       connections: this.planConnections,
+      ...(isEmptyPolicy(policy) ? {} : { policy }),
     })
   }
 
@@ -542,7 +591,22 @@ export class Engine {
       })
   }
 
+  private assertRules(workflowId: string): void {
+    const policy = this.policy()
+    if (isEmptyPolicy(policy)) return
+    const issues = policyIssues(this.store.getWorkflow(workflowId), policy)
+    if (issues.length > 0) throw new RuleViolationError(issues)
+  }
+
   private fire(workflowId: string, payload: unknown, options: FireOptions = {}): { runId: string } {
+    try {
+      this.assertRules(workflowId)
+    } catch (error) {
+      if (error instanceof RuleViolationError) {
+        this.bus.emit({ type: 'run.blocked', workflowId, codes: [...new Set(error.issues.map((issue) => issue.code))] })
+      }
+      throw error
+    }
     const run = this.store.createTriggeredRun({ workflowId, payload, fingerprint: options.fingerprint })
     this.bus.emit({ type: 'trigger.fired', workflowId, runId: run.id })
     this.track(run).catch((error: unknown) => {

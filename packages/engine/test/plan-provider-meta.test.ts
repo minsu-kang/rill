@@ -81,13 +81,13 @@ describe('plannedRecord and the provider meta', () => {
   it('stores the provider, the effort detail and the cap flag from planned.meta, in the record and in the outcome', () => {
     const meta: PlanResult['meta'] = {
       provider: 'gemini',
-      effort: { requested: 'max', effective: 'high', native: 'high', collapsed: true },
+      effort: { requested: 'max', effective: 'high', native: 'high', collapsed: true, cappedByRule: false },
       reasoningCapped: true,
       memoryUsed: 0,
       memoryDropped: 0,
     }
     const { record, outcome } = plannedRecord({ planId: 'p', text: 't', attachments: [], effort: 'max' }, planned(meta), 5)
-    const expected = { provider: 'gemini', effortDetail: { requested: 'max', effective: 'high', native: 'high', collapsed: true }, reasoningCapped: true }
+    const expected = { provider: 'gemini', effortDetail: { requested: 'max', effective: 'high', native: 'high', collapsed: true, cappedByRule: false }, reasoningCapped: true }
     expect(record.meta).toMatchObject(expected)
     expect(outcome.meta).toMatchObject(expected)
     expect(record.meta).not.toHaveProperty('costNote')
@@ -97,7 +97,7 @@ describe('plannedRecord and the provider meta', () => {
   it('stores the cost note when there is one, and nothing when there is none', () => {
     const soft: PlanResult['meta'] = {
       provider: 'grok',
-      effort: { requested: 'high', effective: 'high', native: 'high', collapsed: false },
+      effort: { requested: 'high', effective: 'high', native: 'high', collapsed: false, cappedByRule: false },
       reasoningCapped: false,
       costNote: 'soft cap',
       memoryUsed: 0,
@@ -108,7 +108,7 @@ describe('plannedRecord and the provider meta', () => {
   })
 
   it('keeps the requested effort as before next to the new detail', () => {
-    const meta: PlanResult['meta'] = { provider: 'anthropic', effort: { requested: 'max', effective: 'max', native: 'max', collapsed: false }, reasoningCapped: true, memoryUsed: 0, memoryDropped: 0 }
+    const meta: PlanResult['meta'] = { provider: 'anthropic', effort: { requested: 'max', effective: 'max', native: 'max', collapsed: false, cappedByRule: false }, reasoningCapped: true, memoryUsed: 0, memoryDropped: 0 }
     const { record } = plannedRecord({ planId: 'p', text: 't', attachments: [], effort: 'max' }, { ...planned(meta), effort: 'max' }, 5)
     expect(record.meta?.effort).toBe('max')
     expect(record.meta?.effortDetail?.requested).toBe('max')
@@ -142,7 +142,7 @@ describe('the provider meta through the engine and the store', () => {
     const outcome = await engine.plan(planInput({ effort: 'max' }))
     expect(outcome.meta.effort).toBe('max')
     expect(outcome.meta.provider).toBe('gemini')
-    expect(outcome.meta.effortDetail).toEqual({ requested: 'max', effective: 'high', native: geminiLike.effortMap.high, collapsed: true })
+    expect(outcome.meta.effortDetail).toEqual({ requested: 'max', effective: 'high', native: geminiLike.effortMap.high, collapsed: true, cappedByRule: false })
   })
 
   it('records the soft cap and its cost note for a provider whose hidden reasoning is not capped', async () => {

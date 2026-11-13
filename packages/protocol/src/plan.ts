@@ -110,7 +110,7 @@ export const UsageSchema = Type.Object(
   closed,
 )
 
-const PlanIssueSchema = Type.Object(
+export const PlanIssueSchema = Type.Object(
   {
     stage: Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3), Type.Literal(4)]),
     pointer: Type.String(),
@@ -132,10 +132,11 @@ const PlanRoundSchema = Type.Object(
   closed,
 )
 
-export const PlanEffortDetailSchema = Type.Object(
-  { requested: PlanEffortSchema, effective: PlanEffortSchema, native: Type.String(), collapsed: Type.Boolean() },
-  closed,
-)
+const effortDetailFields = { requested: PlanEffortSchema, effective: PlanEffortSchema, native: Type.String(), collapsed: Type.Boolean() }
+
+export const EffortDetailSchema = Type.Object(effortDetailFields, closed)
+
+export const PlanEffortDetailSchema = Type.Object({ ...effortDetailFields, cappedByRule: Type.Boolean() }, closed)
 
 export const PlanMetaSchema = Type.Object(
   {
@@ -197,6 +198,7 @@ export type PlanQuestion = Type.Static<typeof PlanQuestionSchema>
 export type PatchOp = Type.Static<typeof PatchOpSchema>
 export type PlanResultBody = Type.Static<typeof PlanResultBodySchema>
 export type PlanTurn = Type.Static<typeof PlanTurnSchema>
+export type EffortDetail = Type.Static<typeof EffortDetailSchema>
 export type PlanEffortDetail = Type.Static<typeof PlanEffortDetailSchema>
 export type PlanMeta = Type.Static<typeof PlanMetaSchema>
 export type PlanRecord = Type.Static<typeof PlanRecordSchema>

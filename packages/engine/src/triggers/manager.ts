@@ -1,4 +1,4 @@
-import { isTrigger } from '@rill/dsl'
+import { isTrigger, type PlanIssue, type Workflow } from '@rill/dsl'
 import type {
   ConnectionResolver,
   CronTriggerConfig,
@@ -8,6 +8,7 @@ import type {
 } from '@rill/nodes-core'
 import Value from 'typebox/value'
 import type { Clock } from '../clock'
+import { RuleViolationError } from '../rules'
 import type { Store } from '../store'
 import { CronRuntime } from './cron'
 import { FolderRuntime } from './folder'
@@ -24,6 +25,7 @@ export interface TriggerManagerDeps {
   allowedRoots: string[] | undefined
   connections: ConnectionResolver
   webhookPort: number
+  ruleIssues?: (workflow: Workflow) => PlanIssue[]
 }
 
 export class TriggerManager {
@@ -98,6 +100,8 @@ export class TriggerManager {
 
   private async start(workflowId: string): Promise<void> {
     const workflow = this.deps.store.getWorkflow(workflowId)
+    const broken = this.deps.ruleIssues?.(workflow) ?? []
+    if (broken.length > 0) throw new RuleViolationError(broken)
     const node = workflow.nodes.find((n) => isTrigger(n.type))
     if (!node) throw new Error('workflow has no trigger')
     const def = this.deps.registry.get(node.type)

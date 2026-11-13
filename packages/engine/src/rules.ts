@@ -1,4 +1,5 @@
 import { domainToASCII } from 'node:url'
+import type { PlanIssue } from '@rill/dsl'
 import { PLAN_EFFORTS, RULE_MAX_INPUT_CHARS, RULE_MAX_ITEMS, type RuleKind } from '@rill/protocol'
 
 export type RuleProblem =
@@ -74,6 +75,18 @@ export class RuleNotFoundError extends Error {
   constructor() {
     super('rule not found')
     this.name = 'RuleNotFoundError'
+  }
+}
+
+export const RULE_VIOLATION_MESSAGE = 'the workflow breaks a rule you set; remove the rule or change the workflow'
+
+export class RuleViolationError extends Error {
+  readonly issues: PlanIssue[]
+
+  constructor(issues: PlanIssue[]) {
+    super(RULE_VIOLATION_MESSAGE)
+    this.name = 'RuleViolationError'
+    this.issues = issues
   }
 }
 

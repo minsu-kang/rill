@@ -495,7 +495,7 @@ describe('plannedRecord', () => {
       fallbackUsed: false,
       meta: {
         provider: 'anthropic',
-        effort: { requested: 'medium' as const, effective: 'medium' as const, native: 'medium', collapsed: false },
+        effort: { requested: 'medium' as const, effective: 'medium' as const, native: 'medium', collapsed: false, cappedByRule: false },
         reasoningCapped: false,
         memoryUsed: 0,
         memoryDropped: 0,

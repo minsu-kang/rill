@@ -8,10 +8,12 @@ import {
   RULE_MAX_INPUT_CHARS,
   RULE_MAX_ITEMS,
   METHODS,
+  PlanMetaSchema,
   RuleSchema,
   validateParams,
 } from '../src/index'
 
+const issue = { stage: 3, pointer: '/nodes/1/config/url', code: 'rule_violation', message: 'node n1: the host is not allowed', hint: 'allowed hosts: a.com' }
 const rule = { id: '3f2b8c1e-6a4d-4f5b-9c0e-1a2b3c4d5e6f', kind: 'allowHost', value: 'api.example.com', createdAt: 1000 }
 
 describe('rule constants', () => {
@@ -108,9 +110,47 @@ describe('deleteRule', () => {
   })
 })
 
+describe('checkRules', () => {
+  it('takes no params', () => {
+    expect(validateParams('checkRules', {})).toEqual({ ok: true, method: 'checkRules', params: {} })
+    expect(validateParams('checkRules', { workflowId: 'w' })).toMatchObject({ ok: false, code: 'INVALID_PARAMS' })
+  })
+
+  it('returns workflows with at most 20 issues each and at most 200 workflows', () => {
+    const entry = (issues: unknown[]) => ({ workflowId: 'w1', name: 'wf', issues })
+    expect(Value.Check(METHODS.checkRules.result, { violations: [] })).toBe(true)
+    expect(Value.Check(METHODS.checkRules.result, { violations: [entry([issue])] })).toBe(true)
+    expect(Value.Check(METHODS.checkRules.result, { violations: [entry(Array.from({ length: 20 }, () => issue))] })).toBe(true)
+    expect(Value.Check(METHODS.checkRules.result, { violations: [entry(Array.from({ length: 21 }, () => issue))] })).toBe(false)
+    expect(Value.Check(METHODS.checkRules.result, { violations: Array.from({ length: 200 }, () => entry([issue])) })).toBe(true)
+    expect(Value.Check(METHODS.checkRules.result, { violations: Array.from({ length: 201 }, () => entry([issue])) })).toBe(false)
+    expect(Value.Check(METHODS.checkRules.result, { violations: [{ ...entry([issue]), extra: 1 }] })).toBe(false)
+    expect(Value.Check(METHODS.checkRules.result, { violations: [entry([{ ...issue, stage: 9 }])] })).toBe(false)
+  })
+})
+
 describe('rule error codes', () => {
   it('are listed once next to the memory codes', () => {
     for (const code of ['RULE_INVALID', 'RULE_FULL', 'RULE_DUPLICATE', 'RULE_NOT_FOUND', 'RULE_VIOLATION']) expect(ERROR_CODES as readonly string[]).toContain(code)
     expect(new Set(ERROR_CODES).size).toBe(ERROR_CODES.length)
+  })
+})
+
+describe('the effort meta of a plan', () => {
+  const rounds: unknown[] = []
+  const usage = { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
+  const meta = (detail: unknown) => ({ rounds, usage, costUsd: null, model: 'm', effort: 'high', fallbackUsed: false, effortDetail: detail })
+  const detail = { requested: 'xhigh', effective: 'high', native: 'high', collapsed: false, cappedByRule: true }
+
+  it('says whether a rule capped the effort', () => {
+    expect(Value.Check(PlanMetaSchema, meta(detail))).toBe(true)
+    expect(Value.Check(PlanMetaSchema, meta({ ...detail, cappedByRule: false }))).toBe(true)
+    expect(Value.Check(PlanMetaSchema, meta({ ...detail, cappedByRule: 'yes' }))).toBe(false)
+  })
+
+  it('requires the flag when there is an effort detail', () => {
+    const without: Record<string, unknown> = { ...detail }
+    delete without.cappedByRule
+    expect(Value.Check(PlanMetaSchema, meta(without))).toBe(false)
   })
 })
