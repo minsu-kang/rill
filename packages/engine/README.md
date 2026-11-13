@@ -163,7 +163,7 @@ The meta of a planned record (returned by `plan` and stored in the record that `
 | Field | Meaning |
 | --- | --- |
 | `provider` | The name of the provider that answered, such as `openai`. |
-| `effortDetail` | `{ requested, effective, native, collapsed }`: the level asked for, the level that ran, the value sent to the provider and whether the two levels differ. Gemini, for example, runs `xhigh` and `max` as `high`. |
+| `effortDetail` | `{ requested, effective, native, collapsed, cappedByRule }`: the level asked for, the level that ran, the value sent to the provider, whether the two levels differ and whether a `maxPlanEffort` rule lowered the level (see Rules methods). Gemini, for example, runs `xhigh` and `max` as `high`. |
 | `reasoningCapped` | `false` when the provider does not count hidden reasoning against the output cap (Grok). |
 | `costNote` | Present only when `reasoningCapped` is `false`: a sentence saying the cap is soft and the cost can be above the estimate. |
 
@@ -188,7 +188,7 @@ All four are optional in the protocol schema. A plan stored before they existed 
 
 ## Workflow checks
 
-`deploy`, every repair round of `plan` and `instantiateRecipe` call the same `validateWorkflow` from `@rill/nodes-core`, so a refusal carries the same codes everywhere (`packages/dsl/ISSUES.md` lists them). One check needs the whole workflow instead of one node: `inside_watched_folder`. A file that a node writes (a `path` field of a node with a side effect) must not be in the folder of a `trigger.folderWatch` when the pattern of the trigger matches the name of the file. The trigger would take each write for a new file and start the run again, so a receipt ledger inside the watched folder would call the model without end.
+`deploy`, every repair round of `plan` and `instantiateRecipe` call the same `validateWorkflow` from `@rill/nodes-core`, so a refusal carries the same codes everywhere (`packages/dsl/ISSUES.md` lists them). When rules exist, the same call gets them as a policy and adds `rule_violation` issues (see Rules methods). One check needs the whole workflow instead of one node: `inside_watched_folder`. A file that a node writes (a `path` field of a node with a side effect) must not be in the folder of a `trigger.folderWatch` when the pattern of the trigger matches the name of the file. The trigger would take each write for a new file and start the run again, so a receipt ledger inside the watched folder would call the model without end.
 
 The comparison uses the folder that `~/` stands for and ignores case and the form of the path (dot segments, double slashes, a trailing slash). It also compares the real folders behind symbolic links, as far as they exist, so `/tmp/in` and `/private/tmp/in` count as one folder. It sees a file as the trigger does, with the same pattern matcher: a hidden file, an editor lock file, a temporary or partial download file, or a file in a subfolder is not seen. A path that starts with the output `file` of the trigger itself (`{{t1.output.file}}` or `{{t1.output.file}}.csv`) lands in the watched folder by definition and is refused when the pattern would match it; for the part after the reference the check tries the pattern on a placeholder name plus that part, so it is an approximation. A path that another template decides is read as ordinary text when it is absolute and skipped when it is relative, since a relative path depends on the folder the engine runs in. Case-insensitive folder comparison can refuse a layout that is fine on a case-sensitive file system. Loops between two workflows (one writes where the other watches) and workflows that are already deployed are not checked.
 
@@ -253,6 +253,83 @@ Notes count as text the user wrote when the planner decides what to flag. A URL,
 Cache: the notes block is marked for caching only when the provider declares explicit caching and one more breakpoint stays within its maximum, counting the node catalog and a cached attachment turn. Otherwise the notes form an unmarked block after the node catalog, which stays cached (explicit caching with no room, automatic caching, or no caching). The tag changes with every plan, so the block is read from the cache across the repair rounds of one plan, not across plans.
 
 Storage: migration 5 creates `memory_items` (`id`, `text`, `text_key` unique, `created_at`, `updated_at`) and adds `memory_ids` to `plans`. The unique key is the case-folded text and is what refuses duplicates.
+
+## Rules methods
+
+The user can set rules for the whole app. A rule only restricts: it can forbid a node type, narrow the hosts that `http.request` may call, or cap the planning effort. The engine stores the rules and enforces them in the shared validator, at deploy, activation, run start and trigger firing, and in the planner. A client only edits the list and shows the result. Nothing the model, an attachment, a recipe, an imported workflow or a run produces can create, change or delete a rule: the only write paths are `saveRule` and `deleteRule`. There is at most one rule of the kind `maxPlanEffort`, and at most 30 rules in all.
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `listRules` | none | `rules`, oldest first |
+| `saveRule` | `kind`, `value` | `rule` |
+| `deleteRule` | `id` | `deleted` (always `true`; an unknown id is `RULE_NOT_FOUND`) |
+| `checkRules` | none | `violations` |
+
+A rule is `{ id, kind, value, createdAt }`. The four methods work when the engine has no model provider. `PROTOCOL_VERSION` is still 1.
+
+### Kinds and values
+
+`saveRule` trims the value, composes it to NFC and refuses control characters, line and paragraph separators, bidirectional formatting characters and invisible format characters, as `saveMemory` does. The value is not copied into an error. The stored value is the normalised one, so two spellings of one rule are one rule (`RULE_DUPLICATE`).
+
+| Kind | Value | Effect |
+| --- | --- | --- |
+| `forbidNode` | A node type of the catalog without its version, such as `http.request`. Case is ignored and the catalog spelling is stored (`trigger.folderWatch`). | No workflow may contain a node of this type, in any version. Triggers and the spreadsheet nodes can be forbidden too. |
+| `allowHost` | A host name (`api.example.com`), a wildcard (`*.example.com`) or an address (`127.0.0.1`, `[::1]`; a bare IPv6 address is stored in brackets). An internationalised name is stored as punycode. | With no `allowHost` rule every host is allowed. With one or more, `http.request` may only call a host that matches one of them. |
+| `maxPlanEffort` | One of `low`, `medium`, `high`, `xhigh`, `max`. | `plan` requests above the cap run at the cap. Saving it again replaces the rule and keeps its id; saving the same value again is not an error. |
+
+A host value has no scheme, path, query, fragment, port, user info or space, no empty part between dots, no leading or trailing dot, labels of at most 63 characters and at most 253 characters in all. A wildcard is `*.` followed by a host name: it matches `a.example.com` and `a.b.example.com` and not `example.com`, so the apex needs its own rule. A wildcard is not allowed in front of an address, and an address is written in full (`127.1` and `0x7f.1` are refused).
+
+### Errors
+
+| Code | Meaning |
+| --- | --- |
+| `RULE_INVALID` | The value breaks a rule; `problems` names the rule that failed (`empty`, `control_character`, `line_separator`, `bidi_format`, `format_character`, `too_long`, `unknown_node_type`, `unknown_effort`, `host_scheme`, `host_path`, `host_port`, `host_user_info`, `host_space`, `host_empty_label`, `host_wildcard`, `host_characters`, `host_label_length`, `host_too_long`, `host_idn`) and never the value |
+| `RULE_FULL` | The 30 places are taken; delete one first |
+| `RULE_DUPLICATE` | The same kind and value are already saved |
+| `RULE_NOT_FOUND` | `deleteRule` got an id that is not there |
+| `RULE_VIOLATION` | `startRun` refused a workflow that breaks a rule; `problems` lists `rule_violation at <pointer>` and no run was created |
+| `INVALID_WORKFLOW` | `deploy` or `deployPlan` refused a workflow; the issues include `rule_violation` (`deploy` lists the messages, `deployPlan` lists `<code> at <pointer>`) |
+| `RECIPE_INVALID` | `instantiateRecipe` produced a workflow that breaks a rule; a problem is `rule_violation at <pointer>` |
+| `ACTIVATION_FAILED` | `activate` refused a stored workflow that now breaks a rule; the message is `the workflow breaks a rule you set; remove the rule or change the workflow` |
+
+An unexpected failure of `saveRule` or `deleteRule` logs only the error name. Rule values never appear in a log line, an error message or an event.
+
+### How a host is judged
+
+The URL is parsed with `new URL`, and the check uses the host of the parsed URL, never a text search. The same parser reads the URL when the request is made, so the host that is checked is the host that is called. A URL with `https://allowed.com@evil.com/`, `https://allowed.com.evil.com/`, `https://evil.com/?h=allowed.com`, a percent-encoded dot, an ideographic full stop or a backslash is judged by its real host. Upper case, one trailing dot, an explicit port, a fragment and user info do not change the host. An internationalised name and its punycode form are the same host. An address matches only a rule that is exactly that address, whatever way the URL spells it (`2130706433` and `127.0.0.1` are one address). Anything the check cannot decide is refused: a URL that does not parse, a scheme other than `http` and `https`, a host with an empty part and a port out of range.
+
+The rule matches names, not addresses. A name that an allowed rule matches can still resolve to a private address, and a redirect is not followed, so only the first URL of a call is checked.
+
+### Where rules are enforced
+
+| Point | What happens when the workflow breaks a rule |
+| --- | --- |
+| `deploy`, `deployPlan`, `instantiateRecipe` | The shared validator returns `rule_violation` issues and the call is refused. Nothing is stored. |
+| `plan` | The planner validates every answer with the rules, so its repair loop gets the `rule_violation` issues and corrects its own plan, or fails with `PLAN_INVALID` after the repair rounds. Patch mode validates the patched workflow the same way. |
+| `activate` | The stored workflow is checked again. A rule saved after the workflow was deployed blocks activation. When the engine resumes active workflows at start, one that now breaks a rule is not started and a `trigger.error` event says so. |
+| `startRun` | Refused with `RULE_VIOLATION`, no run is created. A dry run is refused too. |
+| A trigger fires | No run starts. The engine emits one `run.blocked` event `{ workflowId, codes }` for that firing, and no `trigger.fired` or `trigger.error`. A webhook call answers 403 `blocked by a rule`. A folder trigger gives up on that file until the workflow is activated again. The file is not recorded as seen, so it is processed after the rule is removed and the workflow is activated again. |
+| `http.request` at run time | The final URL, after templates, the query merge and a query credential, is checked against the host rules. A host that is not allowed fails the node with the fixed text `this host is not in the allowed hosts` before any request. The text has no URL in it. A dry run makes no request and no check. |
+
+The validator treats `http.request` URLs like this when `allowHost` rules exist: a literal URL is judged by its host; a URL that has a template reference in its scheme or host part (anything before the first `/`, `?` or `#` after the scheme) is refused, because the host is only known at run time; a reference in the path or the query is fine; a URL that is not an absolute `http` or `https` URL is refused. `notify.slack` posts to `slack.com` or to the webhook of its connection and is not subject to `allowHost` (`forbidNode` can still forbid it). `google.sheets.append` and `microsoft.excel.append` call fixed hosts and are not subject to it either.
+
+### Runs already running
+
+A run takes a snapshot of the host rules when it starts to execute, and `http.request` uses that snapshot. A rule saved while a run is in flight never cuts it. A run resumed after a crash takes a fresh snapshot at the moment it resumes. A resumed run is not checked against `forbidNode` rules again, because it started legitimately; only the host rules reach the nodes. Deleting a rule needs no re-check.
+
+### checkRules
+
+`checkRules` validates every stored workflow with the current rules and returns `violations`: `{ workflowId, name, issues }` for each workflow that breaks one, oldest first. It reports `rule_violation` issues only, at most 20 per workflow, and at most 200 workflows: all stored workflows are checked and the first 200 that break a rule are returned. An empty list means that no workflow breaks a rule, and also that there is no rule. Workflow names are user text.
+
+### The planner
+
+When a node or host rule exists, the user message lists them after the environment: `Rules set by the user, enforced by validation:` followed by one line for the forbidden node types and one for the allowed hosts. Without a rule the message is byte-identical to what it was before rules existed (a test compares seven recorded conversations with the frozen copy). The system blocks never change.
+
+A `maxPlanEffort` rule lowers the effort of a `plan` request that is above it to the cap. The request is never refused. The record keeps the effort the client asked for; the meta says what ran: `effortDetail.cappedByRule` is `true` when the cap lowered the level. `effortDetail` is `{ requested, effective, native, collapsed, cappedByRule }`, and a record stored before rules existed reads with `cappedByRule: false`. The effort of `explainRun` is not capped.
+
+### Storage
+
+Migration 6 creates `rules` (`id`, `kind`, `value`, `created_at`, `UNIQUE (kind, value)`) and a unique partial index that allows one `maxPlanEffort` row. A database from before this migration migrates forward and keeps its data.
 
 ## Explain method
 

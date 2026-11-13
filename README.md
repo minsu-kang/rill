@@ -33,6 +33,7 @@ Rill is an independent project and has no affiliation with any workflow-automati
 | Failure explanation | For a failed run, one button asks the model to explain the cause. The step record is sent with secrets masked, the answer comes back as a closed schema, and nothing is stored or executed. Suggested actions are buttons that the app owns. |
 | Five providers | Anthropic (the default), OpenAI, Gemini, Grok and Meta behind one interface that declares what each model can do. Keys are encrypted with Electron `safeStorage`, whose key is in the macOS keychain. |
 | Memory | Up to 20 short notes that you write yourself ("my receipts live in ~/Receipts"). The planner reads them on each request. Nothing else can create or change a note. |
+| Rules | Forbid node types, allow only some hosts for `http.request`, and cap the planning effort. The shared validator enforces them, so the planner repairs its own plans, and deploy, activation, run start and trigger firing refuse what breaks them. A run that is already running is not cut. The engine side is built and tested; the screen that edits the rules is not built yet. |
 | Storybook | Every screen is a story with fixtures and a fake engine. Look at all of it without an API key, an engine or Electron. |
 | Desktop shell | Tray icon, open at login, secrets encrypted with `safeStorage`, a hardened window, and a macOS installer built with electron-builder. |
 
