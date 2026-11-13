@@ -30,6 +30,7 @@ export interface ConversationStatus {
   working: boolean
   hasContent: boolean
   answers: number
+  failed: boolean
 }
 
 export interface ConversationProps {
@@ -76,6 +77,7 @@ export function Conversation(props: ConversationProps) {
   const running = useRef<string | undefined>(undefined)
   const root = useRef<HTMLDivElement>(null)
   const log = useRef<HTMLDivElement>(null)
+  const viewed = useRef<{ entries: number; status: string | undefined; top: number }>({ entries: -1, status: undefined, top: 0 })
   const unsent = useRef<readonly AttachmentRef[]>([])
   const portRef = useRef(port)
   const reportRef = useRef(props.report)
@@ -108,24 +110,37 @@ export function Conversation(props: ConversationProps) {
     [],
   )
 
+  useEffect(
+    () =>
+      client.onEvent((event) => {
+        if (event.type === 'workflow.deleted') dispatch({ type: 'workflowDeleted', workflowId: event.workflowId })
+      }),
+    [client],
+  )
+
   useEffect(() => {
     if (props.focusOnMount === true) root.current?.querySelector<HTMLTextAreaElement>('textarea[data-rill-composer]')?.focus()
   }, [props.focusOnMount])
 
   useEffect(() => {
     const element = log.current
-    if (element !== null) element.scrollTop = element.scrollHeight
-  }, [state.entries.length, state.status])
+    if (element === null || !active) return
+    const seen = viewed.current
+    const changed = seen.entries !== state.entries.length || seen.status !== state.status
+    viewed.current = { entries: state.entries.length, status: state.status, top: seen.top }
+    element.scrollTop = changed ? element.scrollHeight : seen.top
+  }, [state.entries.length, state.status, active])
 
   const firstUser = state.entries.find((entry) => entry.role === 'user')
   const firstMessage = firstUser?.role === 'user' && firstUser.text.trim() !== '' ? firstUser.text : undefined
   const planning = state.status === 'planning'
   const answers = state.entries.filter((entry) => entry.role === 'assistant').length
+  const failed = state.error !== undefined
   const hasContent = state.entries.length > 0 || state.draft.trim() !== '' || state.attachments.length > 0 || (state.unsent?.attachments.length ?? 0) > 0 || planning
 
   useEffect(() => {
-    reportRef.current(tabId, { firstMessage, working: planning, hasContent, answers })
-  }, [tabId, firstMessage, planning, hasContent, answers])
+    reportRef.current(tabId, { firstMessage, working: planning, hasContent, answers, failed })
+  }, [tabId, firstMessage, planning, hasContent, answers, failed])
 
   const models = modelsState.status === 'ready' ? modelsState.models : undefined
   const model = models === undefined ? undefined : activeModelOf(models)
@@ -248,7 +263,7 @@ export function Conversation(props: ConversationProps) {
 
   return (
     <div ref={root} id={panelId} className={styles.view} role="tabpanel" aria-labelledby={labelledBy} hidden={hidden}>
-      <div ref={log} className={styles.log} role="log" aria-label={t('chat.panel.log')}>
+      <div ref={log} className={styles.log} role="log" aria-label={t('chat.panel.log')} onScroll={(event) => (viewed.current.top = event.currentTarget.scrollTop)}>
         {state.entries.length === 0 && !planning ? (
           <div className={styles.empty}>
             <p className={styles.emptyTitle}>{t('chat.panel.empty')}</p>

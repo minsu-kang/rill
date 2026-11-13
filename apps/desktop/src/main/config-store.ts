@@ -97,10 +97,7 @@ function fromStored(value: unknown): AppConfig {
     if (typeof value.openAtLogin !== 'boolean') throw new ConfigError('invalid_model')
     config.openAtLogin = value.openAtLogin
   }
-  if (value.language !== undefined) {
-    if (!isLanguage(value.language)) throw new ConfigError('invalid_language')
-    config.language = value.language
-  }
+  if (isLanguage(value.language)) config.language = value.language
   return validated(config)
 }
 

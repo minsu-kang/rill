@@ -290,6 +290,29 @@ describe('chat tabs: requests that finish in the background', () => {
     expect(within(panel()).queryByText(summary)).toBeNull()
   })
 
+  it('marks a background tab when its request fails, and shows the failure when the tab is opened', async () => {
+    let fail: () => void = () => undefined
+    show({
+      intercept: (name, params) =>
+        name === 'plan' && (params as { text?: string }).text === 'bad'
+          ? new Promise((_, reject) => {
+              fail = () => reject(new RillError('PLAN_PROVIDER', 'x'))
+            })
+          : undefined,
+    })
+    await ready()
+    ask('bad')
+    fireEvent.click(plus())
+    const first = tabs()[0]!
+    await act(async () => fail())
+    await waitFor(() => expect(within(itemOf(first)).queryByRole('img', { name: 'Working' })).toBeNull())
+    expect(within(itemOf(first)).getByRole('img', { name: 'New answer' })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    fireEvent.click(first)
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(within(itemOf(first)).queryByRole('img')).toBeNull()
+  })
+
   it('does not mark the tab the user is looking at as unread', async () => {
     show()
     await ready()
@@ -650,6 +673,13 @@ describe('chat tabs: the strip and the composer of the active tab', () => {
     expect(css).toMatch(/flex:\s*0 0 auto/)
   })
 
+  it('keeps the close and plus buttons at least 24px square, the smallest pointer target', () => {
+    const css = readFileSync(join(import.meta.dirname, '../src/chat/ChatTabs.module.css'), 'utf8')
+    const rule = /\.close,\s*\.plus\s*\{([^}]*)\}/.exec(css)![1]!
+    expect(Number(/(?<![-\w])width:\s*(\d+)px/.exec(rule)![1])).toBeGreaterThanOrEqual(24)
+    expect(Number(/(?<![-\w])height:\s*(\d+)px/.exec(rule)![1])).toBeGreaterThanOrEqual(24)
+  })
+
   it('fills the draft of the active tab when the app proposes a fix, not the first tab', async () => {
     const { container } = show()
     await ready()
@@ -658,5 +688,88 @@ describe('chat tabs: the strip and the composer of the active tab', () => {
     expect(box().value).toBe('fix the node')
     fireEvent.click(tabs()[0]!)
     expect(box().value).toBe('')
+  })
+})
+
+describe('chat tabs: scroll position of a conversation', () => {
+  const FULL = 1000
+  const original = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop')
+  const originalHeight = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollHeight')
+  const originalSet = Element.prototype.setAttribute
+
+  afterEach(() => {
+    if (original !== undefined) Object.defineProperty(Element.prototype, 'scrollTop', original)
+    if (originalHeight !== undefined) Object.defineProperty(Element.prototype, 'scrollHeight', originalHeight)
+    Element.prototype.setAttribute = originalSet
+  })
+
+  function layout(): void {
+    const tops = new WeakMap<Element, number>()
+    const hidden = (element: Element): boolean => element.closest('[hidden]') !== null
+    Object.defineProperty(Element.prototype, 'scrollHeight', {
+      configurable: true,
+      get(this: Element) {
+        return hidden(this) || this.getAttribute('role') !== 'log' ? 0 : FULL
+      },
+    })
+    Object.defineProperty(Element.prototype, 'scrollTop', {
+      configurable: true,
+      get(this: Element) {
+        return hidden(this) ? 0 : (tops.get(this) ?? 0)
+      },
+      set(this: Element, value: number) {
+        if (!hidden(this)) tops.set(this, value)
+      },
+    })
+    Element.prototype.setAttribute = function (this: Element, name: string, value: string) {
+      if (name === 'hidden') for (const log of this.querySelectorAll('[role="log"]')) tops.delete(log)
+      originalSet.call(this, name, value)
+    }
+  }
+
+  const logOf = (tab: HTMLElement): HTMLElement => document.getElementById(tab.getAttribute('aria-controls')!)!.querySelector<HTMLElement>('[role="log"]')!
+
+  it('scrolls to the newest answer when a tab is opened that got its answer in the background', async () => {
+    layout()
+    const slow = later('plan', 'slow')
+    show({ intercept: slow.intercept })
+    await ready()
+    ask('slow')
+    fireEvent.click(plus())
+    await act(async () => slow.release())
+    await waitFor(() => expect(within(itemOf(tabNamed(/slow/))).getByRole('img', { name: 'New answer' })).toBeTruthy())
+    fireEvent.click(tabNamed(/slow/))
+    expect(await within(panel()).findByText(summary)).toBeTruthy()
+    expect(logOf(tabNamed(/slow/)).scrollTop).toBe(FULL)
+  })
+
+  it('puts a tab back where the person was reading when nothing new came in while they were away', async () => {
+    layout()
+    show()
+    await ready()
+    ask('first')
+    await screen.findByText(summary)
+    const log = logOf(tabNamed('first'))
+    expect(log.scrollTop).toBe(FULL)
+    log.scrollTop = 300
+    fireEvent.scroll(log)
+    fireEvent.click(plus())
+    expect(log.scrollTop).toBe(0)
+    fireEvent.click(tabNamed('first'))
+    expect(log.scrollTop).toBe(300)
+  })
+
+  it('still follows the newest message in the tab the person is looking at', async () => {
+    layout()
+    show()
+    await ready()
+    ask('first')
+    await screen.findByText(summary)
+    const log = logOf(tabNamed('first'))
+    log.scrollTop = 300
+    fireEvent.scroll(log)
+    ask('second')
+    await waitFor(() => expect(screen.getAllByText(summary)).toHaveLength(2))
+    expect(log.scrollTop).toBe(FULL)
   })
 })

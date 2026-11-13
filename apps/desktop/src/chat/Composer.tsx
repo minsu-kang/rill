@@ -81,6 +81,7 @@ export function Composer(props: ComposerProps) {
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [advanced, setAdvanced] = useState(false)
   const optionsId = useId()
+  const stateId = useId()
   const fileInput = useRef<HTMLInputElement>(null)
   const text = useRef<HTMLTextAreaElement>(null)
   const wasBusy = useRef(false)
@@ -193,6 +194,7 @@ export function Composer(props: ComposerProps) {
   const memoryOn = memoryInUse(state.useMemory, memoryCount)
   if (memoryOn) transfer.push('memory')
   const attachCount = state.attachments.length + pending.length
+  const notesOff = !optionsOpen && !state.useMemory && memoryCount !== undefined && memoryCount > 0
 
   return (
     <div className={styles.root} data-composer="" data-dragging={dragging ? 'true' : undefined} onDragOver={onDragOver} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
@@ -275,11 +277,16 @@ export function Composer(props: ComposerProps) {
           )}
         </div>
       </div>
-      <div className={styles.optionsBar}>
-        <button type="button" className={styles.optionsToggle} aria-expanded={optionsOpen} aria-controls={optionsId} onClick={() => setOptionsOpen(!optionsOpen)}>
+      <div className={styles.optionsBar} data-rill-options-bar="">
+        <button type="button" className={styles.optionsToggle} aria-expanded={optionsOpen} aria-controls={optionsId} aria-describedby={notesOff ? stateId : undefined} onClick={() => setOptionsOpen(!optionsOpen)}>
           <ChevronIcon open={optionsOpen} />
           {t('chat.composer.options')}
         </button>
+        {notesOff ? (
+          <span id={stateId} className={styles.optionsState}>
+            {t('chat.composer.optionsNotesOff')}
+          </span>
+        ) : null}
       </div>
       <div id={optionsId} className={styles.options} hidden={!optionsOpen}>
         <label className={styles.memory}>

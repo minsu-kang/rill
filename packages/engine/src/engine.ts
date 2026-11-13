@@ -478,7 +478,7 @@ export class Engine {
   deleteWorkflow(workflowId: string): void {
     if (!this.store.hasWorkflow(workflowId)) throw new NotFoundError(`workflow not found: ${workflowId}`)
     if (this.store.hasActiveRun(workflowId)) throw new WorkflowBusyError(workflowId)
-    this.triggers.deactivate(workflowId)
+    if (this.triggers.isActive(workflowId)) this.triggers.deactivate(workflowId)
     this.store.deleteWorkflow(workflowId)
     this.bus.emit({ type: 'workflow.deleted', workflowId })
   }

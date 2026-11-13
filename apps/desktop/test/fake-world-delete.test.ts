@@ -74,4 +74,16 @@ describe('fake world deleteWorkflow', () => {
     await env.client.request('deleteWorkflow', { workflowId: ids.workflows.webhook })
     expect(await listed(env)).not.toContain(ids.workflows.webhook)
   })
+
+  it('lets a plan whose workflow was deleted be deployed again, as the engine does', async () => {
+    const env = world()
+    const { planId } = await env.client.request('plan', { planId: 'p-again', text: 'x', turns: [], attachments: [], effort: 'medium', useMemory: false })
+    const first = (await env.client.request('deployPlan', { planId, confirmed: [] })).workflowId
+    await expect(env.client.request('deployPlan', { planId, confirmed: [] })).rejects.toMatchObject({ code: 'PLAN_DEPLOYED' })
+    await env.client.request('deleteWorkflow', { workflowId: first })
+    const second = (await env.client.request('deployPlan', { planId, confirmed: [] })).workflowId
+    expect(second).not.toBe(first)
+    expect(await listed(env)).toContain(second)
+    await expect(env.client.request('deployPlan', { planId, confirmed: [] })).rejects.toMatchObject({ code: 'PLAN_DEPLOYED' })
+  })
 })

@@ -35,6 +35,7 @@ export function WorkflowActions({ client, workflowId, summary, catalog, onRunSta
   const manual = kind === 'manual'
   const off = disabled || action.busy
   const errorText = action.error === undefined ? undefined : t(action.error)
+  const deleteErrorText = action.error === 'app.wf.error.WORKFLOW_BUSY' && summary.active ? t('app.wf.error.WORKFLOW_BUSY_ACTIVE') : errorText
 
   useEffect(() => {
     if (focusAction === 'dryRun') dryRun.current?.focus()
@@ -154,7 +155,7 @@ export function WorkflowActions({ client, workflowId, summary, catalog, onRunSta
           cancelLabel={t('app.common.cancel')}
           busy={action.busy}
           danger
-          error={errorText}
+          error={deleteErrorText}
           onCancel={close}
           onConfirm={remove}
         />

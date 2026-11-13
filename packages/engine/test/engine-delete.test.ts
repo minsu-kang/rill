@@ -163,10 +163,26 @@ describe('deleteWorkflow', () => {
 
     env.engine.deleteWorkflow(doomed)
 
-    expect(env.engine.getPlan('plan-a')).toEqual({ ...planBefore, workflowId: null, confirmed: null })
+    expect(env.engine.getPlan('plan-a')).toEqual({ ...planBefore, workflowId: null })
     expect(env.engine.getPlan('plan-b').workflowId).toBe(other)
     expect(env.engine.listPlans().map((plan) => plan.planId).sort()).toEqual(['plan-a', 'plan-b'])
     expect(env.engine.listMemory()).toEqual([note])
+  })
+
+  it('keeps what the user confirmed on a plan after its workflow is deleted and overwrites it on a new deploy', async () => {
+    const env = setup()
+    const workflow = plainWorkflow('flagged')
+    env.engine.store.savePlan({
+      ...storedPlan('flagged'),
+      result: { kind: 'workflow', workflow, summary: 'flagged', flags: [], needsConfirmation: false },
+      flagKeys: ['k1', 'k2'],
+      workflowHash: workflowHash(workflow),
+    })
+    const first = env.engine.deployPlan('flagged', ['k1', 'k2'])
+    env.engine.deleteWorkflow(first)
+    expect(env.engine.getPlan('flagged')).toMatchObject({ workflowId: null, confirmed: ['k1', 'k2'] })
+    const second = env.engine.deployPlan('flagged', ['k2', 'k1', 'k1'])
+    expect(env.engine.getPlan('flagged')).toMatchObject({ workflowId: second, confirmed: ['k2', 'k1'] })
   })
 
   it('lets a plan whose workflow was deleted be deployed again', async () => {
@@ -197,6 +213,22 @@ describe('deleteWorkflow', () => {
     expect(count(env.db, 'runs')).toBe(0)
     expect(count(env.db, 'trigger_state')).toBe(0)
     expect(env.events.map((event) => event.type)).toEqual(['workflow.activated', 'workflow.deactivated', 'workflow.deleted'])
+  })
+
+  it('emits only workflow.deleted for a workflow that is not active', async () => {
+    const env = setup()
+    const id = env.engine.deploy(echoWorkflow('idle'))
+    env.engine.deleteWorkflow(id)
+    expect(env.events.map((event) => event.type)).toEqual(['workflow.deleted'])
+  })
+
+  it('emits workflow.deactivated before workflow.deleted for an active workflow', async () => {
+    const env = setup()
+    const id = env.engine.deploy(echoWorkflow('cron', node('t1', 'trigger.cron@1', { expression: '* * * * *', timezone: 'utc' })))
+    await env.engine.activate(id)
+    env.events.length = 0
+    env.engine.deleteWorkflow(id)
+    expect(env.events.map((event) => event.type)).toEqual(['workflow.deactivated', 'workflow.deleted'])
   })
 
   it('honours a delete that arrives while the activation is still running', async () => {

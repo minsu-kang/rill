@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import * as fsp from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -42,7 +42,7 @@ describe('config store: reading', () => {
     expect(Object.keys(config).sort()).toEqual(['allowedFolders', 'language', 'model', 'openAtLogin', 'provider'])
   })
 
-  it.each([['not json {'], ['[]'], ['"text"'], ['null'], [JSON.stringify({ provider: 'azure' })], [JSON.stringify({ allowedFolders: ['relative/path'] })], [JSON.stringify({ openAtLogin: 'yes' })], [JSON.stringify({ provider: 'openai' })], [JSON.stringify({ language: 'fr' })], [JSON.stringify({ language: 1 })], [JSON.stringify({ language: null })]])(
+  it.each([['not json {'], ['[]'], ['"text"'], ['null'], [JSON.stringify({ provider: 'azure' })], [JSON.stringify({ allowedFolders: ['relative/path'] })], [JSON.stringify({ openAtLogin: 'yes' })], [JSON.stringify({ provider: 'openai' })]])(
     'falls back to the defaults for a corrupt or invalid file and keeps it as config.json.bak: %s',
     async (text) => {
       writeFileSync(file(), text)
@@ -57,6 +57,20 @@ describe('config store: language', () => {
   it('loads an older file without a language as system', async () => {
     writeFileSync(file(), JSON.stringify({ version: 1, allowedFolders: [], provider: 'anthropic', openAtLogin: true }))
     expect((await createConfigStore({ dir }).get()).language).toBe('system')
+  })
+
+  it.each([['fr'], ['ja'], [''], ['EN'], [1], [null], [true], [{}]])('reads %j as system and keeps every other saved setting', async (language) => {
+    writeFileSync(file(), JSON.stringify({ version: 1, allowedFolders: ['/a'], provider: 'openai', model: 'gpt-6.1-sol', openAtLogin: true, language }))
+    const store = createConfigStore({ dir })
+    expect(await store.get()).toEqual({ allowedFolders: ['/a'], provider: 'openai', model: 'gpt-6.1-sol', openAtLogin: true, language: 'system' })
+    expect(existsSync(`${file()}.bak`)).toBe(false)
+    expect(existsSync(file())).toBe(true)
+  })
+
+  it('still resets everything for a file whose other settings are invalid, even with a valid language', async () => {
+    writeFileSync(file(), JSON.stringify({ provider: 'azure', language: 'ko' }))
+    expect(await createConfigStore({ dir }).get()).toEqual(DEFAULTS)
+    expect(existsSync(`${file()}.bak`)).toBe(true)
   })
 
   it.each(['system', 'en', 'ko'] as const)('saves %s and reads it back after a restart', async (language) => {

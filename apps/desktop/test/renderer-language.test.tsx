@@ -23,8 +23,8 @@ function start(options: { language?: Language; system?: string; wrap?: (host: Ho
   return { world, host, view, user: userEvent.setup() }
 }
 
-async function openGeneral(user: ReturnType<typeof userEvent.setup>, t: (key: 'app.tab.settings' | 'app.settings.section.general') => string) {
-  await user.click(await screen.findByRole('button', { name: t('app.tab.settings') }))
+async function openGeneral(user: ReturnType<typeof userEvent.setup>, t: (key: 'app.tab.settings' | 'app.settings.section.general') => string, timeout = 1000) {
+  await user.click(await screen.findByRole('button', { name: t('app.tab.settings') }, { timeout }))
   await user.click(await screen.findByRole('button', { name: t('app.settings.section.general') }))
 }
 
@@ -32,10 +32,10 @@ const languageSelect = (t: ReturnType<typeof createTranslator>) => screen.findBy
 const htmlLang = () => document.documentElement.lang
 
 describe('LiveRoot locale', () => {
-  it('starts from the system language and sets <html lang> in the first render', () => {
+  it('starts from the system language and sets <html lang> in the first render', async () => {
     start({ system: 'en-US' })
     expect(htmlLang()).toBe('en')
-    expect(screen.getByRole('button', { name: en('app.tab.recipes') })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: en('app.tab.recipes') })).toBeTruthy()
   })
 
   it('follows a Korean system language while the setting is system', async () => {
@@ -51,6 +51,61 @@ describe('LiveRoot locale', () => {
     await waitFor(() => expect(htmlLang()).toBe('ko'))
     expect(await screen.findByRole('button', { name: ko('app.tab.recipes') })).toBeTruthy()
     expect(screen.queryByRole('button', { name: en('app.tab.recipes') })).toBeNull()
+  })
+
+  it('draws nothing of the app until the first read of the settings has finished', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const wrap = (host: HostApi): HostApi => ({
+      ...host,
+      settings: {
+        ...host.settings,
+        get: async () => {
+          const answer = await host.settings.get()
+          await gate
+          return answer
+        },
+      },
+    })
+    const { view } = start({ language: 'ko', system: 'en-US', wrap })
+    expect(view.container.querySelector('[data-rill-app]')).toBeNull()
+    expect(screen.queryAllByRole('button')).toEqual([])
+    expect(htmlLang()).toBe('en')
+    await act(async () => release())
+    expect(await screen.findByRole('button', { name: ko('app.tab.recipes') })).toBeTruthy()
+    expect(htmlLang()).toBe('ko')
+  })
+
+  it('never draws the app in the wrong language first when the saved language differs from the system one', async () => {
+    const seen: string[] = []
+    const watcher = new MutationObserver(() => {
+      for (const button of document.querySelectorAll('button')) seen.push(button.textContent ?? '')
+    })
+    watcher.observe(document.body, { childList: true, subtree: true, characterData: true })
+    start({ language: 'ko', system: 'en-US' })
+    await screen.findByRole('button', { name: ko('app.tab.recipes') })
+    watcher.disconnect()
+    expect(seen).toContain(ko('app.tab.recipes'))
+    expect(seen).not.toContain(en('app.tab.recipes'))
+  })
+
+  it('draws the app in the system language when the first read takes longer than a second', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const wrap = (host: HostApi): HostApi => ({ ...host, settings: { ...host.settings, get: () => new Promise<Settings>(() => undefined) } })
+      const { view } = start({ language: 'ko', system: 'en-US', wrap })
+      await act(async () => {
+        vi.advanceTimersByTime(999)
+      })
+      expect(view.container.querySelector('[data-rill-app]')).toBeNull()
+      expect(screen.queryAllByRole('button')).toEqual([])
+      await act(async () => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(screen.getByRole('button', { name: en('app.tab.recipes') })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('lets a saved English win over a Korean system language', async () => {
@@ -122,7 +177,7 @@ describe('LiveRoot locale', () => {
       },
     })
     const { user } = start({ system: 'en-US', wrap })
-    await openGeneral(user, en)
+    await openGeneral(user, en, 3000)
     await user.selectOptions(await languageSelect(en), 'ko')
     await waitFor(() => expect(htmlLang()).toBe('ko'))
     await act(async () => {

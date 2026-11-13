@@ -524,6 +524,29 @@ describe('Composer: layout', () => {
     expect(screen.queryByRole('radio', { name: 'Maximum' })).toBeNull()
   })
 
+  it('says next to the closed options that the notes are off, and describes the button with it', () => {
+    const { container } = show({ state: { draft: 'x', attachments: [], effort: 'medium', useMemory: false } })
+    const toggle = screen.getByRole('button', { name: 'Options' })
+    const status = within(container.querySelector<HTMLElement>('[data-rill-options-bar]')!).getByText('Notes off')
+    expect(toggle.getAttribute('aria-describedby')).toBe(status.id)
+    expect(screen.getByRole('note').textContent).not.toContain('notes')
+    fireEvent.click(toggle)
+    expect(screen.queryByText('Notes off')).toBeNull()
+    expect(toggle.getAttribute('aria-describedby')).toBeNull()
+    fireEvent.click(toggle)
+    expect(screen.getByText('Notes off')).toBeTruthy()
+  })
+
+  it.each([
+    ['notes are on', { useMemory: true }, 3],
+    ['there are no notes to switch off', { useMemory: false }, 0],
+    ['the notes have not loaded', { useMemory: false }, undefined],
+  ])('does not say the notes are off when %s', (_name, patch, memoryCount) => {
+    show({ state: { draft: 'x', attachments: [], effort: 'medium', ...patch }, memoryCount })
+    expect(screen.queryByText('Notes off')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Options' }).getAttribute('aria-describedby')).toBeNull()
+  })
+
   it('opens and closes the options with the button, which controls the region it opens', () => {
     const { container } = show()
     const toggle = screen.getByRole('button', { name: 'Options' })

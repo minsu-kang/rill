@@ -16,7 +16,7 @@ function seeded(specs: readonly Spec[], active = 0): () => TabsState {
     const ids = state.tabs.map((tab) => tab.id)
     state = tabsReducer(state, { type: 'activate', id: ids[active]! })
     specs.forEach((spec, index) => {
-      state = tabsReducer(state, { type: 'report', id: ids[index]!, firstMessage: spec.message, working: spec.working === true, hasContent: spec.message !== undefined, answers: spec.unread === true ? 1 : 0 })
+      state = tabsReducer(state, { type: 'report', id: ids[index]!, firstMessage: spec.message, working: spec.working === true, hasContent: spec.message !== undefined, answers: spec.unread === true ? 1 : 0, failed: false })
     })
     return state
   }

@@ -52,7 +52,8 @@ describe('error keys', () => {
     expect(engineErrorKey(new RillError('WORKFLOW_BUSY', 'x'))).toBe('app.wf.error.WORKFLOW_BUSY')
     expect(engineErrorKey(new RillError('NOT_FOUND', 'x'))).toBe('app.wf.error.NOT_FOUND')
     expect(engineErrorKey(new RillError('WHATEVER', 'x'))).toBe('app.wf.error.generic')
-    expect(t('app.wf.error.WORKFLOW_BUSY')).toBe('Stop the running run first.')
+    expect(t('app.wf.error.WORKFLOW_BUSY')).toBe('This workflow still has a run in progress. Try again when it has finished.')
+    expect(t('app.wf.error.WORKFLOW_BUSY_ACTIVE')).toBe('This workflow still has a run in progress. Deactivate it so that no new run starts, and try again when the run has finished.')
   })
 })
 
@@ -165,7 +166,7 @@ describe('WorkflowActions: delete dialog', () => {
     await act(async () => release())
   })
 
-  it('says to stop the running run first when the workflow is busy, keeps the dialog open and allows another try', async () => {
+  it('says the run is still in progress when the workflow is busy, keeps the dialog open and allows another try', async () => {
     const base = createFakeWorld({ hostOptions: { restartDelayMs: 0 } })
     let busy = true
     const client = wrap(base, (method) => (method === 'deleteWorkflow' && busy ? Promise.reject(new RillError('WORKFLOW_BUSY', 'the workflow has a run that is queued or running')) : undefined))
@@ -174,13 +175,25 @@ describe('WorkflowActions: delete dialog', () => {
     await user.click(deleteButton())
     await user.click(confirmButton())
     const alert = await within(screen.getByRole('dialog')).findByRole('alert')
-    expect(alert.textContent).toBe('Stop the running run first.')
+    expect(alert.textContent).toBe('This workflow still has a run in progress. Try again when it has finished.')
     expect(alert.textContent).not.toContain('queued')
+    expect(alert.textContent).not.toMatch(/deactivate/i)
     expect(onDeleted).not.toHaveBeenCalled()
     expect(confirmButton().disabled).toBe(false)
     busy = false
     await user.click(confirmButton())
     await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1))
+  })
+
+  it('tells the person to deactivate an active workflow that is busy, so no new run keeps it busy', async () => {
+    const base = createFakeWorld({ hostOptions: { restartDelayMs: 0 } })
+    const client = wrap(base, (method) => (method === 'deleteWorkflow' ? Promise.reject(new RillError('WORKFLOW_BUSY', 'x')) : undefined))
+    const { user } = await show({ world: base, client, workflowId: ids.workflows.receipt })
+    expect(screen.getByRole('button', { name: t('app.wf.actions.deactivate') })).toBeTruthy()
+    await user.click(deleteButton())
+    await user.click(confirmButton())
+    const alert = await within(screen.getByRole('dialog')).findByRole('alert')
+    expect(alert.textContent).toBe('This workflow still has a run in progress. Deactivate it so that no new run starts, and try again when the run has finished.')
   })
 
   it('shows the plain error text for any other failure and does not leak the engine message', async () => {
@@ -348,7 +361,7 @@ describe('deleting a workflow in the app', () => {
     expect(switcher().value).toBe(ids.workflows.receipt)
   })
 
-  it('keeps the selection and says to stop the run when the workflow is busy', async () => {
+  it('keeps the selection and says to deactivate and wait when the active workflow is busy', async () => {
     const { world, user } = mount({ workflowId: ids.workflows.receipt }, { control: { stepIntervalMs: 60_000 } })
     await selected(ids.workflows.receipt)
     await user.click(screen.getByRole('button', { name: t('app.wf.actions.dryRun') }))
@@ -357,7 +370,7 @@ describe('deleting a workflow in the app', () => {
     await user.click(screen.getByRole('button', { name: t('app.wf.actions.delete') }))
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: t('app.delete.confirm') }))
     const alert = await within(screen.getByRole('dialog')).findByRole('alert')
-    expect(alert.textContent).toBe('Stop the running run first.')
+    expect(alert.textContent).toBe('This workflow still has a run in progress. Deactivate it so that no new run starts, and try again when the run has finished.')
     expect(switcher().value).toBe(ids.workflows.receipt)
   })
 

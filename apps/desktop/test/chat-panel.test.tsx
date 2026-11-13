@@ -1,4 +1,4 @@
-import { flagKey, RillError, type PlanResultBody } from '@rill/protocol'
+import { flagKey, RillError, type EngineEvent, type PlanResultBody } from '@rill/protocol'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ChatPanel, type ChatPanelProps } from '../src/chat/ChatPanel'
@@ -68,6 +68,51 @@ describe('ChatPanel: the happy paths', () => {
     expect(onDeployed).toHaveBeenCalledWith('wf-new')
     expect(world.callsOf('deployPlan')[0]!.params).toEqual({ planId: 'plan-1', confirmed: [] })
     expect(world.planCalls()[0]).toMatchObject({ planId: 'plan-1', text: 'watch a folder for receipts', turns: [], attachments: [], effort: 'medium', useMemory: true })
+  })
+
+  it('offers Deploy again when the workflow of a deployed plan is deleted, and ignores other workflows', async () => {
+    const { world } = show()
+    await ready()
+    ask('watch a folder for receipts')
+    await screen.findByText(workflowSummary)
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy' }))
+    expect(await screen.findByText('Deployed. Workflow wf-new')).toBeTruthy()
+    const listener = world.onEvent.mock.calls.at(-1)![0]
+    act(() => listener({ type: 'workflow.deleted', at: 1, workflowId: 'wf-other' }))
+    expect(screen.getByText('Deployed. Workflow wf-new')).toBeTruthy()
+    act(() => listener({ type: 'workflow.activated', at: 1, workflowId: 'wf-new' }))
+    expect(screen.getByText('Deployed. Workflow wf-new')).toBeTruthy()
+    act(() => listener({ type: 'workflow.deleted', at: 1, workflowId: 'wf-new' }))
+    expect(screen.queryByText('Deployed. Workflow wf-new')).toBeNull()
+    expect((screen.getByRole('button', { name: 'Deploy' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('releases the deployed mark in a tab that is in the background, and stops listening when its tab closes', async () => {
+    const listeners = new Set<(event: EngineEvent) => void>()
+    const world = makeWorld()
+    const client = {
+      ...world.client,
+      onEvent: (listener: (event: EngineEvent) => void) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+    }
+    let serial = 0
+    renderThemed(<ChatPanel client={client} port={port} catalog={catalog} newId={() => `plan-${++serial}`} />, { locale: 'en' })
+    await ready()
+    ask('watch a folder for receipts')
+    await screen.findByText(workflowSummary)
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy' }))
+    await screen.findByText('Deployed. Workflow wf-new')
+    fireEvent.click(newTabButton())
+    expect(listeners.size).toBe(2)
+    act(() => listeners.forEach((listener) => listener({ type: 'workflow.deleted', at: 1, workflowId: 'wf-new' })))
+    fireEvent.click(screen.getAllByRole('tab')[0]!)
+    expect(screen.queryByText('Deployed. Workflow wf-new')).toBeNull()
+    expect((screen.getByRole('button', { name: 'Deploy' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getAllByRole('tab')[1]!)
+    fireEvent.click(screen.getByRole('button', { name: 'Close New chat' }))
+    expect(listeners.size).toBe(1)
   })
 
   it('asks, gets questions, answers them and gets a workflow', async () => {

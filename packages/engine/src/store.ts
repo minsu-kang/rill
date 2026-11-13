@@ -247,7 +247,7 @@ export class Store {
   deleteWorkflow(id: string): void {
     this.db.transaction(() => {
       const ownRuns = 'SELECT id FROM runs WHERE workflow_id = ?'
-      this.db.run('UPDATE plans SET workflow_id = NULL, confirmed = NULL WHERE workflow_id = ?', id)
+      this.db.run('UPDATE plans SET workflow_id = NULL WHERE workflow_id = ?', id)
       this.db.run(
         `DELETE FROM idempotency_journal WHERE key IN (SELECT idempotency_key FROM step_attempts WHERE run_id IN (${ownRuns}))`,
         id,

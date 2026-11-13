@@ -167,8 +167,8 @@ The engine checks in this order and stops at the first failure, so a refusal cha
 
 1. An unknown id is `NOT_FOUND`.
 2. A workflow with a run that is `queued` or `running` is `WORKFLOW_BUSY`. The client has to stop or wait for the run first, and the workflow stays active.
-3. The triggers of the workflow are stopped (the same as `deactivate`).
-4. One transaction deletes the rows below, and the call then emits one `workflow.deleted` event with the `workflowId`. If the transaction fails, nothing is deleted and no event is emitted; the workflow is then stopped but still stored.
+3. The triggers of the workflow are stopped (the same as `deactivate`) when it is active or still activating. Only then a `workflow.deactivated` event comes first; an inactive workflow emits no such event.
+4. One transaction deletes the rows below, and the call then emits one `workflow.deleted` event with the `workflowId`. If the transaction fails, nothing is deleted and no `workflow.deleted` event is emitted; the workflow is then stopped but still stored.
 
 | Table | What happens |
 | --- | --- |
@@ -178,7 +178,7 @@ The engine checks in this order and stops at the first failure, so a refusal cha
 | `trigger_state` | Deleted. |
 | `seen_files` | Deleted, so a workflow deployed again for the same folder starts fresh. |
 | `workflows` | The row is deleted. |
-| `plans` | Kept. `workflow_id` and `confirmed` are set to null, because they point at a workflow that is gone. The request text, the result and the meta of a plan are the user's own history and do not need the workflow row, and a plan can be deployed again with `deployPlan`. |
+| `plans` | Kept. Only `workflow_id` is set to null, because it points at a workflow that is gone. `confirmed` stays: it records which flags the user approved, not a link. The request text, the result and the meta of a plan are the user's own history and do not need the workflow row, and a plan can be deployed again with `deployPlan`, which writes `workflow_id` and `confirmed` anew. |
 | `memory_items` | Untouched. A note has no link to a workflow. |
 
 Other windows learn of the delete through the `workflow.deleted` event.

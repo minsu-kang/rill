@@ -55,6 +55,10 @@ export class TriggerManager {
     return task
   }
 
+  isActive(workflowId: string): boolean {
+    return this.runtimes.has(workflowId) || this.activating.has(workflowId)
+  }
+
   deactivate(workflowId: string): void {
     if (this.activating.has(workflowId)) this.cancelled.add(workflowId)
     this.runtimes.get(workflowId)?.stop()

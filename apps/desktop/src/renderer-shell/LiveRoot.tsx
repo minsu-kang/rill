@@ -12,6 +12,8 @@ export interface LiveRootProps {
   systemLanguage: string
 }
 
+const SETTINGS_WAIT_MS = 1000
+
 function observeLanguage(host: HostApi, report: (language: Language) => void): HostApi {
   let saved = 0
   const remember = (settings: Settings): Settings => {
@@ -38,6 +40,7 @@ function observeLanguage(host: HostApi, report: (language: Language) => void): H
 
 export function LiveRoot({ host, connect, theme, systemLanguage }: LiveRootProps) {
   const [language, setLanguage] = useState<Language>('system')
+  const [settled, setSettled] = useState(false)
   const locale = localeFor(language, systemLanguage)
   const observed = useMemo(() => (host === undefined ? undefined : observeLanguage(host, setLanguage)), [host])
 
@@ -46,12 +49,22 @@ export function LiveRoot({ host, connect, theme, systemLanguage }: LiveRootProps
   }, [locale])
 
   useEffect(() => {
-    observed?.settings.get().catch(() => undefined)
+    if (observed === undefined) return undefined
+    let live = true
+    const done = (): void => {
+      if (live) setSettled(true)
+    }
+    const timer = setTimeout(done, SETTINGS_WAIT_MS)
+    observed.settings.get().then(done, done)
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
   }, [observed])
 
   return (
     <ThemeProvider theme={theme} locale={locale}>
-      <Root host={observed} connect={connect} />
+      {settled || observed === undefined ? <Root host={observed} connect={connect} /> : null}
     </ThemeProvider>
   )
 }

@@ -86,6 +86,7 @@ export const chatEn: Record<keyof typeof chatKo, string> = {
   'chat.composer.memoryUnknown': 'Notes not loaded',
   'chat.composer.noModel': 'No model is set up',
   'chat.composer.options': 'Options',
+  'chat.composer.optionsNotesOff': 'Notes off',
   'chat.composer.editing': 'Editing: {workflow}',
   'chat.composer.editingNode': 'Editing: {workflow}, node {node}',
   'chat.composer.clearEdit': 'Stop editing',

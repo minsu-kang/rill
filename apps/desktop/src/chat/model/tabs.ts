@@ -10,6 +10,7 @@ export interface ChatTab {
   unread: boolean
   hasContent: boolean
   answers: number
+  failed: boolean
 }
 
 export interface TabsState {
@@ -22,10 +23,10 @@ export type TabsAction =
   | { type: 'open' }
   | { type: 'close'; id: string }
   | { type: 'activate'; id: string }
-  | { type: 'report'; id: string; firstMessage: string | undefined; working: boolean; hasContent: boolean; answers: number }
+  | { type: 'report'; id: string; firstMessage: string | undefined; working: boolean; hasContent: boolean; answers: number; failed: boolean }
 
 function freshTab(serial: number): ChatTab {
-  return { id: `chat-${serial}`, firstMessage: undefined, working: false, unread: false, hasContent: false, answers: 0 }
+  return { id: `chat-${serial}`, firstMessage: undefined, working: false, unread: false, hasContent: false, answers: 0, failed: false }
 }
 
 export function initialTabs(): TabsState {
@@ -69,11 +70,14 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
     case 'report': {
       const tab = state.tabs.find((item) => item.id === action.id)
       if (tab === undefined) return state
-      const unread = tab.unread || (action.answers > tab.answers && action.id !== state.activeId)
-      if (tab.firstMessage === action.firstMessage && tab.working === action.working && tab.hasContent === action.hasContent && tab.answers === action.answers && tab.unread === unread) return state
+      const news = action.answers > tab.answers || (action.failed && !tab.failed)
+      const unread = tab.unread || (news && action.id !== state.activeId)
+      if (tab.firstMessage === action.firstMessage && tab.working === action.working && tab.hasContent === action.hasContent && tab.answers === action.answers && tab.failed === action.failed && tab.unread === unread) return state
       return {
         ...state,
-        tabs: state.tabs.map((item) => (item.id === action.id ? { ...item, firstMessage: action.firstMessage, working: action.working, hasContent: action.hasContent, answers: action.answers, unread } : item)),
+        tabs: state.tabs.map((item) =>
+          item.id === action.id ? { ...item, firstMessage: action.firstMessage, working: action.working, hasContent: action.hasContent, answers: action.answers, failed: action.failed, unread } : item,
+        ),
       }
     }
   }

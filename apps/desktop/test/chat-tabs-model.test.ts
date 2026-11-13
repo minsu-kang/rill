@@ -3,7 +3,7 @@ import { canOpenTab, initialTabs, MAX_TABS, tabsReducer, TITLE_MAX, tabTitle, ty
 
 const run = (state: TabsState, ...actions: TabsAction[]): TabsState => actions.reduce(tabsReducer, state)
 const ids = (state: TabsState): string[] => state.tabs.map((tab) => tab.id)
-const report = (id: string, patch: Partial<Extract<TabsAction, { type: 'report' }>> = {}): TabsAction => ({ type: 'report', id, firstMessage: undefined, working: false, hasContent: false, answers: 0, ...patch })
+const report = (id: string, patch: Partial<Extract<TabsAction, { type: 'report' }>> = {}): TabsAction => ({ type: 'report', id, firstMessage: undefined, working: false, hasContent: false, answers: 0, failed: false, ...patch })
 
 function withTabs(count: number): TabsState {
   return run(initialTabs(), ...Array.from({ length: count - 1 }, () => ({ type: 'open' }) as const))
@@ -141,6 +141,36 @@ describe('tabs: report', () => {
     state = run(state, report(a!, { answers: 3, hasContent: true }), { type: 'activate', id: a! }, { type: 'activate', id: state.tabs[1]!.id })
     expect(state.tabs[0]!.unread).toBe(false)
     state = run(state, report(a!, { answers: 3 }), report(a!, { answers: 1 }))
+    expect(state.tabs[0]!.unread).toBe(false)
+  })
+
+  it('marks a background tab unread when its request failed, and never the active tab', () => {
+    const state = withTabs(2)
+    const [a, b] = ids(state)
+    const background = run(state, report(a!, { failed: true, hasContent: true }))
+    expect(background.tabs[0]).toMatchObject({ unread: true, failed: true })
+    const active = run(state, report(b!, { failed: true }))
+    expect(active.tabs[1]).toMatchObject({ unread: false, failed: true })
+  })
+
+  it('marks a tab that was already failed only once, and again for a new failure', () => {
+    let state = withTabs(2)
+    const [a, b] = ids(state)
+    state = run(state, report(a!, { failed: true }), { type: 'activate', id: a! })
+    expect(state.tabs[0]).toMatchObject({ unread: false, failed: true })
+    state = run(state, { type: 'activate', id: b! }, report(a!, { failed: true, working: false }))
+    expect(state.tabs[0]!.unread).toBe(false)
+    state = run(state, report(a!, { failed: false }))
+    expect(state.tabs[0]).toMatchObject({ unread: false, failed: false })
+    state = run(state, report(a!, { failed: true }))
+    expect(state.tabs[0]).toMatchObject({ unread: true, failed: true })
+  })
+
+  it('does not mark a tab whose error was dismissed', () => {
+    let state = withTabs(2)
+    const [a] = ids(state)
+    state = run(state, report(a!, { failed: true }), { type: 'activate', id: a! }, { type: 'activate', id: ids(state)[1]! })
+    state = run(state, report(a!, { failed: false }))
     expect(state.tabs[0]!.unread).toBe(false)
   })
 

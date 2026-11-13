@@ -83,6 +83,11 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): Engin
   let memorySerial = 0
   let deploySerial = 0
 
+  client.onEvent((event) => {
+    if (event.type !== 'workflow.deleted') return
+    for (const record of records.values()) if (record.workflowId === event.workflowId) delete record.workflowId
+  })
+
   function plan(params: MethodParams<'plan'>): Promise<MethodResult<'plan'>> {
     if (records.has(params.planId) || pending.has(params.planId)) throw new RillError('PLAN_EXISTS', 'a plan with this id already exists')
     if (pending.size >= MAX_PENDING) throw new RillError('PLAN_BUSY', `too many plans are running (at most ${MAX_PENDING} at a time)`)

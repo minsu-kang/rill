@@ -84,6 +84,7 @@ export const chatKo = {
   'chat.composer.memoryUnknown': '메모를 불러오지 못했어요',
   'chat.composer.noModel': '모델이 설정되지 않았어요',
   'chat.composer.options': '옵션',
+  'chat.composer.optionsNotesOff': '메모 끔',
   'chat.composer.editing': '수정 중: {workflow}',
   'chat.composer.editingNode': '수정 중: {workflow}, 노드 {node}',
   'chat.composer.clearEdit': '수정 대상 해제',

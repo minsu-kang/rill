@@ -33,10 +33,10 @@ export type ConversationAction =
   | { type: 'clearError' }
   | { type: 'toggleFlag'; planId: string; key: string }
   | { type: 'deployed'; planId: string; workflowId: string }
-  | { type: 'newChat' }
+  | { type: 'workflowDeleted'; workflowId: string }
 
-export function initialConversation(effort: PlanEffort = 'medium', useMemory = true): ConversationState {
-  return { entries: [], status: 'idle', draft: '', attachments: [], effort, useMemory, confirmed: {} }
+export function initialConversation(): ConversationState {
+  return { entries: [], status: 'idle', draft: '', attachments: [], effort: 'medium', useMemory: true, confirmed: {} }
 }
 
 export function canSubmit(entries: readonly ConversationEntry[], kind: 'message' | 'answers'): boolean {
@@ -122,13 +122,19 @@ export function conversationReducer(state: ConversationState, action: Conversati
       const next = current.includes(action.key) ? current.filter((key) => key !== action.key) : [...current, action.key]
       return { ...state, confirmed: { ...state.confirmed, [action.planId]: next } }
     }
+    case 'workflowDeleted': {
+      const gone = (entry: ConversationEntry): entry is AssistantEntry => entry.role === 'assistant' && entry.deployed === action.workflowId
+      if (!state.entries.some(gone)) return state
+      return {
+        ...state,
+        entries: state.entries.map((entry) => (gone(entry) ? { role: entry.role, planId: entry.planId, result: entry.result, meta: entry.meta } : entry)),
+      }
+    }
     case 'deployed': {
       const at = state.entries.findIndex((entry) => entry.role === 'assistant' && entry.planId === action.planId)
       if (at < 0) return state
       return { ...state, entries: state.entries.map((entry, index) => (index === at ? { ...entry, deployed: action.workflowId } : entry)) }
     }
-    case 'newChat':
-      return initialConversation(state.effort, state.useMemory)
   }
 }
 

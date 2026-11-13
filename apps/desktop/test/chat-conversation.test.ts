@@ -156,17 +156,21 @@ describe('conversationReducer', () => {
     expect(run([{ type: 'deployed', planId: 'nope', workflowId: 'wf-9' }], base)).toEqual(base)
   })
 
-  it('starts a new chat: everything resets except the effort and the memory choice', () => {
-    const busy = run([
-      { type: 'effort', effort: 'xhigh' },
-      { type: 'useMemory', value: false },
-      { type: 'draft', text: 'abc' },
-      { type: 'attach', ref: ref('a') },
+  it('releases the deployed mark of the entries whose workflow was deleted, and nothing else', () => {
+    const base = run([
       { type: 'submit', text: 'x' },
-      { type: 'planned', planId: 'p1', result: workflowResult([flag('n1')]), meta: META },
-      { type: 'toggleFlag', planId: 'p1', key: 'k' },
+      { type: 'planned', planId: 'p1', result: workflowResult(), meta: META },
+      { type: 'submit', text: 'y' },
+      { type: 'planned', planId: 'p2', result: workflowResult(), meta: META },
+      { type: 'deployed', planId: 'p1', workflowId: 'wf-1' },
+      { type: 'deployed', planId: 'p2', workflowId: 'wf-2' },
     ])
-    expect(run([{ type: 'newChat' }], busy)).toEqual({ ...initialConversation(), effort: 'xhigh', useMemory: false })
+    const state = run([{ type: 'workflowDeleted', workflowId: 'wf-1' }], base)
+    const entries = state.entries.filter((entry) => entry.role === 'assistant')
+    expect(entries[0]).not.toHaveProperty('deployed')
+    expect(entries[1]).toMatchObject({ deployed: 'wf-2' })
+    expect(canDeploy(entries[0]!, [])).toBe(true)
+    expect(run([{ type: 'workflowDeleted', workflowId: 'wf-9' }], base)).toBe(base)
   })
 
   it('refuses a submit that would pass the turn limit and says so through the error', () => {
