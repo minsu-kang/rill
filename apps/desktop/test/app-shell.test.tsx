@@ -76,7 +76,7 @@ describe('App shell', () => {
     expect(screen.getByRole('complementary', { name: t('app.region.chat') })).toBeTruthy()
     expect(screen.getByRole('main', { name: t('app.region.main') })).toBeTruthy()
     const nav = screen.getByRole('navigation', { name: t('app.top.screens') })
-    expect(within(nav).getAllByRole('button').map((button) => button.textContent)).toEqual(['워크플로우', '레시피', '설정'])
+    expect(within(nav).getAllByRole('button').map((button) => button.textContent)).toEqual(['워크플로우', '레시피', '에이전트', '설정'])
     expect(within(nav).getByRole('button', { name: '워크플로우' }).getAttribute('aria-current')).toBe('page')
     await connected()
     for (const region of ['topbar', 'chat', 'workspace']) expect(view.container.querySelector(`[data-rill-region="${region}"]`)).toBeTruthy()

@@ -233,6 +233,7 @@ export const appEn: Record<keyof typeof appKo, string> = {
   'app.top.screens': 'Screens',
   'app.tab.workflows': 'Workflows',
   'app.tab.recipes': 'Recipes',
+  'app.tab.agents': 'Agents',
   'app.tab.settings': 'Settings',
   'app.top.engine.connecting': 'Connecting to the engine',
   'app.top.engine.connected': 'Engine connected',

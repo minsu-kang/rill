@@ -6,8 +6,8 @@ import type { PingState } from './glue/usePing'
 import { Logo } from './Logo'
 import styles from './TopBar.module.css'
 
-export type AppTab = 'workflows' | 'recipes' | 'settings'
-export const APP_TABS: readonly AppTab[] = ['workflows', 'recipes', 'settings']
+export type AppTab = 'workflows' | 'recipes' | 'agents' | 'settings'
+export const APP_TABS: readonly AppTab[] = ['workflows', 'recipes', 'agents', 'settings']
 
 export interface TopBarProps {
   tab: AppTab

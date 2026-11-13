@@ -231,6 +231,7 @@ export const appKo = {
   'app.top.screens': '화면',
   'app.tab.workflows': '워크플로우',
   'app.tab.recipes': '레시피',
+  'app.tab.agents': '에이전트',
   'app.tab.settings': '설정',
   'app.top.engine.connecting': '엔진에 연결하는 중',
   'app.top.engine.connected': '엔진 연결됨',

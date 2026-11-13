@@ -10,6 +10,7 @@ import { useEngineConnection } from './connection'
 import controls from './controls.module.css'
 import { FirstRunCard, firstRunDone, type FirstRunTarget } from './FirstRunCard'
 import { ActionConfirm } from './ActionConfirm'
+import { AgentsScreen } from './agents/AgentsScreen'
 import { COMPOSER, fillChatDraft, handleExplainAction, nodeExists, type ConfirmText, type ExplainActionDeps } from './glue/actions'
 import { createAttachmentPort } from './glue/attachments'
 import { useHostConfigured } from './glue/host-models'
@@ -256,6 +257,17 @@ export function App({ initial = {} }: AppProps) {
             onDeployed={(id) => showWorkflow(id)}
             onAction={(action, id) => showWorkflow(id, action === 'dry_run' ? 'dryRun' : 'activate')}
           />
+        </fieldset>
+      )
+  } else if (tab === 'agents') {
+    main =
+      client === undefined ? (
+        <p className={styles.placeholder} role="status">
+          {t('app.main.connecting')}
+        </p>
+      ) : (
+        <fieldset className={styles.reset} disabled={!connected}>
+          <AgentsScreen client={client} />
         </fieldset>
       )
   } else {
