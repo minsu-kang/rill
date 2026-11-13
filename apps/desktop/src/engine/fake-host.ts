@@ -6,7 +6,9 @@ import {
   KeyVerdictSchema,
   MAX_FILE_NAME_LENGTH,
   MAX_FOLDERS,
+  MAX_TEXT_FILE_BYTES,
   ModelSchema,
+  SaveTextArgsSchema,
   OAUTH_PROVIDERS,
   PROVIDER_IDS,
   SecretValueSchema,
@@ -16,6 +18,8 @@ import {
   foldName,
   isByteInput,
   isSlackVerdict,
+  utf8Length,
+  hasWholeText,
   isLanguage,
   isValidCustomAuth,
   isValidSlackBot,
@@ -30,6 +34,7 @@ import {
   type SetSlackBotOptions,
   type Settings,
   type SlackVerdict,
+  type TextFile,
 } from '../shared/host-api'
 
 export interface FakeHostState {
@@ -38,6 +43,9 @@ export interface FakeHostState {
   attachments: AttachmentRef[]
   folderPicks: Array<string | undefined>
   filePicks: Array<string | undefined>
+  textPicks: Array<TextFile | HostError | undefined>
+  saveAnswers: boolean[]
+  savedTexts: Array<{ suggestedName: string; text: string }>
 }
 
 export interface FakeHostSnapshot extends FakeHostState {
@@ -129,6 +137,9 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
   const attachments: AttachmentRef[] = structuredClone(init.attachments ?? [])
   const folderPicks = [...(init.folderPicks ?? [])]
   const filePicks = [...(init.filePicks ?? [])]
+  const textPicks = [...(init.textPicks ?? [])]
+  const saveAnswers = [...(init.saveAnswers ?? [])]
+  const savedTexts: Array<{ suggestedName: string; text: string }> = structuredClone(init.savedTexts ?? [])
   const pickedFolders = new Set<string>()
   const pickedFiles = new Set<string>()
   const listeners = new Set<(status: EngineStatus) => void>()
@@ -339,6 +350,21 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
         if (path !== undefined) pickedFolders.add(path)
         return path
       },
+      async openText() {
+        const next = textPicks.shift()
+        if (next instanceof HostError) throw next
+        if (next === undefined) return undefined
+        if (utf8Length(next.text) > MAX_TEXT_FILE_BYTES) throw new HostError('FILE_TOO_LARGE')
+        return { name: next.name, text: next.text }
+      },
+      async saveText(input) {
+        if (!Value.Check(SaveTextArgsSchema, input) || utf8Length(input.text) > MAX_TEXT_FILE_BYTES || !hasWholeText(input.text) || !hasWholeText(input.suggestedName)) {
+          throw new HostError('INVALID_ARGUMENTS')
+        }
+        const saved = saveAnswers.shift() ?? true
+        if (saved) savedTexts.push({ suggestedName: input.suggestedName, text: input.text })
+        return { saved }
+      },
       async pickFile() {
         const path = filePicks.length > 0 ? filePicks.shift() : (SAMPLE_FILES[fileSerial++] ?? `/Users/demo/Receipts/file-${fileSerial}.txt`)
         if (path !== undefined) pickedFiles.add(path)
@@ -364,6 +390,9 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
       attachments: structuredClone(attachments),
       folderPicks: [...folderPicks],
       filePicks: [...filePicks],
+      textPicks: [...textPicks],
+      saveAnswers: [...saveAnswers],
+      savedTexts: structuredClone(savedTexts),
       statusListeners: listeners.size,
       restartCalls,
     }),

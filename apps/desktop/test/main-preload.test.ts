@@ -70,6 +70,7 @@ describe('preload bridge: calls', () => {
       [CHANNELS.attachmentsAddFromBytes]: REF,
       [CHANNELS.secretsSetProviderKey]: VERDICT,
       [CHANNELS.secretsSetSlackBot]: VERDICT,
+      [CHANNELS.dialogsSaveText]: { saved: true },
     })
     const api = createHostApi(ipc)
     await api.engine.info()
@@ -88,6 +89,8 @@ describe('preload bridge: calls', () => {
     await api.oauth.disconnect('microsoft')
     await api.dialogs.pickFolder()
     await api.dialogs.pickFile('attachment')
+    await api.dialogs.openText()
+    await api.dialogs.saveText({ suggestedName: 'agent.md', text: '# Persona' })
     await api.attachments.addFromPath('/a/b.txt')
     await api.attachments.addFromBytes({ name: 'b.txt', bytes: new Uint8Array([1, 2]) })
     await api.app.quit()
@@ -108,6 +111,8 @@ describe('preload bridge: calls', () => {
       [CHANNELS.oauthDisconnect, { provider: 'microsoft' }],
       [CHANNELS.dialogsPickFolder],
       [CHANNELS.dialogsPickFile, { kind: 'attachment' }],
+      [CHANNELS.dialogsOpenText],
+      [CHANNELS.dialogsSaveText, { suggestedName: 'agent.md', text: '# Persona' }],
       [CHANNELS.attachmentsAddFromPath, { path: '/a/b.txt' }],
       [CHANNELS.attachmentsAddFromBytes, { name: 'b.txt', bytes: new Uint8Array([1, 2]) }],
       [CHANNELS.appQuit],

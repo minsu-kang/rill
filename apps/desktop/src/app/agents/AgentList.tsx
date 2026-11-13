@@ -11,9 +11,10 @@ export interface AgentListProps {
   creating: boolean
   onSelect(id: string): void
   onCreate(): void
+  onImport?(): void
 }
 
-export function AgentList({ agents, activeId, selectedId, creating, onSelect, onCreate }: AgentListProps) {
+export function AgentList({ agents, activeId, selectedId, creating, onSelect, onCreate, onImport }: AgentListProps) {
   const t = useT()
   const saved = agents.filter((agent) => !agent.builtin).length
   const full = saved >= AGENT_MAX_ITEMS
@@ -21,9 +22,16 @@ export function AgentList({ agents, activeId, selectedId, creating, onSelect, on
     <div className={styles.listBox}>
       <div className={styles.listHead}>
         <span className={styles.count}>{t('agents.list.count', { count: saved, max: AGENT_MAX_ITEMS })}</span>
-        <button type="button" className={controls.primary} data-rill-new-agent="" disabled={full} aria-current={creating ? 'true' : undefined} onClick={onCreate}>
-          {t('agents.list.new')}
-        </button>
+        <div className={styles.listButtons}>
+          <button type="button" className={controls.primary} data-rill-new-agent="" disabled={full} aria-current={creating ? 'true' : undefined} onClick={onCreate}>
+            {t('agents.list.new')}
+          </button>
+          {onImport === undefined ? null : (
+            <button type="button" className={controls.button} data-rill-import-agent="" disabled={full} onClick={onImport}>
+              {t('agents.import.button')}
+            </button>
+          )}
+        </div>
       </div>
       {full ? (
         <p className={controls.warn} role="note">

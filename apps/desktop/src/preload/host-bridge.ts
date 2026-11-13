@@ -76,6 +76,8 @@ export function createHostApi(ipc: IpcLike): HostApi {
     dialogs: {
       pickFolder: () => call(CHANNELS.dialogsPickFolder),
       pickFile: (kind) => call(CHANNELS.dialogsPickFile, { kind }),
+      openText: () => call(CHANNELS.dialogsOpenText),
+      saveText: (input) => call(CHANNELS.dialogsSaveText, { suggestedName: input.suggestedName, text: input.text }),
     },
     attachments: {
       addFromPath: (path) => call(CHANNELS.attachmentsAddFromPath, { path }),

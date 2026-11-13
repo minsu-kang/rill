@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAttachmentStore } from '../src/main/attachments'
 import { createConfigStore } from '../src/main/config-store'
 import { createIpcHandlers } from '../src/main/ipc-handlers'
+import { createTextFiles } from '../src/main/text-files'
 import { createSecretStore, type SafeStorageLike } from '../src/main/secret-store'
 import {
   AUTH_TYPES,
@@ -157,8 +158,8 @@ function harness(options: { available?: boolean } = {}) {
     restart: vi.fn(async () => undefined),
     status: vi.fn((): EngineStatus => ({ state: 'running', restarts: 0 })),
   }
-  const dialog = { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) }
-  const handlers = createIpcHandlers({ config, secrets, supervisor, attachments, dialog, app: { quit: vi.fn() }, loginItem: { set: vi.fn() }, keyCheck: vi.fn(async () => ({ status: 'valid' as const })), slackCheck: vi.fn(async () => ({ status: 'valid' as const })), log: (line) => logs.push(line) })
+  const dialog = { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })), showSaveDialog: vi.fn(async () => ({ canceled: true })) }
+  const handlers = createIpcHandlers({ textFiles: createTextFiles(), config, secrets, supervisor, attachments, dialog, app: { quit: vi.fn() }, loginItem: { set: vi.fn() }, keyCheck: vi.fn(async () => ({ status: 'valid' as const })), slackCheck: vi.fn(async () => ({ status: 'valid' as const })), log: (line) => logs.push(line) })
   const call = (channel: Channel, args?: unknown) => handlers[channel](args)
   return { call, logs, supervisor, secrets, safeStorage }
 }

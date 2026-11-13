@@ -2,6 +2,7 @@ import { RillError, type Agent, type MethodName, type MethodParams, type MethodR
 import { useMemo } from 'react'
 import type { EngineClient } from '../../engine/client'
 import { createFakeClient } from '../../engine/fake-client'
+import { createFakeHost, type FakeHostState } from '../../engine/fake-host'
 import { withPlanMethods } from '../../engine/fake-plan'
 import { fakeData } from '../../fixtures'
 import { memoryFixtures, models, outcomeOf, results } from '../../fixtures/plan'
@@ -14,6 +15,7 @@ export interface AgentsStageProps {
   list?: 'hang' | 'fail'
   failSave?: string
   height?: number
+  textPicks?: FakeHostState['textPicks']
 }
 
 function clientOf(props: AgentsStageProps): EngineClient {
@@ -37,10 +39,11 @@ function clientOf(props: AgentsStageProps): EngineClient {
 
 export function AgentsStage(props: AgentsStageProps) {
   const client = useMemo(() => clientOf(props), [props])
+  const host = useMemo(() => createFakeHost({ textPicks: props.textPicks ?? [] }), [props.textPicks])
   return (
     <div style={{ height: props.height ?? 760, overflow: 'auto' }}>
       <Page>
-        <AgentsScreen client={client} />
+        <AgentsScreen client={client} files={host.dialogs} />
       </Page>
     </div>
   )

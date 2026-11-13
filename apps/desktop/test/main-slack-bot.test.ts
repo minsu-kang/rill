@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAttachmentStore } from '../src/main/attachments'
 import { createConfigStore } from '../src/main/config-store'
 import { createIpcHandlers, type DialogLike } from '../src/main/ipc-handlers'
+import { createTextFiles } from '../src/main/text-files'
 import { createSecretStore, type SafeStorageLike } from '../src/main/secret-store'
 import type { SlackChecker } from '../src/main/slack-check'
 import { createHostApi, type IpcLike } from '../src/preload/host-bridge'
@@ -58,9 +59,9 @@ function harness(options: { available?: boolean; verdict?: SlackVerdict; log?: (
     restart: vi.fn(async () => undefined),
     status: vi.fn((): EngineStatus => ({ state: 'running', restarts: 0 })),
   }
-  const dialog: DialogLike = { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) as DialogLike['showOpenDialog'] }
+  const dialog: DialogLike = { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) as DialogLike['showOpenDialog'], showSaveDialog: vi.fn(async () => ({ canceled: true })) }
   const slackCheck = vi.fn<SlackChecker>(async () => options.verdict ?? VALID)
-  const handlers = createIpcHandlers({
+  const handlers = createIpcHandlers({ textFiles: createTextFiles(),
     config,
     secrets,
     supervisor,

@@ -8,6 +8,7 @@ import { createAttachmentStore } from './attachments'
 import { createConfigStore } from './config-store'
 import { createEngineSupervisor, type ForkLike } from './engine-supervisor'
 import { createIpcHandlers, type DialogLike } from './ipc-handlers'
+import { createTextFiles } from './text-files'
 import { applyDevDockIcon } from './dock-icon'
 import { createKeyChecker } from './key-check'
 import { createSlackChecker } from './slack-check'
@@ -76,12 +77,15 @@ async function start(): Promise<void> {
   const dialogAdapter: DialogLike = {
     showOpenDialog: (options) =>
       shell.window === undefined ? dialog.showOpenDialog(options as never) : dialog.showOpenDialog(shell.window.window as unknown as BrowserWindow, options as never),
+    showSaveDialog: (options) =>
+      shell.window === undefined ? dialog.showSaveDialog(options as never) : dialog.showSaveDialog(shell.window.window as unknown as BrowserWindow, options as never),
   }
   const handlers = createIpcHandlers({
     config,
     secrets,
     supervisor,
     attachments,
+    textFiles: createTextFiles(),
     dialog: dialogAdapter,
     app: { quit: () => app.quit() },
     loginItem: { set: (enabled) => applyLoginItem(app, enabled) },

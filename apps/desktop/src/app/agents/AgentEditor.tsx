@@ -21,6 +21,7 @@ export interface AgentEditorProps {
   onRevert(): void
   onDelete(): void
   onUse(): void
+  onExport?(): void
 }
 
 const INPUT_CAPS: Readonly<Record<AgentField, number>> = {
@@ -89,7 +90,7 @@ function FieldBox({ field, value, rule, disabled, onChange }: { field: AgentFiel
   )
 }
 
-export function AgentEditor({ agent, creating, draft, dirty, inUse, busy, error, status, headingRef, onChange, onSave, onRevert, onDelete, onUse }: AgentEditorProps) {
+export function AgentEditor({ agent, creating, draft, dirty, inUse, busy, error, status, headingRef, onChange, onSave, onRevert, onDelete, onUse, onExport }: AgentEditorProps) {
   const t = useT()
   const problems = draftProblems(draft)
   const canSave = !hasProblems(problems) && (creating || dirty)
@@ -153,6 +154,11 @@ export function AgentEditor({ agent, creating, draft, dirty, inUse, busy, error,
               <button type="button" className={controls.button} disabled={busy || inUse || dirty} aria-describedby={dirty ? 'agents-use-hint' : undefined} onClick={onUse}>
                 {t(inUse ? 'agents.editor.inUse' : 'agents.editor.use')}
               </button>
+              {onExport === undefined ? null : (
+                <button type="button" className={controls.button} disabled={busy || dirty} aria-describedby={dirty ? 'agents-use-hint' : undefined} onClick={onExport}>
+                  {t('agents.export.button')}
+                </button>
+              )}
               <button type="button" className={controls.danger} disabled={busy} onClick={onDelete}>
                 {t('agents.editor.delete')}
               </button>

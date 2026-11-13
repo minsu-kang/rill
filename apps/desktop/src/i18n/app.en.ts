@@ -12,6 +12,8 @@ export const appEn: Record<keyof typeof appKo, string> = {
   'app.error.host.SECRETS_UNREADABLE': 'The saved secrets cannot be read. Enter the keys and connections again.',
   'app.error.host.ENGINE_UNAVAILABLE': 'The engine is not available. Wait until it has restarted.',
   'app.error.host.ATTACHMENT_REJECTED': 'This file cannot be accepted.',
+  'app.error.host.FILE_TOO_LARGE': 'This file is larger than 64 KiB, so it was not opened.',
+  'app.error.host.FILE_REJECTED': 'This file cannot be used. Choose a regular file, not a folder or a link.',
   'app.error.host.KEY_INVALID': 'This key does not look usable: the provider did not accept it, or it is not in the form of an API key. Check the key again. If you want to use it anyway, you can save it as it is.',
   'app.error.host.KEY_MALFORMED': 'This key has spaces, line breaks or characters that are not plain letters, digits or symbols, so it cannot be an API key. It was not saved. Copy the key again.',
   'app.error.host.TOKEN_INVALID': 'Slack did not accept this token, so it was not saved. Check that you copied the Bot User OAuth Token, which starts with xoxb-. If you want to use it anyway, you can save it as it is.',

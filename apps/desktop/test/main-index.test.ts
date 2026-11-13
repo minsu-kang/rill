@@ -169,7 +169,7 @@ async function load(options: { lock?: boolean; smoke?: boolean; packaged?: boole
     net: { fetch: netFetch },
     protocol: { registerSchemesAsPrivileged: registerScheme, handle: (scheme: string, handler: (request: { url: string; method: string }) => Promise<Response>) => protocolHandlers.set(scheme, handler) },
     BrowserWindow: FakeBrowserWindow,
-    dialog: { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) },
+    dialog: { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })), showSaveDialog: vi.fn(async () => ({ canceled: true })) },
     ipcMain: { handle: (channel: string, fn: (event: unknown, args: unknown) => Promise<unknown>) => handlers.set(channel, fn) },
     Menu: { buildFromTemplate: (template: unknown) => ({ template }), setApplicationMenu },
     nativeImage: { createFromDataURL: () => ({ setTemplateImage: vi.fn() }) },

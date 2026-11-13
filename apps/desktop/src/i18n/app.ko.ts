@@ -10,6 +10,8 @@ export const appKo = {
   'app.error.host.SECRETS_UNREADABLE': '저장된 비밀값을 읽을 수 없어요. 키와 연결을 다시 입력해 주세요.',
   'app.error.host.ENGINE_UNAVAILABLE': '엔진을 쓸 수 없어요. 엔진이 다시 시작될 때까지 기다려 주세요.',
   'app.error.host.ATTACHMENT_REJECTED': '이 파일은 받을 수 없어요.',
+  'app.error.host.FILE_TOO_LARGE': '이 파일은 64KiB보다 커서 열지 않았어요.',
+  'app.error.host.FILE_REJECTED': '이 파일은 쓸 수 없어요. 폴더나 바로가기가 아닌 일반 파일을 골라 주세요.',
   'app.error.host.KEY_INVALID': '이 키는 쓸 수 없는 키로 보여요. 제공사가 받아 주지 않았거나 API 키 형식이 아니에요. 키를 다시 확인해 주세요. 그래도 쓰려면 그대로 저장할 수 있어요.',
   'app.error.host.KEY_MALFORMED': '이 키에는 공백, 줄바꿈, 또는 영문·숫자·기호가 아닌 글자가 들어 있어서 API 키가 될 수 없어요. 저장하지 않았어요. 키를 다시 복사해 주세요.',
   'app.error.host.TOKEN_INVALID': '슬랙이 이 토큰을 받아 주지 않아서 저장하지 않았어요. xoxb-로 시작하는 Bot User OAuth Token을 복사했는지 확인해 주세요. 그래도 쓰려면 그대로 저장할 수 있어요.',

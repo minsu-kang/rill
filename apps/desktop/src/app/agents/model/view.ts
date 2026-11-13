@@ -1,12 +1,22 @@
-import { AGENT_DEFAULT_ID, type Agent, type AgentField } from '@rill/protocol'
+import { AGENT_DEFAULT_ID, type Agent, type AgentField, type AgentFields } from '@rill/protocol'
 import { useSyncExternalStore } from 'react'
 import type { EngineClient } from '../../../engine/client'
+import type { FileProblem, ParsedAgentFile } from '../agent-file'
 import { draftOf, emptyDraft, sameDraft, type AgentDraft } from './draft'
+
+export interface ReviewState {
+  fileName: string
+  base: AgentFields | undefined
+  fileProblems: FileProblem[]
+  name: string
+  description: string
+}
 
 export interface ViewState {
   selectedId: string | undefined
   creating: boolean
   edits: AgentDraft | undefined
+  review: ReviewState | undefined
 }
 
 export type ViewAction =
@@ -15,15 +25,18 @@ export type ViewAction =
   | { type: 'edit'; field: AgentField; value: string; base: AgentDraft }
   | { type: 'revert' }
   | { type: 'saved'; id: string }
+  | { type: 'review'; fileName: string; parsed: ParsedAgentFile }
+  | { type: 'reviewEdit'; field: 'name' | 'description'; value: string }
+  | { type: 'reviewClose' }
 
-export const INITIAL_VIEW: ViewState = { selectedId: undefined, creating: false, edits: undefined }
+export const INITIAL_VIEW: ViewState = { selectedId: undefined, creating: false, edits: undefined, review: undefined }
 
 export function viewReducer(state: ViewState, action: ViewAction): ViewState {
   switch (action.type) {
     case 'select':
-      return { selectedId: action.id, creating: false, edits: undefined }
+      return { selectedId: action.id, creating: false, edits: undefined, review: undefined }
     case 'create':
-      return { selectedId: undefined, creating: true, edits: undefined }
+      return { selectedId: undefined, creating: true, edits: undefined, review: undefined }
     case 'edit': {
       const next = { ...(state.edits ?? action.base), [action.field]: action.value }
       return { ...state, edits: sameDraft(next, action.base) ? undefined : next }
@@ -31,7 +44,22 @@ export function viewReducer(state: ViewState, action: ViewAction): ViewState {
     case 'revert':
       return { ...state, edits: undefined }
     case 'saved':
-      return { selectedId: action.id, creating: false, edits: undefined }
+      return { selectedId: action.id, creating: false, edits: undefined, review: undefined }
+    case 'review':
+      return {
+        ...state,
+        review: {
+          fileName: action.fileName,
+          base: action.parsed.fields,
+          fileProblems: action.parsed.problems.filter((problem) => problem.kind === 'file'),
+          name: action.parsed.fields?.name ?? '',
+          description: action.parsed.fields?.description ?? '',
+        },
+      }
+    case 'reviewEdit':
+      return state.review === undefined ? state : { ...state, review: { ...state.review, [action.field]: action.value } }
+    case 'reviewClose':
+      return { ...state, review: undefined }
   }
 }
 

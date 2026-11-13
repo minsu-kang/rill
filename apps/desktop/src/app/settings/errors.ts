@@ -9,6 +9,8 @@ const KEYS: Readonly<Record<(typeof HOST_ERROR_CODES)[number], MessageKey>> = {
   SECRETS_UNREADABLE: 'app.error.host.SECRETS_UNREADABLE',
   ENGINE_UNAVAILABLE: 'app.error.host.ENGINE_UNAVAILABLE',
   ATTACHMENT_REJECTED: 'app.error.host.ATTACHMENT_REJECTED',
+  FILE_TOO_LARGE: 'app.error.host.FILE_TOO_LARGE',
+  FILE_REJECTED: 'app.error.host.FILE_REJECTED',
   KEY_INVALID: 'app.error.host.KEY_INVALID',
   KEY_MALFORMED: 'app.error.host.KEY_MALFORMED',
   TOKEN_INVALID: 'app.error.host.TOKEN_INVALID',

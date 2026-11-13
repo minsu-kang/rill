@@ -48,6 +48,7 @@ export const MAX_AUTH_USERNAME_LENGTH = 256
 export const MAX_ACCOUNT_LENGTH = 200
 export const MAX_SLACK_TEXT_LENGTH = 80
 export const MAX_SLACK_CHANNEL_LENGTH = 80
+export const MAX_TEXT_FILE_BYTES = 64 * 1024
 
 const MODEL_PATTERN = '^[a-z0-9][a-z0-9._-]{1,63}$'
 const NO_CONTROL = '^[^\\u0000-\\u001f\\u007f]+$'
@@ -236,6 +237,13 @@ export const SetCustomConnectionArgsSchema = Type.Object({ name: ConnectionNameS
 export const OAuthArgsSchema = Type.Object({ provider: OAuthProviderSchema }, closed)
 export const RemoveConnectionArgsSchema = Type.Object({ name: ConnectionNameSchema }, closed)
 export const PickFileArgsSchema = Type.Object({ kind: Type.Union([Type.Literal('any'), Type.Literal('attachment')]) }, closed)
+const SUGGESTED_NAME = '^[^\\u0000-\\u001f\\u007f-\\u009f/\\\\]+$'
+export const TextFileSchema = Type.Object({ name: Type.String({ minLength: 1, maxLength: MAX_FILE_NAME_LENGTH }), text: Type.String({ maxLength: MAX_TEXT_FILE_BYTES }) }, closed)
+export const SaveTextArgsSchema = Type.Object(
+  { suggestedName: Type.String({ minLength: 1, maxLength: MAX_FILE_NAME_LENGTH, pattern: SUGGESTED_NAME }), text: Type.String({ maxLength: MAX_TEXT_FILE_BYTES }) },
+  closed,
+)
+export const SaveTextResultSchema = Type.Object({ saved: Type.Boolean() }, closed)
 export const AddFromPathArgsSchema = Type.Object({ path: PathSchema }, closed)
 export const AddFromBytesArgsSchema = Type.Object({ name: FileNameSchema, bytes: Type.Unknown() }, closed)
 
@@ -243,6 +251,9 @@ export function isByteInput(value: unknown): value is Uint8Array {
   return Object.prototype.toString.call(value) === '[object Uint8Array]' && (value as Uint8Array).byteLength <= MAX_BYTES_INPUT
 }
 
+export type TextFile = Type.Static<typeof TextFileSchema>
+export type SaveTextArgs = Type.Static<typeof SaveTextArgsSchema>
+export type SaveTextResult = Type.Static<typeof SaveTextResultSchema>
 export type EngineInfo = Type.Static<typeof EngineInfoSchema>
 export type EngineStatus = Type.Static<typeof EngineStatusSchema>
 export type Settings = Type.Static<typeof SettingsSchema>
@@ -288,6 +299,8 @@ export interface HostApi {
   dialogs: {
     pickFolder(): Promise<string | undefined>
     pickFile(kind: 'any' | 'attachment'): Promise<string | undefined>
+    openText(): Promise<TextFile | undefined>
+    saveText(input: SaveTextArgs): Promise<SaveTextResult>
   }
   attachments: {
     addFromPath(path: string): Promise<AttachmentRef>
@@ -301,7 +314,7 @@ export const HOST_API_METHODS = {
   settings: { get: true, update: true },
   secrets: { setProviderKey: true, clearProviderKey: true, setConnection: true, setCustomConnection: true, setSlackBot: true, removeConnection: true },
   oauth: { connect: true, disconnect: true },
-  dialogs: { pickFolder: true, pickFile: true },
+  dialogs: { pickFolder: true, pickFile: true, openText: true, saveText: true },
   attachments: { addFromPath: true, addFromBytes: true },
   app: { quit: true },
 } satisfies { [Group in keyof HostApi]: Record<keyof HostApi[Group], true> }
@@ -322,6 +335,8 @@ export const CHANNELS = {
   oauthDisconnect: 'rill:oauth:disconnect',
   dialogsPickFolder: 'rill:dialogs:pick-folder',
   dialogsPickFile: 'rill:dialogs:pick-file',
+  dialogsOpenText: 'rill:dialogs:open-text',
+  dialogsSaveText: 'rill:dialogs:save-text',
   attachmentsAddFromPath: 'rill:attachments:add-from-path',
   attachmentsAddFromBytes: 'rill:attachments:add-from-bytes',
   appQuit: 'rill:app:quit',
@@ -349,13 +364,27 @@ export const CONTRACTS: Record<Channel, { args: Type.TSchema; result: Type.TSche
   [CHANNELS.oauthDisconnect]: { args: OAuthArgsSchema, result: Type.Undefined() },
   [CHANNELS.dialogsPickFolder]: { args: Type.Undefined(), result: OptionalPath },
   [CHANNELS.dialogsPickFile]: { args: PickFileArgsSchema, result: OptionalPath },
+  [CHANNELS.dialogsOpenText]: { args: Type.Undefined(), result: Type.Union([TextFileSchema, Type.Undefined()]) },
+  [CHANNELS.dialogsSaveText]: { args: SaveTextArgsSchema, result: SaveTextResultSchema },
   [CHANNELS.attachmentsAddFromPath]: { args: AddFromPathArgsSchema, result: AttachmentRefSchema },
   [CHANNELS.attachmentsAddFromBytes]: { args: AddFromBytesArgsSchema, result: AttachmentRefSchema },
   [CHANNELS.appQuit]: { args: Type.Undefined(), result: Type.Undefined() },
 }
 
+export function utf8Length(text: string): number {
+  return new TextEncoder().encode(text).length
+}
+
+function fitsTextFile(text: string): boolean {
+  return utf8Length(text) <= MAX_TEXT_FILE_BYTES
+}
+
 export function validateArgs(channel: Channel, args: unknown): boolean {
   if (!Value.Check(CONTRACTS[channel].args, args)) return false
+  if (channel === CHANNELS.dialogsSaveText) {
+    const { suggestedName, text } = args as SaveTextArgs
+    return fitsTextFile(text) && hasWholeText(text) && hasWholeText(suggestedName)
+  }
   if (channel === CHANNELS.attachmentsAddFromBytes) return isByteInput((args as { bytes: unknown }).bytes)
   if (channel === CHANNELS.secretsSetCustomConnection) return isValidCustomAuth((args as { auth: unknown }).auth)
   if (channel === CHANNELS.secretsSetSlackBot) return hasWholeText((args as { channel?: string }).channel)
@@ -363,7 +392,9 @@ export function validateArgs(channel: Channel, args: unknown): boolean {
 }
 
 export function validateResult(channel: Channel, result: unknown): boolean {
-  return Value.Check(CONTRACTS[channel].result, result)
+  if (!Value.Check(CONTRACTS[channel].result, result)) return false
+  if (channel === CHANNELS.dialogsOpenText && result !== undefined) return fitsTextFile((result as TextFile).text)
+  return true
 }
 
 export function isKeyVerdict(value: unknown): value is KeyVerdict {
@@ -427,6 +458,8 @@ export const HOST_ERROR_CODES = [
   'SECRETS_UNREADABLE',
   'ENGINE_UNAVAILABLE',
   'ATTACHMENT_REJECTED',
+  'FILE_TOO_LARGE',
+  'FILE_REJECTED',
   'KEY_INVALID',
   'KEY_MALFORMED',
   'TOKEN_INVALID',

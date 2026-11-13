@@ -1,9 +1,11 @@
+import { basename } from 'node:path'
 import { ATTACHMENT_EXTENSIONS, AttachmentError, type AttachmentStore } from './attachments'
 import { ConfigError, normalizeFolder, type ConfigStore } from './config-store'
 import type { EngineSupervisor } from './engine-supervisor'
 import type { KeyChecker } from './key-check'
 import { SecretStoreError, type SecretStore } from './secret-store'
 import type { SlackChecker } from './slack-check'
+import { TextFileError, type TextFiles } from './text-files'
 import {
   CHANNELS,
   HostError,
@@ -30,8 +32,14 @@ export interface OpenDialogOptionsLike {
   filters?: Array<{ name: string; extensions: string[] }>
 }
 
+export interface SaveDialogOptionsLike {
+  defaultPath: string
+  filters?: Array<{ name: string; extensions: string[] }>
+}
+
 export interface DialogLike {
   showOpenDialog(options: OpenDialogOptionsLike): Promise<{ canceled: boolean; filePaths: string[] }>
+  showSaveDialog(options: SaveDialogOptionsLike): Promise<{ canceled: boolean; filePath?: string | undefined }>
 }
 
 export interface AppLike {
@@ -43,6 +51,7 @@ export interface IpcDeps {
   secrets: SecretStore
   supervisor: Pick<EngineSupervisor, 'info' | 'restart' | 'status'>
   attachments: Pick<AttachmentStore, 'addFromPath' | 'addFromBytes'>
+  textFiles: TextFiles
   dialog: DialogLike
   app: AppLike
   loginItem: { set(enabled: boolean): void }
@@ -54,6 +63,14 @@ export interface IpcDeps {
 export type IpcHandler = (args: unknown) => Promise<unknown>
 
 const MAX_PICKED = 100
+const MARKDOWN_FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown'] }]
+const FILE_NAME_CLEANUP = /[\p{Cc}/\\:*?"<>|]+/gu
+
+export function markdownFileName(suggested: string): string {
+  const cleaned = suggested.replace(FILE_NAME_CLEANUP, '-').trim()
+  const stem = cleaned === '' || cleaned === '.' || cleaned === '..' ? 'agent' : cleaned
+  return /\.(md|markdown)$/i.test(stem) ? stem : `${stem}.md`
+}
 
 export function describeError(error: unknown): string {
   if (!(error instanceof Error)) return 'non-error'
@@ -71,6 +88,10 @@ export function toHostError(error: unknown): HostError {
     return new HostError('INTERNAL')
   }
   if (error instanceof AttachmentError) return new HostError(error.reason === 'io' ? 'INTERNAL' : 'ATTACHMENT_REJECTED')
+  if (error instanceof TextFileError) {
+    if (error.reason === 'too_large') return new HostError('FILE_TOO_LARGE')
+    return new HostError(error.reason === 'io' ? 'INTERNAL' : 'FILE_REJECTED')
+  }
   return new HostError('INTERNAL')
 }
 
@@ -224,6 +245,17 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
       const path = await pick(['openFile'], kind === 'attachment' ? [{ name: 'Attachments', extensions: [...ATTACHMENT_EXTENSIONS] }] : undefined)
       if (path !== undefined) remember(picked, path)
       return path
+    },
+    [CHANNELS.dialogsOpenText]: async () => {
+      const path = await pick(['openFile'], MARKDOWN_FILTERS)
+      if (path === undefined) return undefined
+      return { name: basename(path), text: await deps.textFiles.read(path) }
+    },
+    [CHANNELS.dialogsSaveText]: async ({ suggestedName, text }: { suggestedName: string; text: string }) => {
+      const answer = await deps.dialog.showSaveDialog({ defaultPath: markdownFileName(suggestedName), filters: MARKDOWN_FILTERS })
+      if (answer.canceled || answer.filePath === undefined || answer.filePath === '') return { saved: false }
+      await deps.textFiles.write(answer.filePath, text)
+      return { saved: true }
     },
     [CHANNELS.attachmentsAddFromPath]: async ({ path }: { path: string }) => {
       if (!picked.has(path)) throw new HostError('INVALID_ARGUMENTS')

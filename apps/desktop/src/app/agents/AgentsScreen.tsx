@@ -6,45 +6,61 @@ import { planErrorKey } from '../../chat/model/errors'
 import { useAgents } from '../../engine/agents'
 import type { EngineClient } from '../../engine/client'
 import { useT, type MessageKey } from '../../i18n'
+import { HostError, type HostApi } from '../../shared/host-api'
 import { useStepFocus } from '../../ui/useStepFocus'
 import controls from '../controls.module.css'
+import { hostErrorKey } from '../settings/errors'
 import { useAction } from '../settings/useAction'
 import { ConfirmDialog } from '../workflows/ConfirmDialog'
 import { AgentEditor } from './AgentEditor'
+import { AgentImportReview } from './AgentImportReview'
+import { parseAgentFile, serialiseAgentFile } from './agent-file'
 import { AgentList } from './AgentList'
 import styles from './AgentsScreen.module.css'
+import { draftOf } from './model/draft'
+import { exportFileName, reviewOutcome } from './model/review'
 import { selectionOf, useAgentsView, type ViewAction } from './model/view'
 
 export interface AgentsScreenProps {
   client: EngineClient
+  files?: Pick<HostApi['dialogs'], 'openText' | 'saveText'>
 }
 
-type Asking = { kind: 'unsaved'; then: ViewAction } | { kind: 'delete' }
+type Asking = { kind: 'unsaved'; then: ViewAction; review: boolean } | { kind: 'delete' }
 
-export function AgentsScreen({ client }: AgentsScreenProps) {
+function actionError(error: unknown): MessageKey {
+  return error instanceof HostError ? hostErrorKey(error) : planErrorKey(error)
+}
+
+export function AgentsScreen({ client, files }: AgentsScreenProps) {
   const t = useT()
   const { state: agents, store } = useAgents(client)
   const { state: view, store: viewStore } = useAgentsView(client)
-  const action = useAction(planErrorKey)
+  const action = useAction(actionError)
   const [status, setStatus] = useState<MessageKey | undefined>(undefined)
   const [asking, setAsking] = useState<Asking | undefined>(undefined)
+  const [exportProblem, setExportProblem] = useState(false)
   const root = useRef<HTMLElement>(null)
   const selection = selectionOf(view, agents.agents, agents.activeId)
   const ready = agents.status === 'ready' || agents.agents.length > 0
-  const selectedKey = selection.creating ? '\u0000new' : (selection.agent?.id ?? AGENT_DEFAULT_ID)
+  const review = view.review
+  const outcome = review === undefined ? undefined : reviewOutcome(review, agents.agents)
+  const selectedKey = review !== undefined ? '\u0000review' : selection.creating ? '\u0000new' : (selection.agent?.id ?? AGENT_DEFAULT_ID)
   const heading = useStepFocus(selectedKey, { container: root, scope: ready ? 'ready' : 'loading' })
   const agent = selection.agent
 
   function go(next: ViewAction): void {
     setStatus(undefined)
+    setExportProblem(false)
     action.clearError()
     viewStore.dispatch(next)
   }
 
   function guarded(next: ViewAction): void {
-    const same = next.type === 'select' && !selection.creating && agent?.id === next.id
+    const same = next.type === 'select' && review === undefined && !selection.creating && agent?.id === next.id
     if (same) return
-    if (selection.dirty) setAsking({ kind: 'unsaved', then: next })
+    if (review !== undefined) setAsking({ kind: 'unsaved', then: next, review: true })
+    else if (selection.dirty) setAsking({ kind: 'unsaved', then: next, review: false })
     else go(next)
   }
 
@@ -62,6 +78,44 @@ export function AgentsScreen({ client }: AgentsScreenProps) {
       const saved = await store.save({ ...draft, ...(id === undefined ? {} : { id }) })
       viewStore.dispatch({ type: 'saved', id: saved.id })
       setStatus(creating ? 'agents.status.created' : 'agents.status.saved')
+    })
+  }
+
+  function importFile(): void {
+    if (files === undefined) return
+    setStatus(undefined)
+    void action.run(async () => {
+      const file = await files.openText()
+      if (file === undefined) return
+      viewStore.dispatch({ type: 'review', fileName: file.name, parsed: parseAgentFile(file.text) })
+    })
+  }
+
+  function saveImport(): void {
+    if (outcome?.fields === undefined || !outcome.canSave) return
+    const fields = outcome.fields
+    setStatus(undefined)
+    void action.run(async () => {
+      const saved = await store.save(fields)
+      viewStore.dispatch({ type: 'saved', id: saved.id })
+      setStatus('agents.status.imported')
+    })
+  }
+
+  function exportFile(): void {
+    if (files === undefined || agent === undefined || agent.builtin) return
+    const serialised = serialiseAgentFile(draftOf(agent))
+    setStatus(undefined)
+    if (!serialised.ok) {
+      setExportProblem(true)
+      return
+    }
+    setExportProblem(false)
+    const text = serialised.text
+    const suggestedName = exportFileName(agent.name)
+    void action.run(async () => {
+      const result = await files.saveText({ suggestedName, text })
+      if (result.saved) setStatus('agents.status.exported')
     })
   }
 
@@ -118,36 +172,51 @@ export function AgentsScreen({ client }: AgentsScreenProps) {
           <AgentList
             agents={agents.agents}
             activeId={agents.activeId}
-            selectedId={agent?.id}
-            creating={selection.creating}
+            selectedId={review === undefined ? agent?.id : undefined}
+            creating={selection.creating && review === undefined}
             onSelect={(id) => guarded({ type: 'select', id })}
             onCreate={() => guarded({ type: 'create' })}
+            {...(files === undefined ? {} : { onImport: importFile })}
           />
-          <AgentEditor
-            agent={agent}
-            creating={selection.creating}
-            draft={selection.draft}
-            dirty={selection.dirty}
-            inUse={agent?.id === agents.activeId}
-            busy={action.busy}
-            error={asking?.kind === 'delete' ? undefined : action.error}
-            status={status}
-            headingRef={heading}
-            onChange={edit}
-            onSave={save}
-            onRevert={() => go({ type: 'revert' })}
-            onDelete={() => {
-              action.clearError()
-              setAsking({ kind: 'delete' })
-            }}
-            onUse={use}
-          />
+          {review !== undefined && outcome !== undefined ? (
+            <AgentImportReview
+              review={review}
+              outcome={outcome}
+              busy={action.busy}
+              error={asking === undefined ? action.error : undefined}
+              headingRef={heading}
+              onEdit={(field, value) => viewStore.dispatch({ type: 'reviewEdit', field, value })}
+              onSave={saveImport}
+              onCancel={() => go({ type: 'reviewClose' })}
+            />
+          ) : (
+            <AgentEditor
+              agent={agent}
+              creating={selection.creating}
+              draft={selection.draft}
+              dirty={selection.dirty}
+              inUse={agent?.id === agents.activeId}
+              busy={action.busy}
+              error={asking?.kind === 'delete' ? undefined : exportProblem ? 'agents.export.headingInText' : action.error}
+              status={status}
+              headingRef={heading}
+              onChange={edit}
+              onSave={save}
+              onRevert={() => go({ type: 'revert' })}
+              onDelete={() => {
+                action.clearError()
+                setAsking({ kind: 'delete' })
+              }}
+              onUse={use}
+              {...(files === undefined ? {} : { onExport: exportFile })}
+            />
+          )}
         </div>
       ) : null}
       {asking?.kind === 'unsaved' ? (
         <ConfirmDialog
           title={t('agents.unsaved.title')}
-          message={t('agents.unsaved.message')}
+          message={t(asking.review ? 'agents.unsaved.messageImport' : 'agents.unsaved.message')}
           confirmLabel={t('agents.unsaved.confirm')}
           cancelLabel={t('agents.unsaved.cancel')}
           danger

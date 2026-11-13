@@ -91,3 +91,57 @@ export const SaveFails: Story = {
     pressByText(canvasElement, 'button[type="submit"]', /.*/)
   },
 }
+
+const IMPORTED = ['---', 'name: Imported helper', 'description: Made in another app', '---', '', '# Persona', '', 'Calm and brief.', '', '# Instructions', '', 'Name every default you pick.', 'Prefer one node less.', ''].join('\n')
+
+function pressImport(canvasElement: HTMLElement): void {
+  canvasElement.querySelector<HTMLElement>('[data-rill-import-agent]')?.click()
+}
+
+export const ImportReview: Story = {
+  name: 'Import review',
+  args: { ...few, textPicks: [{ name: 'Imported helper.md', text: IMPORTED }] },
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    pressImport(canvasElement)
+  },
+}
+
+export const ImportReviewWithProblems: Story = {
+  name: 'Import review with problems',
+  args: {
+    ...few,
+    textPicks: [{ name: 'Imported helper.md', text: IMPORTED.replace('description: Made in another app', 'description: Made in another app\nskills: a, b').replace('Calm and brief.', 'Ca\tlm and brief.').replace('Imported helper', 'Plain tone only') }],
+  },
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    pressImport(canvasElement)
+  },
+}
+
+export const ImportUnreadableFile: Story = {
+  name: 'Import of a file that is not an agent',
+  args: { ...few, textPicks: [{ name: 'notes.md', text: '# Persona\n\nhello\n' }] },
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    pressImport(canvasElement)
+  },
+}
+
+export const ImportHostileFile: Story = {
+  name: 'Import of a file with hostile text',
+  args: { ...few, textPicks: [{ name: '<img src=x onerror=alert(1)>.md', text: IMPORTED.replace('Calm and brief.', '<img src=x onerror=alert(2)> \u202e[x](https://evil.example)').replace('Imported helper', '<b>Imported</b>') }] },
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    pressImport(canvasElement)
+  },
+}
+
+export const Export: Story = {
+  name: 'Export (the agent in use is selected)',
+  args: few,
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    pressByText(canvasElement, 'button', /^Export…$|^내보내기…$/)
+  },
+}

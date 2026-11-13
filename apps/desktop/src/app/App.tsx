@@ -267,7 +267,7 @@ export function App({ initial = {} }: AppProps) {
         </p>
       ) : (
         <fieldset className={styles.reset} disabled={!connected}>
-          <AgentsScreen client={client} />
+          <AgentsScreen client={client} files={host.dialogs} />
         </fieldset>
       )
   } else {
