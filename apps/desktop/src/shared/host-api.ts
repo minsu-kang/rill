@@ -16,8 +16,8 @@ export const PROVIDER_KEY_ENV: Readonly<Record<ProviderId, string>> = {
   meta: 'META_API_KEY',
 }
 
-export const CONNECTION_KINDS = ['slack', 'http', 'webhookSecret', 'google', 'microsoft'] as const
-export const ConnectionKindSchema = Type.Union([Type.Literal('slack'), Type.Literal('http'), Type.Literal('webhookSecret'), Type.Literal('google'), Type.Literal('microsoft')])
+export const CONNECTION_KINDS = ['slack', 'http', 'webhookSecret'] as const
+export const ConnectionKindSchema = Type.Union([Type.Literal('slack'), Type.Literal('http'), Type.Literal('webhookSecret')])
 export type ConnectionKind = Type.Static<typeof ConnectionKindSchema>
 
 export const AUTH_TYPES = ['none', 'apiKey', 'bearer', 'basic'] as const
@@ -27,6 +27,16 @@ export type AuthType = Type.Static<typeof AuthTypeSchema>
 export const OAUTH_PROVIDERS = ['google', 'microsoft'] as const
 export const OAuthProviderSchema = Type.Union([Type.Literal('google'), Type.Literal('microsoft')])
 export type OAuthProvider = Type.Static<typeof OAuthProviderSchema>
+
+export const OAUTH_STATUSES = ['not_configured', 'not_connected', 'connecting', 'connected', 'needs_reconnect'] as const
+export const OAuthStatusSchema = Type.Union([
+  Type.Literal('not_configured'),
+  Type.Literal('not_connected'),
+  Type.Literal('connecting'),
+  Type.Literal('connected'),
+  Type.Literal('needs_reconnect'),
+])
+export type OAuthStatus = Type.Static<typeof OAuthStatusSchema>
 
 export const LANGUAGES = ['system', 'en', 'ko'] as const
 export const LanguageSchema = Type.Union([Type.Literal('system'), Type.Literal('en'), Type.Literal('ko')])
@@ -46,6 +56,8 @@ export const MAX_AUTH_NAME_LENGTH = 128
 export const MAX_AUTH_VALUE_LENGTH = 2000
 export const MAX_AUTH_USERNAME_LENGTH = 256
 export const MAX_ACCOUNT_LENGTH = 200
+export const MAX_CLIENT_ID_LENGTH = 200
+export const MAX_CLIENT_SECRET_LENGTH = 256
 export const MAX_SLACK_TEXT_LENGTH = 80
 export const MAX_SLACK_CHANNEL_LENGTH = 80
 export const MAX_TEXT_FILE_BYTES = 64 * 1024
@@ -57,6 +69,9 @@ const NO_CONTROL_OR_COLON = '^[^:\\u0000-\\u001f\\u007f-\\u009f]+$'
 const NO_CONTROL_OR_NOTHING = '^[^\\u0000-\\u001f\\u007f-\\u009f]*$'
 const SLACK_TOKEN_PATTERN = '^xoxb-[A-Za-z0-9-]{10,200}$'
 const SLACK_CHANNEL_PATTERN = '^[^\\s\\u0000-\\u001f\\u007f-\\u009f]+$'
+const GOOGLE_CLIENT_ID = /^[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/
+const MICROSOFT_CLIENT_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+const CLIENT_SECRET = /^[^\s\p{Cc}]+$/u
 const HEADER_NAME = "^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$"
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
 export const FORBIDDEN_AUTH_NAMES: ReadonlySet<string> = new Set([
@@ -157,12 +172,19 @@ export const ConnectionSummarySchema = Type.Object(
   closed,
 )
 
-export const OAuthAccountSchema = Type.Object(
-  { provider: OAuthProviderSchema, account: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_ACCOUNT_LENGTH, pattern: NO_CONTROL })) },
+export const AccountTextSchema = Type.String({ minLength: 1, maxLength: MAX_ACCOUNT_LENGTH, pattern: NO_CONTROL_AT_ALL })
+
+export const OAuthAccountSchema = Type.Object({ provider: OAuthProviderSchema, status: OAuthStatusSchema, account: Type.Optional(AccountTextSchema) }, closed)
+export const OAuthAppInfoSchema = Type.Object(
+  { provider: OAuthProviderSchema, clientId: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_CLIENT_ID_LENGTH })), hasSecret: Type.Boolean() },
   closed,
 )
 export const OAuthStateSchema = Type.Object(
-  { available: Type.Boolean(), accounts: Type.Array(OAuthAccountSchema, { maxItems: OAUTH_PROVIDERS.length }) },
+  {
+    available: Type.Boolean(),
+    accounts: Type.Array(OAuthAccountSchema, { maxItems: OAUTH_PROVIDERS.length }),
+    apps: Type.Array(OAuthAppInfoSchema, { maxItems: OAUTH_PROVIDERS.length }),
+  },
   closed,
 )
 
@@ -235,6 +257,16 @@ export const SetConnectionArgsSchema = Type.Object(
 )
 export const SetCustomConnectionArgsSchema = Type.Object({ name: ConnectionNameSchema, auth: CustomAuthSchema }, closed)
 export const OAuthArgsSchema = Type.Object({ provider: OAuthProviderSchema }, closed)
+export const OAuthSetAppArgsSchema = Type.Object(
+  {
+    provider: OAuthProviderSchema,
+    clientId: Type.String({ minLength: 1, maxLength: MAX_CLIENT_ID_LENGTH }),
+    clientSecret: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_CLIENT_SECRET_LENGTH })),
+  },
+  closed,
+)
+export const OAuthConnectResultSchema = Type.Object({ account: Type.Optional(AccountTextSchema) }, closed)
+export const OAuthEmptyResultSchema = Type.Object({}, closed)
 export const RemoveConnectionArgsSchema = Type.Object({ name: ConnectionNameSchema }, closed)
 export const PickFileArgsSchema = Type.Object({ kind: Type.Union([Type.Literal('any'), Type.Literal('attachment')]) }, closed)
 const SUGGESTED_NAME = '^[^\\u0000-\\u001f\\u007f-\\u009f/\\\\]+$'
@@ -261,6 +293,10 @@ export type SettingsPatch = Type.Static<typeof SettingsPatchSchema>
 export type ConnectionSummary = Type.Static<typeof ConnectionSummarySchema>
 export type OAuthAccount = Type.Static<typeof OAuthAccountSchema>
 export type OAuthState = Type.Static<typeof OAuthStateSchema>
+export type OAuthAppInfo = Type.Static<typeof OAuthAppInfoSchema>
+export type OAuthSetAppArgs = Type.Static<typeof OAuthSetAppArgsSchema>
+export type OAuthConnectResult = Type.Static<typeof OAuthConnectResultSchema>
+export type OAuthEmptyResult = Type.Static<typeof OAuthEmptyResultSchema>
 export type EngineState = EngineStatus['state']
 export type KeyVerdict = Type.Static<typeof KeyVerdictSchema>
 export type KeyInvalidReason = Type.Static<typeof InvalidReasonSchema>
@@ -293,8 +329,12 @@ export interface HostApi {
     removeConnection(name: string): Promise<void>
   }
   oauth: {
-    connect(provider: OAuthProvider): Promise<void>
+    setApp(app: { provider: OAuthProvider; clientId: string; clientSecret?: string }): Promise<OAuthEmptyResult>
+    clearApp(provider: OAuthProvider): Promise<OAuthEmptyResult>
+    connect(provider: OAuthProvider): Promise<OAuthConnectResult>
+    cancel(provider: OAuthProvider): Promise<void>
     disconnect(provider: OAuthProvider): Promise<void>
+    onChanged(listener: (change: OAuthAccount) => void): () => void
   }
   dialogs: {
     pickFolder(): Promise<string | undefined>
@@ -313,7 +353,7 @@ export const HOST_API_METHODS = {
   engine: { info: true, status: true, restart: true, onStatus: true },
   settings: { get: true, update: true },
   secrets: { setProviderKey: true, clearProviderKey: true, setConnection: true, setCustomConnection: true, setSlackBot: true, removeConnection: true },
-  oauth: { connect: true, disconnect: true },
+  oauth: { setApp: true, clearApp: true, connect: true, cancel: true, disconnect: true, onChanged: true },
   dialogs: { pickFolder: true, pickFile: true, openText: true, saveText: true },
   attachments: { addFromPath: true, addFromBytes: true },
   app: { quit: true },
@@ -331,7 +371,10 @@ export const CHANNELS = {
   secretsSetCustomConnection: 'rill:secrets:set-custom-connection',
   secretsSetSlackBot: 'rill:secrets:set-slack-bot',
   secretsRemoveConnection: 'rill:secrets:remove-connection',
+  oauthSetApp: 'rill:oauth:set-app',
+  oauthClearApp: 'rill:oauth:clear-app',
   oauthConnect: 'rill:oauth:connect',
+  oauthCancel: 'rill:oauth:cancel',
   oauthDisconnect: 'rill:oauth:disconnect',
   dialogsPickFolder: 'rill:dialogs:pick-folder',
   dialogsPickFile: 'rill:dialogs:pick-file',
@@ -343,6 +386,7 @@ export const CHANNELS = {
 } as const
 
 export const ENGINE_STATUS_EVENT = 'rill:engine:status'
+export const OAUTH_CHANGED_EVENT = 'rill:oauth:changed'
 
 export type Channel = (typeof CHANNELS)[keyof typeof CHANNELS]
 
@@ -360,7 +404,10 @@ export const CONTRACTS: Record<Channel, { args: Type.TSchema; result: Type.TSche
   [CHANNELS.secretsSetCustomConnection]: { args: SetCustomConnectionArgsSchema, result: Type.Undefined() },
   [CHANNELS.secretsSetSlackBot]: { args: SetSlackBotArgsSchema, result: SetSlackBotResultSchema },
   [CHANNELS.secretsRemoveConnection]: { args: RemoveConnectionArgsSchema, result: Type.Undefined() },
-  [CHANNELS.oauthConnect]: { args: OAuthArgsSchema, result: Type.Undefined() },
+  [CHANNELS.oauthSetApp]: { args: OAuthSetAppArgsSchema, result: OAuthEmptyResultSchema },
+  [CHANNELS.oauthClearApp]: { args: OAuthArgsSchema, result: OAuthEmptyResultSchema },
+  [CHANNELS.oauthConnect]: { args: OAuthArgsSchema, result: OAuthConnectResultSchema },
+  [CHANNELS.oauthCancel]: { args: OAuthArgsSchema, result: Type.Undefined() },
   [CHANNELS.oauthDisconnect]: { args: OAuthArgsSchema, result: Type.Undefined() },
   [CHANNELS.dialogsPickFolder]: { args: Type.Undefined(), result: OptionalPath },
   [CHANNELS.dialogsPickFile]: { args: PickFileArgsSchema, result: OptionalPath },
@@ -388,6 +435,7 @@ export function validateArgs(channel: Channel, args: unknown): boolean {
   if (channel === CHANNELS.attachmentsAddFromBytes) return isByteInput((args as { bytes: unknown }).bytes)
   if (channel === CHANNELS.secretsSetCustomConnection) return isValidCustomAuth((args as { auth: unknown }).auth)
   if (channel === CHANNELS.secretsSetSlackBot) return hasWholeText((args as { channel?: string }).channel)
+  if (channel === CHANNELS.oauthSetApp) return isOAuthApp(args as OAuthSetAppArgs)
   return true
 }
 
@@ -435,8 +483,36 @@ export function validateStatus(value: unknown): value is EngineStatus {
   return Value.Check(EngineStatusSchema, value)
 }
 
+export function isAccountText(value: unknown): value is string {
+  return Value.Check(AccountTextSchema, value) && hasWholeText(value)
+}
+
+export function validateOAuthChange(value: unknown): value is OAuthAccount {
+  return Value.Check(OAuthAccountSchema, value) && hasWholeText(value.account)
+}
+
+export function isOAuthClientId(provider: OAuthProvider, value: string): boolean {
+  if (value.length > MAX_CLIENT_ID_LENGTH) return false
+  return (provider === 'google' ? GOOGLE_CLIENT_ID : MICROSOFT_CLIENT_ID).test(value)
+}
+
+export function isOAuthClientSecret(value: string): boolean {
+  return value.length >= 1 && value.length <= MAX_CLIENT_SECRET_LENGTH && CLIENT_SECRET.test(value)
+}
+
+export function isOAuthApp(app: { provider: OAuthProvider; clientId: string; clientSecret?: string }): boolean {
+  if (!isOAuthClientId(app.provider, app.clientId)) return false
+  if (app.clientSecret === undefined) return true
+  return app.provider === 'google' && isOAuthClientSecret(app.clientSecret)
+}
+
 export function foldName(name: string): string {
   return name.normalize('NFKC').toLowerCase()
+}
+
+export function isReservedConnectionName(name: string): boolean {
+  const folded = foldName(name)
+  return (OAUTH_PROVIDERS as readonly string[]).includes(folded)
 }
 
 export function findNameCollision(names: readonly string[]): string | undefined {
@@ -465,6 +541,14 @@ export const HOST_ERROR_CODES = [
   'TOKEN_INVALID',
   'SUPERSEDED',
   'OAUTH_UNAVAILABLE',
+  'OAUTH_NOT_CONFIGURED',
+  'OAUTH_BUSY',
+  'OAUTH_TIMEOUT',
+  'OAUTH_CANCELLED',
+  'OAUTH_DENIED',
+  'OAUTH_EXCHANGE_FAILED',
+  'OAUTH_SCOPE_MISSING',
+  'OAUTH_STATE',
   'INTERNAL',
 ] as const
 export type HostErrorCode = (typeof HOST_ERROR_CODES)[number]

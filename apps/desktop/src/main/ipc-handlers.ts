@@ -3,6 +3,7 @@ import { ATTACHMENT_EXTENSIONS, AttachmentError, type AttachmentStore } from './
 import { ConfigError, normalizeFolder, type ConfigStore } from './config-store'
 import type { EngineSupervisor } from './engine-supervisor'
 import type { KeyChecker } from './key-check'
+import type { OAuthManager } from './oauth-manager'
 import { SecretStoreError, type SecretStore } from './secret-store'
 import type { SlackChecker } from './slack-check'
 import { TextFileError, type TextFiles } from './text-files'
@@ -15,11 +16,14 @@ import {
   encodeSlackBot,
   findNameCollision,
   foldName,
+  isReservedConnectionName,
   slackAccountText,
   validateArgs,
   validateResult,
   type Channel,
   type CustomAuth,
+  type OAuthProvider,
+  type OAuthSetAppArgs,
   type ProviderId,
   type SetProviderKeyOptions,
   type SetSlackBotOptions,
@@ -52,6 +56,7 @@ export interface IpcDeps {
   supervisor: Pick<EngineSupervisor, 'info' | 'restart' | 'status'>
   attachments: Pick<AttachmentStore, 'addFromPath' | 'addFromBytes'>
   textFiles: TextFiles
+  oauth: Pick<OAuthManager, 'state' | 'setApp' | 'clearApp' | 'connect' | 'cancel' | 'disconnect'>
   dialog: DialogLike
   app: AppLike
   loginItem: { set(enabled: boolean): void }
@@ -127,7 +132,13 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
     return generation
   }
 
+  async function requireFreeOAuthName(provider: 'google' | 'microsoft'): Promise<void> {
+    const existing = await deps.secrets.listConnections()
+    if (existing.some((entry) => foldName(entry.name) === provider)) throw new HostError('NAME_COLLISION')
+  }
+
   async function requireFreeSlackName(name: string): Promise<void> {
+    if (isReservedConnectionName(name)) throw new HostError('NAME_COLLISION')
     const existing = await deps.secrets.listConnections()
     if (findNameCollision([...existing.map((entry) => entry.name), name]) !== undefined) throw new HostError('NAME_COLLISION')
     const same = existing.find((entry) => entry.name === name)
@@ -149,7 +160,7 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
       configuredProviders: await deps.secrets.configuredProviders(),
       connections: await deps.secrets.listConnections(),
       encryptionAvailable: deps.secrets.encryptionAvailable(),
-      oauth: { available: false, accounts: [] },
+      oauth: await deps.oauth.state(),
     }
   }
 
@@ -202,7 +213,7 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
       supersede(provider)
       await keyChanged(provider, await deps.secrets.clearProviderKey(provider))
     },
-    [CHANNELS.secretsSetConnection]: async (connection: { name: string; kind: 'slack' | 'http' | 'webhookSecret' | 'google' | 'microsoft'; secret: string }) => {
+    [CHANNELS.secretsSetConnection]: async (connection: { name: string; kind: 'slack' | 'http' | 'webhookSecret'; secret: string }) => {
       if (await deps.secrets.setConnection(connection)) restartEngine()
     },
     [CHANNELS.secretsSetCustomConnection]: async ({ name, auth }: { name: string; auth: CustomAuth }) => {
@@ -227,10 +238,24 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
       if (await deps.secrets.setConnection(connection, { mayReplace: (existing) => existing.kind === 'slack' })) restartEngine()
       return { verdict }
     },
-    [CHANNELS.oauthConnect]: async () => {
-      throw new HostError('OAUTH_UNAVAILABLE')
+    [CHANNELS.oauthSetApp]: async ({ provider, clientId, clientSecret }: OAuthSetAppArgs) => {
+      await deps.oauth.setApp(provider, { clientId, ...(clientSecret === undefined ? {} : { clientSecret }) })
+      return {}
     },
-    [CHANNELS.oauthDisconnect]: async () => undefined,
+    [CHANNELS.oauthClearApp]: async ({ provider }: { provider: OAuthProvider }) => {
+      await deps.oauth.clearApp(provider)
+      return {}
+    },
+    [CHANNELS.oauthConnect]: async ({ provider }: { provider: OAuthProvider }) => {
+      await requireFreeOAuthName(provider)
+      return deps.oauth.connect(provider)
+    },
+    [CHANNELS.oauthCancel]: async ({ provider }: { provider: OAuthProvider }) => {
+      deps.oauth.cancel(provider)
+    },
+    [CHANNELS.oauthDisconnect]: async ({ provider }: { provider: OAuthProvider }) => {
+      await deps.oauth.disconnect(provider)
+    },
     [CHANNELS.secretsRemoveConnection]: async ({ name }: { name: string }) => {
       supersedeSlack(name)
       if (await deps.secrets.removeConnection(name)) restartEngine()

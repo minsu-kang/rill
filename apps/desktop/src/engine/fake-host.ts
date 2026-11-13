@@ -17,6 +17,8 @@ import {
   findNameCollision,
   foldName,
   isByteInput,
+  isOAuthApp,
+  isReservedConnectionName,
   isSlackVerdict,
   utf8Length,
   hasWholeText,
@@ -29,6 +31,10 @@ import {
   type EngineStatus,
   type HostApi,
   type KeyVerdict,
+  type OAuthAccount,
+  type OAuthAppInfo,
+  type OAuthProvider,
+  type OAuthState,
   type ProviderId,
   type SetProviderKeyOptions,
   type SetSlackBotOptions,
@@ -50,10 +56,13 @@ export interface FakeHostState {
 
 export interface FakeHostSnapshot extends FakeHostState {
   statusListeners: number
+  oauthListeners: number
   restartCalls: number
 }
 
-export type FakeHost = HostApi & { state(): FakeHostSnapshot; setEngine(status: EngineStatus): void }
+export type FakeHost = HostApi & { state(): FakeHostSnapshot; setEngine(status: EngineStatus): void; expireOAuth(provider: OAuthProvider): void }
+
+export type FakeOAuthFlow = 'success' | 'waiting' | 'denied' | 'timeout' | 'scope_missing' | 'exchange_failed' | 'needs_reconnect_later'
 
 export type FakeKeyCheck = (provider: ProviderId, key: string) => KeyVerdict | Promise<KeyVerdict>
 
@@ -66,6 +75,8 @@ export interface FakeHostOptions {
   info?: EngineInfo
   keyChecks?: FakeKeyCheck
   slackChecks?: FakeSlackCheck
+  oauthFlows?: Partial<Record<OAuthProvider, FakeOAuthFlow>>
+  oauthDelayMs?: number
 }
 
 const MIB = 1024 * 1024
@@ -87,6 +98,13 @@ const TYPES: Readonly<Record<string, { mediaType: AttachmentRef['mediaType']; li
   markdown: { mediaType: 'text/markdown', limit: MIB },
 }
 
+const FLOW_ERRORS: Readonly<Record<'denied' | 'timeout' | 'scope_missing' | 'exchange_failed', 'OAUTH_DENIED' | 'OAUTH_TIMEOUT' | 'OAUTH_SCOPE_MISSING' | 'OAUTH_EXCHANGE_FAILED'>> = {
+  denied: 'OAUTH_DENIED',
+  timeout: 'OAUTH_TIMEOUT',
+  scope_missing: 'OAUTH_SCOPE_MISSING',
+  exchange_failed: 'OAUTH_EXCHANGE_FAILED',
+}
+
 const FAKE_ACCOUNTS: Readonly<Record<(typeof OAUTH_PROVIDERS)[number], string>> = {
   google: 'someone@example.com',
   microsoft: 'someone@contoso.example',
@@ -106,9 +124,22 @@ export function fakeSettings(overrides: Partial<Settings> = {}): Settings {
     configuredProviders: [],
     connections: [],
     encryptionAvailable: true,
-    oauth: { available: false, accounts: [] },
+    oauth: { available: overrides.encryptionAvailable ?? true, accounts: [], apps: [] },
     ...overrides,
   }
+}
+
+function normalizedOAuth(oauth: OAuthState): OAuthState {
+  const apps: OAuthAppInfo[] = OAUTH_PROVIDERS.map((provider) => {
+    const app = oauth.apps.find((entry) => entry.provider === provider)
+    return { provider, ...(app?.clientId === undefined ? {} : { clientId: app.clientId }), hasSecret: app?.hasSecret ?? false }
+  })
+  const accounts: OAuthAccount[] = OAUTH_PROVIDERS.map((provider) => {
+    const entry = oauth.accounts.find((account) => account.provider === provider)
+    const configured = apps.find((app) => app.provider === provider)?.clientId !== undefined
+    return entry ?? { provider, status: configured ? 'not_connected' : 'not_configured' }
+  })
+  return { available: oauth.available, accounts, apps }
 }
 
 function invalid(): HostError {
@@ -133,6 +164,7 @@ function fileTypeOf(name: string): { name: string; type: (typeof TYPES)[string] 
 
 export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeHostOptions = {}): FakeHost {
   let settings = structuredClone(init.settings ?? fakeSettings())
+  settings.oauth = normalizedOAuth(settings.oauth)
   let engine: EngineStatus = { ...(init.engine ?? { state: 'running', restarts: 0 }) }
   const attachments: AttachmentRef[] = structuredClone(init.attachments ?? [])
   const folderPicks = [...(init.folderPicks ?? [])]
@@ -148,6 +180,10 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
   const keyChecks: FakeKeyCheck = options.keyChecks ?? (() => ({ status: 'valid' }))
   const slackChecks: FakeSlackCheck = options.slackChecks ?? (() => ({ ...FAKE_SLACK_VERDICT }))
   const slackGenerations = new Map<string, number>()
+  const oauthListeners = new Set<(change: OAuthAccount) => void>()
+  const oauthFlows = options.oauthFlows ?? {}
+  const oauthDelay = options.oauthDelayMs ?? 0
+  let oauthActive: { provider: OAuthProvider; cancel(): void } | undefined
   let restartCalls = 0
   let restartTimer: ReturnType<typeof setTimeout> | undefined
   let folderSerial = 0
@@ -191,6 +227,44 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
 
   function requireKeychain(): void {
     if (!settings.encryptionAvailable) throw new HostError('NO_KEYCHAIN')
+  }
+
+  function requireProvider(provider: OAuthProvider): void {
+    if (!OAUTH_PROVIDERS.includes(provider)) throw new HostError('INVALID_ARGUMENTS')
+  }
+
+  function accountOf(provider: OAuthProvider): OAuthAccount {
+    return settings.oauth.accounts.find((entry) => entry.provider === provider)!
+  }
+
+  function appOf(provider: OAuthProvider): OAuthAppInfo {
+    return settings.oauth.apps.find((entry) => entry.provider === provider)!
+  }
+
+  function setAccount(provider: OAuthProvider, next: { status: OAuthAccount['status']; account?: string }): void {
+    const entry: OAuthAccount = { provider, status: next.status, ...(next.account === undefined ? {} : { account: next.account }) }
+    const before = JSON.stringify(accountOf(provider))
+    if (before === JSON.stringify(entry)) return
+    settings.oauth = { ...settings.oauth, accounts: settings.oauth.accounts.map((item) => (item.provider === provider ? entry : item)) }
+    for (const listener of [...oauthListeners]) {
+      try {
+        listener({ ...entry })
+      } catch {
+        continue
+      }
+    }
+  }
+
+  function restingStatus(provider: OAuthProvider): OAuthAccount['status'] {
+    return appOf(provider).clientId === undefined ? 'not_configured' : 'not_connected'
+  }
+
+  function endOAuthFlow(provider: OAuthProvider): void {
+    if (oauthActive?.provider === provider) oauthActive.cancel()
+  }
+
+  function wait(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
   function snapshot(): Settings {
@@ -286,6 +360,7 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
         ) {
           throw new HostError('INVALID_ARGUMENTS')
         }
+        if (isReservedConnectionName(connection.name)) throw new HostError('NAME_COLLISION')
         if (findNameCollision([...settings.connections.map((entry) => entry.name), connection.name]) !== undefined) throw new HostError('NAME_COLLISION')
         const known = settings.connections.some((entry) => entry.name === connection.name)
         if (!known && settings.connections.length >= MAX_CONNECTIONS) throw new HostError('INVALID_ARGUMENTS')
@@ -298,6 +373,7 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
         if (keys.length !== 2 || keys[0] !== 'auth' || keys[1] !== 'name') throw new HostError('INVALID_ARGUMENTS')
         if (!Value.Check(ConnectionNameSchema, connection.name) || !isValidCustomAuth(connection.auth)) throw new HostError('INVALID_ARGUMENTS')
         const existing = settings.connections.find((entry) => entry.name === connection.name)
+        if (isReservedConnectionName(connection.name)) throw new HostError('NAME_COLLISION')
         if (existing !== undefined && (existing.kind !== 'http' || existing.authType === undefined)) throw new HostError('NAME_COLLISION')
         if (findNameCollision([...settings.connections.map((entry) => entry.name), connection.name]) !== undefined) throw new HostError('NAME_COLLISION')
         if (existing === undefined && settings.connections.length >= MAX_CONNECTIONS) throw new HostError('INVALID_ARGUMENTS')
@@ -311,6 +387,7 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
         requireKeychain()
         const names = settings.connections.map((entry) => entry.name)
         const existing = settings.connections.find((entry) => entry.name === bot.name)
+        if (isReservedConnectionName(bot.name)) throw new HostError('NAME_COLLISION')
         if (findNameCollision([...names, bot.name]) !== undefined || (existing !== undefined && existing.kind !== 'slack')) throw new HostError('NAME_COLLISION')
         const generation = supersedeSlack(bot.name)
         const verdict = await slackChecks(bot.token)
@@ -333,15 +410,75 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
       },
     },
     oauth: {
+      async setApp(app) {
+        requireProvider(app.provider)
+        if (!isOAuthApp(app)) throw new HostError('INVALID_ARGUMENTS')
+        requireKeychain()
+        endOAuthFlow(app.provider)
+        settings.oauth = {
+          ...settings.oauth,
+          apps: settings.oauth.apps.map((item) => (item.provider === app.provider ? { provider: app.provider, clientId: app.clientId, hasSecret: app.clientSecret !== undefined } : item)),
+        }
+        setAccount(app.provider, { status: 'not_connected' })
+        return {}
+      },
+      async clearApp(provider) {
+        requireProvider(provider)
+        requireKeychain()
+        endOAuthFlow(provider)
+        settings.oauth = { ...settings.oauth, apps: settings.oauth.apps.map((item) => (item.provider === provider ? { provider, hasSecret: false } : item)) }
+        setAccount(provider, { status: 'not_configured' })
+        return {}
+      },
       async connect(provider) {
-        if (!OAUTH_PROVIDERS.includes(provider)) throw new HostError('INVALID_ARGUMENTS')
-        if (!settings.oauth.available) throw new HostError('OAUTH_UNAVAILABLE')
-        if (settings.oauth.accounts.some((entry) => entry.provider === provider)) return
-        settings.oauth = { ...settings.oauth, accounts: [...settings.oauth.accounts, { provider, account: FAKE_ACCOUNTS[provider] }] }
+        requireProvider(provider)
+        requireKeychain()
+        if (settings.connections.some((entry) => foldName(entry.name) === provider)) throw new HostError('NAME_COLLISION')
+        if (appOf(provider).clientId === undefined) throw new HostError('OAUTH_NOT_CONFIGURED')
+        if (oauthActive !== undefined) throw new HostError('OAUTH_BUSY')
+        const previous = accountOf(provider)
+        const flow = oauthFlows[provider] ?? 'success'
+        let cancelled!: () => void
+        const cancelledSignal = new Promise<'cancelled'>((resolve) => {
+          cancelled = () => resolve('cancelled')
+        })
+        const active = { provider, cancel: cancelled }
+        oauthActive = active
+        setAccount(provider, { status: 'connecting' })
+        try {
+          const outcome = await Promise.race([flow === 'waiting' ? new Promise<never>(() => undefined) : wait(oauthDelay).then(() => 'done' as const), cancelledSignal])
+          if (outcome === 'cancelled') throw new HostError('OAUTH_CANCELLED')
+          if (flow in FLOW_ERRORS) throw new HostError(FLOW_ERRORS[flow as keyof typeof FLOW_ERRORS])
+        } catch (error) {
+          if (accountOf(provider).status === 'connecting') setAccount(provider, previous)
+          throw error
+        } finally {
+          if (oauthActive === active) oauthActive = undefined
+        }
+        setAccount(provider, { status: 'connected', account: FAKE_ACCOUNTS[provider] })
+        if (flow === 'needs_reconnect_later') {
+          setTimeout(() => {
+            if (accountOf(provider).status === 'connected') setAccount(provider, { status: 'needs_reconnect', account: FAKE_ACCOUNTS[provider] })
+          }, Math.max(oauthDelay, 20))
+        }
+        return { account: FAKE_ACCOUNTS[provider] }
+      },
+      async cancel(provider) {
+        requireProvider(provider)
+        endOAuthFlow(provider)
       },
       async disconnect(provider) {
-        if (!OAUTH_PROVIDERS.includes(provider)) throw new HostError('INVALID_ARGUMENTS')
-        settings.oauth = { ...settings.oauth, accounts: settings.oauth.accounts.filter((entry) => entry.provider !== provider) }
+        requireProvider(provider)
+        requireKeychain()
+        endOAuthFlow(provider)
+        const status = accountOf(provider).status
+        if (status === 'connected' || status === 'needs_reconnect') setAccount(provider, { status: restingStatus(provider) })
+      },
+      onChanged(listener) {
+        oauthListeners.add(listener)
+        return () => {
+          oauthListeners.delete(listener)
+        }
       },
     },
     dialogs: {
@@ -394,8 +531,14 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
       saveAnswers: [...saveAnswers],
       savedTexts: structuredClone(savedTexts),
       statusListeners: listeners.size,
+      oauthListeners: oauthListeners.size,
       restartCalls,
     }),
     setEngine: publish,
+    expireOAuth(provider) {
+      requireProvider(provider)
+      const entry = accountOf(provider)
+      if (entry.status === 'connected') setAccount(provider, { status: 'needs_reconnect', ...(entry.account === undefined ? {} : { account: entry.account }) })
+    },
   }
 }

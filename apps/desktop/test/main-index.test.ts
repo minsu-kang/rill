@@ -6,13 +6,14 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CHANNELS, ENGINE_STATUS_EVENT } from '../src/shared/host-api'
+import { CHANNELS, ENGINE_STATUS_EVENT, OAUTH_CHANGED_EVENT } from '../src/shared/host-api'
 
 class FakeChild extends EventEmitter {
   pid = 4242
   stdout = new PassThrough()
   stderr = new PassThrough()
   killed = 0
+  postMessage = vi.fn()
   kill() {
     this.killed++
     queueMicrotask(() => this.emit('exit', 0))
@@ -106,6 +107,8 @@ interface Harness {
   netFetch: ReturnType<typeof vi.fn>
   setApplicationMenu: ReturnType<typeof vi.fn>
   ready: ReturnType<typeof vi.fn>
+  powerMonitor: EventEmitter
+  openExternal: ReturnType<typeof vi.fn>
   restore: () => void
 }
 
@@ -120,6 +123,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   process.argv = originalArgv
   rmSync(userData, { recursive: true, force: true })
   vi.restoreAllMocks()
@@ -164,6 +168,8 @@ async function load(options: { lock?: boolean; smoke?: boolean; packaged?: boole
   const protocolHandlers = new Map<string, (request: { url: string; method: string }) => Promise<Response>>()
   const netFetch = vi.fn(async (url: string) => new Response(`served ${url}`))
   const setApplicationMenu = vi.fn()
+  const powerMonitor = new EventEmitter()
+  const openExternal = vi.fn(async () => undefined)
   vi.doMock('electron', () => ({
     app,
     net: { fetch: netFetch },
@@ -179,6 +185,8 @@ async function load(options: { lock?: boolean; smoke?: boolean; packaged?: boole
       decryptString: (bytes: Buffer) => bytes.toString(),
     },
     Tray: FakeTray,
+    shell: { openExternal },
+    powerMonitor,
     utilityProcess: { fork },
   }))
   vi.doMock('@rill/protocol', async () => ({
@@ -208,6 +216,8 @@ async function load(options: { lock?: boolean; smoke?: boolean; packaged?: boole
     netFetch,
     setApplicationMenu,
     ready: app.whenReady as ReturnType<typeof vi.fn>,
+    powerMonitor,
+    openExternal,
     restore: () => stdoutSpy.mockRestore(),
   }
 }
@@ -385,5 +395,134 @@ describe('app entry: smoke mode', () => {
     const h = await load({ smoke: true })
     expect(h.exits).toHaveLength(1)
     expect(existsSync(join(h.userData, 'secrets.bin'))).toBe(false)
+  })
+})
+
+
+describe('app entry: sign-in to Google and Microsoft', () => {
+  const GOOGLE_ID = '123456789012-abcdefghijklmnop.apps.googleusercontent.com'
+  const REFRESH = '1//0gREFRESHMARKER0123456789abcdefghijklmnop'
+  const ACCESS = 'ya29.ACCESSMARKER0123456789abcdef'
+
+  function storeAccount(): void {
+    const blob = {
+      version: 2,
+      providerKeys: [],
+      connections: [],
+      oauth: {
+        apps: { google: { clientId: GOOGLE_ID } },
+        accounts: { google: { refreshToken: REFRESH, scope: 'openid https://www.googleapis.com/auth/spreadsheets', account: 'someone@example.com', connectedAt: 1 } },
+      },
+    }
+    writeFileSync(join(userData, 'secrets.bin'), Buffer.from(JSON.stringify(blob)))
+  }
+
+  function tokenEndpoint(answer: () => Promise<Response> | Response = () => new Response(JSON.stringify({ access_token: ACCESS, expires_in: 3599, token_type: 'Bearer' }), { status: 200 })) {
+    const answered = vi.fn()
+    const fetchSpy = vi.fn(async (...args: [string, RequestInit]) => {
+      void args
+      const response = await answer()
+      answered()
+      return response
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    return { fetchSpy, answered }
+  }
+
+  const quit = async (h: Harness) => {
+    h.app.emit('before-quit', { preventDefault: () => undefined })
+    await settle()
+  }
+
+  it('asks the engine for nothing and the provider for nothing when no account is signed in', async () => {
+    const { fetchSpy } = tokenEndpoint()
+    const h = await load()
+    await up(h)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(h.openExternal).not.toHaveBeenCalled()
+    expect((h.fork.mock.calls[0] as unknown as [string, string[], { env: Record<string, string> }])[2].env.RILL_CONNECTIONS).toBeUndefined()
+  })
+
+  it('refreshes a signed-in account before the engine starts and starts the engine with the new access token and its kind', async () => {
+    storeAccount()
+    const { fetchSpy, answered } = tokenEndpoint()
+    const h = await load()
+    await up(h)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://oauth2.googleapis.com/token')
+    expect(String(init.body)).toContain('grant_type=refresh_token')
+    expect(answered.mock.invocationCallOrder[0]!).toBeLessThan(h.fork.mock.invocationCallOrder[0]!)
+    const [, args, options] = h.fork.mock.calls[0] as unknown as [string, string[], { env: Record<string, string> }]
+    expect(JSON.parse(options.env.RILL_CONNECTIONS!)).toEqual({ google: { secret: ACCESS, kind: 'google' } })
+    expect(JSON.stringify([args, Object.entries(options.env).filter(([name]) => name !== 'RILL_CONNECTIONS')])).not.toContain('REFRESHMARKER')
+    await quit(h)
+  })
+
+  it('starts the engine without the token when the refresh fails, and sends the token over the channel once a retry works', async () => {
+    storeAccount()
+    let attempts = 0
+    tokenEndpoint(() => {
+      attempts += 1
+      if (attempts === 1) throw new Error('offline')
+      return new Response(JSON.stringify({ access_token: ACCESS, expires_in: 3599, token_type: 'Bearer' }), { status: 200 })
+    })
+    const h = await load()
+    await up(h)
+    const [, , options] = h.fork.mock.calls[0] as unknown as [string, string[], { env: Record<string, string> }]
+    expect(options.env.RILL_CONNECTIONS).toBeUndefined()
+    expect(h.children[0]!.postMessage).not.toHaveBeenCalled()
+    await quit(h)
+  })
+
+  it('sends the current token to the engine over the channel when the engine reports running', async () => {
+    storeAccount()
+    tokenEndpoint()
+    const h = await load()
+    await up(h)
+    expect(h.children[0]!.postMessage).toHaveBeenCalledWith({ type: 'connection.set', name: 'google', kind: 'google', secret: ACCESS })
+    await quit(h)
+  })
+
+  it('sends the token again to the new engine after every restart, and seeds it into the environment of the new start', async () => {
+    storeAccount()
+    tokenEndpoint()
+    const h = await load()
+    await up(h)
+    await h.handlers.get(CHANNELS.engineRestart)!(h.senderEvent(), undefined)
+    await vi.waitFor(() => expect(h.children).toHaveLength(2))
+    await vi.waitFor(() => expect(h.children[1]!.postMessage).toHaveBeenCalledWith({ type: 'connection.set', name: 'google', kind: 'google', secret: ACCESS }))
+    const [, , options] = h.fork.mock.calls[1] as unknown as [string, string[], { env: Record<string, string> }]
+    expect(JSON.parse(options.env.RILL_CONNECTIONS!)).toEqual({ google: { secret: ACCESS, kind: 'google' } })
+    expect(h.children[0]!.postMessage).toHaveBeenCalledTimes(1)
+    await quit(h)
+  })
+
+  it('tells the window about a change of an account and lists the oauth state in the settings', async () => {
+    const h = await load()
+    await up(h)
+    const sent = h.window().webContents.sent
+    await h.handlers.get(CHANNELS.oauthSetApp)!(h.senderEvent(), { provider: 'google', clientId: GOOGLE_ID })
+    expect(sent.filter(([channel]) => channel === OAUTH_CHANGED_EVENT)).toEqual([[OAUTH_CHANGED_EVENT, { provider: 'google', status: 'not_connected' }]])
+    const settings = (await h.handlers.get(CHANNELS.settingsGet)!(h.senderEvent(), undefined)) as { oauth: { apps: unknown[] } }
+    expect(settings.oauth.apps[0]).toEqual({ provider: 'google', clientId: GOOGLE_ID, hasSecret: false })
+  })
+
+  it('refreshes a token that expired while the computer slept, when the system resumes', async () => {
+    storeAccount()
+    let issued = 0
+    tokenEndpoint(() => new Response(JSON.stringify({ access_token: `ya29.ACCESSMARKER${String(++issued).padStart(10, '0')}`, expires_in: 100, token_type: 'Bearer' }), { status: 200 }))
+    const h = await load()
+    await up(h)
+    expect(h.powerMonitor.listenerCount('resume')).toBe(1)
+    h.powerMonitor.emit('resume')
+    await vi.waitFor(() => expect(h.children[0]!.postMessage).toHaveBeenCalledWith({ type: 'connection.set', name: 'google', kind: 'google', secret: 'ya29.ACCESSMARKER0000000002' }))
+    await quit(h)
+  })
+
+  it('opens the browser only with the address of the provider and never at start', async () => {
+    const h = await load()
+    await up(h)
+    expect(h.openExternal).not.toHaveBeenCalled()
   })
 })

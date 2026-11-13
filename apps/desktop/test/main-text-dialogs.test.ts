@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createIpcHandlers, markdownFileName, type DialogLike } from '../src/main/ipc-handlers'
 import { createTextFiles, type TextFiles } from '../src/main/text-files'
+import { unusedOAuth } from './oauth-helpers'
 import {
   CHANNELS,
   HOST_ERROR_CODES,
@@ -39,6 +40,7 @@ function harness(options: { opens?: string[]; saves?: Array<string | undefined>;
   const logs: string[] = []
   const textFiles = options.textFiles ?? createTextFiles()
   const handlers = createIpcHandlers({
+    oauth: unusedOAuth,
     config: {} as never,
     secrets: {} as never,
     supervisor: {} as never,

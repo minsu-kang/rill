@@ -104,7 +104,7 @@ function Accounts({ api, locked }: GroupProps) {
       <ul className={controls.list}>
         {OAUTH_PROVIDERS.map((provider) => {
           const entry = oauth.accounts.find((account) => account.provider === provider)
-          const connected = entry !== undefined
+          const connected = entry?.status === 'connected'
           return (
             <li key={provider} className={look.card}>
               <div className={look.cardHead}>

@@ -45,15 +45,6 @@ describe('createFakeHost custom connections', () => {
     expect((await host.settings.get()).connections).toEqual([{ name: 'Legacy', kind: 'http' }])
   })
 
-  it('connects example accounts with neutral names', async () => {
-    const host = createFakeHost({ settings: fakeSettings({ oauth: { available: true, accounts: [] } }) })
-    for (const provider of ['google', 'microsoft'] as const) await host.oauth.connect(provider)
-    expect((await host.settings.get()).oauth.accounts).toEqual([
-      { provider: 'google', account: 'someone@example.com' },
-      { provider: 'microsoft', account: 'someone@contoso.example' },
-    ])
-  })
-
   it('refuses a name that collides with a connection of any kind, in any case', async () => {
     const host = createFakeHost()
     await host.secrets.setConnection({ name: 'Team', kind: 'slack', secret: 'https://hooks.example.test/x' })
@@ -78,35 +69,5 @@ describe('createFakeHost custom connections', () => {
     expect((await host.settings.get()).connections).toEqual([])
     const locked = createFakeHost({ settings: fakeSettings({ encryptionAvailable: false }) })
     expect(await codeOf(locked.secrets.setCustomConnection({ name: 'a', auth: AUTHS[3]! }))).toBe('NO_KEYCHAIN')
-  })
-})
-
-describe('createFakeHost oauth', () => {
-  it('starts unavailable and rejects connect with OAUTH_UNAVAILABLE', async () => {
-    const host = createFakeHost()
-    expect((await host.settings.get()).oauth).toEqual({ available: false, accounts: [] })
-    expect(await codeOf(host.oauth.connect('google'))).toBe('OAUTH_UNAVAILABLE')
-    await host.oauth.disconnect('google')
-    expect((await host.settings.get()).oauth).toEqual({ available: false, accounts: [] })
-  })
-
-  it('simulates a connect and a disconnect when it is available', async () => {
-    const host = createFakeHost({ settings: fakeSettings({ oauth: { available: true, accounts: [] } }) })
-    await host.oauth.connect('google')
-    await host.oauth.connect('microsoft')
-    await host.oauth.connect('google')
-    const accounts = (await host.settings.get()).oauth.accounts
-    expect(accounts.map((entry) => entry.provider)).toEqual(['google', 'microsoft'])
-    expect(accounts.every((entry) => typeof entry.account === 'string' && entry.account.length > 0)).toBe(true)
-    await host.oauth.disconnect('google')
-    expect((await host.settings.get()).oauth.accounts.map((entry) => entry.provider)).toEqual(['microsoft'])
-    await host.oauth.disconnect('google')
-    expect((await host.settings.get()).oauth.accounts).toHaveLength(1)
-  })
-
-  it('refuses an unknown provider', async () => {
-    const host = createFakeHost({ settings: fakeSettings({ oauth: { available: true, accounts: [] } }) })
-    expect(await codeOf(host.oauth.connect('github' as never))).toBe('INVALID_ARGUMENTS')
-    expect(await codeOf(host.oauth.disconnect('github' as never))).toBe('INVALID_ARGUMENTS')
   })
 })

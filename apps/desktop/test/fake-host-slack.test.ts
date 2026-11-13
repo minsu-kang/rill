@@ -105,12 +105,4 @@ describe('createFakeHost setSlackBot', () => {
     expect(await codeOf(pending)).toBe('SUPERSEDED')
     expect((await host.settings.get()).connections).toEqual([])
   })
-
-  it('has no Slack OAuth account any more', async () => {
-    const host = createFakeHost({ settings: fakeSettings({ oauth: { available: true, accounts: [] } }) })
-    expect(await codeOf(host.oauth.connect('slack' as never))).toBe('INVALID_ARGUMENTS')
-    await host.oauth.connect('google')
-    await host.oauth.connect('microsoft')
-    expect((await host.settings.get()).oauth.accounts.map((entry) => entry.provider)).toEqual(['google', 'microsoft'])
-  })
 })

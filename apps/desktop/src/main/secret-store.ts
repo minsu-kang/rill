@@ -7,15 +7,20 @@ import {
   CONNECTION_KINDS,
   ConnectionNameSchema,
   MAX_SECRET_LENGTH,
+  OAUTH_PROVIDERS,
   SlackSummarySchema,
   PROVIDER_IDS,
   findNameCollision,
+  isAccountText,
+  isOAuthApp,
   type AuthType,
   type ConnectionKind,
   type ConnectionSummary,
+  type OAuthProvider,
   type ProviderId,
   type SlackSummary,
   hasWholeText,
+  isReservedConnectionName,
 } from '../shared/host-api'
 
 export interface SafeStorageLike {
@@ -32,6 +37,24 @@ export interface StoredConnection {
   slack?: SlackSummary
 }
 
+export interface OAuthAppRecord {
+  clientId: string
+  clientSecret?: string
+}
+
+export interface OAuthAccountRecord {
+  refreshToken?: string
+  needsReconnect?: true
+  scope: string
+  account?: string
+  connectedAt: number
+}
+
+export interface OAuthRecords {
+  apps: Partial<Record<OAuthProvider, OAuthAppRecord>>
+  accounts: Partial<Record<OAuthProvider, OAuthAccountRecord>>
+}
+
 export interface SecretStore {
   encryptionAvailable(): boolean
   unreadable(): Promise<boolean>
@@ -43,6 +66,11 @@ export interface SecretStore {
   getConnections(): Promise<StoredConnection[]>
   setConnection(connection: StoredConnection, options?: SetConnectionOptions): Promise<boolean>
   removeConnection(name: string): Promise<boolean>
+  getOAuth(): Promise<OAuthRecords>
+  setOAuthApp(provider: OAuthProvider, app: OAuthAppRecord): Promise<boolean>
+  clearOAuthApp(provider: OAuthProvider): Promise<boolean>
+  setOAuthAccount(provider: OAuthProvider, account: OAuthAccountRecord): Promise<boolean>
+  clearOAuthAccount(provider: OAuthProvider): Promise<boolean>
 }
 
 export interface SetConnectionOptions {
@@ -64,6 +92,7 @@ export class SecretStoreError extends Error {
 interface State {
   providerKeys: Map<ProviderId, string>
   connections: StoredConnection[]
+  oauth: { apps: Map<OAuthProvider, OAuthAppRecord>; accounts: Map<OAuthProvider, OAuthAccountRecord> }
 }
 
 interface Loaded {
@@ -74,9 +103,12 @@ interface Loaded {
 const UNREADABLE_LOG = 'the secrets file could not be read'
 const MAX_BACKUPS = 10
 const MAX_HTTP_SECRET_LENGTH = 8192
+const MAX_REFRESH_TOKEN_LENGTH = 4096
+const MAX_SCOPE_LENGTH = 2000
+const LEGACY_ACCOUNT_KINDS: readonly string[] = ['google', 'microsoft']
 
 function emptyState(): State {
-  return { providerKeys: new Map(), connections: [] }
+  return { providerKeys: new Map(), connections: [], oauth: { apps: new Map(), accounts: new Map() } }
 }
 
 function validSecret(value: unknown, limit = MAX_SECRET_LENGTH): value is string {
@@ -118,17 +150,76 @@ function isKind(value: unknown): value is ConnectionKind {
   return typeof value === 'string' && (CONNECTION_KINDS as readonly string[]).includes(value)
 }
 
+function isOAuthProvider(value: unknown): value is OAuthProvider {
+  return typeof value === 'string' && (OAUTH_PROVIDERS as readonly string[]).includes(value)
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key))
+}
+
+function validOAuthApp(provider: OAuthProvider, value: unknown): value is OAuthAppRecord {
+  if (!isPlainObject(value) || !hasOnlyKeys(value, ['clientId', 'clientSecret'])) return false
+  const { clientId, clientSecret } = value
+  if (typeof clientId !== 'string' || (clientSecret !== undefined && typeof clientSecret !== 'string')) return false
+  return isOAuthApp({ provider, clientId, ...(clientSecret === undefined ? {} : { clientSecret }) })
+}
+
+function validOAuthAccount(value: unknown): value is OAuthAccountRecord {
+  if (!isPlainObject(value) || !hasOnlyKeys(value, ['refreshToken', 'needsReconnect', 'scope', 'account', 'connectedAt'])) return false
+  const { refreshToken, needsReconnect, scope, account, connectedAt } = value
+  if ((refreshToken === undefined) === (needsReconnect === undefined)) return false
+  if (refreshToken !== undefined && !validSecret(refreshToken, MAX_REFRESH_TOKEN_LENGTH)) return false
+  if (needsReconnect !== undefined && needsReconnect !== true) return false
+  if (typeof scope !== 'string' || scope.length < 1 || scope.length > MAX_SCOPE_LENGTH || scope.includes('\u0000')) return false
+  if (account !== undefined && !isAccountText(account)) return false
+  return typeof connectedAt === 'number' && Number.isSafeInteger(connectedAt) && connectedAt >= 0
+}
+
+function parseOAuth(value: unknown, state: State): void {
+  if (!isPlainObject(value) || !hasOnlyKeys(value, ['apps', 'accounts']) || !isPlainObject(value.apps) || !isPlainObject(value.accounts)) throw new Error('shape')
+  for (const [provider, app] of Object.entries(value.apps)) {
+    if (!isOAuthProvider(provider) || !validOAuthApp(provider, app)) throw new Error('shape')
+    state.oauth.apps.set(provider, { clientId: app.clientId, ...(app.clientSecret === undefined ? {} : { clientSecret: app.clientSecret }) })
+  }
+  for (const [provider, account] of Object.entries(value.accounts)) {
+    if (!isOAuthProvider(provider) || !state.oauth.apps.has(provider) || !validOAuthAccount(account)) throw new Error('shape')
+    state.oauth.accounts.set(provider, copyAccount(account))
+  }
+}
+
+function copyAccount(account: OAuthAccountRecord): OAuthAccountRecord {
+  return {
+    ...(account.refreshToken === undefined ? {} : { refreshToken: account.refreshToken }),
+    ...(account.needsReconnect === undefined ? {} : { needsReconnect: true as const }),
+    scope: account.scope,
+    ...(account.account === undefined ? {} : { account: account.account }),
+    connectedAt: account.connectedAt,
+  }
+}
+
+function hasOAuth(state: State): boolean {
+  return state.oauth.apps.size > 0 || state.oauth.accounts.size > 0
+}
+
 function parseState(text: string): State {
   const data: unknown = JSON.parse(text)
-  if (typeof data !== 'object' || data === null || (data as { version?: unknown }).version !== 1) throw new Error('shape')
-  const { providerKeys, connections } = data as { providerKeys?: unknown; connections?: unknown }
+  const version = typeof data === 'object' && data !== null ? (data as { version?: unknown }).version : undefined
+  if (version !== 1 && version !== 2) throw new Error('shape')
+  const { providerKeys, connections, oauth } = data as { providerKeys?: unknown; connections?: unknown; oauth?: unknown }
   if (!Array.isArray(providerKeys) || !Array.isArray(connections)) throw new Error('shape')
+  if ((version === 2) !== (oauth !== undefined)) throw new Error('shape')
   const state = emptyState()
   for (const entry of providerKeys as Array<{ provider?: unknown; value?: unknown }>) {
     if (!isProvider(entry?.provider) || !validSecret(entry.value)) throw new Error('shape')
     state.providerKeys.set(entry.provider, entry.value)
   }
   for (const entry of connections as Array<{ name?: unknown; kind?: unknown; secret?: unknown; authType?: unknown; slack?: unknown }>) {
+    if (LEGACY_ACCOUNT_KINDS.includes(entry?.kind as string)) continue
     if (!validConnection(entry ?? {})) throw new Error('shape')
     state.connections.push({
       name: entry.name as string,
@@ -138,15 +229,21 @@ function parseState(text: string): State {
       ...(entry.slack === undefined ? {} : { slack: entry.slack as SlackSummary }),
     })
   }
+  if (version === 2) parseOAuth(oauth, state)
   return state
 }
 
+function oauthRecord<T>(map: Map<OAuthProvider, T>): Partial<Record<OAuthProvider, T>> {
+  return Object.fromEntries(OAUTH_PROVIDERS.filter((id) => map.has(id)).map((id) => [id, map.get(id)]))
+}
+
 function serializeState(state: State): string {
-  return JSON.stringify({
-    version: 1,
+  const base = {
     providerKeys: PROVIDER_IDS.filter((id) => state.providerKeys.has(id)).map((provider) => ({ provider, value: state.providerKeys.get(provider) })),
     connections: state.connections,
-  })
+  }
+  if (!hasOAuth(state)) return JSON.stringify({ version: 1, ...base })
+  return JSON.stringify({ version: 2, ...base, oauth: { apps: oauthRecord(state.oauth.apps), accounts: oauthRecord(state.oauth.accounts) } })
 }
 
 export function createSecretStore(deps: { dir: string; safeStorage: SafeStorageLike; fs?: FsLike; log?: (message: string) => void }): SecretStore {
@@ -231,6 +328,7 @@ export function createSecretStore(deps: { dir: string; safeStorage: SafeStorageL
     getConnections: () => serial(async () => (await read()).state.connections.map((connection) => ({ ...connection }))),
     setConnection: (connection, options) => {
       if (!validConnection(connection)) return Promise.reject(new SecretStoreError('invalid_value'))
+      if (isReservedConnectionName(connection.name)) return Promise.reject(new SecretStoreError('name_collision'))
       return mutate((state) => {
         const existing = state.connections.findIndex((entry) => entry.name === connection.name)
         if (existing === -1) {
@@ -252,5 +350,38 @@ export function createSecretStore(deps: { dir: string; safeStorage: SafeStorageL
         state.connections.splice(index, 1)
         return true
       }),
+    getOAuth: () =>
+      serial(async () => {
+        const { apps, accounts } = (await read()).state.oauth
+        return {
+          apps: Object.fromEntries([...apps].map(([provider, app]) => [provider, { ...app }])),
+          accounts: Object.fromEntries([...accounts].map(([provider, account]) => [provider, copyAccount(account)])),
+        }
+      }),
+    setOAuthApp: (provider, app) => {
+      if (!isOAuthProvider(provider) || !validOAuthApp(provider, app)) return Promise.reject(new SecretStoreError('invalid_value'))
+      return mutate((state) => {
+        state.oauth.apps.set(provider, { clientId: app.clientId, ...(app.clientSecret === undefined ? {} : { clientSecret: app.clientSecret }) })
+        state.oauth.accounts.delete(provider)
+        return true
+      })
+    },
+    clearOAuthApp: (provider) =>
+      mutate((state) => {
+        const removedApp = state.oauth.apps.delete(provider)
+        const removedAccount = state.oauth.accounts.delete(provider)
+        return removedApp || removedAccount
+      }),
+    setOAuthAccount: (provider, account) => {
+      if (!isOAuthProvider(provider) || !validOAuthAccount(account)) return Promise.reject(new SecretStoreError('invalid_value'))
+      return mutate((state) => {
+        if (!state.oauth.apps.has(provider)) throw new SecretStoreError('invalid_value')
+        const current = state.oauth.accounts.get(provider)
+        if (current !== undefined && JSON.stringify(copyAccount(current)) === JSON.stringify(copyAccount(account))) return false
+        state.oauth.accounts.set(provider, copyAccount(account))
+        return true
+      })
+    },
+    clearOAuthAccount: (provider) => mutate((state) => state.oauth.accounts.delete(provider)),
   }
 }

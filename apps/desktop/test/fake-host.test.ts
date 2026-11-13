@@ -17,7 +17,7 @@ async function codeOf(work: Promise<unknown>): Promise<string> {
 describe('createFakeHost settings', () => {
   it('starts with the defaults and keeps what a patch changes', async () => {
     const host = createFakeHost()
-    expect(await host.settings.get()).toEqual({ allowedFolders: [], provider: 'anthropic', openAtLogin: false, language: 'system', configuredProviders: [], connections: [], encryptionAvailable: true, oauth: { available: false, accounts: [] } })
+    expect(await host.settings.get()).toEqual({ allowedFolders: [], provider: 'anthropic', openAtLogin: false, language: 'system', configuredProviders: [], connections: [], encryptionAvailable: true, oauth: { available: true, accounts: [{ provider: 'google', status: 'not_configured' }, { provider: 'microsoft', status: 'not_configured' }], apps: [{ provider: 'google', hasSecret: false }, { provider: 'microsoft', hasSecret: false }] } })
     const next = await host.settings.update({ openAtLogin: true })
     expect(next.openAtLogin).toBe(true)
     expect((await host.settings.get()).openAtLogin).toBe(true)

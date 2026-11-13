@@ -2,13 +2,16 @@ import {
   CHANNELS,
   ENGINE_STATUS_EVENT,
   HostError,
+  OAUTH_CHANGED_EVENT,
   hostErrorCode,
   validateArgs,
+  validateOAuthChange,
   validateResult,
   validateStatus,
   type Channel,
   type EngineStatus,
   type HostApi,
+  type OAuthAccount,
 } from '../shared/host-api'
 
 type StatusHandler = (event: unknown, payload: unknown) => void
@@ -70,8 +73,23 @@ export function createHostApi(ipc: IpcLike): HostApi {
       removeConnection: (name) => call(CHANNELS.secretsRemoveConnection, { name }),
     },
     oauth: {
+      setApp: (app) => call(CHANNELS.oauthSetApp, { provider: app.provider, clientId: app.clientId, ...(app.clientSecret === undefined ? {} : { clientSecret: app.clientSecret }) }),
+      clearApp: (provider) => call(CHANNELS.oauthClearApp, { provider }),
       connect: (provider) => call(CHANNELS.oauthConnect, { provider }),
+      cancel: (provider) => call(CHANNELS.oauthCancel, { provider }),
       disconnect: (provider) => call(CHANNELS.oauthDisconnect, { provider }),
+      onChanged(listener: (change: OAuthAccount) => void) {
+        const handler: StatusHandler = (_event, payload) => {
+          if (validateOAuthChange(payload)) listener(payload)
+        }
+        ipc.on(OAUTH_CHANGED_EVENT, handler)
+        let subscribed = true
+        return () => {
+          if (!subscribed) return
+          subscribed = false
+          ipc.removeListener(OAUTH_CHANGED_EVENT, handler)
+        }
+      },
     },
     dialogs: {
       pickFolder: () => call(CHANNELS.dialogsPickFolder),

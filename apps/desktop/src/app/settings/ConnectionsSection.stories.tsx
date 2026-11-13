@@ -10,13 +10,14 @@ type Story = StoryObj<typeof SettingsStage>
 type Play = NonNullable<Story['play']>
 type Context = Parameters<Play>[0]
 
-const ONLINE: OAuthState = { available: true, accounts: [] }
+const ONLINE: OAuthState = { available: true, accounts: [], apps: [] }
 const SIGNED_IN: OAuthState = {
   available: true,
   accounts: [
-    { provider: 'google', account: 'someone@example.com' },
-    { provider: 'microsoft', account: 'someone@contoso.example' },
+    { provider: 'google', status: 'connected', account: 'someone@example.com' },
+    { provider: 'microsoft', status: 'connected', account: 'someone@contoso.example' },
   ],
+  apps: [],
 }
 
 const CUSTOM: ConnectionSummary[] = [

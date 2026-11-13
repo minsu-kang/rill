@@ -29,6 +29,7 @@ import {
   type Settings,
   type SlackVerdict,
 } from '../src/shared/host-api'
+import { unusedOAuth } from './oauth-helpers'
 
 const TOKEN = 'xoxb-SLACKTOKENMARKER0123'
 const OTHER_TOKEN = 'xoxb-SLACKTOKENMARKER9999'
@@ -61,7 +62,7 @@ function harness(options: { available?: boolean; verdict?: SlackVerdict; log?: (
   }
   const dialog: DialogLike = { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) as DialogLike['showOpenDialog'], showSaveDialog: vi.fn(async () => ({ canceled: true })) }
   const slackCheck = vi.fn<SlackChecker>(async () => options.verdict ?? VALID)
-  const handlers = createIpcHandlers({ textFiles: createTextFiles(),
+  const handlers = createIpcHandlers({ textFiles: createTextFiles(), oauth: unusedOAuth,
     config,
     secrets,
     supervisor,
@@ -105,7 +106,7 @@ describe('host contract for Slack bots', () => {
   })
 
   function settingsWith(account: { provider: string }) {
-    return { allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [], encryptionAvailable: true, oauth: { available: false, accounts: [account] } }
+    return { allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [], encryptionAvailable: true, oauth: { available: false, accounts: [account], apps: [] } }
   }
 
   const GOOD: Array<[string, unknown]> = [
@@ -180,7 +181,7 @@ describe('host contract for Slack bots', () => {
   })
 
   it('accepts in the summary and the settings only what the store holds', () => {
-    const connection = (extra: object) => ({ allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [{ name: 'a', kind: 'slack', ...extra }], encryptionAvailable: true, language: 'system', oauth: { available: false, accounts: [] } })
+    const connection = (extra: object) => ({ allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [{ name: 'a', kind: 'slack', ...extra }], encryptionAvailable: true, language: 'system', oauth: { available: false, accounts: [], apps: [] } })
     expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'bot', account: 'rill-bot in Acme', channel: '#a' } }))).toBe(true)
     expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'bot' } }))).toBe(true)
     expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'bot', confirmed: true } }))).toBe(true)

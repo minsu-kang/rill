@@ -16,7 +16,6 @@ import {
   CONTRACTS,
   CustomAuthSchema,
   FORBIDDEN_AUTH_NAMES,
-  HostError,
   encodeCustomAuth,
   hostErrorCode,
   isValidCustomAuth,
@@ -26,6 +25,7 @@ import {
   type CustomAuth,
   type EngineStatus,
 } from '../src/shared/host-api'
+import { unusedOAuth } from './oauth-helpers'
 
 const MARKER = 'CONN-SECRET-MARKER'
 const USER = 'someone-login'
@@ -133,7 +133,7 @@ describe('CustomAuth', () => {
   })
 
   it('validates the oauth channel arguments', () => {
-    for (const channel of [CHANNELS.oauthConnect, CHANNELS.oauthDisconnect]) {
+    for (const channel of [CHANNELS.oauthConnect, CHANNELS.oauthCancel, CHANNELS.oauthClearApp, CHANNELS.oauthDisconnect]) {
       for (const provider of ['google', 'microsoft']) expect(validateArgs(channel, { provider })).toBe(true)
       expect(validateArgs(channel, { provider: 'github' })).toBe(false)
       expect(validateArgs(channel, { provider: 'google', extra: 1 })).toBe(false)
@@ -159,7 +159,7 @@ function harness(options: { available?: boolean } = {}) {
     status: vi.fn((): EngineStatus => ({ state: 'running', restarts: 0 })),
   }
   const dialog = { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })), showSaveDialog: vi.fn(async () => ({ canceled: true })) }
-  const handlers = createIpcHandlers({ textFiles: createTextFiles(), config, secrets, supervisor, attachments, dialog, app: { quit: vi.fn() }, loginItem: { set: vi.fn() }, keyCheck: vi.fn(async () => ({ status: 'valid' as const })), slackCheck: vi.fn(async () => ({ status: 'valid' as const })), log: (line) => logs.push(line) })
+  const handlers = createIpcHandlers({ textFiles: createTextFiles(), oauth: unusedOAuth, config, secrets, supervisor, attachments, dialog, app: { quit: vi.fn() }, loginItem: { set: vi.fn() }, keyCheck: vi.fn(async () => ({ status: 'valid' as const })), slackCheck: vi.fn(async () => ({ status: 'valid' as const })), log: (line) => logs.push(line) })
   const call = (channel: Channel, args?: unknown) => handlers[channel](args)
   return { call, logs, supervisor, secrets, safeStorage }
 }
@@ -314,25 +314,14 @@ describe('settings: authType and oauth', () => {
     expect(validateResult(CHANNELS.settingsGet, settings)).toBe(true)
   })
 
-  it('reports oauth as unavailable with no accounts in the real host', async () => {
+  it('reports the oauth state that the sign-in manager gives, in the settings and after an update', async () => {
     const h = harness()
     const settings = (await h.call(CHANNELS.settingsGet)) as { oauth: unknown }
-    expect(settings.oauth).toEqual({ available: false, accounts: [] })
+    expect(settings.oauth).toEqual({ available: false, accounts: [], apps: [] })
     const patched = (await h.call(CHANNELS.settingsUpdate, { openAtLogin: true })) as { oauth: unknown }
-    expect(patched.oauth).toEqual({ available: false, accounts: [] })
+    expect(patched.oauth).toEqual({ available: false, accounts: [], apps: [] })
   })
 
-  it('rejects oauth.connect with OAUTH_UNAVAILABLE and resolves disconnect without changing anything', async () => {
-    const h = harness()
-    for (const provider of ['google', 'microsoft']) {
-      const error = await failure(h.call(CHANNELS.oauthConnect, { provider }))
-      expect(error).toBeInstanceOf(HostError)
-      expect(hostErrorCode(error)).toBe('OAUTH_UNAVAILABLE')
-      expect(error.message).toBe('OAUTH_UNAVAILABLE')
-      await expect(h.call(CHANNELS.oauthDisconnect, { provider })).resolves.toBeUndefined()
-    }
-    expect(h.supervisor.restart).not.toHaveBeenCalled()
-  })
 })
 
 describe('secret store: older files', () => {

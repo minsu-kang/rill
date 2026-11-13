@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, protocol, safeStorage, Tray, utilityProcess } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, powerMonitor, protocol, safeStorage, shell as electronShell, Tray, utilityProcess } from 'electron'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,20 +6,31 @@ import { applicationMenuTemplate } from './app-menu'
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES, createAppProtocolHandler } from './app-protocol'
 import { createAttachmentStore } from './attachments'
 import { createConfigStore } from './config-store'
-import { createEngineSupervisor, type ForkLike } from './engine-supervisor'
+import { createEngineSupervisor, type ClockLike, type ForkLike } from './engine-supervisor'
 import { createIpcHandlers, type DialogLike } from './ipc-handlers'
 import { createTextFiles } from './text-files'
 import { applyDevDockIcon } from './dock-icon'
 import { createKeyChecker } from './key-check'
+import { createOAuthManager, type OAuthManager } from './oauth-manager'
 import { createSlackChecker } from './slack-check'
 import { applyLoginItem, launchedHidden } from './login-item'
 import { createSecretStore, type SafeStorageLike } from './secret-store'
 import { runSmoke, watchCspConsole } from './smoke'
 import { TRAY_ICON_DATA_URL, createTray, type MenuItemLike, type RillTray, type TrayLike } from './tray'
 import { createMainWindow, isAppUrl, type BrowserWindowLike } from './window'
-import { CHANNELS, ENGINE_STATUS_EVENT, hostErrorCode, type Settings } from '../shared/host-api'
+import { CHANNELS, ENGINE_STATUS_EVENT, OAUTH_CHANGED_EVENT, hostErrorCode, type Settings } from '../shared/host-api'
 
 const smoke = process.argv.includes('--smoke')
+
+const oauthClock: ClockLike = {
+  now: () => Date.now(),
+  setTimeout: (run, ms) => {
+    const timer = setTimeout(run, ms)
+    timer.unref()
+    return timer
+  },
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+}
 
 const smokeStorage: SafeStorageLike = {
   isEncryptionAvailable: () => true,
@@ -60,14 +71,25 @@ async function start(): Promise<void> {
   const secrets = createSecretStore({ dir: userData, safeStorage: smoke ? smokeStorage : safeStorage, log })
   const attachments = createAttachmentStore({ dir: join(userData, 'attachments') })
   await attachments.sweepPartials().catch(() => undefined)
+  const accounts: { manager?: OAuthManager } = {}
   const supervisor = createEngineSupervisor({
     fork: utilityProcess.fork as unknown as ForkLike,
     bundlePath,
     userData,
     secrets,
     config,
+    oauthConnections: () => accounts.manager?.accountConnections() ?? [],
     log,
   })
+  const oauth = createOAuthManager({
+    store: secrets,
+    fetch: (url, init) => fetch(url, init),
+    openExternal: (url) => electronShell.openExternal(url),
+    clock: oauthClock,
+    engine: { send: (message) => supervisor.send(message) },
+    log,
+  })
+  accounts.manager = oauth
 
   let quitting = false
   let engineStopped = false
@@ -86,6 +108,7 @@ async function start(): Promise<void> {
     supervisor,
     attachments,
     textFiles: createTextFiles(),
+    oauth,
     dialog: dialogAdapter,
     app: { quit: () => app.quit() },
     loginItem: { set: (enabled) => applyLoginItem(app, enabled) },
@@ -111,6 +134,7 @@ async function start(): Promise<void> {
     })
   }
 
+  await oauth.start().catch(() => log('oauth start failed'))
   void supervisor.start()
   const window = createMainWindow({
     BrowserWindow: BrowserWindow as unknown as new (options: Record<string, unknown>) => BrowserWindowLike,
@@ -122,13 +146,19 @@ async function start(): Promise<void> {
   })
   shell.window = window
   const cspConsole = watchCspConsole(window.window.webContents as unknown as Parameters<typeof watchCspConsole>[0])
-  supervisor.onStatus((status) => window.window.webContents.send(ENGINE_STATUS_EVENT, status))
+  supervisor.onStatus((status) => {
+    window.window.webContents.send(ENGINE_STATUS_EVENT, status)
+    if (status.state === 'running') oauth.syncEngine()
+  })
+  oauth.onChange((change) => window.window.webContents.send(OAUTH_CHANGED_EVENT, change))
+  powerMonitor.on('resume', () => oauth.resume())
   window.window.webContents.on('did-finish-load', () => window.window.webContents.send(ENGINE_STATUS_EVENT, supervisor.status()))
 
   app.on('window-all-closed', () => undefined)
   app.on('activate', () => window.show())
   app.on('before-quit', (event) => {
     quitting = true
+    oauth.stop()
     if (engineStopped) return
     event.preventDefault()
     void supervisor.stop().finally(() => {

@@ -16,6 +16,14 @@ const KEYS: Readonly<Record<(typeof HOST_ERROR_CODES)[number], MessageKey>> = {
   TOKEN_INVALID: 'app.error.host.TOKEN_INVALID',
   SUPERSEDED: 'app.error.host.SUPERSEDED',
   OAUTH_UNAVAILABLE: 'app.error.host.OAUTH_UNAVAILABLE',
+  OAUTH_NOT_CONFIGURED: 'app.error.host.OAUTH_NOT_CONFIGURED',
+  OAUTH_BUSY: 'app.error.host.OAUTH_BUSY',
+  OAUTH_TIMEOUT: 'app.error.host.OAUTH_TIMEOUT',
+  OAUTH_CANCELLED: 'app.error.host.OAUTH_CANCELLED',
+  OAUTH_DENIED: 'app.error.host.OAUTH_DENIED',
+  OAUTH_EXCHANGE_FAILED: 'app.error.host.OAUTH_EXCHANGE_FAILED',
+  OAUTH_SCOPE_MISSING: 'app.error.host.OAUTH_SCOPE_MISSING',
+  OAUTH_STATE: 'app.error.host.OAUTH_STATE',
   INTERNAL: 'app.error.host.INTERNAL',
 }
 

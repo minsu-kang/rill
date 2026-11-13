@@ -36,7 +36,7 @@ const SETTINGS: Settings = {
   configuredProviders: ['anthropic'],
   connections: [{ name: 'team', kind: 'slack' }],
   encryptionAvailable: true,
-  oauth: { available: false, accounts: [] },
+  oauth: { available: false, accounts: [], apps: [] },
 }
 
 const REF = { id: 'abcdefgh1234', mediaType: 'text/plain', name: 'a.txt', bytes: 3 }
@@ -52,10 +52,11 @@ describe('channels and contracts', () => {
     expect(Object.keys(CONTRACTS).sort()).toEqual([...names].sort())
   })
 
-  it('list one method for each channel plus the status subscription', () => {
+  it('list one method for each channel plus the two subscriptions', () => {
     const methods = Object.values(HOST_API_METHODS).flatMap((group) => Object.keys(group))
-    expect(methods).toHaveLength(Object.keys(CHANNELS).length + 1)
+    expect(methods).toHaveLength(Object.keys(CHANNELS).length + 2)
     expect(HOST_API_METHODS.engine.onStatus).toBe(true)
+    expect(HOST_API_METHODS.oauth.onChanged).toBe(true)
   })
 })
 
@@ -78,8 +79,6 @@ describe('argument schemas', () => {
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: { saveAnyway: false } }],
       [CHANNELS.secretsClearProviderKey, { provider: 'grok' }],
       [CHANNELS.secretsSetConnection, { name: 'n'.repeat(64), kind: 'http', secret: 's' }],
-      [CHANNELS.secretsSetConnection, { name: 'sheets', kind: 'google', secret: 'ya29.TOKENMARKER0123456789' }],
-      [CHANNELS.secretsSetConnection, { name: 'drive', kind: 'microsoft', secret: 'eyJTOKENMARKER0123456789.payload.sig' }],
       [CHANNELS.secretsRemoveConnection, { name: 'team' }],
       [CHANNELS.dialogsPickFolder, undefined],
       [CHANNELS.dialogsPickFile, { kind: 'attachment' }],
@@ -118,6 +117,8 @@ describe('argument schemas', () => {
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: null }],
       [CHANNELS.secretsClearProviderKey, { provider: 'anthropic', value: 'k' }],
       [CHANNELS.secretsSetConnection, { name: 'team', kind: 'discord', secret: 's' }],
+      [CHANNELS.secretsSetConnection, { name: 'sheets', kind: 'google', secret: 'ya29.TOKENMARKER0123456789' }],
+      [CHANNELS.secretsSetConnection, { name: 'drive', kind: 'microsoft', secret: 'eyJTOKENMARKER0123456789.payload.sig' }],
       [CHANNELS.secretsSetConnection, { name: 'team', kind: 'Google', secret: 's' }],
       [CHANNELS.secretsSetConnection, { name: 'team', kind: 'oauth', secret: 's' }],
       [CHANNELS.secretsSetConnection, { name: 'team', secret: 's' }],
@@ -239,8 +240,8 @@ describe('provider table', () => {
     for (const id of LLM_PROVIDER_IDS) expect(PROVIDER_KEY_ENV[id], id).toBe(providerDescriptor(id).keyEnv)
   })
 
-  it('lists the five connection kinds the engine accepts', () => {
-    expect([...CONNECTION_KINDS]).toEqual(['slack', 'http', 'webhookSecret', 'google', 'microsoft'])
+  it('lists the three kinds of saved connections, and none of the account kinds that only the sign-in creates', () => {
+    expect([...CONNECTION_KINDS]).toEqual(['slack', 'http', 'webhookSecret'])
   })
 })
 

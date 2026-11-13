@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
 import { createHostApi, type IpcLike } from '../src/preload/host-bridge'
-import { CHANNELS, ENGINE_STATUS_EVENT, HOST_API_METHODS, hostErrorCode, type AttachmentRef } from '../src/shared/host-api'
+import { CHANNELS, ENGINE_STATUS_EVENT, HOST_API_METHODS, OAUTH_CHANGED_EVENT, hostErrorCode, type AttachmentRef } from '../src/shared/host-api'
 
 const REF: AttachmentRef = { id: 'abcdefgh1234', mediaType: 'text/plain', name: 'a.txt', bytes: 3 }
 const VERDICT = { verdict: { status: 'valid' } }
-const SETTINGS = { allowedFolders: [], provider: 'anthropic', openAtLogin: false, language: 'system', configuredProviders: [], connections: [], encryptionAvailable: true, oauth: { available: false, accounts: [] } }
+const SETTINGS = { allowedFolders: [], provider: 'anthropic', openAtLogin: false, language: 'system', configuredProviders: [], connections: [], encryptionAvailable: true, oauth: { available: false, accounts: [], apps: [] } }
 
 type Handler = (event: unknown, payload: unknown) => void
 
@@ -66,6 +66,9 @@ describe('preload bridge: calls', () => {
       [CHANNELS.engineStatus]: { state: 'running', restarts: 0 },
       [CHANNELS.settingsGet]: SETTINGS,
       [CHANNELS.settingsUpdate]: SETTINGS,
+      [CHANNELS.oauthSetApp]: {},
+      [CHANNELS.oauthClearApp]: {},
+      [CHANNELS.oauthConnect]: { account: 'someone@example.com' },
       [CHANNELS.attachmentsAddFromPath]: REF,
       [CHANNELS.attachmentsAddFromBytes]: REF,
       [CHANNELS.secretsSetProviderKey]: VERDICT,
@@ -85,7 +88,11 @@ describe('preload bridge: calls', () => {
     await api.secrets.setCustomConnection({ name: 'My API', auth: { type: 'bearer', token: 'k' } })
     await api.secrets.setSlackBot({ name: 'alerts', token: 'xoxb-SLACKTOKENMARKER0123', channel: '#a' }, { saveAnyway: true })
     await api.secrets.removeConnection('team')
+    await api.oauth.setApp({ provider: 'google', clientId: '123456789012-abcdefghijklmnop.apps.googleusercontent.com', clientSecret: 'GOCSPX-secret-0123' })
+    await api.oauth.setApp({ provider: 'microsoft', clientId: '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d' })
     await api.oauth.connect('google')
+    await api.oauth.cancel('google')
+    await api.oauth.clearApp('microsoft')
     await api.oauth.disconnect('microsoft')
     await api.dialogs.pickFolder()
     await api.dialogs.pickFile('attachment')
@@ -107,7 +114,11 @@ describe('preload bridge: calls', () => {
       [CHANNELS.secretsSetCustomConnection, { name: 'My API', auth: { type: 'bearer', token: 'k' } }],
       [CHANNELS.secretsSetSlackBot, { name: 'alerts', token: 'xoxb-SLACKTOKENMARKER0123', channel: '#a', options: { saveAnyway: true } }],
       [CHANNELS.secretsRemoveConnection, { name: 'team' }],
+      [CHANNELS.oauthSetApp, { provider: 'google', clientId: '123456789012-abcdefghijklmnop.apps.googleusercontent.com', clientSecret: 'GOCSPX-secret-0123' }],
+      [CHANNELS.oauthSetApp, { provider: 'microsoft', clientId: '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d' }],
       [CHANNELS.oauthConnect, { provider: 'google' }],
+      [CHANNELS.oauthCancel, { provider: 'google' }],
+      [CHANNELS.oauthClearApp, { provider: 'microsoft' }],
       [CHANNELS.oauthDisconnect, { provider: 'microsoft' }],
       [CHANNELS.dialogsPickFolder],
       [CHANNELS.dialogsPickFile, { kind: 'attachment' }],
@@ -238,6 +249,63 @@ describe('preload bridge: status events', () => {
     expect(b).toHaveLength(1)
     offB()
     expect(removed).toEqual([[ENGINE_STATUS_EVENT, subscribed[1]![1]]])
+  })
+})
+
+describe('preload bridge: oauth events and results', () => {
+  it('passes only the change to the listener, drops malformed ones and anything that carries a secret, and unsubscribes', () => {
+    const { ipc, subscribed, removed } = fakeIpc()
+    const api = createHostApi(ipc)
+    const seen: unknown[] = []
+    const off = api.oauth.onChanged((change) => seen.push(change))
+    const [channel, handler] = subscribed[0]!
+    expect(channel).toBe(OAUTH_CHANGED_EVENT)
+    const event = { sender: { secret: 'x' } }
+    handler(event, { provider: 'google', status: 'connected', account: 'someone@example.com' })
+    handler(event, { provider: 'microsoft', status: 'needs_reconnect' })
+    handler(event, { provider: 'google', status: 'connected', refreshToken: '1//0gREFRESHMARKER' })
+    handler(event, { provider: 'slack', status: 'connected' })
+    handler(event, { provider: 'google', status: 'weird' })
+    handler(event, 'text')
+    expect(seen).toEqual([
+      { provider: 'google', status: 'connected', account: 'someone@example.com' },
+      { provider: 'microsoft', status: 'needs_reconnect' },
+    ])
+    off()
+    off()
+    expect(removed).toEqual([[OAUTH_CHANGED_EVENT, handler]])
+  })
+
+  it('refuses an app of the wrong shape before it leaves the preload, and a secret for Microsoft', async () => {
+    const { ipc, calls } = fakeIpc()
+    const api = createHostApi(ipc)
+    for (const attempt of [
+      api.oauth.setApp({ provider: 'google', clientId: 'nope' }),
+      api.oauth.setApp({ provider: 'microsoft', clientId: '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d', clientSecret: 'GOCSPX-secret-0123' }),
+      api.oauth.setApp({ provider: 'github' as never, clientId: 'x' }),
+      api.oauth.clearApp('github' as never),
+      api.oauth.cancel(5 as never),
+    ]) {
+      expect(hostErrorCode(await attempt.catch((caught: unknown) => caught))).toBe('INVALID_ARGUMENTS')
+    }
+    expect(calls).toEqual([])
+  })
+
+  it('rejects a connect result that carries more than an account, and an app result that carries anything', async () => {
+    const { ipc } = fakeIpc({ [CHANNELS.oauthConnect]: { account: 'a', refreshToken: 'leak' }, [CHANNELS.oauthSetApp]: { clientSecret: 'leak' } })
+    const api = createHostApi(ipc)
+    expect(((await api.oauth.connect('google').catch((caught: Error) => caught)) as Error).message).toBe('INTERNAL')
+    expect(((await api.oauth.setApp({ provider: 'google', clientId: '123456789012-abcdefghijklmnop.apps.googleusercontent.com' }).catch((caught: Error) => caught)) as Error).message).toBe('INTERNAL')
+  })
+
+  it('maps the oauth error codes and hides any other text', async () => {
+    for (const code of ['OAUTH_TIMEOUT', 'OAUTH_DENIED', 'OAUTH_SCOPE_MISSING', 'OAUTH_BUSY']) {
+      const { ipc } = fakeIpc({ [CHANNELS.oauthConnect]: new Error(`Error invoking remote method 'rill:oauth:connect': Error: ${code} 1//0gREFRESHMARKER`) })
+      const error = await createHostApi(ipc).oauth.connect('google').catch((caught: Error) => caught)
+      expect(hostErrorCode(error)).toBe(code)
+      expect((error as Error).message).toBe(code)
+      expect(String((error as Error).stack)).not.toContain('REFRESHMARKER')
+    }
   })
 })
 

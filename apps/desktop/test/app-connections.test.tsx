@@ -12,7 +12,8 @@ import { renderThemed } from './render'
 
 const MARKER = 'CONN-SECRET-MARKER'
 const CONNECTED = { state: 'connected', status: { state: 'running', restarts: 0 } } as const
-const ONLINE = { available: true, accounts: [] }
+const GOOGLE_ID = '123456789012-abcdefghijklmnop.apps.googleusercontent.com'
+const ONLINE = { available: true, accounts: [], apps: [{ provider: 'google' as const, clientId: GOOGLE_ID, hasSecret: false }] }
 
 interface Options {
   init?: Partial<FakeHostState>
@@ -100,14 +101,14 @@ describe('layout', () => {
 
 describe('accounts', () => {
   it('disables every Connect button and says why, while sign-in is not available', async () => {
-    const { t, host } = await open()
+    const { t, host } = await open({ init: { settings: fakeSettings({ encryptionAvailable: false }) } })
     const note = screen.getByText(t('app.connections.accounts.unavailable'))
     for (const provider of ['google', 'microsoft'] as const) {
       const connect = within(providerCard(t, provider)).getByRole('button', { name: t('app.connections.account.connectLabel', { provider: t(`app.connections.provider.${provider}`) }) }) as HTMLButtonElement
       expect(connect.disabled).toBe(true)
       expect(connect.getAttribute('aria-describedby')).toBe(note.id)
     }
-    expect(host.state().settings.oauth.accounts).toEqual([])
+    expect(host.state().settings.oauth.accounts.map((entry) => entry.status)).toEqual(['not_configured', 'not_configured'])
   })
 
   it('connects and disconnects when sign-in is available, showing who is connected', async () => {
@@ -116,16 +117,16 @@ describe('accounts', () => {
     await user.click(button(t('app.connections.account.connectLabel', { provider: 'Google' })))
     expect(await within(providerCard(t, 'google')).findByText(t('app.connections.account.connectedAs', { account: 'someone@example.com' }))).toBeTruthy()
     expect((await screen.findByRole('status')).textContent).toBe(t('app.connections.account.didConnect', { provider: 'Google' }))
-    expect(host.state().settings.oauth.accounts.map((entry) => entry.provider)).toEqual(['google'])
+    expect(host.state().settings.oauth.accounts.filter((entry) => entry.status === 'connected').map((entry) => entry.provider)).toEqual(['google'])
     expect(within(providerCard(t, 'microsoft')).getByText(t('app.connections.account.notConnected'))).toBeTruthy()
     await user.click(button(t('app.connections.account.disconnectLabel', { provider: 'Google' })))
     expect(await within(providerCard(t, 'google')).findByText(t('app.connections.account.notConnected'))).toBeTruthy()
     expect(screen.getByRole('status').textContent).toBe(t('app.connections.account.didDisconnect', { provider: 'Google' }))
-    expect(host.state().settings.oauth.accounts).toEqual([])
+    expect(host.state().settings.oauth.accounts.map((entry) => entry.status)).toEqual(['not_connected', 'not_configured'])
   })
 
   it('shows a connected provider without an account name as just Connected', async () => {
-    const { t } = await open({ init: { settings: fakeSettings({ oauth: { available: true, accounts: [{ provider: 'microsoft' }] } }) } })
+    const { t } = await open({ init: { settings: fakeSettings({ oauth: { available: true, accounts: [{ provider: 'microsoft', status: 'connected' }], apps: [] } }) } })
     expect(within(providerCard(t, 'microsoft')).getByText(t('app.connections.account.connected'))).toBeTruthy()
   })
 
@@ -426,7 +427,7 @@ describe('Other saved secrets', () => {
 
 describe('accessibility and languages', () => {
   it('has no axe violations in the default view and with each auth type chosen', async () => {
-    const { t, user, view } = await open({ init: { settings: fakeSettings({ connections: [{ name: 'billing-api', kind: 'http', authType: 'basic' }, { name: 'team', kind: 'slack' }, { name: 'shop-hook', kind: 'webhookSecret' }], oauth: { available: true, accounts: [{ provider: 'google', account: 'a@b.example' }] } }) } })
+    const { t, user, view } = await open({ init: { settings: fakeSettings({ connections: [{ name: 'billing-api', kind: 'http', authType: 'basic' }, { name: 'team', kind: 'slack' }, { name: 'shop-hook', kind: 'webhookSecret' }], oauth: { available: true, accounts: [{ provider: 'google', status: 'connected', account: 'a@b.example' }], apps: [] } }) } })
     expect(await violations(view.container)).toEqual([])
     for (const type of ['apiKey', 'bearer', 'basic'] as const) {
       await pick(user, t, type)
