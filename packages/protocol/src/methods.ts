@@ -101,6 +101,7 @@ export const METHODS = {
   },
   activate: { params: Type.Object({ workflowId: id }, closed), result: noResult },
   deactivate: { params: Type.Object({ workflowId: id }, closed), result: noResult },
+  deleteWorkflow: { params: Type.Object({ workflowId: id }, closed), result: noResult },
   listRuns: {
     params: Type.Object(
       { workflowId: Type.Optional(id), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })) },
@@ -204,4 +205,5 @@ export const ERROR_CODES = [
   'EXPLAIN_PROVIDER',
   'EXPLAIN_INVALID',
   'RECIPE_INVALID',
+  'WORKFLOW_BUSY',
 ] as const

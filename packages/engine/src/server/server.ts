@@ -21,7 +21,7 @@ import {
   type ServerMessage,
 } from '@rill/protocol'
 import { WebSocketServer, type RawData, type WebSocket } from 'ws'
-import { WorkflowValidationError, type Engine } from '../engine'
+import { WorkflowBusyError, WorkflowValidationError, type Engine } from '../engine'
 import { ExplainBusyError, RunNotExplainableError } from '../explain'
 import { MemoryDuplicateError, MemoryFullError, MemoryInvalidError } from '../memory'
 import {
@@ -126,6 +126,7 @@ function toErrorBody(method: string, error: unknown): ErrorBody {
     const problems = method === 'deployPlan' ? issueProblems(error.problemIssues) : error.problems
     return { code: 'INVALID_WORKFLOW', message: 'the workflow is not valid', problems }
   }
+  if (error instanceof WorkflowBusyError) return { code: 'WORKFLOW_BUSY', message: error.message }
   if (error instanceof PlanError) return planErrorBody(error)
   if (error instanceof ExplainError) return explainErrorBody(error)
   if (error instanceof RunNotExplainableError) return { code: 'RUN_NOT_EXPLAINABLE', message: error.message }
@@ -413,6 +414,10 @@ export class RillServer {
       deactivate: (params) => {
         engine.getWorkflow(params.workflowId)
         engine.deactivate(params.workflowId)
+        return {}
+      },
+      deleteWorkflow: (params) => {
+        engine.deleteWorkflow(params.workflowId)
         return {}
       },
       listRuns: (params) => ({ runs: engine.listRuns({ workflowId: params.workflowId, limit: params.limit }) }),

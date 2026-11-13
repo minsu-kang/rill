@@ -115,10 +115,23 @@ export function createFakeClient(data: FakeData): FakeClient {
     return created
   }
 
+  function removeWorkflow(workflowId: string): void {
+    workflows.delete(workflowId)
+    for (const [runId, run] of [...runs]) {
+      if (run.workflowId !== workflowId) continue
+      runs.delete(runId)
+      steps.delete(runId)
+      order.splice(order.indexOf(runId), 1)
+    }
+  }
+
   function apply(event: EngineEvent): void {
     switch (event.type) {
       case 'trigger.fired':
         ensureRun(event.runId, event.workflowId, event.at)
+        return
+      case 'workflow.deleted':
+        removeWorkflow(event.workflowId)
         return
       case 'run.started':
         runs.set(event.runId, reduceRunSummary(ensureRun(event.runId, event.workflowId, event.at), event))
@@ -146,7 +159,7 @@ export function createFakeClient(data: FakeData): FakeClient {
 
   const handlers: Handlers = {
     listWorkflows: () => ({
-      workflows: data.workflows.map((entry) => ({
+      workflows: [...workflows.values()].map((entry) => ({
         id: entry.id,
         name: entry.workflow.name,
         active: entry.active ?? false,
@@ -169,6 +182,11 @@ export function createFakeClient(data: FakeData): FakeClient {
       const run = runs.get(runId)
       if (run === undefined) throw notFound('run', runId)
       return { run, steps: [...(steps.get(runId) ?? [])] }
+    },
+    deleteWorkflow: ({ workflowId }) => {
+      if (!workflows.has(workflowId)) throw notFound('workflow', workflowId)
+      emit({ type: 'workflow.deleted', at: Date.now(), workflowId })
+      return {}
     },
     nodeCatalog: () => ({ nodes: [...data.catalog] }),
   }

@@ -240,6 +240,26 @@ export class Store {
     return id
   }
 
+  hasWorkflow(id: string): boolean {
+    return this.db.get<{ found: number }>('SELECT 1 AS found FROM workflows WHERE id = ?', id) !== undefined
+  }
+
+  deleteWorkflow(id: string): void {
+    this.db.transaction(() => {
+      const ownRuns = 'SELECT id FROM runs WHERE workflow_id = ?'
+      this.db.run('UPDATE plans SET workflow_id = NULL, confirmed = NULL WHERE workflow_id = ?', id)
+      this.db.run(
+        `DELETE FROM idempotency_journal WHERE key IN (SELECT idempotency_key FROM step_attempts WHERE run_id IN (${ownRuns}))`,
+        id,
+      )
+      this.db.run(`DELETE FROM step_attempts WHERE run_id IN (${ownRuns})`, id)
+      this.db.run('DELETE FROM runs WHERE workflow_id = ?', id)
+      this.db.run('DELETE FROM trigger_state WHERE workflow_id = ?', id)
+      this.db.run('DELETE FROM seen_files WHERE workflow_id = ?', id)
+      if (this.db.run('DELETE FROM workflows WHERE id = ?', id) === 0) throw new NotFoundError(`workflow not found: ${id}`)
+    })
+  }
+
   getWorkflow(id: string): Workflow {
     const row = this.db.get<{ dsl: string }>('SELECT dsl FROM workflows WHERE id = ?', id)
     if (!row) throw new NotFoundError(`workflow not found: ${id}`)

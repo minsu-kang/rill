@@ -71,6 +71,24 @@ describe('RillClient', () => {
     expect(await pending).toEqual({ runId: 'r1' })
   })
 
+  it('sends deleteWorkflow and resolves with the empty result', async () => {
+    const socket = new FakeSocket()
+    const client = new RillClient(socket)
+    const pending = client.request('deleteWorkflow', { workflowId: 'w' })
+    const sent = socket.lastRequest()
+    expect(sent).toMatchObject({ method: 'deleteWorkflow', params: { workflowId: 'w' } })
+    socket.receive(okResponse(sent.id, {}))
+    expect(await pending).toEqual({})
+  })
+
+  it('surfaces WORKFLOW_BUSY from deleteWorkflow as a RillError', async () => {
+    const socket = new FakeSocket()
+    const client = new RillClient(socket)
+    const pending = client.request('deleteWorkflow', { workflowId: 'w' })
+    socket.receive(errorResponse(socket.lastRequest().id, { code: 'WORKFLOW_BUSY', message: 'a run is active' }))
+    await expect(pending).rejects.toMatchObject({ code: 'WORKFLOW_BUSY', message: 'a run is active' })
+  })
+
   it('uses a fresh id for every request and matches responses out of order', async () => {
     const socket = new FakeSocket()
     const client = new RillClient(socket)

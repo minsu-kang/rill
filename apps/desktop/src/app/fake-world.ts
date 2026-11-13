@@ -90,7 +90,11 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
   const base: FakeClient = createFakeClient({ ...fakeData, workflows: [], catalog: nodeCatalog })
   const plans = new Map<string, Workflow>()
   const calls: FakeWorldCall[] = []
+  const inFlight = new Map<string, string>()
   let runSerial = 0
+  base.onEvent((event) => {
+    if (event.type === 'run.finished') inFlight.delete(event.runId)
+  })
 
   const planned = withPlanMethods(base, {
     models,
@@ -122,6 +126,7 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
     const runId = `run-fake-${String(runSerial).padStart(4, '0')}`
     const dryRun = params.dryRun ?? false
     const at = Date.now()
+    inFlight.set(runId, params.workflowId)
     base.emit({ type: 'trigger.fired', at, workflowId: params.workflowId, runId })
     const actions = entry.workflow.nodes.filter((node) => !isTrigger(node.type))
     const failAt = control.runOutcome === 'failed' ? actions.length - 1 : -1
@@ -155,6 +160,15 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
     return {}
   }
 
+  function deleteWorkflow(params: MethodParams<'deleteWorkflow'>): MethodResult<'deleteWorkflow'> {
+    checked('deleteWorkflow', params)
+    entryOf(params.workflowId)
+    if ([...inFlight.values()].includes(params.workflowId)) throw new RillError('WORKFLOW_BUSY', 'the workflow has a run that is queued or running')
+    registry.delete(params.workflowId)
+    base.emit({ type: 'workflow.deleted', at: Date.now(), workflowId: params.workflowId })
+    return {}
+  }
+
   async function request<M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> {
     calls.push({ method, params })
     switch (method) {
@@ -184,6 +198,8 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
       case 'deactivate':
         checked('deactivate', params)
         return setActive(params as MethodParams<'deactivate'>, false) as MethodResult<M>
+      case 'deleteWorkflow':
+        return deleteWorkflow(params as MethodParams<'deleteWorkflow'>) as MethodResult<M>
       case 'plan': {
         const answer = (await inner.request(method, params)) as MethodResult<'plan'>
         if (answer.result.kind === 'workflow') plans.set(answer.planId, answer.result.workflow)

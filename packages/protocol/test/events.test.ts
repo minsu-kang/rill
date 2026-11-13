@@ -16,6 +16,7 @@ const valid = [
   { type: 'trigger.error', at: 1, workflowId: 'w', error: 'folder does not exist' },
   { type: 'workflow.activated', at: 1, workflowId: 'w' },
   { type: 'workflow.deactivated', at: 1, workflowId: 'w' },
+  { type: 'workflow.deleted', at: 1, workflowId: 'w' },
 ]
 
 describe('EngineEventSchema', () => {
@@ -33,6 +34,9 @@ describe('EngineEventSchema', () => {
       { type: 'run.finished', at: 1, runId: 'r', status: 'cancelled', error: null },
       { type: 'run.finished', at: 1, runId: 'r', status: 'failed' },
       { type: 'step.failed', at: 1, runId: 'r', nodeId: 'n1', attempt: 1, error: 'x' },
+      { type: 'workflow.deleted', at: 1 },
+      { type: 'workflow.deleted', at: 1, workflowId: '' },
+      { type: 'workflow.deleted', at: 1, workflowId: 'w', extra: true },
       null,
       'run.started',
     ]

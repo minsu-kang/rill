@@ -51,7 +51,7 @@ import {
 } from './plans'
 import { RunQueue } from './queue'
 import { draftFromRecipe, listRecipeInfos } from './recipes'
-import { Store, type RunRow } from './store'
+import { NotFoundError, Store, type RunRow } from './store'
 import { TriggerManager } from './triggers/manager'
 import type { FireOptions } from './triggers/types'
 
@@ -108,6 +108,13 @@ export class WorkflowValidationError extends Error {
     this.name = 'WorkflowValidationError'
     this.problems = problems
     this.problemIssues = problemIssues
+  }
+}
+
+export class WorkflowBusyError extends Error {
+  constructor(workflowId: string) {
+    super(`the workflow has a run that is queued or running: ${workflowId}`)
+    this.name = 'WorkflowBusyError'
   }
 }
 
@@ -466,6 +473,14 @@ export class Engine {
             outputSchema: def.outputSchema,
           },
     )
+  }
+
+  deleteWorkflow(workflowId: string): void {
+    if (!this.store.hasWorkflow(workflowId)) throw new NotFoundError(`workflow not found: ${workflowId}`)
+    if (this.store.hasActiveRun(workflowId)) throw new WorkflowBusyError(workflowId)
+    this.triggers.deactivate(workflowId)
+    this.store.deleteWorkflow(workflowId)
+    this.bus.emit({ type: 'workflow.deleted', workflowId })
   }
 
   async activate(workflowId: string): Promise<void> {

@@ -159,6 +159,30 @@ All four are optional in the protocol schema. A plan stored before they existed 
 
 The comparison uses the folder that `~/` stands for and ignores case and the form of the path (dot segments, double slashes, a trailing slash). It also compares the real folders behind symbolic links, as far as they exist, so `/tmp/in` and `/private/tmp/in` count as one folder. It sees a file as the trigger does, with the same pattern matcher: a hidden file, an editor lock file, a temporary or partial download file, or a file in a subfolder is not seen. A path that starts with the output `file` of the trigger itself (`{{t1.output.file}}` or `{{t1.output.file}}.csv`) lands in the watched folder by definition and is refused when the pattern would match it; for the part after the reference the check tries the pattern on a placeholder name plus that part, so it is an approximation. A path that another template decides is read as ordinary text when it is absolute and skipped when it is relative, since a relative path depends on the folder the engine runs in. Case-insensitive folder comparison can refuse a layout that is fine on a case-sensitive file system. Loops between two workflows (one writes where the other watches) and workflows that are already deployed are not checked.
 
+## Deleting a workflow
+
+`deleteWorkflow` takes `{ workflowId }` and answers `{}`. It is additive: `PROTOCOL_VERSION` stays 1.
+
+The engine checks in this order and stops at the first failure, so a refusal changes nothing:
+
+1. An unknown id is `NOT_FOUND`.
+2. A workflow with a run that is `queued` or `running` is `WORKFLOW_BUSY`. The client has to stop or wait for the run first, and the workflow stays active.
+3. The triggers of the workflow are stopped (the same as `deactivate`).
+4. One transaction deletes the rows below, and the call then emits one `workflow.deleted` event with the `workflowId`. If the transaction fails, nothing is deleted and no event is emitted; the workflow is then stopped but still stored.
+
+| Table | What happens |
+| --- | --- |
+| `step_attempts` | Rows of the runs of the workflow are deleted. |
+| `idempotency_journal` | Rows whose key is the idempotency key of one of those step attempts are deleted. Keys of other workflows stay. |
+| `runs` | Deleted. |
+| `trigger_state` | Deleted. |
+| `seen_files` | Deleted, so a workflow deployed again for the same folder starts fresh. |
+| `workflows` | The row is deleted. |
+| `plans` | Kept. `workflow_id` and `confirmed` are set to null, because they point at a workflow that is gone. The request text, the result and the meta of a plan are the user's own history and do not need the workflow row, and a plan can be deployed again with `deployPlan`. |
+| `memory_items` | Untouched. A note has no link to a workflow. |
+
+Other windows learn of the delete through the `workflow.deleted` event.
+
 ## Memory methods
 
 The user can keep up to 20 short notes, such as "my receipts live in ~/Receipts" or "alerts go to the connection team-alerts". The planner reads them on every plan request that uses memory, so it asks fewer questions and fills the same defaults. A note is created, changed or deleted only by an explicit request to one of these three methods. No plan, plan result, attachment, `llm.extract` output, question or patch writes one, and the planner package has no database access at all.

@@ -138,6 +138,7 @@ describe('METHODS', () => {
         'cancelPlan',
         'deactivate',
         'deleteMemory',
+        'deleteWorkflow',
         'deploy',
         'deployPlan',
         'explainRun',

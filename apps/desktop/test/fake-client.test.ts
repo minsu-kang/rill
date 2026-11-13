@@ -1,4 +1,4 @@
-import { METHODS, RillError, type EngineEvent } from '@rill/protocol'
+import { EngineEventSchema, METHODS, RillError, type EngineEvent } from '@rill/protocol'
 import Value from 'typebox/value'
 import type { StepDetail } from '@rill/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -113,6 +113,48 @@ describe('createFakeClient requests', () => {
     })
     const result = await bare.request('listWorkflows', {})
     expect(result.workflows).toEqual([{ id: 'bare', name: 'bare', active: false, triggerType: 'unknown', createdAt: 0 }])
+  })
+})
+
+describe('createFakeClient deleteWorkflow', () => {
+  const doomed = fakeData.workflows[0]!
+  const kept = fakeData.workflows[1]!
+
+  it('removes the workflow and its runs, keeps the others and answers an empty result', async () => {
+    const client = createFakeClient(fakeData)
+    expect(fakeData.runs.some((run) => run.workflowId === doomed.id)).toBe(true)
+    expect(await client.request('deleteWorkflow', { workflowId: doomed.id })).toEqual({})
+    const listed = await client.request('listWorkflows', {})
+    expect(listed.workflows.map((entry) => entry.id)).toEqual(fakeData.workflows.filter((entry) => entry.id !== doomed.id).map((entry) => entry.id))
+    await expect(client.request('getWorkflow', { workflowId: doomed.id })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect((await client.request('listRuns', { workflowId: doomed.id })).runs).toEqual([])
+    const gone = fakeData.runs.find((run) => run.workflowId === doomed.id)!
+    await expect(client.request('getRun', { runId: gone.id })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect((await client.request('getWorkflow', { workflowId: kept.id })).workflow).toEqual(kept.workflow)
+    const others = fakeData.runs.filter((run) => run.workflowId !== doomed.id).map((run) => run.id)
+    expect((await client.request('listRuns', {})).runs.map((run) => run.id)).toEqual(others.slice(0, 50))
+  })
+
+  it('answers NOT_FOUND for an unknown id and for a second delete', async () => {
+    const client = createFakeClient(fakeData)
+    await expect(client.request('deleteWorkflow', { workflowId: 'nope' })).rejects.toMatchObject({ name: 'RillError', code: 'NOT_FOUND' })
+    await client.request('deleteWorkflow', { workflowId: doomed.id })
+    await expect(client.request('deleteWorkflow', { workflowId: doomed.id })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('tells the listeners with a workflow.deleted event, once', async () => {
+    const client = createFakeClient(fakeData)
+    const seen: EngineEvent[] = []
+    client.onEvent((event) => seen.push(event))
+    await client.request('deleteWorkflow', { workflowId: doomed.id })
+    expect(seen).toEqual([{ type: 'workflow.deleted', at: expect.any(Number), workflowId: doomed.id }])
+    expect(Value.Check(EngineEventSchema, seen[0])).toBe(true)
+  })
+
+  it('applies a workflow.deleted event that comes from outside', async () => {
+    const client = createFakeClient(fakeData)
+    client.emit({ type: 'workflow.deleted', at: 1, workflowId: doomed.id })
+    expect((await client.request('listWorkflows', {})).workflows.map((entry) => entry.id)).not.toContain(doomed.id)
   })
 })
 
