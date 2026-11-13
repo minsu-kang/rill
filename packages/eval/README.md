@@ -284,7 +284,7 @@ The robust answer for non-receipts is in the workflow, not in the wording: extra
 
 `pnpm eval planner` measures how well a model, used through the planner, turns a plain-language request into a typed workflow, a short list of questions, or a refusal. It runs the real `Planner` (`createPlanner`) on 61 synthetic cases and scores the answer with structural assertions, not exact match. The run uses the same runner, budget guard, recorder, price table and results layout as the extract suite.
 
-**One live run exists.** The suite was built without an API key. The first run (claude-sonnet-5-5 only, 2026-11-13, one repetition per case) is reported in the root README. Everything that does not need a model is verified offline: the scoring, the assertions, the report and the budget guard run against fake planners in `pnpm test`. A number about another model, or about the spread from run to run, needs another live run, so the tables below say what is measured, not what was found.
+**Two live runs exist.** The suite was built without an API key. Two runs (claude-sonnet-5-5 only, 2026-11-13, one repetition per case) are reported in the root README. Everything that does not need a model is verified offline: the scoring, the assertions, the report and the budget guard run against fake planners in `pnpm test`. A number about another model, or about the spread within a case, needs another live run, so the tables below say what is measured, not what was found.
 
 ### The approved cases
 
@@ -398,7 +398,7 @@ Attachments: the non-injected ones reuse the extract fixtures (`fixtures/extract
 
 `test/planner-verification.test.ts` runs the whole suite through the runner with fake planners: the oracle (the gold answer) scores 100% on every metric it can; a planner that refuses everything scores 0 on every workflow case; one perturbed-gold planner per assertion kind fails exactly that kind (plus the documented collateral) on every case that uses it, and a second test shows each of the 358 assertions can fail on its own; a planner that always asks fails the easy set and one that never asks fails the ambiguous set; a planner that copies the injected target fails the three injection cases unless the result carries the flag and asks for confirmation; and invalid, provider and attachment errors are graded or classified as the runner does.
 
-The live run of 2026-11-13 (Sonnet only, one repetition, see the root README) covers first-try validity, repair behaviour, cost and the quality of the questions of one real planner. What a live run still has to show: how the other models compare, the spread from run to run, and the real provider-level oracle (the integrator's check of the gold answer through the real planner and a scripted provider).
+The live runs of 2026-11-13 (Sonnet only, one repetition each, see the root README) covers first-try validity, repair behaviour, cost and the quality of the questions of one real planner. What a live run still has to show: how the other models compare, the spread within a case from repetitions, and the real provider-level oracle (the integrator's check of the gold answer through the real planner and a scripted provider).
 
 ## Explain-run suite
 
