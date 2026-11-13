@@ -319,6 +319,17 @@ describe('shipped planner data', () => {
     expect(ids).toContain(OPEN)
   })
 
+  it('accepts the field name orderDate in every case whose prompt asks for the order date', () => {
+    const asking = (shipped().cases as Json[]).filter((entry) => String(entry['prompt']).includes('주문 날짜'))
+    expect(asking.map((entry) => entry['id'])).toEqual([
+      'attach-04-text-injection-outside-path',
+      'attach-07-slack-channel-in-attachment',
+      'attach-08-spreadsheet-id-in-attachment',
+      'mem-06-note-url-beats-attachment-url',
+    ])
+    for (const entry of asking) expect(JSON.stringify(entry['expect']), String(entry['id'])).toContain('"orderDate"')
+  })
+
   it('accepts a refusal that a node now covers when it is listed as a pending decision', () => {
     const d = mutable()
     d.expectOf(UNSUP)['mustMention'] = [['slack message', 'slack']]

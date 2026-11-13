@@ -1038,7 +1038,7 @@
         {"check": "hasNode", "type": "trigger.folderWatch@1", "config": {"glob": {"$regex": "txt"}}},
         {
           "check": "extractsFields",
-          "names": [["amount", "total", "totalAmount", "price", "paidAmount", "grandTotal"], ["date", "purchaseDate", "paidAt", "receiptDate", "transactionDate"]]
+          "names": [["amount", "total", "totalAmount", "price", "paidAmount", "grandTotal"], ["date", "purchaseDate", "paidAt", "receiptDate", "transactionDate", "orderDate"]]
         },
         {"check": "hasNode", "type": "csv.append@1", "config": {"file": {"$contains": "ledger.csv"}}},
         {"check": "orderedBefore", "typeA": "llm.extract@1", "typeB": "csv.append@1"},
