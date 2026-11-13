@@ -2,9 +2,8 @@ import { WorkflowSchema, type Workflow } from '@rill/dsl'
 import Type from 'typebox'
 import Value from 'typebox/value'
 
-export const CATEGORIES = ['easy', 'ambiguous', 'unsupported', 'attachment', 'patch'] as const
-export const ALL_CATEGORIES = [...CATEGORIES, 'memory'] as const
-export type Category = (typeof ALL_CATEGORIES)[number]
+export const CATEGORIES = ['easy', 'ambiguous', 'unsupported', 'attachment', 'patch', 'memory'] as const
+export type Category = (typeof CATEGORIES)[number]
 
 export const LANGUAGES = ['ko', 'en', 'mixed'] as const
 export const EFFORTS = ['low', 'medium', 'high'] as const
@@ -120,7 +119,7 @@ export type CaseContext = Type.Static<typeof contextSchema>
 export const caseSchema = Type.Object(
   {
     id: text,
-    category: Type.Enum(ALL_CATEGORIES),
+    category: Type.Enum(CATEGORIES),
     language: Type.Enum(LANGUAGES),
     prompt: text,
     context: contextSchema,
@@ -137,6 +136,10 @@ export type PlannerEffort = CaseSpec['effort']
 export const casesSchema = Type.Array(caseSchema)
 export const referencesSchema = Type.Record(Type.String(), WorkflowSchema)
 export type References = Record<string, Workflow>
+
+const caseId = Type.String({ minLength: 1 })
+export const pairsSchema = Type.Array(Type.Object({ with: caseId, without: caseId, reuses: caseId }, strict))
+export type MemoryPair = Type.Static<typeof pairsSchema>[number]
 
 const vocabularySchema = Type.Object(
   { version: Type.Integer(), assertions: Type.Record(Type.String(), Type.Unknown()) },
@@ -159,6 +162,12 @@ export function parseReferences(input: unknown): References {
   const problems = schemaProblems(referencesSchema, input)
   if (problems.length > 0) throw new Error(`invalid planner references:\n${problems.join('\n')}`)
   return input as References
+}
+
+export function parsePairs(input: unknown): MemoryPair[] {
+  const problems = schemaProblems(pairsSchema, input)
+  if (problems.length > 0) throw new Error(`invalid planner pairs:\n${problems.join('\n')}`)
+  return input as MemoryPair[]
 }
 
 export function parseVocabulary(input: unknown): Vocabulary {

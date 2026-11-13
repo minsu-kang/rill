@@ -79,9 +79,9 @@ describe('the draft file', () => {
 })
 
 describe('the approved suites do not see the draft', () => {
-  it('still has exactly 48 planner cases and no explain case among them', () => {
-    expect(loadPlannerData().cases).toHaveLength(48)
-    expect(createPlannerSuite().cases()).toHaveLength(48)
+  it('still has exactly 61 planner cases and no explain case among them', () => {
+    expect(loadPlannerData().cases).toHaveLength(61)
+    expect(createPlannerSuite().cases()).toHaveLength(61)
     expect(loadPlannerData().cases.some((entry) => entry.id.startsWith('explain-'))).toBe(false)
   })
 

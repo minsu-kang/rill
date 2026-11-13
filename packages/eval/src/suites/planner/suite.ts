@@ -14,6 +14,7 @@ import { DEFAULT_MAX_REPAIR_ROUNDS, baseInputTokens, effortMaxTokens, firstCallI
 import { loadPlannerData, toPlannerCase, type PlannerCase, type PlannerData } from './cases'
 import { buildPlanRequest, withDemoHome } from './context'
 import { serializablePlanError } from './error-json'
+import type { MemoryPair } from './schema'
 import { PLANNER_FIELDS, PLANNER_SCORER_VERSION, scorePlannerCase, type PlannerOutput } from './scoring'
 
 export const PLANNER_SUITE_NAME = 'planner'
@@ -44,6 +45,7 @@ export interface PlannerSuite extends Suite<PlannerCase, PlannerOutput> {
   baseInputTokens: number
   maxRepairRounds: number
   effort: PlanEffort | undefined
+  pairs: readonly MemoryPair[]
   workflowCases(): PlannerCase[]
 }
 
@@ -108,6 +110,8 @@ export function createPlannerSuite(options: PlannerSuiteOptions = {}): PlannerSu
   if (!Number.isInteger(maxRepairRounds) || maxRepairRounds < 0) throw new RangeError('maxRepairRounds must be a non-negative integer')
   const all = data.cases.map((spec) => toPlannerCase(spec, data.references))
   const cases = select(all, options)
+  const selectedIds = new Set(cases.map((testCase) => testCase.id))
+  const pairs = data.pairs.filter((pair) => selectedIds.has(pair.with) && selectedIds.has(pair.without))
   const effortOf = (testCase: PlannerCase): PlanEffort => options.effort ?? testCase.spec.effort
   const unmeasurable = [...new Set([...(options.effort === undefined ? [] : [options.effort]), ...cases.map(effortOf)].filter((effort) => !isMeasurableEffort(effort)))]
   if (unmeasurable.length > 0) throw new RangeError(unmeasurableEffortMessage(unmeasurable))
@@ -140,6 +144,7 @@ export function createPlannerSuite(options: PlannerSuiteOptions = {}): PlannerSu
     baseInputTokens: baseTokens,
     maxRepairRounds,
     effort: options.effort,
+    pairs,
     fields: PLANNER_FIELDS,
     cases: () => cases,
     workflowCases: () => cases.filter((testCase) => testCase.expected.outcome === 'workflow'),

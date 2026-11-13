@@ -21,10 +21,20 @@ export function requestText(request: LlmRequest): string {
     .join('\n')
 }
 
+export function systemTextOf(system: LlmRequest['system'] | { text: string }[] | undefined): string {
+  if (system === undefined) return ''
+  return typeof system === 'string' ? system : system.map((block) => block.text).join('\n')
+}
+
+export function pickCase(cases: readonly PlannerCase[], userText: string, systemText: string): PlannerCase | undefined {
+  const notesOf = (testCase: PlannerCase): readonly string[] => testCase.spec.context.memory ?? []
+  return cases
+    .filter((testCase) => userText.includes(`Request:\n${testCase.prompt}`) && notesOf(testCase).every((note) => systemText.includes(note)))
+    .sort((a, b) => b.prompt.length - a.prompt.length || notesOf(b).length - notesOf(a).length)[0]
+}
+
 export function caseOfRequest(request: LlmRequest, cases: readonly PlannerCase[]): PlannerCase {
-  const text = requestText(request)
-  const hits = cases.filter((testCase) => text.includes(`Request:\n${testCase.prompt}`)).sort((a, b) => b.prompt.length - a.prompt.length)
-  const hit = hits[0]
+  const hit = pickCase(cases, requestText(request), systemTextOf(request.system))
   if (hit === undefined) throw new Error('no planner case matches this request')
   return hit
 }
@@ -125,7 +135,7 @@ export function httpOracle(cases: readonly PlannerCase[], reply: { inputTokens?:
       const text = body.messages
         .map((message) => (typeof message.content === 'string' ? message.content : message.content.map((block) => block.text ?? '').join('\n')))
         .join('\n')
-      const testCase = cases.find((candidate) => text.includes(`Request:\n${candidate.prompt}`))
+      const testCase = pickCase(cases, text, systemTextOf(body.system))
       if (testCase === undefined) throw new Error('no planner case matches this http request')
       const payload = {
         id: 'msg_1',

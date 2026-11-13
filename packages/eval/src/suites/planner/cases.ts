@@ -2,11 +2,12 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Workflow } from '@rill/dsl'
 import type { EvalCase } from '../../suite'
-import { parseCases, parseReferences, parseVocabulary, type CaseSpec, type References, type Vocabulary } from './schema'
+import { parseCases, parsePairs, parseReferences, parseVocabulary, type CaseSpec, type MemoryPair, type References, type Vocabulary } from './schema'
 
 export const DATA_DIR = fileURLToPath(new URL('./data/', import.meta.url))
 export const CASES_PATH = `${DATA_DIR}cases.json`
 export const REFERENCES_PATH = `${DATA_DIR}references.json`
+export const PAIRS_PATH = `${DATA_DIR}pairs.json`
 export const VOCABULARY_PATH = `${DATA_DIR}vocabulary.json`
 
 export interface PlannerCase extends EvalCase {
@@ -19,6 +20,7 @@ export interface PlannerCase extends EvalCase {
 export interface PlannerData {
   cases: CaseSpec[]
   references: References
+  pairs: MemoryPair[]
   vocabulary: Vocabulary
 }
 
@@ -30,6 +32,7 @@ export function loadPlannerData(): PlannerData {
   return {
     cases: parseCases(readJson(CASES_PATH)),
     references: parseReferences(readJson(REFERENCES_PATH)),
+    pairs: parsePairs(readJson(PAIRS_PATH)),
     vocabulary: parseVocabulary(readJson(VOCABULARY_PATH)),
   }
 }

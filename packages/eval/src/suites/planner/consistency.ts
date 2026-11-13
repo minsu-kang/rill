@@ -14,17 +14,18 @@ import {
   literalPaths,
   type Produced,
 } from './assertions'
-import { MEMORY_DRAFT_SIZE, memoryDraftSchema, type MemoryDraftFile } from './memory-draft'
 import {
-  ALL_CATEGORIES,
+  CATEGORIES,
   TAGS,
   casesSchema,
+  pairsSchema,
   referencesSchema,
   schemaProblems,
   type Assertion,
   type CaseSpec,
   type Category,
   type ExpectationBlock,
+  type MemoryPair,
 } from './schema'
 
 type Json = Record<string, unknown>
@@ -32,11 +33,15 @@ type Json = Record<string, unknown>
 export interface ConsistencyInput {
   cases: unknown
   references: unknown
+  pairs: unknown
   vocabulary: unknown
   registry: NodeRegistry
   seeds: readonly { id: string }[]
   manifest: readonly { seedId: string; kind: string; path: string }[]
   fixtureExists?: (path: string) => boolean
+  pending?: Readonly<Record<string, string>>
+  openTrigger?: Readonly<Record<string, string>>
+  longWhy?: Readonly<Record<string, string>>
 }
 
 export interface ConsistencySummary {
@@ -56,7 +61,8 @@ export interface ConsistencyResult {
   summary: ConsistencySummary | undefined
 }
 
-export const EXPECTED_COUNTS: Readonly<Record<Category, number>> = { easy: 20, ambiguous: 10, unsupported: 8, attachment: 6, patch: 4, memory: 0 }
+export const EXPECTED_COUNTS: Readonly<Record<Category, number>> = { easy: 25, ambiguous: 10, unsupported: 7, attachment: 8, patch: 4, memory: 7 }
+const EXPECTED_TOTAL = Object.values(EXPECTED_COUNTS).reduce((sum, count) => sum + count, 0)
 export const ID_PREFIX: Readonly<Record<Category, string>> = { easy: 'easy', ambiguous: 'ambig', unsupported: 'unsup', attachment: 'attach', patch: 'patch', memory: 'mem' }
 export const OUTCOME_FOR: Readonly<Partial<Record<Category, string>>> = {
   easy: 'workflow',
@@ -66,9 +72,17 @@ export const OUTCOME_FOR: Readonly<Partial<Record<Category, string>>> = {
   patch: 'workflow',
 }
 
-export const PENDING_REAPPROVAL: Readonly<Record<string, string>> = {
-  'unsup-02-google-sheets':
-    'google.sheets.append@1 now covers it',
+export const PENDING_REAPPROVAL: Readonly<Record<string, string>> = {}
+
+export const OPEN_TRIGGER: Readonly<Record<string, string>> = {
+  'easy-25-google-sheet-one-connection': 'the request names no trigger',
+}
+
+export const LONG_WHY: Readonly<Record<string, string>> = {
+  'easy-22-slack-no-channel-named': 'approved by the user with two sentences',
+  'easy-23-google-sheet-row': 'approved by the user with two sentences',
+  'attach-07-slack-channel-in-attachment': 'approved by the user with two sentences',
+  'attach-08-spreadsheet-id-in-attachment': 'approved by the user with two sentences',
 }
 
 const NODE_TYPE_RE = /^[a-z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*)*@[0-9]+$/
@@ -76,6 +90,7 @@ const FIELD_NAME_RE = /^[a-z][a-zA-Z0-9_]{0,31}$/
 const ID_RE = /^(easy|ambig|unsup|attach|patch|mem)-\d{2}-[a-z0-9-]+$/
 const MAX_PROMPT = 600
 const MAX_WHY = 420
+const SENTENCE_BREAK = /[.!?]\s+[A-Z]/
 const MIN_WORKFLOW_ASSERTIONS = 5
 
 const DEGENERATE: Workflow = { schemaVersion: 1, name: 'x', nodes: [{ id: 't1', type: 'trigger.manual@1', config: {} }], edges: [] }
@@ -296,12 +311,21 @@ export function checkAssertion(registry: NodeRegistry, fail: (message: string) =
   }
 }
 
+interface Exemptions {
+  triggerOpen: boolean
+  longWhy: boolean
+}
+
+const pinsTriggerType = (assertion: Assertion): boolean =>
+  assertion.check === 'hasTrigger' || (assertion.check === 'hasNode' && assertion.type.startsWith('trigger.'))
+
 function checkBlock(
   registry: NodeRegistry,
   fail: (message: string) => void,
   block: ExpectationBlock & { why?: string; alsoAccept?: readonly ExpectationBlock[] },
   context: CaseSpec['context'],
   main: boolean,
+  exempt: Exemptions,
 ): void {
   const catalog = registry.list().map((def) => def.type)
   if (main) {
@@ -309,7 +333,7 @@ function checkBlock(
     if (!isStr(why)) fail('why must be a non-empty string')
     else {
       if (why.length > MAX_WHY) fail(`why is longer than ${MAX_WHY} characters`)
-      if (/[.!?]\s+[A-Z]/.test(why)) fail('why must be one sentence')
+      if (SENTENCE_BREAK.test(why) && !exempt.longWhy) fail('why must be one sentence')
       if (!/[.]$/.test(why)) fail('why must end with a period')
     }
   }
@@ -317,10 +341,7 @@ function checkBlock(
     if (block.assertions.length < MIN_WORKFLOW_ASSERTIONS) return fail(`a workflow expectation needs at least ${MIN_WORKFLOW_ASSERTIONS} assertions`)
     block.assertions.forEach((assertion, index) => checkAssertion(registry, (message) => fail(`assertions[${index}]: ${message}`), assertion, context))
     if (!block.assertions.some((assertion) => assertion.check === 'noNodeOutsideCatalog')) fail('workflow expectations must include noNodeOutsideCatalog')
-    const pinsTrigger = block.assertions.some(
-      (assertion) => assertion.check === 'hasTrigger' || (assertion.check === 'hasNode' && assertion.type.startsWith('trigger.')),
-    )
-    if (!pinsTrigger) fail('workflow expectations must pin the trigger')
+    if (!block.assertions.some(pinsTriggerType) && !exempt.triggerOpen) fail('workflow expectations must pin the trigger')
     const seen = new Set<string>()
     for (const assertion of block.assertions) {
       const key = JSON.stringify(assertion)
@@ -340,7 +361,7 @@ function checkBlock(
   }
   if (main && block.alsoAccept !== undefined) {
     if (block.alsoAccept.length === 0) fail('alsoAccept must be a non-empty array')
-    else block.alsoAccept.forEach((alt, index) => checkBlock(registry, (message) => fail(`alsoAccept[${index}]: ${message}`), alt, context, false))
+    else block.alsoAccept.forEach((alt, index) => checkBlock(registry, (message) => fail(`alsoAccept[${index}]: ${message}`), alt, context, false, exempt))
   }
 }
 
@@ -371,6 +392,76 @@ function tally(cases: readonly CaseSpec[]): { summary: Omit<ConsistencySummary, 
   return { summary: { cases: cases.length, category, language, effort, outcome, hard }, hard }
 }
 
+export const MEMORY_NOTES_MAX = 20
+export const MEMORY_NOTE_CHARS = 300
+
+const NOT_ONE_LINE = /[\p{Cc}\p{Zl}\p{Zp}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]|(?![\u200c\u200d])\p{Cf}|[\u{e0100}-\u{e01ef}]/u
+
+function checkNotes(notes: readonly string[], fail: (message: string) => void): void {
+  if (notes.length === 0) fail('notes must not be an empty list')
+  if (notes.length > MEMORY_NOTES_MAX) fail(`a case holds at most ${MEMORY_NOTES_MAX} notes, found ${notes.length}`)
+  const seen = new Set<string>()
+  notes.forEach((note, index) => {
+    const at = `note ${index + 1}`
+    if (note.trim() === '') fail(`${at} is empty`)
+    if (NOT_ONE_LINE.test(note)) fail(`${at} is not one line without control, bidi or invisible format characters`)
+    if (note !== note.normalize('NFC').trim().replace(/\s+/gu, ' ')) fail(`${at} is not normalised (NFC, trimmed, single spaces)`)
+    if ([...note].length > MEMORY_NOTE_CHARS) fail(`${at} is longer than ${MEMORY_NOTE_CHARS} characters`)
+    const key = note.normalize('NFC').toUpperCase().toLowerCase()
+    if (seen.has(key)) fail(`duplicate note ${index + 1}`)
+    seen.add(key)
+  })
+}
+
+function sameCase(left: CaseSpec, right: CaseSpec): boolean {
+  return JSON.stringify([left.prompt, left.context, left.effort, left.expect]) === JSON.stringify([right.prompt, right.context, right.effort, right.expect])
+}
+
+function withoutNotes(testCase: CaseSpec): unknown {
+  const context: Record<string, unknown> = { ...testCase.context }
+  delete context['memory']
+  return [testCase.prompt, context, testCase.effort]
+}
+
+function checkPairs(pairs: readonly MemoryPair[], cases: readonly CaseSpec[], report: Report): void {
+  const byId = new Map(cases.map((testCase) => [testCase.id, testCase]))
+  const controls = new Set(pairs.map((pair) => pair.without))
+  for (const testCase of cases) {
+    if (testCase.category !== 'memory') continue
+    if (controls.has(testCase.id)) {
+      if (testCase.context.memory !== undefined) report(testCase.id, 'the control case must have no notes')
+    } else if (testCase.context.memory === undefined) report(testCase.id, 'a case without notes must be the control of a pair; every other case must have notes')
+  }
+  pairs.forEach((pair, index) => {
+    const where = `pairs[${index}]`
+    const withNotes = byId.get(pair.with)
+    const control = byId.get(pair.without)
+    if (withNotes === undefined || control === undefined) return report(where, 'names an unknown case')
+    if (withNotes.category !== 'memory' || control.category !== 'memory') report(where, 'a pair is made of two memory cases')
+    if (control.expect.outcome !== 'questions') report(where, 'the control must expect questions')
+    if (withNotes.expect.outcome !== 'workflow') report(where, 'the case with notes must expect a workflow')
+    if (JSON.stringify(withoutNotes(withNotes)) !== JSON.stringify(withoutNotes(control))) report(where, 'the two cases of a pair differ by more than the notes')
+    const base = byId.get(pair.reuses)
+    if (base === undefined || base.category !== 'ambiguous') report(where, `reuses ${pair.reuses}, which is not an ambiguous case`)
+    else if (!sameCase(control, base)) report(where, `the control differs from the case ${base.id}`)
+  })
+}
+
+function checkExemptions(input: ConsistencyInput, cases: readonly CaseSpec[], report: Report): void {
+  for (const id of Object.keys(input.openTrigger ?? OPEN_TRIGGER)) {
+    const testCase = cases.find((entry) => entry.id === id)
+    if (testCase === undefined) report(id, 'is listed as leaving the trigger open but is not a case')
+    else if (blocksOf(testCase.expect).some((block) => block.outcome === 'workflow' && block.assertions.some(pinsTriggerType))) {
+      report(id, 'is listed as leaving the trigger open but pins one')
+    }
+  }
+  for (const id of Object.keys(input.longWhy ?? LONG_WHY)) {
+    const testCase = cases.find((entry) => entry.id === id)
+    if (testCase === undefined) report(id, 'is listed as having a long why but is not a case')
+    else if (!SENTENCE_BREAK.test(testCase.expect.why)) report(id, 'is listed as having a long why but its why is one sentence')
+  }
+}
+
 function checkCase(input: ConsistencyInput, testCase: CaseSpec, report: (where: string, message: string) => void): void {
   const where = testCase.id
   const fail = (message: string): void => report(where, message)
@@ -398,6 +489,7 @@ function checkCase(input: ConsistencyInput, testCase: CaseSpec, report: (where: 
     }
   } else if (context.existingWorkflow !== undefined || context.selectedNodeId !== undefined) fail('existingWorkflow/selectedNodeId only belong to patch cases')
   if (context.memory !== undefined && testCase.category !== 'memory') fail('memory notes only belong to memory cases')
+  if (context.memory !== undefined) checkNotes(context.memory, (message) => report(`${where}.memory`, message))
   if (testCase.category === 'attachment' && (context.attachments === undefined || context.attachments.length === 0)) fail('attachment cases need attachments')
   else if (testCase.category !== 'attachment' && testCase.category !== 'memory' && context.attachments !== undefined) fail('attachments only belong to attachment cases')
   else {
@@ -416,13 +508,17 @@ function checkCase(input: ConsistencyInput, testCase: CaseSpec, report: (where: 
   if (wanted !== undefined && testCase.expect.outcome !== wanted) {
     fail(`category ${testCase.category} expects outcome ${wanted}, found ${testCase.expect.outcome}`)
   }
-  checkBlock(registry, (message) => report(`${where}.expect`, message), testCase.expect, context, true)
+  const exempt: Exemptions = {
+    triggerOpen: Object.hasOwn(input.openTrigger ?? OPEN_TRIGGER, testCase.id),
+    longWhy: Object.hasOwn(input.longWhy ?? LONG_WHY, testCase.id),
+  }
+  checkBlock(registry, (message) => report(`${where}.expect`, message), testCase.expect, context, true, exempt)
 }
 
 function checkCounts(cases: readonly CaseSpec[], report: (where: string, message: string) => void): void {
   const { summary, hard } = tally(cases)
-  if (cases.length !== 48) report('cases.json', `expected exactly 48 cases, found ${cases.length}`)
-  for (const category of ALL_CATEGORIES) {
+  if (cases.length !== EXPECTED_TOTAL) report('cases.json', `expected exactly ${EXPECTED_TOTAL} cases, found ${cases.length}`)
+  for (const category of CATEGORIES) {
     const found = summary.category[category] ?? 0
     if (found !== EXPECTED_COUNTS[category]) report('counts', `${category}: expected ${EXPECTED_COUNTS[category]}, found ${found}`)
   }
@@ -464,10 +560,11 @@ function checkRefusalsStillHold(input: ConsistencyInput, cases: readonly CaseSpe
     }
   }
   const known = new Set(cases.map((testCase) => testCase.id))
+  const pending = input.pending ?? PENDING_REAPPROVAL
   for (const [id, covering] of stale) {
-    if (!Object.hasOwn(PENDING_REAPPROVAL, id)) report(id, `expects a refusal, but ${covering} now covers it`)
+    if (!Object.hasOwn(pending, id)) report(id, `expects a refusal, but ${covering} now covers it`)
   }
-  for (const id of Object.keys(PENDING_REAPPROVAL)) {
+  for (const id of Object.keys(pending)) {
     if (!known.has(id)) report(id, 'waits for a decision but is not a case')
     else if (!stale.has(id)) report(id, 'waits for a decision that the catalog no longer needs')
   }
@@ -626,6 +723,9 @@ export function checkConsistency(input: ConsistencyInput): ConsistencyResult {
   const referenceShape = isObj(input.references) ? [] : ['references.json: must be an object']
   if (referenceShape.length > 0) return { problems: referenceShape, summary: undefined }
   const references = input.references as Record<string, unknown>
+  const pairShape = schemaProblems(pairsSchema, input.pairs)
+  if (pairShape.length > 0) return { problems: pairShape.map((problem) => `pairs.json: ${problem}`), summary: undefined }
+  const pairs = input.pairs as MemoryPair[]
   if (!Value.Check(referencesSchema, references)) {
     for (const [key, reference] of Object.entries(references)) {
       const parsed = parseWorkflowShape(reference)
@@ -642,6 +742,8 @@ export function checkConsistency(input: ConsistencyInput): ConsistencyResult {
   checkCounts(cases, report)
   checkVocabulary(input, cases, report)
   checkRefusalsStillHold(input, cases, report)
+  checkPairs(pairs, cases, report)
+  checkExemptions(input, cases, report)
   const covered = checkReferences(input, cases, references, report)
   for (const testCase of cases) {
     guarded(report, testCase.id, () => checkMutation(testCase, references, report))
@@ -659,116 +761,5 @@ export function checkConsistency(input: ConsistencyInput): ConsistencyResult {
       coveredTypes: [...covered].sort(),
       unusedTypes: catalog.filter((type) => !covered.has(type)),
     },
-  }
-}
-
-export interface DraftConsistencyInput {
-  draft: unknown
-  references: unknown
-  approvedCases: unknown
-  registry: NodeRegistry
-  seeds: readonly { id: string }[]
-  manifest: readonly { seedId: string; kind: string; path: string }[]
-  fixtureExists?: (path: string) => boolean
-}
-
-export const MEMORY_NOTES_MAX = 20
-export const MEMORY_NOTE_CHARS = 300
-
-const NOT_ONE_LINE = /[\p{Cc}\p{Zl}\p{Zp}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]|(?![\u200c\u200d])\p{Cf}|[\u{e0100}-\u{e01ef}]/u
-
-function checkNotes(notes: readonly string[], fail: (message: string) => void): void {
-  if (notes.length === 0) fail('notes must not be an empty list')
-  if (notes.length > MEMORY_NOTES_MAX) fail(`a case holds at most ${MEMORY_NOTES_MAX} notes, found ${notes.length}`)
-  const seen = new Set<string>()
-  notes.forEach((note, index) => {
-    const at = `note ${index + 1}`
-    if (note.trim() === '') fail(`${at} is empty`)
-    if (NOT_ONE_LINE.test(note)) fail(`${at} is not one line without control, bidi or invisible format characters`)
-    if (note !== note.normalize('NFC').trim().replace(/\s+/gu, ' ')) fail(`${at} is not normalised (NFC, trimmed, single spaces)`)
-    if ([...note].length > MEMORY_NOTE_CHARS) fail(`${at} is longer than ${MEMORY_NOTE_CHARS} characters`)
-    const key = note.normalize('NFC').toUpperCase().toLowerCase()
-    if (seen.has(key)) fail(`duplicate note ${index + 1}`)
-    seen.add(key)
-  })
-}
-
-function sameCase(left: CaseSpec, right: CaseSpec): boolean {
-  return JSON.stringify([left.prompt, left.context, left.effort, left.expect]) === JSON.stringify([right.prompt, right.context, right.effort, right.expect])
-}
-
-function withoutNotes(testCase: CaseSpec): unknown {
-  const context: Record<string, unknown> = { ...testCase.context }
-  delete context['memory']
-  return [testCase.prompt, context, testCase.effort]
-}
-
-function checkPairs(draft: MemoryDraftFile, approved: readonly CaseSpec[], report: Report): void {
-  const byId = new Map(draft.cases.map((testCase) => [testCase.id, testCase]))
-  const controls = new Set(draft.pairs.map((pair) => pair.without))
-  for (const testCase of draft.cases) {
-    const where = testCase.id
-    if (controls.has(testCase.id)) {
-      if (testCase.context.memory !== undefined) report(where, 'the control case must have no notes')
-    } else if (testCase.context.memory === undefined) report(where, 'a case without notes must be the control of a pair; every other case must have notes')
-  }
-  draft.pairs.forEach((pair, index) => {
-    const where = `pairs[${index}]`
-    const withNotes = byId.get(pair.with)
-    const control = byId.get(pair.without)
-    if (withNotes === undefined || control === undefined) return report(where, 'names an unknown case')
-    if (control.expect.outcome !== 'questions') report(where, 'the control must expect questions')
-    if (withNotes.expect.outcome !== 'workflow') report(where, 'the case with notes must expect a workflow')
-    if (JSON.stringify(withoutNotes(withNotes)) !== JSON.stringify(withoutNotes(control))) report(where, 'the two cases of a pair differ by more than the notes')
-    const base = approved.find((testCase) => testCase.id === pair.reuses)
-    if (base === undefined || base.category !== 'ambiguous') report(where, `reuses ${pair.reuses}, which is not an approved ambiguous case`)
-    else if (!sameCase(control, base)) report(where, `the control differs from the approved case ${base.id}`)
-  })
-}
-
-export function checkMemoryDraft(input: DraftConsistencyInput): ConsistencyResult {
-  const problems: string[] = []
-  const report: Report = (where, message) => {
-    problems.push(`${where}: ${message}`)
-  }
-  const shape = schemaProblems(memoryDraftSchema, input.draft)
-  if (shape.length > 0) return { problems: shape.map((problem) => `memory draft: ${problem}`), summary: undefined }
-  if (!isObj(input.references)) return { problems: ['memory draft: references must be an object'], summary: undefined }
-  const draft = input.draft as MemoryDraftFile
-  const references = input.references
-  const approved = Array.isArray(input.approvedCases) ? (input.approvedCases as CaseSpec[]) : []
-  const approvedIds = new Set(approved.map((testCase) => testCase.id))
-  const cases = draft.cases
-  if (cases.length !== MEMORY_DRAFT_SIZE) report('memory draft', `expected exactly ${MEMORY_DRAFT_SIZE} cases, found ${cases.length}`)
-  const base: ConsistencyInput = {
-    cases,
-    references,
-    vocabulary: {},
-    registry: input.registry,
-    seeds: input.seeds,
-    manifest: input.manifest,
-    ...(input.fixtureExists === undefined ? {} : { fixtureExists: input.fixtureExists }),
-  }
-  const ids = new Set<string>()
-  for (const testCase of cases) {
-    if (ids.has(testCase.id)) report(testCase.id, 'duplicate id')
-    ids.add(testCase.id)
-    if (approvedIds.has(testCase.id)) report(testCase.id, 'is an id of the approved suite')
-    if (testCase.category !== 'memory') report(testCase.id, 'must be a memory case')
-    checkCase(base, testCase, report)
-    if (testCase.context.memory !== undefined) checkNotes(testCase.context.memory, (message) => report(`${testCase.id}.memory`, message))
-  }
-  checkPairs(draft, approved, report)
-  const covered = checkReferences(base, cases, references, report)
-  for (const testCase of cases) {
-    guarded(report, testCase.id, () => checkMutation(testCase, references, report))
-    guarded(report, testCase.id, () => checkMachinery(testCase, report))
-  }
-  checkParity(references, report)
-  const catalog = input.registry.list().map((def) => def.type)
-  const { summary } = tally(cases)
-  return {
-    problems,
-    summary: { ...summary, references: Object.keys(references).length, coveredTypes: [...covered].sort(), unusedTypes: catalog.filter((type) => !covered.has(type)) },
   }
 }

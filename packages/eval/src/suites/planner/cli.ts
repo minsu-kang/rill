@@ -285,9 +285,9 @@ function budgetFor(config: PlannerCliConfig, suite: PlannerSuite, estimate: RunE
   return suggestedBudgetUsd(estimate.totalUsd, guardReserveUsd(worst, config.concurrency, estimate.calls))
 }
 
-function pendingNotes(cases: readonly { id: string }[]): string[] {
+export function pendingNotes(cases: readonly { id: string }[], pending: Readonly<Record<string, string>> = PENDING_REAPPROVAL): string[] {
   const ids = new Set(cases.map((testCase) => testCase.id))
-  return Object.entries(PENDING_REAPPROVAL)
+  return Object.entries(pending)
     .filter(([id]) => ids.has(id))
     .map(([id, reason]) => `note: ${id} expects a refusal, but ${reason}; a different answer is not a regression, the case waits for your decision (see the eval README)`)
 }
@@ -415,7 +415,7 @@ async function runYesMode(config: PlannerCliConfig, suite: PlannerSuite, io: Cli
   assertWritableDir(out)
   const secrets = keys.secrets
   const createProvider = io.planner?.createProvider ?? createSpecProvider
-  io.stdout(`notice: the case prompts, their folder and connection names, and the synthetic attachments (receipt PDF, PNG and text, two of them with a hostile sentence) are sent to ${hostList(infos, endpoint.host)} for ${config.models.join(', ')}\n`)
+  io.stdout(`notice: the case prompts, their folder and connection names, and the synthetic attachments (receipt PDF, PNG and text, five of them with a hostile sentence) are sent to ${hostList(infos, endpoint.host)} for ${config.models.join(', ')}\n`)
   io.stdout(`budget: $${formatUsdPlain(budgetUsd)}, max_tokens set by the planner from the effort (${effortTable({ measurableOnly: true })}), ${estimate.calls} tasks planned, results go to ${out}\n`)
   const total = estimate.calls
   let done = 0
@@ -491,6 +491,7 @@ async function runYesMode(config: PlannerCliConfig, suite: PlannerSuite, io: Cli
         maxRepairRounds: config.maxRepairRounds,
         maxOutputTokens: PLANNER_MAX_OUTPUT_TOKENS,
       },
+      pairs: suite.pairs,
     }),
   )
   io.stdout(`\n${summaryTable(run, config.models)}\n\n`)

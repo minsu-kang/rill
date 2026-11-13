@@ -1,36 +1,23 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createCoreRegistry } from '@rill/nodes-core'
 import { buildMemoryPrompt, type PlanRequest } from '@rill/planner'
 import { describe, expect, it } from 'vitest'
 import { MEMORY_MAX_CHARS, MEMORY_MAX_ITEMS } from '../../protocol/src/index'
 import { PRICE_TABLE_AS_OF } from '../src/pricing'
-import { PACKAGE_ROOT } from '../src/results'
 import { TEXT_CHARS_PER_TOKEN } from '../src/suites/extract/suite'
 import { ASSERTION_NAMES, evaluateAssertions } from '../src/suites/planner/assertions'
-import { verifyAttachments } from '../src/suites/planner/attachments'
+import { ATTACHMENTS_DIR, verifyAttachments } from '../src/suites/planner/attachments'
 import { baseInputTokens, firstCallInputTokens } from '../src/suites/planner/budget'
-import { CASES_PATH, loadPlannerData, toPlannerCase } from '../src/suites/planner/cases'
+import { loadPlannerData, toPlannerCase } from '../src/suites/planner/cases'
 import { buildPlanRequest } from '../src/suites/planner/context'
-import { MEMORY_NOTES_MAX, MEMORY_NOTE_CHARS, checkConsistency, checkMemoryDraft, type DraftConsistencyInput } from '../src/suites/planner/consistency'
 import { fakeResult, questionsBody } from '../src/suites/planner/fake-results'
 import { copyingPlanner, goldBody, neverAsksPlanner, nullPlanner, oraclePlanner, perturb, perturbedPlanner } from '../src/suites/planner/fakes'
-import {
-  MEMORY_DRAFT_ATTACHMENTS_DIR,
-  MEMORY_DRAFT_CASES_PATH,
-  MEMORY_DRAFT_REFERENCES_PATH,
-  MEMORY_DRAFT_SIZE,
-  loadMemoryDraft,
-  memoryDraftData,
-  parseMemoryDraft,
-} from '../src/suites/planner/memory-draft'
 import { memoryPairMetrics } from '../src/suites/planner/metrics'
 import { renderPlannerReport, type PlannerReportMeta } from '../src/suites/planner/report'
 import { CATEGORIES, type AssertionName, type CaseSpec } from '../src/suites/planner/schema'
 import { createPlannerSuite, type PlannerFactory, type PlannerSuiteOptions } from '../src/suites/planner/suite'
 import { FAKE_MODEL, count, passed, runFake, scoreOf, total } from './planner-helpers'
-
-type Json = Record<string, unknown>
 
 const IDS = [
   'mem-01-folder-from-note',
@@ -42,159 +29,42 @@ const IDS = [
   'mem-07-one-of-twenty-notes',
 ]
 
-const read = (path: string): unknown => JSON.parse(readFileSync(path, 'utf8'))
-const manifest = read(join(PACKAGE_ROOT, 'fixtures/extract/manifest.json')) as { files: DraftConsistencyInput['manifest'] }
+type Json = Record<string, unknown>
 
-function shipped(): DraftConsistencyInput {
-  return {
-    draft: read(MEMORY_DRAFT_CASES_PATH),
-    references: read(MEMORY_DRAFT_REFERENCES_PATH),
-    approvedCases: read(CASES_PATH),
-    registry: createCoreRegistry(),
-    seeds: read(join(PACKAGE_ROOT, 'src/suites/extract/data/seeds.json')) as { id: string }[],
-    manifest: manifest.files,
-    fixtureExists: (path) => existsSync(join(PACKAGE_ROOT, 'fixtures/extract', path)),
-  }
-}
-
-const draft = loadMemoryDraft()
 const approved = loadPlannerData()
-const options: PlannerSuiteOptions = { data: memoryDraftData(), files: { plannerDir: MEMORY_DRAFT_ATTACHMENTS_DIR } }
+const memory = approved.cases.filter((entry) => entry.category === 'memory')
+const options: PlannerSuiteOptions = { group: 'memory' }
 const spec = (id: string): CaseSpec => {
-  const found = draft.cases.find((entry) => entry.id === id)
-  if (found === undefined) throw new Error(`no draft case ${id}`)
+  const found = memory.find((entry) => entry.id === id)
+  if (found === undefined) throw new Error(`no memory case ${id}`)
   return found
 }
 const notesOf = (id: string): string[] => [...(spec(id).context.memory ?? [])]
-const referenceOf = (id: string): string => JSON.stringify(draft.references[id])
+const referenceOf = (id: string): string => JSON.stringify(approved.references[id])
 
-describe('the draft file', () => {
-  it('is named and marked as a draft, and says that it is not approved', () => {
-    expect(MEMORY_DRAFT_CASES_PATH.endsWith('/memory-draft/cases.draft.json')).toBe(true)
-    expect(MEMORY_DRAFT_REFERENCES_PATH.endsWith('/memory-draft/references.draft.json')).toBe(true)
-    const raw = read(MEMORY_DRAFT_CASES_PATH) as Json
-    expect(raw['status']).toBe('DRAFT')
-    expect(raw['notice']).toMatch(/^DRAFT: not approved\./)
-    expect(raw['notice']).toMatch(/48-case/)
+describe('the memory cases of the approved suite', () => {
+  it('are seven cases in order, each in the memory category with the id prefix mem-', () => {
+    expect(memory.map((entry) => entry.id)).toEqual(IDS)
+    expect(approved.cases.filter((entry) => entry.id.startsWith('mem-')).map((entry) => entry.id)).toEqual(IDS)
+    expect(approved.cases.filter((entry) => entry.context.memory !== undefined).every((entry) => entry.category === 'memory')).toBe(true)
+    expect(Object.keys(approved.references).filter((id) => id.startsWith('mem-')).sort()).toEqual(IDS.filter((id) => spec(id).expect.outcome === 'workflow').sort())
   })
 
-  it('holds the seven memory cases in order', () => {
-    expect(MEMORY_DRAFT_SIZE).toBe(7)
-    expect(draft.cases.map((entry) => entry.id)).toEqual(IDS)
-    expect(draft.cases.every((entry) => entry.category === 'memory')).toBe(true)
-    expect(Object.keys(draft.references).sort()).toEqual(IDS.filter((id) => spec(id).expect.outcome === 'workflow').sort())
+  it('pair the case with notes and the same request without them', () => {
+    expect(approved.pairs).toEqual([{ with: IDS[0], without: IDS[1], reuses: 'ambig-01-which-folder' }])
   })
 
-  it('pairs the case with notes and the same request without them', () => {
-    expect(draft.pairs).toEqual([{ with: IDS[0], without: IDS[1], reuses: 'ambig-01-which-folder' }])
-  })
-
-  it('rejects a container that is not marked DRAFT, has no notice or has an unknown key', () => {
-    const raw = read(MEMORY_DRAFT_CASES_PATH) as Json
-    expect(() => parseMemoryDraft({ ...raw, status: 'APPROVED' })).toThrow('invalid memory draft')
-    expect(() => parseMemoryDraft({ ...raw, notice: undefined })).toThrow('invalid memory draft')
-    expect(() => parseMemoryDraft({ ...raw, extra: 1 })).toThrow('invalid memory draft')
-    expect(parseMemoryDraft(raw).cases).toHaveLength(7)
-  })
-})
-
-describe('the approved suite does not see the draft', () => {
-  it('still loads exactly 48 cases, none of them a memory case or one with notes', () => {
-    expect(approved.cases).toHaveLength(48)
-    expect(approved.cases.filter((entry) => entry.category === 'memory' || entry.id.startsWith('mem-') || entry.context.memory !== undefined)).toEqual([])
-    expect(approved.cases.map((entry) => entry.id)).not.toEqual(expect.arrayContaining(IDS))
-  })
-
-  it('keeps the memory group out of the default suite and out of the group list', () => {
+  it('are in the default suite and in its group list, and the suite version follows their notes', () => {
     const suite = createPlannerSuite()
-    expect(suite.cases()).toHaveLength(48)
-    expect(suite.cases().some((entry) => entry.id.startsWith('mem-'))).toBe(false)
-    expect(() => createPlannerSuite({ group: 'memory' })).toThrow('unknown group')
-    expect((CATEGORIES as readonly string[]).includes('memory')).toBe(false)
-  })
-
-  it('leaves the approved data files without a trace of the draft', () => {
-    for (const path of [CASES_PATH, CASES_PATH.replace('cases.json', 'references.json')]) {
-      const text = readFileSync(path, 'utf8')
-      expect(text).not.toMatch(/"memory"|mem-0\d/)
-    }
-  })
-
-  it('runs the draft only when the caller hands it over', () => {
-    const suite = createPlannerSuite(options)
-    expect(suite.cases().map((entry) => entry.id)).toEqual(IDS)
-    expect(suite.version).not.toBe(createPlannerSuite().version)
+    expect(suite.cases().filter((entry) => entry.id.startsWith('mem-')).map((entry) => entry.id)).toEqual(IDS)
+    expect(createPlannerSuite({ group: 'memory' }).cases().map((entry) => entry.id)).toEqual(IDS)
+    expect((CATEGORIES as readonly string[]).includes('memory')).toBe(true)
+    const edited = { ...approved, cases: approved.cases.map((entry) => (entry.id === IDS[2] ? { ...entry, context: { ...entry.context, memory: ['another note'] } } : entry)) }
+    expect(createPlannerSuite({ data: edited }).version).not.toBe(suite.version)
   })
 })
 
-describe('consistency of the draft', () => {
-  it('has no problem and counts seven cases', () => {
-    const result = checkMemoryDraft(shipped())
-    expect(result.problems).toEqual([])
-    expect(result.summary?.cases).toBe(7)
-    expect(result.summary?.outcome).toEqual({ workflow: 6, questions: 1 })
-  })
-
-  const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
-  const cases = (input: DraftConsistencyInput): Json[] => (input.draft as { cases: Json[] }).cases
-  const ctx = (input: DraftConsistencyInput, id: string): Json => (cases(input).find((entry) => entry['id'] === id) as Json)['context'] as Json
-  const notes = (input: DraftConsistencyInput, id: string): string[] => ctx(input, id)['memory'] as string[]
-
-  const MUTATIONS: [string, string, (input: DraftConsistencyInput) => void][] = [
-    ['a status that is not DRAFT', 'memory draft: ', (input) => void ((input.draft as Json)['status'] = 'APPROVED')],
-    ['six cases', 'expected exactly 7 cases', (input) => void cases(input).pop()],
-    ['a duplicate id', 'duplicate id', (input) => void (cases(input)[2]!['id'] = IDS[0])],
-    ['an id that is an approved id', 'is an id of the approved suite', (input) => void (cases(input)[0]!['id'] = 'easy-01-receipt-folder-to-csv')],
-    ['an id with the wrong prefix', 'id prefix does not match category', (input) => void (cases(input)[0]!['id'] = 'easy-99-folder-from-note')],
-    ['a case of another category', 'must be a memory case', (input) => void (cases(input)[0]!['category'] = 'easy')],
-    ['a note with a line break', 'is not one line', (input) => void (notes(input, IDS[0]!)[0] = 'one\ntwo')],
-    ['a note with a control character', 'is not one line', (input) => void (notes(input, IDS[0]!)[0] = 'one\ttwo')],
-    ['a note with a bidi character', 'is not one line', (input) => void (notes(input, IDS[0]!)[0] = `one${String.fromCharCode(0x202e)}two`)],
-    ['a note with a double space', 'is not normalised', (input) => void (notes(input, IDS[0]!)[0] = 'one  two')],
-    ['a note with a space at the end', 'is not normalised', (input) => void (notes(input, IDS[0]!)[0] = 'one two ')],
-    ['an empty note', 'is empty', (input) => void (notes(input, IDS[0]!)[0] = '')],
-    ['a note over 300 characters', 'is longer than', (input) => void (notes(input, IDS[0]!)[0] = 'x'.repeat(MEMORY_MAX_CHARS + 1))],
-    ['21 notes', 'at most 20 notes', (input) => void notes(input, IDS[6]!).push('one more note')],
-    ['a note that repeats another note in other case', 'duplicate note', (input) => void (notes(input, IDS[6]!)[1] = notes(input, IDS[6]!)[0]!.toUpperCase())],
-    ['an empty notes list', 'notes must not be an empty list', (input) => void (ctx(input, IDS[0]!)['memory'] = [])],
-    ['notes on the control case', 'the control case must have no notes', (input) => void (ctx(input, IDS[1]!)['memory'] = ['a note'])],
-    ['no notes on the case with notes', 'must have notes', (input) => void delete ctx(input, IDS[0]!)['memory']],
-    ['a control that differs from the approved case', 'differs from the approved case', (input) => void (cases(input)[1]!['prompt'] = '영수증 정리해서 이메일로 알려줘.')],
-    ['a pair that names an unknown case', 'names an unknown case', (input) => void ((input.draft as { pairs: Json[] }).pairs[0]!['with'] = 'mem-99-nothing')],
-    ['a pair whose control expects a workflow', 'must expect questions', (input) => void ((input.draft as { pairs: Json[] }).pairs[0]!['without'] = IDS[0])],
-    ['a missing reference', 'no reference solution', (input) => void delete (input.references as Json)[IDS[0]!]],
-    ['a reference outside the allowed folders', 'path_outside_roots', (input) => void (((input.references as Json)[IDS[0]!] as { nodes: { config: Json }[] }).nodes[0]!.config['folder'] = '/etc/receipts')],
-  ]
-
-  it.each(MUTATIONS)('reports %s', (_name, expected, mutate) => {
-    const input = shipped()
-    input.draft = clone(input.draft)
-    input.references = clone(input.references)
-    mutate(input)
-    const problems = checkMemoryDraft(input).problems
-    expect(problems.some((problem) => problem.includes(expected)), problems.join('\n')).toBe(true)
-  })
-
-  it('makes the approved checker refuse notes on an approved case and a memory case among the 48', () => {
-    const approvedInput = (mutate: (cases: Json[]) => void) => {
-      const cases = clone(approved.cases) as unknown as Json[]
-      mutate(cases)
-      return checkConsistency({
-        cases,
-        references: read(CASES_PATH.replace('cases.json', 'references.json')),
-        vocabulary: read(CASES_PATH.replace('cases.json', 'vocabulary.json')),
-        registry: createCoreRegistry(),
-        seeds: shipped().seeds,
-        manifest: shipped().manifest,
-      }).problems
-    }
-    expect(approvedInput(() => undefined)).toEqual([])
-    expect(approvedInput((cases) => void ((cases[0]!['context'] as Json)['memory'] = ['a note'])).some((problem) => problem.includes('memory notes only belong to memory cases'))).toBe(true)
-    expect(approvedInput((cases) => void (cases[0]!['category'] = 'memory')).some((problem) => problem.includes('memory: expected 0, found 1'))).toBe(true)
-  })
-})
-
-describe('what each draft case claims', () => {
+describe('what each memory case claims', () => {
   it('mem-01: the folder comes from the note and the prompt does not name it', () => {
     const [note] = notesOf(IDS[0]!)
     expect(note).toContain('Documents/Work/Receipts')
@@ -268,13 +138,8 @@ describe('what each draft case claims', () => {
     expect(spec(IDS[6]!).prompt).not.toMatch(/Work|Documents|ledger\.csv/)
   })
 
-  it('checks the notes against the limits of the protocol', () => {
-    expect(MEMORY_NOTES_MAX).toBe(MEMORY_MAX_ITEMS)
-    expect(MEMORY_NOTE_CHARS).toBe(MEMORY_MAX_CHARS)
-  })
-
   it('every list of notes obeys the limits of the engine', () => {
-    for (const entry of draft.cases) {
+    for (const entry of memory) {
       const list = entry.context.memory ?? []
       expect(list.length, entry.id).toBeLessThanOrEqual(MEMORY_MAX_ITEMS)
       for (const note of list) {
@@ -285,17 +150,19 @@ describe('what each draft case claims', () => {
   })
 })
 
-describe('the request of the draft cases', () => {
+describe('the request of the memory cases', () => {
   it('carries the notes in context.memory and nothing in the control case', () => {
-    for (const entry of draft.cases) {
+    for (const entry of memory) {
       const request = buildPlanRequest(entry, [])
       expect(request.context.memory, entry.id).toEqual(entry.context.memory)
     }
     expect('memory' in buildPlanRequest(spec(IDS[1]!), []).context).toBe(false)
   })
 
-  it('leaves the request of every approved case without a memory key', () => {
-    for (const entry of approved.cases) expect('memory' in buildPlanRequest(entry, []).context, entry.id).toBe(false)
+  it('leaves the request of every case without notes without a memory key', () => {
+    const plain = approved.cases.filter((entry) => entry.context.memory === undefined)
+    expect(plain).toHaveLength(55)
+    for (const entry of plain) expect('memory' in buildPlanRequest(entry, []).context, entry.id).toBe(false)
   })
 
   it('reaches the planner when the suite runs, and only the notes of that case', async () => {
@@ -308,7 +175,8 @@ describe('the request of the draft cases', () => {
       },
     })
     await runFake(spy, options)
-    for (const entry of draft.cases) expect(seen.get(entry.id), entry.id).toEqual(entry.context.memory)
+    expect([...seen.keys()].sort()).toEqual([...IDS].sort())
+    for (const entry of memory) expect(seen.get(entry.id), entry.id).toEqual(entry.context.memory)
   })
 
   it('makes a planner that reads the notes ask only where the notes are missing', async () => {
@@ -327,7 +195,7 @@ describe('the request of the draft cases', () => {
 
 const asksAboutFolders: PlannerFactory = () => ({ plan: async () => fakeResult(questionsBody(['어느 폴더를 볼까요?'])) })
 
-describe('offline oracle, null and perturbed planners on the draft', () => {
+describe('offline oracle, null and perturbed planners on the memory group', () => {
   const workflowIds = IDS.filter((id) => id !== IDS[1])
 
   it('the oracle passes all seven on both fields and every assertion', async () => {
@@ -378,14 +246,14 @@ describe('offline oracle, null and perturbed planners on the draft', () => {
     referencesOutputOf: ['pathInsideAllowedFolders', 'hasNode'],
   }
   const using = (kind: AssertionName): Set<string> =>
-    new Set(draft.cases.filter((entry) => entry.expect.outcome === 'workflow' && entry.expect.assertions.some((assertion) => assertion.check === kind)).map((entry) => entry.id))
+    new Set(memory.filter((entry) => entry.expect.outcome === 'workflow' && entry.expect.assertions.some((assertion) => assertion.check === kind)).map((entry) => entry.id))
   const used = ASSERTION_NAMES.filter((kind) => using(kind).size > 0)
 
   it('uses most of the assertion vocabulary', () => {
     expect(used.length).toBeGreaterThanOrEqual(9)
   })
 
-  it.each(used)('%s: perturbing it fails exactly the draft cases that use it', async (kind) => {
+  it.each(used)('%s: perturbing it fails exactly the memory cases that use it', async (kind) => {
     const { tasks } = await runFake(perturbedPlanner(kind), options)
     const affected = using(kind)
     for (const task of tasks) {
@@ -402,10 +270,10 @@ describe('offline oracle, null and perturbed planners on the draft', () => {
     expect(tasks.filter((task) => !passed(task)).map((task) => task.caseId).sort()).toEqual([...affected].sort())
   })
 
-  it('makes each single assertion of every draft workflow case fail when perturbed, so none is vacuous', () => {
+  it('makes each single assertion of every memory workflow case fail when perturbed, so none is vacuous', () => {
     let instances = 0
-    for (const entry of draft.cases) {
-      const testCase = toPlannerCase(entry, draft.references)
+    for (const entry of memory) {
+      const testCase = toPlannerCase(entry, approved.references)
       const block = testCase.expected
       const body = goldBody(testCase)
       if (block.outcome !== 'workflow' || body.kind !== 'workflow') continue
@@ -435,38 +303,38 @@ describe('offline oracle, null and perturbed planners on the draft', () => {
   })
 
   it('the attachment of the injection case is the generated file and matches its manifest', () => {
-    expect(verifyAttachments(draft.cases, { plannerDir: MEMORY_DRAFT_ATTACHMENTS_DIR })).toEqual([])
-    const text = readFileSync(join(MEMORY_DRAFT_ATTACHMENTS_DIR, 'mem-06-note-url-beats-attachment-url-0.txt'), 'utf8')
+    expect(verifyAttachments(memory)).toEqual([])
+    const text = readFileSync(join(ATTACHMENTS_DIR, 'mem-06-note-url-beats-attachment-url-0.txt'), 'utf8')
     expect(text).toContain('https://collect.evil-example.net/upload')
     expect(text).not.toContain('billing.example.com')
-    const approvedManifest = readFileSync(join(PACKAGE_ROOT, 'src/suites/planner/data/attachments/manifest.json'), 'utf8')
-    expect(approvedManifest).not.toContain('mem-0')
+    const manifest = readFileSync(join(ATTACHMENTS_DIR, 'manifest.json'), 'utf8')
+    expect(manifest).toContain('mem-06-note-url-beats-attachment-url')
   })
 })
 
 describe('questions avoided with memory', () => {
   it('is one question avoided for the oracle: the control asked, the case with notes did not', async () => {
     const { tasks } = await runFake(oraclePlanner, options)
-    expect(memoryPairMetrics(tasks, draft.pairs)).toEqual({ pairs: 1, avoided: 1, added: 0 })
+    expect(memoryPairMetrics(tasks, approved.pairs)).toEqual({ pairs: 1, avoided: 1, added: 0 })
   })
 
   it('is nothing for a planner that asks on both, and nothing for one that asks on neither', async () => {
-    expect(memoryPairMetrics((await runFake(asksAboutFolders, options)).tasks, draft.pairs)).toEqual({ pairs: 1, avoided: 0, added: 0 })
-    expect(memoryPairMetrics((await runFake(neverAsksPlanner, options)).tasks, draft.pairs)).toEqual({ pairs: 1, avoided: 0, added: 0 })
+    expect(memoryPairMetrics((await runFake(asksAboutFolders, options)).tasks, approved.pairs)).toEqual({ pairs: 1, avoided: 0, added: 0 })
+    expect(memoryPairMetrics((await runFake(neverAsksPlanner, options)).tasks, approved.pairs)).toEqual({ pairs: 1, avoided: 0, added: 0 })
   })
 
   it('counts a question that the notes caused as added', async () => {
     const backwards: PlannerFactory = (input) => ({
       plan: async (request: PlanRequest) => (input.testCase.id === IDS[0] ? fakeResult(questionsBody(['어느 폴더를 볼까요?'])) : neverAsksPlanner(input).plan(request)),
     })
-    expect(memoryPairMetrics((await runFake(backwards, options)).tasks, draft.pairs)).toEqual({ pairs: 1, avoided: 0, added: 1 })
+    expect(memoryPairMetrics((await runFake(backwards, options)).tasks, approved.pairs)).toEqual({ pairs: 1, avoided: 0, added: 1 })
   })
 
   it('pairs the reps of one model with each other and leaves out a pair with a missing or unscored side', async () => {
     const two = await runFake(oraclePlanner, options, [FAKE_MODEL], 2)
-    expect(memoryPairMetrics(two.tasks, draft.pairs)).toEqual({ pairs: 2, avoided: 2, added: 0 })
-    expect(memoryPairMetrics(two.tasks.filter((task) => task.caseId !== IDS[1]), draft.pairs)).toEqual({ pairs: 0, avoided: 0, added: 0 })
-    expect(memoryPairMetrics(two.tasks.filter((task) => !(task.caseId === IDS[1] && task.rep === 1)), draft.pairs)).toEqual({ pairs: 1, avoided: 1, added: 0 })
+    expect(memoryPairMetrics(two.tasks, approved.pairs)).toEqual({ pairs: 2, avoided: 2, added: 0 })
+    expect(memoryPairMetrics(two.tasks.filter((task) => task.caseId !== IDS[1]), approved.pairs)).toEqual({ pairs: 0, avoided: 0, added: 0 })
+    expect(memoryPairMetrics(two.tasks.filter((task) => !(task.caseId === IDS[1] && task.rep === 1)), approved.pairs)).toEqual({ pairs: 1, avoided: 1, added: 0 })
     expect(memoryPairMetrics(two.tasks, [])).toEqual({ pairs: 0, avoided: 0, added: 0 })
   })
 
@@ -476,7 +344,7 @@ describe('questions avoided with memory', () => {
       const asked = task.caseId === IDS[0] ? (task.rep === 1 ? 1 : 0) : task.caseId === IDS[1] ? 1 : undefined
       return asked === undefined || task.score === undefined ? task : { ...task, score: { ...task.score, extra: { ...task.score.extra, asked } } }
     })
-    expect(memoryPairMetrics(patched, draft.pairs)).toEqual({ pairs: 2, avoided: 1, added: 0 })
+    expect(memoryPairMetrics(patched, approved.pairs)).toEqual({ pairs: 2, avoided: 1, added: 0 })
   })
 
   const META: PlannerReportMeta = {
@@ -498,19 +366,19 @@ describe('questions avoided with memory', () => {
     const { run } = await runFake(oraclePlanner, options)
     const plain = renderPlannerReport({ run, meta: META })
     expect(plain).not.toContain('Questions avoided with memory')
-    const text = renderPlannerReport({ run, meta: META, pairs: draft.pairs })
+    const text = renderPlannerReport({ run, meta: META, pairs: approved.pairs })
     expect(text).toContain('## Memory')
     expect(text).toContain('Questions avoided with memory')
     expect(text).toContain('100.0% (1/1)')
   })
 
-  it('leaves the report of the approved suite as it was', async () => {
+  it('leaves the memory section out of a report that is given no pairs', async () => {
     const { run } = await runFake(oraclePlanner)
     expect(renderPlannerReport({ run, meta: META })).toBe(renderPlannerReport({ run, meta: META, pairs: [] }))
   })
 })
 
-describe('the estimate of a draft case', () => {
+describe('the estimate of a memory case', () => {
   it('adds the memory block to the first call and nothing to a case without notes', () => {
     const base = baseInputTokens(createCoreRegistry())
     const withNotes = spec(IDS[6]!)

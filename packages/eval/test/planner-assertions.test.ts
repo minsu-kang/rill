@@ -319,21 +319,32 @@ const degenerate: Workflow = wf([node('t1', 'trigger.manual@1')])
 
 describe('parity with the reference evaluator (plannercases/assertions.mjs)', () => {
   const judge = (c: CaseSpec, produced: Produced): string => bitsOf(evaluateExpectation({ expect: c.expect, context: c.context }, produced))
+  const recorded = data.cases.filter((c) => GOLDEN.matrix[c.id] !== undefined)
+  const recordedKeys = Object.keys(Object.values(GOLDEN.matrix)[0] ?? {})
+
+  it('has a recorded verdict for the 47 cases that kept their place and for all 30 original references', () => {
+    expect(recorded).toHaveLength(47)
+    expect(data.cases.filter((c) => GOLDEN.matrix[c.id] === undefined)).toHaveLength(14)
+    expect(recordedKeys).toHaveLength(30)
+    expect(recordedKeys.every((key) => data.references[key] !== undefined)).toBe(true)
+    expect(Object.keys(GOLDEN.matrix).filter((id) => !recorded.some((c) => c.id === id))).toEqual(['unsup-02-google-sheets'])
+  })
 
   it('gives the recorded verdict on every case x reference pair', () => {
     let pairs = 0
-    for (const c of data.cases) {
-      for (const [key, workflow] of Object.entries(data.references)) {
+    for (const c of recorded) {
+      for (const key of recordedKeys) {
+        const workflow = data.references[key] as Workflow
         expect(judge(c, { outcome: 'workflow', workflow }), `${c.id} x ${key}`).toBe(GOLDEN.matrix[c.id]?.[key])
         pairs += 1
       }
     }
-    expect(pairs).toBe(48 * 30)
+    expect(pairs).toBe(47 * 30)
     expect(Object.values(GOLDEN.matrix).flatMap((row) => Object.values(row)).filter((v) => !v.startsWith('m-1'))).toHaveLength(75)
   })
 
   it('gives the recorded verdict on synthetic questions and refusals', () => {
-    for (const c of data.cases) {
+    for (const c of recorded) {
       const blocks = [c.expect, ...(c.expect.alsoAccept ?? [])]
       const out: Record<string, string> = {
         emptyQuestions: judge(c, { outcome: 'questions', questions: [] }),
@@ -365,7 +376,7 @@ describe('parity with the reference evaluator (plannercases/assertions.mjs)', ()
 
   it('gives the recorded verdict when each node of a reference is removed', () => {
     let checked = 0
-    for (const c of data.cases) {
+    for (const c of recorded) {
       if (c.expect.outcome !== 'workflow') continue
       const reference = data.references[c.id] as Workflow
       const recorded = GOLDEN.mutations[c.id] ?? {}

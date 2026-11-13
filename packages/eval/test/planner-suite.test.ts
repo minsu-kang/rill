@@ -64,15 +64,46 @@ const caseIn = (suite: ReturnType<typeof createPlannerSuite>, id: string) => {
 }
 
 describe('createPlannerSuite: selection', () => {
-  it('has the 48 cases, five groups and a stable version', () => {
+  it('has the 61 approved cases, six groups and a stable version', () => {
     const suite = createPlannerSuite()
     expect(suite.name).toBe(PLANNER_SUITE_NAME)
-    expect(suite.cases()).toHaveLength(48)
+    expect(suite.cases()).toHaveLength(61)
     expect(suite.fields).toEqual(['outcome', 'checks'])
-    expect(suite.workflowCases()).toHaveLength(30)
-    expect(new Set(suite.cases().map((entry) => entry.group))).toEqual(new Set(['easy', 'ambiguous', 'unsupported', 'attachment', 'patch']))
+    expect(suite.workflowCases()).toHaveLength(43)
+    expect(new Set(suite.cases().map((entry) => entry.group))).toEqual(new Set(['easy', 'ambiguous', 'unsupported', 'attachment', 'patch', 'memory']))
+    expect(suite.cases().map((entry) => entry.id)).toEqual(data.cases.map((entry) => entry.id))
     expect(createPlannerSuite().version).toBe(suite.version)
     expect(suite.version).toMatch(/^1\.1-p\d{8}-[0-9a-f]{12}-[0-9a-f]{12}-[0-9a-f]{12}$/)
+  })
+  it('loads the memory cases, the cases of the new nodes and the Slack cases by default, and no longer the refusal of Google Sheets', () => {
+    const ids = createPlannerSuite().cases().map((entry) => entry.id)
+    for (const id of [
+      'easy-21-slack-channel-named',
+      'easy-22-slack-no-channel-named',
+      'attach-07-slack-channel-in-attachment',
+      'easy-23-google-sheet-row',
+      'easy-24-excel-file-and-table',
+      'attach-08-spreadsheet-id-in-attachment',
+      'easy-25-google-sheet-one-connection',
+      'mem-01-folder-from-note',
+      'mem-07-one-of-twenty-notes',
+    ]) {
+      expect(ids, id).toContain(id)
+    }
+    expect(ids).not.toContain('unsup-02-google-sheets')
+    expect(createPlannerSuite({ group: 'memory' }).cases()).toHaveLength(7)
+    expect(createPlannerSuite({ group: 'unsupported' }).cases()).toHaveLength(7)
+    expect(createPlannerSuite({ group: 'easy' }).cases()).toHaveLength(25)
+    expect(createPlannerSuite({ group: 'attachment' }).cases()).toHaveLength(8)
+  })
+  it('hands the memory pair to the report only when both of its cases are selected', () => {
+    const pair = { with: 'mem-01-folder-from-note', without: 'mem-02-same-request-without-memory', reuses: 'ambig-01-which-folder' }
+    expect(createPlannerSuite().pairs).toEqual([pair])
+    expect(createPlannerSuite({ group: 'memory' }).pairs).toEqual([pair])
+    expect(createPlannerSuite({ only: [pair.with, pair.without] }).pairs).toEqual([pair])
+    expect(createPlannerSuite({ group: 'easy' }).pairs).toEqual([])
+    expect(createPlannerSuite({ only: pair.with }).pairs).toEqual([])
+    expect(createPlannerSuite({ data: { ...data, pairs: [] } }).pairs).toEqual([])
   })
   it('changes the version when the case data changes', () => {
     const changed = { ...data, cases: data.cases.map((entry, index) => (index === 0 ? { ...entry, prompt: `${entry.prompt}!` } : entry)) }
@@ -80,7 +111,7 @@ describe('createPlannerSuite: selection', () => {
   })
   it('filters by group, by exact id, by id substring and by list', () => {
     expect(createPlannerSuite({ group: 'patch' }).cases()).toHaveLength(4)
-    expect(createPlannerSuite({ group: ['patch', 'attachment'] }).cases()).toHaveLength(10)
+    expect(createPlannerSuite({ group: ['patch', 'attachment'] }).cases()).toHaveLength(12)
     expect(createPlannerSuite({ only: 'patch-01-change-schedule' }).cases().map((entry) => entry.id)).toEqual(['patch-01-change-schedule'])
     expect(createPlannerSuite({ only: 'ambig-0' }).cases()).toHaveLength(9)
     expect(createPlannerSuite({ only: 'webhook-to-slack' }).cases().map((entry) => entry.id)).toEqual(['easy-03-webhook-to-slack'])
@@ -88,7 +119,7 @@ describe('createPlannerSuite: selection', () => {
     expect(createPlannerSuite({ group: 'easy', only: 'easy-0' }).cases()).toHaveLength(9)
   })
   it('refuses an unknown group, an unknown id and an empty match', () => {
-    expect(() => createPlannerSuite({ group: 'nope' })).toThrow('unknown group: nope; groups are easy, ambiguous, unsupported, attachment, patch')
+    expect(() => createPlannerSuite({ group: 'nope' })).toThrow('unknown group: nope; groups are easy, ambiguous, unsupported, attachment, patch, memory')
     expect(() => createPlannerSuite({ only: ['nope-01'] })).toThrow('unknown case id: nope-01')
     expect(() => createPlannerSuite({ only: 'zzz' })).toThrow('no case id contains "zzz"')
     expect(() => createPlannerSuite({ group: 'patch', only: 'easy' })).toThrow('no case id contains "easy"')

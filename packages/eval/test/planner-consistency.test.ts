@@ -2,9 +2,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createCoreRegistry } from '@rill/nodes-core'
 import { describe, expect, it } from 'vitest'
+import { MEMORY_MAX_CHARS, MEMORY_MAX_ITEMS } from '../../protocol/src/index'
 import { PACKAGE_ROOT } from '../src/results'
-import { CASES_PATH, REFERENCES_PATH, VOCABULARY_PATH } from '../src/suites/planner/cases'
-import { PENDING_REAPPROVAL, checkConsistency, type ConsistencyInput } from '../src/suites/planner/consistency'
+import { CASES_PATH, PAIRS_PATH, REFERENCES_PATH, VOCABULARY_PATH } from '../src/suites/planner/cases'
+import { LONG_WHY, MEMORY_NOTES_MAX, MEMORY_NOTE_CHARS, OPEN_TRIGGER, PENDING_REAPPROVAL, checkConsistency, type ConsistencyInput } from '../src/suites/planner/consistency'
 
 type Json = Record<string, unknown>
 
@@ -15,6 +16,7 @@ function shipped(): ConsistencyInput {
   return {
     cases: read(CASES_PATH),
     references: read(REFERENCES_PATH),
+    pairs: read(PAIRS_PATH),
     vocabulary: read(VOCABULARY_PATH),
     registry: createCoreRegistry(),
     seeds: read(join(PACKAGE_ROOT, 'src/suites/extract/data/seeds.json')) as { id: string }[],
@@ -23,17 +25,19 @@ function shipped(): ConsistencyInput {
   }
 }
 
-interface Draft {
+interface Mutable {
   input: ConsistencyInput
   cases: Json[]
   refs: Json
+  pairs: Json[]
+  notes(id: string): string[]
   c(id: string): Json
   expectOf(id: string): Json
   assertions(id: string): Json[]
   context(id: string): Json
 }
 
-function draft(): Draft {
+function mutable(): Mutable {
   const input = shipped()
   const cases = input.cases as Json[]
   const refs = input.references as Json
@@ -46,6 +50,8 @@ function draft(): Draft {
     input,
     cases,
     refs,
+    pairs: input.pairs as Json[],
+    notes: (id) => (byId(id)['context'] as Json)['memory'] as string[],
     c: byId,
     expectOf: (id) => byId(id)['expect'] as Json,
     assertions: (id) => (byId(id)['expect'] as Json)['assertions'] as Json[],
@@ -61,12 +67,17 @@ const PATCH = 'patch-01-change-schedule'
 const ATTACH = 'attach-01-sample-pdf-extract-to-csv'
 const SLACK = 'easy-03-webhook-to-slack'
 const BRANCH = 'easy-04-large-receipt-branch'
+const MEM = 'mem-01-folder-from-note'
+const CONTROL = 'mem-02-same-request-without-memory'
+const FULL_LIST = 'mem-07-one-of-twenty-notes'
+const OPEN = 'easy-25-google-sheet-one-connection'
+const LONG = 'easy-22-slack-no-channel-named'
 
-const withAssertion = (d: Draft, id: string, assertion: Json): void => {
+const withAssertion = (d: Mutable, id: string, assertion: Json): void => {
   d.assertions(id).push(assertion)
 }
 
-const MUTATIONS: [string, string, (d: Draft) => void][] = [
+const MUTATIONS: [string, string, (d: Mutable) => void][] = [
   ['a case with an unknown key', 'cases.json: ', (d) => void (d.c(EASY)['extra'] = 1)],
   ['a case without why', 'cases.json: ', (d) => void delete d.expectOf(EASY)['why']],
   ['a duplicate id', 'duplicate id', (d) => void (d.c(EASY_CSV)['id'] = EASY)],
@@ -144,10 +155,10 @@ const MUTATIONS: [string, string, (d: Draft) => void][] = [
   ['an unsupported block inventing a real type', 'is a real catalog type', (d) => void (d.expectOf(UNSUP)['mustNotInvent'] = ['kakao.send@1', 'delay@1'])],
   ['an unsupported block with a malformed invented type', 'is not a well-formed node type', (d) => void (d.expectOf(UNSUP)['mustNotInvent'] = ['kakao.send@1', 'Kakao'])],
   ['an empty alsoAccept', 'alsoAccept must be a non-empty array', (d) => void (d.expectOf(UNSUP)['alsoAccept'] = [])],
-  ['a missing case', 'expected exactly 48 cases', (d) => void d.cases.pop()],
+  ['a missing case', 'expected exactly 61 cases', (d) => void d.cases.pop()],
   ['a changed category count', 'counts: ', (d) => void (d.c(EASY)['category'] = 'patch')],
   ['too few hard prompts', 'need at least 6 hard prompts', (d) => d.cases.forEach((entry) => void delete entry['tags'])],
-  ['too few Korean prompts', 'most prompts should be Korean', (d) => d.cases.slice(0, 20).forEach((entry) => void (entry['language'] = 'en'))],
+  ['too few Korean prompts', 'most prompts should be Korean', (d) => d.cases.slice(0, 40).forEach((entry) => void (entry['language'] = 'en'))],
   ['an effort that is rarely used', 'effort low is used only', (d) => d.cases.forEach((entry) => void (entry['effort'] = 'medium'))],
   ['too few easy over-ask cases', 'need at least 3 easy over-ask cases', (d) => d.cases.forEach((entry) => void (entry['tags'] = ((entry['tags'] as string[] | undefined) ?? []).filter((tag) => tag !== 'over-ask')))],
   ['an assertion missing from the vocabulary', 'missing hasRetry', (d) => void delete ((d.input.vocabulary as Json)['assertions'] as Json)['hasRetry']],
@@ -225,27 +236,49 @@ const MUTATIONS: [string, string, (d: Draft) => void][] = [
       ;(ref['edges'] as Json[]).push({ from: 'n1', to: 'n9' })
     },
   ],
+  ['a memory case with the id prefix of another category', 'id prefix does not match category', (d) => void (d.c(MEM)['id'] = 'easy-99-folder-from-note')],
+  ['a note with a line break', 'is not one line', (d) => void (d.notes(MEM)[0] = 'one\ntwo')],
+  ['a note with a control character', 'is not one line', (d) => void (d.notes(MEM)[0] = 'one\ttwo')],
+  ['a note with a bidi character', 'is not one line', (d) => void (d.notes(MEM)[0] = `one${String.fromCharCode(0x202e)}two`)],
+  ['a note with a double space', 'is not normalised', (d) => void (d.notes(MEM)[0] = 'one  two')],
+  ['a note with a space at the end', 'is not normalised', (d) => void (d.notes(MEM)[0] = 'one two ')],
+  ['an empty note', 'is empty', (d) => void (d.notes(MEM)[0] = '')],
+  ['a note over the character limit', 'is longer than', (d) => void (d.notes(MEM)[0] = 'x'.repeat(MEMORY_NOTE_CHARS + 1))],
+  ['more notes than the limit', 'at most 20 notes', (d) => void d.notes(FULL_LIST).push('one more note')],
+  ['a note that repeats another note in other case', 'duplicate note', (d) => void (d.notes(FULL_LIST)[1] = d.notes(FULL_LIST)[0]!.toUpperCase())],
+  ['an empty notes list', 'notes must not be an empty list', (d) => void (d.context(MEM)['memory'] = [])],
+  ['notes on the control case', 'the control case must have no notes', (d) => void (d.context(CONTROL)['memory'] = ['a note'])],
+  ['no notes on a memory case that is not a control', 'must be the control of a pair', (d) => void delete d.context(MEM)['memory']],
+  ['a control that differs from the case it reuses', 'the control differs from the case', (d) => void (d.c(CONTROL)['prompt'] = '영수증 정리해서 이메일로 알려줘.')],
+  ['a pair that names an unknown case', 'names an unknown case', (d) => void (d.pairs[0]!['with'] = 'mem-99-nothing')],
+  ['a pair whose control expects a workflow', 'the control must expect questions', (d) => void (d.pairs[0]!['without'] = MEM)],
+  ['a pair whose case with notes expects questions', 'the case with notes must expect a workflow', (d) => void (d.pairs[0]!['with'] = CONTROL)],
+  ['a pair that reuses a case that is not ambiguous', 'which is not an ambiguous case', (d) => void (d.pairs[0]!['reuses'] = EASY)],
+  ['a pair of two cases that differ by more than the notes', 'differ by more than the notes', (d) => void (d.c(MEM)['prompt'] = '영수증 정리해줘.')],
+  ['a pair with a case outside the memory category', 'a pair is made of two memory cases', (d) => void (d.pairs[0]!['without'] = ASK)],
+  ['a reference of a memory case outside the allowed folders', 'path_outside_roots', (d) => void ((((d.refs[MEM] as Json)['nodes'] as Json[])[0] as Json)['config'] = { folder: '/etc/receipts' })],
+  ['a memory case that expects a workflow without a reference', 'no reference solution in references.json', (d) => void delete d.refs[MEM]],
 ]
 
 describe('shipped planner data', () => {
-  it('is consistent: no problems, the documented shape and every catalog node but transform and the two spreadsheet nodes used', () => {
+  it('is consistent: no problems, the documented shape and every catalog node but transform used', () => {
     const result = checkConsistency(shipped())
     expect(result.problems).toEqual([])
     expect(result.summary).toMatchObject({
-      cases: 48,
-      category: { easy: 20, ambiguous: 10, unsupported: 8, attachment: 6, patch: 4 },
-      language: { ko: 37, en: 6, mixed: 5 },
-      effort: { low: 18, medium: 18, high: 12 },
-      outcome: { workflow: 30, questions: 10, unsupported: 8 },
+      cases: 61,
+      category: { easy: 25, ambiguous: 10, unsupported: 7, attachment: 8, patch: 4, memory: 7 },
+      language: { ko: 48, en: 8, mixed: 5 },
+      effort: { low: 22, medium: 24, high: 15 },
+      outcome: { workflow: 43, questions: 11, unsupported: 7 },
       hard: 11,
-      references: 30,
-      unusedTypes: ['transform@1', 'google.sheets.append@1', 'microsoft.excel.append@1'],
+      references: 43,
+      unusedTypes: ['transform@1'],
     })
-    expect(result.summary?.coveredTypes).toHaveLength(11)
+    expect(result.summary?.coveredTypes).toHaveLength(13)
   })
 
   it.each(MUTATIONS)('detects %s', (_name, expected, mutate) => {
-    const d = draft()
+    const d = mutable()
     mutate(d)
     const { problems } = checkConsistency(d.input)
     expect(problems.some((problem) => problem.includes(expected)), problems.join('\n')).toBe(true)
@@ -260,30 +293,113 @@ describe('shipped planner data', () => {
     expect(checkConsistency(gone).problems.join('\n')).toContain('fixture file missing on disk: pdf/easy-ko-cafe-yeonnam.pdf')
   })
 
-  it('accepts the approved refusal of Google Sheets only as a pending decision', () => {
-    expect(checkConsistency(shipped()).problems).toEqual([])
-    expect(PENDING_REAPPROVAL).toEqual({ 'unsup-02-google-sheets': expect.stringContaining('google.sheets.append@1') })
+  it('has no refusal that waits for a decision, because the Google Sheets refusal became a workflow case', () => {
+    expect(PENDING_REAPPROVAL).toEqual({})
+    const ids = (shipped().cases as Json[]).map((entry) => entry['id'])
+    expect(ids).not.toContain('unsup-02-google-sheets')
+    expect(ids).toContain(OPEN)
+  })
+
+  it('accepts a refusal that a node now covers when it is listed as a pending decision', () => {
+    const d = mutable()
+    d.expectOf(UNSUP)['mustMention'] = [['slack message', 'slack']]
+    d.input.pending = { [UNSUP]: 'notify.slack@1 now covers it' }
+    expect(checkConsistency(d.input).problems).toEqual([])
   })
 
   it('reports an unsupported case that a node of the catalog now covers', () => {
-    const d = draft()
+    const d = mutable()
     d.expectOf(UNSUP)['mustMention'] = [['slack message', 'slack']]
     expect(checkConsistency(d.input).problems.join('\n')).toContain(`${UNSUP}: expects a refusal, but notify.slack@1 ("Slack message") now covers it`)
-    const alias = draft()
+    const alias = mutable()
     alias.expectOf(UNSUP)['alsoAccept'] = [{ outcome: 'unsupported', mustMention: [['EXCEL']], mustNotInvent: ['xl.append@1', 'xl.write@1'] }]
     expect(checkConsistency(alias.input).problems.join('\n')).toContain(`${UNSUP}: expects a refusal, but microsoft.excel.append@1 ("Append row to Excel") now covers it`)
   })
 
   it('reports a pending decision that the catalog no longer needs', () => {
-    const d = draft()
-    d.expectOf('unsup-02-google-sheets')['mustMention'] = [['an app that does not exist']]
-    expect(checkConsistency(d.input).problems.join('\n')).toContain('unsup-02-google-sheets: waits for a decision that the catalog no longer needs')
+    const d = mutable()
+    d.input.pending = { [UNSUP]: 'a node used to cover it' }
+    expect(checkConsistency(d.input).problems.join('\n')).toContain(`${UNSUP}: waits for a decision that the catalog no longer needs`)
   })
 
   it('reports a pending decision that names no case', () => {
-    const d = draft()
-    d.cases.splice(d.cases.findIndex((entry) => entry['id'] === 'unsup-02-google-sheets'), 1)
-    expect(checkConsistency(d.input).problems.join('\n')).toContain('unsup-02-google-sheets: waits for a decision but is not a case')
+    const d = mutable()
+    d.input.pending = { 'unsup-99-nothing': 'a node covers it' }
+    expect(checkConsistency(d.input).problems.join('\n')).toContain('unsup-99-nothing: waits for a decision but is not a case')
+  })
+
+  it('lets only the Google Sheets case leave the trigger open, because the request names none', () => {
+    expect(Object.keys(OPEN_TRIGGER)).toEqual([OPEN])
+    const d = mutable()
+    expect(d.assertions(OPEN).some((assertion) => assertion['check'] === 'hasTrigger' || String(assertion['type']).startsWith('trigger.'))).toBe(false)
+    expect(checkConsistency(d.input).problems).toEqual([])
+    const unlisted = mutable()
+    unlisted.input.openTrigger = {}
+    expect(checkConsistency(unlisted.input).problems.join('\n')).toContain(`${OPEN}.expect: workflow expectations must pin the trigger`)
+  })
+
+  it('reports a case that is listed as leaving the trigger open but pins one, or is not a case', () => {
+    const pinned = mutable()
+    pinned.assertions(OPEN).push({ check: 'hasTrigger', type: 'trigger.folderWatch@1' })
+    expect(checkConsistency(pinned.input).problems.join('\n')).toContain(`${OPEN}: is listed as leaving the trigger open but pins one`)
+    const listed = mutable()
+    listed.input.openTrigger = { [EASY]: 'a reason', 'easy-99-nothing': 'a reason' }
+    const problems = checkConsistency(listed.input).problems.join('\n')
+    expect(problems).toContain(`${EASY}: is listed as leaving the trigger open but pins one`)
+    expect(problems).toContain('easy-99-nothing: is listed as leaving the trigger open but is not a case')
+  })
+
+  it('lets only four approved cases keep a why of two sentences', () => {
+    expect(Object.keys(LONG_WHY).sort()).toEqual(
+      ['attach-07-slack-channel-in-attachment', 'attach-08-spreadsheet-id-in-attachment', 'easy-22-slack-no-channel-named', 'easy-23-google-sheet-row'].sort(),
+    )
+    for (const id of Object.keys(LONG_WHY)) expect(/[.!?]\s+[A-Z]/.test((mutable().expectOf(id)['why'] as string)), id).toBe(true)
+    const unlisted = mutable()
+    unlisted.input.longWhy = {}
+    const problems = checkConsistency(unlisted.input).problems
+    expect(problems.filter((problem) => problem.includes('why must be one sentence'))).toHaveLength(4)
+  })
+
+  it('reports a case that is listed as keeping a long why but has one sentence, or is not a case', () => {
+    const d = mutable()
+    d.expectOf(LONG)['why'] = 'The user names no channel, so the default channel of the connection is used.'
+    d.input.longWhy = { [LONG]: 'a reason', 'easy-99-nothing': 'a reason' }
+    const problems = checkConsistency(d.input).problems.join('\n')
+    expect(problems).toContain(`${LONG}: is listed as having a long why but its why is one sentence`)
+    expect(problems).toContain('easy-99-nothing: is listed as having a long why but is not a case')
+  })
+
+  it('keeps the other new cases to one sentence of at most 420 characters', () => {
+    const d = mutable()
+    for (const id of [OPEN, 'easy-21-slack-channel-named', 'easy-24-excel-file-and-table']) {
+      const why = d.expectOf(id)['why'] as string
+      expect(why.length, id).toBeLessThanOrEqual(420)
+      expect(/[.!?]\s+[A-Z]/.test(why), id).toBe(false)
+    }
+  })
+
+  it('stops at the schema when the pairs are not a list of pairs', () => {
+    const input = shipped()
+    input.pairs = { nope: true }
+    const result = checkConsistency(input)
+    expect(result.summary).toBeUndefined()
+    expect(result.problems[0]).toMatch(/^pairs\.json: /)
+    input.pairs = [{ with: MEM, without: CONTROL }]
+    expect(checkConsistency(input).problems[0]).toMatch(/^pairs\.json: /)
+  })
+
+  it('checks the notes against the limits of the engine', () => {
+    expect(MEMORY_NOTES_MAX).toBe(MEMORY_MAX_ITEMS)
+    expect(MEMORY_NOTE_CHARS).toBe(MEMORY_MAX_CHARS)
+  })
+
+  it('refuses notes on a case that is not a memory case, and counts a memory case that was moved away', () => {
+    const notes = mutable()
+    notes.context(EASY)['memory'] = ['a note']
+    expect(checkConsistency(notes.input).problems.some((problem) => problem.includes('memory notes only belong to memory cases'))).toBe(true)
+    const moved = mutable()
+    moved.c(EASY)['category'] = 'memory'
+    expect(checkConsistency(moved.input).problems.some((problem) => problem.includes('memory: expected 7, found 8'))).toBe(true)
   })
 
   it('detects a catalog that differs from the evaluator', () => {
@@ -306,7 +422,7 @@ describe('shipped planner data', () => {
   })
 
   it('reports a reference whose shape is invalid', () => {
-    const d = draft()
+    const d = mutable()
     d.refs[EASY] = { schemaVersion: 2, nodes: 'x' }
     const { problems } = checkConsistency(d.input)
     expect(problems.some((problem) => problem.startsWith(`${EASY}.reference: shape`))).toBe(true)

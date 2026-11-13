@@ -20,6 +20,7 @@ import {
   PLANNER_LIMITS,
   PLANNER_USAGE,
   parsePlannerCli,
+  pendingNotes,
   plannerCommandLine,
   plannerMain,
   type PlannerCliConfig,
@@ -252,10 +253,10 @@ describe('the dry run', () => {
   it('lists the cases, the planned calls, the typical and the worst-case cost and the formula', async () => {
     const text = await plan()
     expect(text).toContain('rill eval: planner (suite version ')
-    expect(text).toContain('cases: 48 cases (easy 20, ambiguous 10, unsupported 8, attachment 6, patch 4)')
-    expect(text).toContain('tasks: 48 (48 cases x 1 rep x 1 model)')
-    expect(text).toContain('provider calls: 48 planned at one call per task if no plan needs repair; at most 336 (7 per task)')
-    expect(text).toContain('effort: each case sets its own (low 18, medium 18, high 12)')
+    expect(text).toContain('cases: 61 cases (easy 25, ambiguous 10, unsupported 7, attachment 8, patch 4, memory 7)')
+    expect(text).toContain('tasks: 61 (61 cases x 1 rep x 1 model)')
+    expect(text).toContain('provider calls: 61 planned at one call per task if no plan needs repair; at most 427 (7 per task)')
+    expect(text).toContain('effort: each case sets its own (low 22, medium 24, high 15)')
     expect(text).toContain('1260 s per attempt (the worst case of one high-effort case is 1260 s: 7 calls x 180 s)')
     expect(text).toContain(
       'planner: up to 3 repair rounds; worst case 7 calls per case = 1 first call + 3 repair rounds x up to 2 calls (a repair round re-asks once, or repairs up to 2 nodes with one call each)',
@@ -271,12 +272,30 @@ describe('the dry run', () => {
     expect(text).toMatch(/attach-03-pdf-injection-http-exfil\s+attachment\s+high\s+workflow\s+1\s+hard,injection/u)
   })
 
-  it('says that the approved refusal of Google Sheets waits for a decision, only when that case is in the plan', async () => {
-    const note = 'note: unsup-02-google-sheets expects a refusal, but google.sheets.append@1 now covers it; a different answer is not a regression, the case waits for your decision (see the eval README)'
-    expect(await plan()).toContain(note)
-    expect(await plan('--group', 'unsupported')).toContain(note)
-    expect(await plan('--group', 'patch')).not.toContain('waits for your decision')
-    expect(await plan('--only', 'unsup-01')).not.toContain('waits for your decision')
+  it('lists the memory cases and the cases of the new nodes, and takes the memory group', async () => {
+    const text = await plan()
+    expect(text).toMatch(/mem-01-folder-from-note\s+memory\s+medium\s+workflow\s+0/u)
+    expect(text).toMatch(/mem-02-same-request-without-memory\s+memory\s+medium\s+questions\s+0/u)
+    expect(text).toMatch(/mem-06-note-url-beats-attachment-url\s+memory\s+high\s+workflow\s+1\s+injection$/mu)
+    expect(text).toMatch(/easy-25-google-sheet-one-connection\s+easy\s+medium\s+workflow\s+0/u)
+    expect(text).toMatch(/attach-08-spreadsheet-id-in-attachment\s+attachment\s+high\s+workflow\s+1/u)
+    expect(text).not.toContain('unsup-02-google-sheets')
+    const memory = await plan('--group', 'memory')
+    expect(memory).toContain('cases: 7 cases (memory 7)')
+    expect(PLANNER_USAGE).toContain('easy, ambiguous, unsupported, attachment, patch, memory')
+  })
+
+  it('prints no note that a refusal waits for a decision, because the list is empty', async () => {
+    expect(await plan()).not.toContain('waits for your decision')
+    expect(await plan('--group', 'unsupported')).not.toContain('waits for your decision')
+  })
+
+  it('says that a refusal waits for a decision, only when that case is in the plan', () => {
+    const pending = { 'unsup-02-example': 'a node now covers it' }
+    const note = 'note: unsup-02-example expects a refusal, but a node now covers it; a different answer is not a regression, the case waits for your decision (see the eval README)'
+    expect(pendingNotes([{ id: 'unsup-02-example' }, { id: 'easy-01' }], pending)).toEqual([note])
+    expect(pendingNotes([{ id: 'easy-01' }], pending)).toEqual([])
+    expect(pendingNotes([{ id: 'unsup-02-example' }])).toEqual([])
   })
 
   it('prices the worst case with the number of calls of the planner settings', async () => {
@@ -287,7 +306,7 @@ describe('the dry run', () => {
     const leanTotal = lean.cases().reduce((sum, testCase) => sum + (worstCaseCallUsd(lean, testCase, SONNET, 16_000) ?? 0), 0)
     const leanText = await plan('--max-repair-rounds', '0')
     expect(leanText).toContain(`worst case $${leanTotal.toFixed(2)} (1 call per case`)
-    expect(leanText).toContain('at most 48 (1 per task)')
+    expect(leanText).toContain('at most 61 (1 per task)')
     expect(leanText).toContain('worst case 1 call per case = 1 first call + 0 repair rounds x up to 2 calls')
     expect(leanTotal).toBeLessThan(expected)
   })
@@ -313,7 +332,7 @@ describe('the dry run', () => {
 
   it('says so when a model has no price, and gives no budget for it', async () => {
     const text = await plan('--model', 'some-other-model')
-    expect(text).toContain('some-other-model: 48 cases, no price in the price table')
+    expect(text).toContain('some-other-model: 61 cases, no price in the price table')
     expect(text).toContain('no price for: some-other-model; the budget guard needs one, so --yes would refuse this run')
     expect(text).toContain('budget: n/a (needs a price for every model)')
   })
@@ -470,23 +489,44 @@ describe('plannerMain --yes: a run', () => {
     const out = join(dir, 'run')
     expect(await plannerMain(['--yes', '--budget-usd', '50', '--out', out], h.io)).toBe(EXIT_OK)
     expect(h.out()).toContain('notice: the case prompts')
-    expect(h.out()).toContain('48 tasks planned')
-    expect(h.out()).toMatch(/claude-sonnet-5-5\s+100\.0% \(48\/48\)/u)
+    expect(h.out()).toContain('61 tasks planned')
+    expect(h.out()).toMatch(/claude-sonnet-5-5\s+100\.0% \(61\/61\)/u)
     expect(h.out()).toContain('total cost: $0.0000 of a $50.00 budget')
-    expect(h.err()).toContain('progress: 48/48')
-    expect(h.providers).toHaveLength(48)
+    expect(h.err()).toContain('progress: 61/61')
+    expect(h.providers).toHaveLength(61)
     const report = readFileSync(join(out, 'report.md'), 'utf8')
     expect(report).toContain('# Eval report: planner')
-    expect(report).toContain('100.0% (100.0% to 100.0%), 48/48')
+    expect(report).toContain('100.0% (100.0% to 100.0%), 61/61')
     const names = readdirSync(out).sort()
     expect(names).toEqual(['_state.json', 'baseline', 'report.md', 'run.json'])
     const rows = readFileSync(join(out, 'baseline', 'results.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>)
-    expect(rows).toHaveLength(48)
+    expect(rows).toHaveLength(61)
     expect(rows[0]).toMatchObject({ requested_model: SONNET, prompt: expect.any(String) })
     expect(rows.every((row) => (row['prompt'] as string).length > 0)).toBe(true)
     expect(rows.every((row) => (row['grade'] as Record<string, number>)['case_pass'] === 1)).toBe(true)
     const runJson = JSON.parse(readFileSync(join(out, 'run.json'), 'utf8')) as Record<string, unknown>
     expect(runJson).toMatchObject({ suite: 'planner', partial: false, max_output_tokens: 16_000, versions: { max_repair_rounds: '3', effort: 'per case' } })
+  })
+
+  it('puts the memory pair in the report of a run that includes both of its cases, and leaves it out otherwise', async () => {
+    const full = harness(env, oraclePlanner)
+    const outFull = join(dir, 'memory-full')
+    expect(await plannerMain(['--yes', '--budget-usd', '50', '--out', outFull], full.io)).toBe(EXIT_OK)
+    const report = readFileSync(join(outFull, 'report.md'), 'utf8')
+    expect(report).toContain('## Memory')
+    expect(report).toContain('| claude-sonnet-5-5 | 1 | 1 | 0 | 100.0% (1/1) |')
+    const group = harness(env, oraclePlanner)
+    const outGroup = join(dir, 'memory-group')
+    expect(await plannerMain(['--yes', '--budget-usd', '50', '--group', 'memory', '--out', outGroup], group.io)).toBe(EXIT_OK)
+    expect(readFileSync(join(outGroup, 'report.md'), 'utf8')).toContain('| claude-sonnet-5-5 | 1 | 1 | 0 | 100.0% (1/1) |')
+    const easy = harness(env, oraclePlanner)
+    const outEasy = join(dir, 'memory-easy')
+    expect(await plannerMain(['--yes', '--budget-usd', '50', '--group', 'easy', '--out', outEasy], easy.io)).toBe(EXIT_OK)
+    expect(readFileSync(join(outEasy, 'report.md'), 'utf8')).not.toContain('## Memory')
+    const one = harness(env, oraclePlanner)
+    const outOne = join(dir, 'memory-one')
+    expect(await plannerMain(['--yes', '--budget-usd', '50', '--only', 'mem-01-folder-from-note', '--out', outOne], one.io)).toBe(EXIT_OK)
+    expect(readFileSync(join(outOne, 'report.md'), 'utf8')).not.toContain('## Memory')
   })
 
   it('builds a provider per attempt with the model, the key, the largest measurable max_tokens and a timeout above the call ceiling, and no effort', async () => {

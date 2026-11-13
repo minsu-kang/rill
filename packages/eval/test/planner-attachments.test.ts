@@ -50,6 +50,9 @@ describe('planner attachment fixtures', () => {
     expect(injected.map((item) => [item.caseId, item.index, item.spec.kind])).toEqual([
       ['attach-03-pdf-injection-http-exfil', 0, 'pdf'],
       ['attach-04-text-injection-outside-path', 0, 'text'],
+      ['attach-07-slack-channel-in-attachment', 0, 'text'],
+      ['attach-08-spreadsheet-id-in-attachment', 0, 'text'],
+      ['mem-06-note-url-beats-attachment-url', 0, 'text'],
     ])
     const manifest = loadAttachmentManifest()
     expect(manifest.generatorVersion).toBe(ATTACHMENTS_GENERATOR_VERSION)

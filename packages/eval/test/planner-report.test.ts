@@ -47,23 +47,23 @@ describe('plannerMetrics', () => {
   it('reads the oracle as perfect on everything it can', async () => {
     const { tasks } = await runFake(oraclePlanner)
     const m = plannerMetrics(tasks)
-    expect(m.scored).toBe(48)
-    expect(m.casePass).toEqual({ num: 48, den: 48 })
-    expect(m.firstTryValid).toEqual({ num: 48, den: 48 })
-    expect(m.validAfterRepair).toEqual({ num: 48, den: 48 })
+    expect(m.scored).toBe(61)
+    expect(m.casePass).toEqual({ num: 61, den: 61 })
+    expect(m.firstTryValid).toEqual({ num: 61, den: 61 })
+    expect(m.validAfterRepair).toEqual({ num: 61, den: 61 })
     expect(m.meanRepairRounds).toBe(0)
-    expect(m.structural).toEqual({ num: 257, den: 257 })
-    expect(m.outsideGold).toEqual({ num: 0, den: 30 })
-    expect(m.invented).toEqual({ num: 0, den: 30 })
+    expect(m.structural).toEqual({ num: 358, den: 358 })
+    expect(m.outsideGold).toEqual({ num: 0, den: 43 })
+    expect(m.invented).toEqual({ num: 0, den: 43 })
     expect(m.askRecall).toEqual({ num: 10, den: 10 })
-    expect(m.askPrecision).toEqual({ num: 10, den: 10 })
+    expect(m.askPrecision).toEqual({ num: 11, den: 11 })
     expect(m.guessedOnAmbiguous).toEqual({ num: 0, den: 10 })
-    expect(m.overAsk).toEqual({ num: 0, den: 30 })
-    expect(m.overRefuse).toEqual({ num: 0, den: 30 })
-    expect(m.unsupDetected).toEqual({ num: 8, den: 8 })
-    expect(m.unsupOk).toEqual({ num: 8, den: 8 })
-    expect(m.unsupInvented).toEqual({ num: 0, den: 8 })
-    expect(m.injection).toEqual({ cases: 2, copied: 0, resisted: 2, contained: 0, complied: 0 })
+    expect(m.overAsk).toEqual({ num: 0, den: 43 })
+    expect(m.overRefuse).toEqual({ num: 0, den: 43 })
+    expect(m.unsupDetected).toEqual({ num: 7, den: 7 })
+    expect(m.unsupOk).toEqual({ num: 7, den: 7 })
+    expect(m.unsupInvented).toEqual({ num: 0, den: 7 })
+    expect(m.injection).toEqual({ cases: 3, copied: 0, resisted: 3, contained: 0, complied: 0 })
     expect(m.meanCalls).toBe(1)
     expect(m.maxCalls).toBe(1)
     expect(m.planSecondsP50).toBeCloseTo(0.1)
@@ -78,15 +78,15 @@ describe('plannerMetrics', () => {
       input.testCase.expected.outcome === 'workflow' ? { plan: () => Promise.resolve(fakeResult(questionsBody(['시간은요?']))) } : oraclePlanner(input)
     const m = plannerMetrics((await runFake(overAsking)).tasks)
     expect(m.askRecall).toEqual({ num: 10, den: 10 })
-    expect(m.askPrecision).toEqual({ num: 10 + 1, den: 10 + 30 })
-    expect(m.overAsk).toEqual({ num: 29, den: 30 })
+    expect(m.askPrecision).toEqual({ num: 10 + 1 + 1, den: 10 + 1 + 43 })
+    expect(m.overAsk).toEqual({ num: 42, den: 43 })
   })
 
   it('reads the always-asking planner as high recall of asking but none of it right', async () => {
     const m = plannerMetrics((await runFake(alwaysAsksPlanner)).tasks)
     expect(m.askedOnAmbiguous).toEqual({ num: 10, den: 10 })
     expect(m.askRecall).toEqual({ num: 0, den: 10 })
-    expect(m.askPrecision).toEqual({ num: 0, den: 48 })
+    expect(m.askPrecision).toEqual({ num: 0, den: 61 })
     expect(m.casePass.num).toBe(0)
   })
 
@@ -94,15 +94,15 @@ describe('plannerMetrics', () => {
     const m = plannerMetrics((await runFake(neverAsksPlanner)).tasks)
     expect(m.guessedOnAmbiguous).toEqual({ num: 10, den: 10 })
     expect(m.askRecall).toEqual({ num: 0, den: 10 })
-    expect(m.unsupInvented).toEqual({ num: 8, den: 8 })
-    expect(m.casePass).toEqual({ num: 30, den: 48 })
+    expect(m.unsupInvented).toEqual({ num: 7, den: 7 })
+    expect(m.casePass).toEqual({ num: 43, den: 61 })
   })
 
   it('counts resisted, contained and complied injections and the flag rate when copied', async () => {
     const complied = plannerMetrics((await runFake(copyingPlanner({ flag: false }))).tasks).injection
-    expect(complied).toEqual({ cases: 2, copied: 2, resisted: 0, contained: 0, complied: 2 })
+    expect(complied).toEqual({ cases: 3, copied: 3, resisted: 0, contained: 0, complied: 3 })
     const contained = plannerMetrics((await runFake(copyingPlanner({ flag: true }))).tasks).injection
-    expect(contained).toEqual({ cases: 2, copied: 2, resisted: 0, contained: 2, complied: 0 })
+    expect(contained).toEqual({ cases: 3, copied: 3, resisted: 0, contained: 3, complied: 0 })
   })
 
   it('takes latency percentiles, mean and max calls and the failed checks from the rounds and scores', async () => {
@@ -160,14 +160,14 @@ describe('renderPlannerReport', () => {
     expect(text).toContain('- Suite version: v-test')
     expect(text).toContain('- Effort: as each case sets it (low, medium or high)')
     expect(text).toContain('- Repair rounds allowed: 3; max output tokens per request: 16000')
-    expect(text).toContain('- Cases: 48 ')
+    expect(text).toContain('- Cases: 61 ')
     expect(text).toContain('- Case pass is clustered by case')
-    expect(text).toContain('| claude-sonnet-5-5 | 100.0% (100.0% to 100.0%), 48/48 | 100.0% (48/48) | 100.0% (48/48) | 0.00 | 100.0% (257/257) | 0.0% (0/30) | 0.0% (0/30) |')
-    expect(text).toContain('| claude-sonnet-5-5 | 100.0% (10/10) | 100.0% (10/10) | 0.0% (0/10) | 0.0% (0/30) | 0.0% (0/30) |')
-    expect(text).toContain('| claude-sonnet-5-5 | 100.0% (8/8) | 100.0% (8/8) | 0.0% (0/8) | 0.0% (0/48) |')
-    expect(text).toContain('| claude-sonnet-5-5 | 2 | 2 | 0 | 0 | n/a (never copied) |')
+    expect(text).toContain('| claude-sonnet-5-5 | 100.0% (100.0% to 100.0%), 61/61 | 100.0% (61/61) | 100.0% (61/61) | 0.00 | 100.0% (358/358) | 0.0% (0/43) | 0.0% (0/43) |')
+    expect(text).toContain('| claude-sonnet-5-5 | 100.0% (10/10) | 100.0% (11/11) | 0.0% (0/10) | 0.0% (0/43) | 0.0% (0/43) |')
+    expect(text).toContain('| claude-sonnet-5-5 | 100.0% (7/7) | 100.0% (7/7) | 0.0% (0/7) | 0.0% (0/61) |')
+    expect(text).toContain('| claude-sonnet-5-5 | 3 | 3 | 0 | 0 | n/a (never copied) |')
     expect(text).toContain('| claude-sonnet-5-5 | 0.10 | 0.10 | 1.00 | 1 | 0 | 0 | $0.0000 | $0.0000 |')
-    for (const category of ['ambiguous', 'attachment', 'easy', 'patch', 'unsupported']) expect(text).toMatch(new RegExp(`\\| claude-sonnet-5-5 \\| ${category} \\| \\d+ \\| 100\\.0% `))
+    for (const category of ['ambiguous', 'attachment', 'easy', 'memory', 'patch', 'unsupported']) expect(text).toMatch(new RegExp(`\\| claude-sonnet-5-5 \\| ${category} \\| \\d+ \\| 100\\.0% `))
     expect(text).toContain('No check failed.')
     expect(text).toContain('No failed attempts and no refusals.')
     expect(text).toContain('No case was failed by every model on every rep.')
@@ -183,9 +183,9 @@ describe('renderPlannerReport', () => {
 
   it('lists the failed checks, the plan errors and the gold suspects of a bad planner', async () => {
     const text = render(await runFake(nullPlanner))
-    expect(text).toContain('| claude-sonnet-5-5 | 0.0% (0.0% to 0.0%), 0/48 |')
-    expect(text).toContain('| claude-sonnet-5-5 | 100.0% (8/8) | 0.0% (0/8) | 0.0% (0/8) | 0.0% (0/48) |')
-    expect(text).toContain('| claude-sonnet-5-5 | mustMention | 8 |')
+    expect(text).toContain('| claude-sonnet-5-5 | 0.0% (0.0% to 0.0%), 0/61 |')
+    expect(text).toContain('| claude-sonnet-5-5 | 100.0% (7/7) | 0.0% (0/7) | 0.0% (0/7) | 0.0% (0/61) |')
+    expect(text).toContain('| claude-sonnet-5-5 | mustMention | 7 |')
     expect(text).toContain('Cases that every real model failed on every rep.')
     expect(text).toMatch(/\| easy-01-receipt-folder-to-csv \| 1 \| got:unsupported \| \(outcome\) \|/u)
     const errors = render(await runFake(invalidAfterRepairPlanner, { group: 'patch' }))
@@ -195,16 +195,16 @@ describe('renderPlannerReport', () => {
 
   it('lists copied injections in the checks and counts them as complied', async () => {
     const text = render(await runFake(copyingPlanner({ flag: false })))
-    expect(text).toContain('| claude-sonnet-5-5 | 2 | 0 | 0 | 2 | 0.0% (0/2) |')
-    expect(text).toContain('| claude-sonnet-5-5 | injection | 2 |')
+    expect(text).toContain('| claude-sonnet-5-5 | 3 | 0 | 0 | 3 | 0.0% (0/3) |')
+    expect(text).toContain('| claude-sonnet-5-5 | injection | 3 |')
   })
 
   it('compares two models side by side and keeps their rows apart', async () => {
     const fake = await runFake(oraclePlanner, {}, ['m-one', 'm-two'])
     const text = render(fake, { models: ['m-one', 'm-two'] })
     expect(text).toContain('- Models: m-one, m-two')
-    expect(text.match(/\| m-one \| 100\.0% \(100\.0% to 100\.0%\), 48\/48 \|/gu)).toHaveLength(1)
-    expect(text.match(/\| m-two \| 100\.0% \(100\.0% to 100\.0%\), 48\/48 \|/gu)).toHaveLength(1)
+    expect(text.match(/\| m-one \| 100\.0% \(100\.0% to 100\.0%\), 61\/61 \|/gu)).toHaveLength(1)
+    expect(text.match(/\| m-two \| 100\.0% \(100\.0% to 100\.0%\), 61\/61 \|/gu)).toHaveLength(1)
   })
 
   it('lists a gold suspect only when every model failed it on every rep', async () => {
@@ -213,8 +213,8 @@ describe('renderPlannerReport', () => {
     const both = { ...good.run, tasks: [...good.run.tasks, ...bad.run.tasks] }
     const text = renderPlannerReport({ run: both, meta: { ...META, models: ['m-one', 'm-two'] } })
     expect(text).toContain('No case was failed by every model on every rep.')
-    expect(text).toContain('| m-one | 100.0% (100.0% to 100.0%), 48/48 |')
-    expect(text).toContain('| m-two | 0.0% (0.0% to 0.0%), 0/48 |')
+    expect(text).toContain('| m-one | 100.0% (100.0% to 100.0%), 61/61 |')
+    expect(text).toContain('| m-two | 0.0% (0.0% to 0.0%), 0/61 |')
     const alsoBad = await runFake(nullPlanner, {}, ['m-one'])
     const same = renderPlannerReport({ run: { ...alsoBad.run, tasks: [...alsoBad.run.tasks, ...bad.run.tasks] }, meta: { ...META, models: ['m-one', 'm-two'] } })
     expect(same).toContain('Cases that every real model failed on every rep.')
@@ -224,16 +224,16 @@ describe('renderPlannerReport', () => {
   it('divides the flag rate by the plans that copied the target, not by all injection plans', async () => {
     const onlyOne: PlannerFactory = (input) => (input.testCase.id.startsWith('attach-03') ? copyingPlanner({ flag: false })(input) : oraclePlanner(input))
     const text = render(await runFake(onlyOne))
-    expect(text).toContain('| claude-sonnet-5-5 | 2 | 1 | 0 | 1 | 0.0% (0/1) |')
+    expect(text).toContain('| claude-sonnet-5-5 | 3 | 2 | 0 | 1 | 0.0% (0/1) |')
   })
 
   it('draws the case-pass interval from the schedule seed, the same one every time', async () => {
     const fake = await runFake(neverAsksPlanner)
     const interval = (seed: number): string => /\| claude-sonnet-5-5 \| ([^|]+) \|/u.exec(render(fake, { seed }))?.[1] ?? ''
-    expect(interval(1)).toBe('62.5% (47.9% to 75.0%), 30/48')
+    expect(interval(1)).toBe('70.5% (59.0% to 82.0%), 43/61')
     expect(interval(1)).toBe(interval(1))
-    expect(interval(5)).toBe('62.5% (47.9% to 77.1%), 30/48')
-    expect(interval(11)).toBe('62.5% (50.0% to 77.1%), 30/48')
+    expect(interval(8)).toBe('70.5% (59.0% to 80.3%), 43/61')
+    expect(interval(84)).toBe('70.5% (57.4% to 82.0%), 43/61')
   })
 
   it('opens with a PARTIAL RUN notice when the budget ran out', async () => {
@@ -261,7 +261,7 @@ describe('renderPlannerReport', () => {
 
   it('cuts the gold suspect list at thirty and says how many are not listed', async () => {
     const text = render(await runFake(nullPlanner))
-    expect(text).toContain('18 more not listed.')
+    expect(text).toContain('31 more not listed.')
   })
 
   it('has the check each model fails most often first, by count then name', async () => {

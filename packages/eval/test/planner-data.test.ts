@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { goldNodeTypes, loadPlannerData, toPlannerCase } from '../src/suites/planner/cases'
-import { parseCases, parseReferences, parseVocabulary, schemaProblems, casesSchema } from '../src/suites/planner/schema'
+import { CASES_PATH, PAIRS_PATH, REFERENCES_PATH, goldNodeTypes, loadPlannerData, toPlannerCase } from '../src/suites/planner/cases'
+import { parseCases, parsePairs, parseReferences, parseVocabulary, schemaProblems, casesSchema } from '../src/suites/planner/schema'
 
 const data = loadPlannerData()
 const byId = (id: string) => {
@@ -10,11 +11,34 @@ const byId = (id: string) => {
 }
 
 describe('loadPlannerData', () => {
-  it('loads 48 cases, 30 references and the vocabulary', () => {
-    expect(data.cases).toHaveLength(48)
-    expect(Object.keys(data.references)).toHaveLength(30)
+  it('loads 61 cases, 43 references, the memory pair and the vocabulary', () => {
+    expect(data.cases).toHaveLength(61)
+    expect(Object.keys(data.references)).toHaveLength(43)
+    expect(data.pairs).toEqual([{ with: 'mem-01-folder-from-note', without: 'mem-02-same-request-without-memory', reuses: 'ambig-01-which-folder' }])
     expect(data.vocabulary.version).toBe(1)
-    expect(new Set(data.cases.map((entry) => entry.id)).size).toBe(48)
+    expect(new Set(data.cases.map((entry) => entry.id)).size).toBe(61)
+  })
+
+  it('holds every case of the approved set: the refusal of Google Sheets is gone and its replacement is a workflow case', () => {
+    const ids = data.cases.map((entry) => entry.id)
+    expect(ids).not.toContain('unsup-02-google-sheets')
+    expect(byId('easy-25-google-sheet-one-connection').expect.outcome).toBe('workflow')
+    for (const id of [
+      'easy-21-slack-channel-named',
+      'easy-22-slack-no-channel-named',
+      'attach-07-slack-channel-in-attachment',
+      'easy-23-google-sheet-row',
+      'easy-24-excel-file-and-table',
+      'attach-08-spreadsheet-id-in-attachment',
+    ]) {
+      expect(ids, id).toContain(id)
+    }
+    expect(ids.filter((id) => id.startsWith('mem-'))).toHaveLength(7)
+    expect(ids.filter((id) => id.startsWith('mem-')).every((id) => byId(id).category === 'memory')).toBe(true)
+  })
+
+  it('carries no draft marker in the case or reference files', () => {
+    for (const path of [CASES_PATH, REFERENCES_PATH, PAIRS_PATH]) expect(readFileSync(path, 'utf8'), path).not.toMatch(/draft|DRAFT|"status"|"notice"/u)
   })
 })
 
@@ -31,6 +55,14 @@ describe('parsers', () => {
   it('reject a reference that is not a workflow and a vocabulary without assertions', () => {
     expect(() => parseReferences({ a: { schemaVersion: 2 } })).toThrow('invalid planner references')
     expect(() => parseVocabulary({ version: 1 })).toThrow('invalid planner vocabulary')
+  })
+  it('reject a pair without its third id, with an empty id or with an extra key, and accept the shipped pair', () => {
+    const [pair] = data.pairs
+    expect(() => parsePairs([{ with: 'a', without: 'b' }])).toThrow('invalid planner pairs')
+    expect(() => parsePairs([{ with: 'a', without: '', reuses: 'c' }])).toThrow('invalid planner pairs')
+    expect(() => parsePairs([{ ...pair, extra: 1 }])).toThrow('invalid planner pairs')
+    expect(() => parsePairs({})).toThrow('invalid planner pairs')
+    expect(parsePairs([pair])).toEqual([pair])
   })
 })
 

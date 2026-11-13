@@ -121,7 +121,7 @@ describe('1. oracle through the real planner, validator and attachment module', 
   })
 
   it('scores every case, with no error outcome and a passing row on every field', () => {
-    expect(run.tasks).toHaveLength(48)
+    expect(run.tasks).toHaveLength(61)
     expect(run.tasks.filter((entry) => entry.output instanceof PlanError)).toEqual([])
     expect(run.tasks.filter((entry) => entry.status !== 'ok').map((entry) => `${entry.caseId} ${entry.status}`)).toEqual([])
     expect(run.tasks.filter((entry) => !passing(entry)).map((entry) => entry.caseId)).toEqual([])
@@ -130,25 +130,25 @@ describe('1. oracle through the real planner, validator and attachment module', 
 
   it('reaches 100 percent on every metric it can', () => {
     const metrics = plannerMetrics(run.tasks)
-    expect(metrics.scored).toBe(48)
-    expect(metrics.casePass).toEqual({ num: 48, den: 48 })
-    expect(metrics.firstTryValid).toEqual({ num: 48, den: 48 })
-    expect(metrics.validAfterRepair).toEqual({ num: 48, den: 48 })
+    expect(metrics.scored).toBe(61)
+    expect(metrics.casePass).toEqual({ num: 61, den: 61 })
+    expect(metrics.firstTryValid).toEqual({ num: 61, den: 61 })
+    expect(metrics.validAfterRepair).toEqual({ num: 61, den: 61 })
     expect(metrics.meanRepairRounds).toBe(0)
     expect(metrics.structural.num).toBe(metrics.structural.den)
-    expect(metrics.structural.den).toBeGreaterThan(200)
-    expect(metrics.outsideGold).toEqual({ num: 0, den: 30 })
-    expect(metrics.invented).toEqual({ num: 0, den: 30 })
-    expect(metrics.hiddenField).toEqual({ num: 0, den: 48 })
+    expect(metrics.structural.den).toBe(358)
+    expect(metrics.outsideGold).toEqual({ num: 0, den: 43 })
+    expect(metrics.invented).toEqual({ num: 0, den: 43 })
+    expect(metrics.hiddenField).toEqual({ num: 0, den: 61 })
     expect(metrics.askRecall).toEqual({ num: 10, den: 10 })
-    expect(metrics.askPrecision).toEqual({ num: 10, den: 10 })
+    expect(metrics.askPrecision).toEqual({ num: 11, den: 11 })
     expect(metrics.guessedOnAmbiguous).toEqual({ num: 0, den: 10 })
-    expect(metrics.overAsk).toEqual({ num: 0, den: 30 })
-    expect(metrics.overRefuse).toEqual({ num: 0, den: 30 })
-    expect(metrics.unsupDetected).toEqual({ num: 8, den: 8 })
-    expect(metrics.unsupOk).toEqual({ num: 8, den: 8 })
-    expect(metrics.unsupInvented).toEqual({ num: 0, den: 8 })
-    expect(metrics.injection).toEqual({ cases: 2, resisted: 2, contained: 0, complied: 0, copied: 0 })
+    expect(metrics.overAsk).toEqual({ num: 0, den: 43 })
+    expect(metrics.overRefuse).toEqual({ num: 0, den: 43 })
+    expect(metrics.unsupDetected).toEqual({ num: 7, den: 7 })
+    expect(metrics.unsupOk).toEqual({ num: 7, den: 7 })
+    expect(metrics.unsupInvented).toEqual({ num: 0, den: 7 })
+    expect(metrics.injection).toEqual({ cases: 3, resisted: 3, contained: 0, complied: 0, copied: 0 })
     expect(metrics.meanCalls).toBe(1)
     expect(metrics.maxCalls).toBe(1)
     expect(metrics.failedChecks).toEqual({})
@@ -156,12 +156,10 @@ describe('1. oracle through the real planner, validator and attachment module', 
   })
 
   it('makes exactly one provider call per case with its effort, token budget and timeout from the table', () => {
-    expect(provider.seen).toHaveLength(48)
+    expect(provider.seen).toHaveLength(61)
     for (const entry of provider.seen) {
-      const text = requestText(entry.request)
-      const testCase = suite.cases().find((candidate) => text.includes(`Request:\n${candidate.prompt}`))
-      expect(testCase).toBeDefined()
-      const effort = testCase!.spec.effort
+      const testCase = caseOfRequest(entry.request, suite.cases())
+      const effort = testCase.spec.effort
       expect(entry.request.effort).toBe(effort)
       expect(entry.request.maxTokens).toBe(EFFORT_BUDGETS[effort].maxTokens)
       expect(entry.request.maxTokens).toBeLessThanOrEqual(STREAMING_ABOVE_MAX_TOKENS)
@@ -178,13 +176,16 @@ describe('1. oracle through the real planner, validator and attachment module', 
     const registry = createCoreRegistry()
     for (const entry of provider.seen) {
       const system = entry.request.system as LlmSystemBlock[]
-      const text = requestText(entry.request)
-      const testCase = suite.cases().find((candidate) => text.includes(`Request:\n${candidate.prompt}`))!
+      const testCase = caseOfRequest(entry.request, suite.cases())
       const hasAttachments = (testCase.spec.context.attachments ?? []).length > 0
+      const notes = testCase.spec.context.memory ?? []
       expect(system[0]!.text.startsWith(PLANNER_RULES)).toBe(true)
       expect(system[0]!.text.includes(ATTACHMENT_RULES)).toBe(hasAttachments)
       expect(system[1]).toEqual({ text: catalogText(registry), cache: true })
-      expect(system.filter((block) => block.cache === true)).toHaveLength(1)
+      const memory = system.filter((block) => block.text.includes('<user-memory-'))
+      expect(memory, testCase.id).toHaveLength(notes.length === 0 ? 0 : 1)
+      for (const note of notes) expect(memory[0]!.text, testCase.id).toContain(`- ${note}`)
+      expect(system.filter((block) => block.cache === true && !memory.includes(block))).toHaveLength(1)
       const patch = testCase.spec.context.selectedNodeId !== undefined
       expect(entry.request.schema).toEqual(generationSchema(registry, { mode: patch ? 'patch' : 'create' }))
       expect(entry.request.cache).toBeUndefined()
@@ -194,8 +195,7 @@ describe('1. oracle through the real planner, validator and attachment module', 
   it('sends the three attachment kinds as the matching parts', () => {
     const kinds: Record<string, string[]> = {}
     for (const entry of provider.seen) {
-      const text = requestText(entry.request)
-      const testCase = suite.cases().find((candidate) => text.includes(`Request:\n${candidate.prompt}`))!
+      const testCase = caseOfRequest(entry.request, suite.cases())
       if ((testCase.spec.context.attachments ?? []).length === 0) continue
       const content = entry.request.messages[0]!.content
       kinds[testCase.id] = typeof content === 'string' ? [] : content.map((part) => part.type)
@@ -271,7 +271,7 @@ describe('1b. tilde paths and HOME', () => {
 })
 
 describe('1c. the whole stack down to the HTTP body, with a fake fetch', () => {
-  it('runs the 48 cases through AnthropicProvider and the recorder, bills from the replies and sends the expected bodies', async () => {
+  it('runs the 61 cases through AnthropicProvider and the recorder, bills from the replies and sends the expected bodies', async () => {
     const suite = createPlannerSuite()
     const oracle = httpOracle(suite.cases(), { inputTokens: 5000, outputTokens: 800 })
     const run = await runEval({
@@ -286,20 +286,25 @@ describe('1c. the whole stack down to the HTTP body, with a fake fetch', () => {
       createProvider: (model, signal, settings) => createEvalProvider({ model, signal, apiKey: 'sk-ant-api03-not-used', maxTokens: settings.maxOutputTokens, fetch: oracle.fetch }),
     })
     expect(run.tasks.filter((entry) => !passing(entry)).map((entry) => `${entry.caseId} ${entry.status}`)).toEqual([])
-    expect(oracle.bodies).toHaveLength(48)
+    expect(oracle.bodies).toHaveLength(61)
     expect(run.tasks.every((entry) => entry.exchanges.length === 1 && entry.exchanges[0]!.status === 200)).toBe(true)
     expect(run.tasks.every((entry) => entry.usage.inputTokens === 5000 && entry.usage.outputTokens === 800)).toBe(true)
-    expect(run.spentUsd).toBeCloseTo(48 * ((5000 * 2 + 800 * 10) / 1_000_000), 10)
+    expect(run.spentUsd).toBeCloseTo(61 * ((5000 * 2 + 800 * 10) / 1_000_000), 10)
     for (const body of oracle.bodies) {
       expect(body.model).toBe(SONNET)
       expect(body.max_tokens).toBeLessThanOrEqual(STREAMING_ABOVE_MAX_TOKENS)
       expect(body.output_config.format.type).toBe('json_schema')
       expect(Array.isArray(body.system)).toBe(true)
       const blocks = body.system as { text: string; cache_control?: unknown }[]
-      expect(blocks.filter((block) => block.cache_control !== undefined)).toEqual([expect.objectContaining({ text: catalogText(createCoreRegistry()) })])
+      const memory = blocks.filter((block) => block.text.includes('<user-memory-'))
+      expect(blocks.filter((block) => block.cache_control !== undefined && !memory.includes(block))).toEqual([expect.objectContaining({ text: catalogText(createCoreRegistry()) })])
+      expect(memory.length).toBeLessThanOrEqual(1)
       expect(body.cache_control).toBeUndefined()
       expect(body.messages.at(-1)!.role).toBe('user')
     }
+    const withNotes = oracle.bodies.filter((body) => JSON.stringify(body.system).includes('<user-memory-'))
+    expect(withNotes).toHaveLength(6)
+    expect(JSON.stringify(withNotes.map((body) => body.system))).toContain('Documents/Work/Receipts')
     const pdf = oracle.bodies.find((body) => JSON.stringify(body.messages).includes('"type":"document"'))!
     const blocks = pdf.messages[0]!.content as { type: string; source?: { media_type: string; data: string } }[]
     expect(blocks.find((block) => block.type === 'document')?.source?.media_type).toBe('application/pdf')
@@ -313,15 +318,15 @@ describe('2. a provider that always refuses', () => {
     const suite = createPlannerSuite()
     const provider = refusalProvider()
     const run = await runSuite(suite, provider, { maxAttempts: 3 })
-    expect(run.tasks).toHaveLength(48)
+    expect(run.tasks).toHaveLength(61)
     expect(run.tasks.every((entry) => entry.status === 'refused' && entry.failureClass === 'refusal')).toBe(true)
     expect(run.tasks.filter(passing)).toEqual([])
-    expect(provider.seen).toHaveLength(48)
+    expect(provider.seen).toHaveLength(61)
     expect(run.tasks.every((entry) => entry.attempts === 1)).toBe(true)
     expect(run.tasks.every((entry) => entry.score?.status === 'refused')).toBe(true)
     const metrics = plannerMetrics(run.tasks)
-    expect(metrics.casePass).toEqual({ num: 0, den: 48 })
-    expect(metrics.scored).toBe(48)
+    expect(metrics.casePass).toEqual({ num: 0, den: 61 })
+    expect(metrics.scored).toBe(61)
     expect(run.spentUsd).toBe(0)
   })
 
@@ -354,12 +359,12 @@ describe('2. a provider that always refuses', () => {
     const suite = createPlannerSuite({ group: 'easy' })
     const provider = scripted(() => new LlmError('invalid_output', 'not JSON'))
     const run = await runSuite(suite, provider)
-    expect(run.tasks).toHaveLength(20)
+    expect(run.tasks).toHaveLength(25)
     expect(run.tasks.every((entry) => entry.status === 'schema_failed')).toBe(true)
     expect(run.tasks.every((entry) => entry.output instanceof PlanError && entry.output.kind === 'invalid_after_repair')).toBe(true)
-    expect(provider.seen).toHaveLength(20 * (1 + DEFAULT_MAX_REPAIR_ROUNDS))
+    expect(provider.seen).toHaveLength(25 * (1 + DEFAULT_MAX_REPAIR_ROUNDS))
     const metrics = plannerMetrics(run.tasks)
-    expect(metrics.planErrors).toEqual({ invalid_after_repair: 20 })
+    expect(metrics.planErrors).toEqual({ invalid_after_repair: 25 })
     expect(metrics.casePass.num).toBe(0)
   })
 })
@@ -767,7 +772,7 @@ describe('6. the command line: dry run', () => {
     expect(h.providers).toHaveLength(0)
     expect(h.err()).toBe('')
     const text = h.out()
-    expect(text).toContain('cases: 48 cases (easy 20, ambiguous 10, unsupported 8, attachment 6, patch 4)')
+    expect(text).toContain('cases: 61 cases (easy 25, ambiguous 10, unsupported 7, attachment 8, patch 4, memory 7)')
     expect(text).toContain('Nothing was sent.')
     expect(text).toContain('worst case 7 calls per case = 1 first call + 3 repair rounds x up to 2 calls')
   })
@@ -838,9 +843,9 @@ describe('6. the command line: dry run', () => {
     const run = await yesRun(provider, ['--group', 'unsupported'])
     try {
       expect(run.code).toBe(EXIT_OK)
-      expect(provider.seen).toHaveLength(8)
+      expect(provider.seen).toHaveLength(7)
       expect(run.report).toContain('# Eval report: planner')
-      expect(run.stdout).toMatch(/claude-sonnet-5-5\s+0\.0% \(0\/8\)/u)
+      expect(run.stdout).toMatch(/claude-sonnet-5-5\s+0\.0% \(0\/7\)/u)
       expect(run.stdout + run.report).not.toContain('NEVER-USED')
     } finally {
       run.cleanup()
@@ -857,8 +862,8 @@ describe('6. the command line: dry run', () => {
       h.io.planner = { createProvider: () => evalProviderOf(provider) }
       h.io.outRoot = out
       expect(await plannerMain(['--yes', '--budget-usd', '50', '--out', join(out, 'run')], h.io)).toBe(EXIT_OK)
-      expect(provider.seen).toHaveLength(48)
-      expect(h.out()).toMatch(/claude-sonnet-5-5\s+100\.0% \(48\/48\)/u)
+      expect(provider.seen).toHaveLength(61)
+      expect(h.out()).toMatch(/claude-sonnet-5-5\s+100\.0% \(61\/61\)/u)
     } finally {
       rmSync(out, { recursive: true, force: true })
     }

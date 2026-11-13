@@ -11,7 +11,7 @@ import { plannerMetrics } from '../src/suites/planner/metrics'
 import { ASSERTION_NAMES } from '../src/suites/planner/assertions'
 import type { PlannerOutput } from '../src/suites/planner/scoring'
 import { createPlannerSuite, type PlannerFactory } from '../src/suites/planner/suite'
-import { caseOfRequest, goldData } from './planner-integration-helpers'
+import { goldData, pickCase } from './planner-integration-helpers'
 import { runFake } from './planner-helpers'
 import { VENDORS, documentKeys, vendorFetch, type VendorFake } from './provider-fakes'
 
@@ -91,7 +91,11 @@ describe.each(VENDORS)('the planner suite through the $id adapter and a fake tra
   const suite = createPlannerSuite()
   const cases = suite.cases()
   const supported = cases.filter((testCase) => suite.unsupportedReason?.(testCase, vendor.spec) === undefined)
-  const plannerCase = (text: string) => caseOfRequest({ messages: [{ role: 'user', content: text }] } as never, cases)
+  const plannerCase = (text: string) => {
+    const found = pickCase(cases, text, text)
+    if (found === undefined) throw new Error('no planner case matches this request')
+    return found
+  }
 
   const run = (answerOf: (testCase: ReturnType<typeof plannerCase>) => unknown, factory?: PlannerFactory) => {
     const oracle = vendorFetch(vendor, (_body, text) => answerOf(plannerCase(text)))
