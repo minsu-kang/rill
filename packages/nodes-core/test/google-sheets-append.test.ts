@@ -183,6 +183,7 @@ describe('google.sheets.append@1 answers', () => {
     [403, 'HTTP 403: the account may not change this file'],
     [404, 'HTTP 404: the file, sheet or table was not found'],
     [409, 'HTTP 409: the request was not accepted'],
+    [499, 'HTTP 499: the request was not accepted'],
     [422, 'HTTP 422: the request was not accepted'],
   ]
 
@@ -201,6 +202,17 @@ describe('google.sheets.append@1 answers', () => {
     expect((error as Error).message).toBe('HTTP 400: the data was not accepted')
     expect(JSON.stringify(error)).not.toContain('TOKENMARKER')
     expect((error as Error).stack ?? '').not.toContain('TOKENMARKER')
+  })
+
+  it('gives the request 15 seconds', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    try {
+      stubFetch(updated())
+      await run(config())
+      expect(timeout).toHaveBeenCalledWith(15_000)
+    } finally {
+      timeout.mockRestore()
+    }
   })
 
   it('retries 429 and every 5xx', async () => {

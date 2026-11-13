@@ -3,7 +3,7 @@ import { createCoreRegistry } from '@rill/nodes-core'
 import { describe, expect, it } from 'vitest'
 import { UNTRUSTED_SOURCE_TYPES, attachmentModule, createAttachmentModule } from '../../src/attachments'
 import { createProvenanceCache, createResolver } from '../../src/attachments/provenance'
-import { occursIn } from '../../src/attachments/normalize'
+import { literalOf, occursIn } from '../../src/attachments/normalize'
 import type { ProvenanceInput } from '../../src/ports'
 import type { Flag } from '../../src/types'
 
@@ -728,6 +728,14 @@ describe('occursIn', () => {
     expect(occursIn('see /data/x.csv now', '/data/x.csv', 'path')).toBe(true)
     expect(occursIn('see /mnt/data/x.csv now', '/data/x.csv', 'path')).toBe(false)
     expect(occursIn('see //example.test/x', 'example.test', 'host')).toBe(true)
+  })
+})
+
+describe('literalOf for a recipient', () => {
+  it('takes the path boundary for a value that has a dot or a slash, and the name boundary for any other value or role', () => {
+    for (const value of ['ledger.xlsx', 'Receipts/ledger', 'Receipts/ledger.xlsx']) expect(literalOf('recipient', value)?.kind, value).toBe('path')
+    for (const value of ['general', '#general', '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms']) expect(literalOf('recipient', value)?.kind, value).toBe('name')
+    for (const value of ['team.alerts', 'team/alerts', 'general']) expect(literalOf('connection', value)?.kind, value).toBe('name')
   })
 })
 

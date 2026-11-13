@@ -203,6 +203,7 @@ describe('microsoft.excel.append@1 answers', () => {
     [404, 'HTTP 404: the file, sheet or table was not found'],
     [409, 'HTTP 409: the request was not accepted'],
     [423, 'HTTP 423: the request was not accepted'],
+    [499, 'HTTP 499: the request was not accepted'],
   ]
 
   for (const [status, message] of STATUS) {
@@ -219,6 +220,17 @@ describe('microsoft.excel.append@1 answers', () => {
     const error = await fail(config())
     expect((error as Error).message).toBe('HTTP 401: the sign-in is no longer valid, reconnect the account')
     expect((error as Error).stack ?? '').not.toContain('TOKENMARKER')
+  })
+
+  it('gives the request 15 seconds', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    try {
+      stubFetch(added())
+      await run(config())
+      expect(timeout).toHaveBeenCalledWith(15_000)
+    } finally {
+      timeout.mockRestore()
+    }
   })
 
   it('retries 429 and every 5xx', async () => {
