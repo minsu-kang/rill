@@ -133,7 +133,7 @@ describe('CustomAuth', () => {
 
   it('validates the oauth channel arguments', () => {
     for (const channel of [CHANNELS.oauthConnect, CHANNELS.oauthDisconnect]) {
-      for (const provider of ['google', 'microsoft', 'slack']) expect(validateArgs(channel, { provider })).toBe(true)
+      for (const provider of ['google', 'microsoft']) expect(validateArgs(channel, { provider })).toBe(true)
       expect(validateArgs(channel, { provider: 'github' })).toBe(false)
       expect(validateArgs(channel, { provider: 'google', extra: 1 })).toBe(false)
       expect(validateArgs(channel, undefined)).toBe(false)
@@ -158,7 +158,7 @@ function harness(options: { available?: boolean } = {}) {
     status: vi.fn((): EngineStatus => ({ state: 'running', restarts: 0 })),
   }
   const dialog = { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) }
-  const handlers = createIpcHandlers({ config, secrets, supervisor, attachments, dialog, app: { quit: vi.fn() }, loginItem: { set: vi.fn() }, keyCheck: vi.fn(async () => ({ status: 'valid' as const })), log: (line) => logs.push(line) })
+  const handlers = createIpcHandlers({ config, secrets, supervisor, attachments, dialog, app: { quit: vi.fn() }, loginItem: { set: vi.fn() }, keyCheck: vi.fn(async () => ({ status: 'valid' as const })), slackCheck: vi.fn(async () => ({ status: 'valid' as const })), log: (line) => logs.push(line) })
   const call = (channel: Channel, args?: unknown) => handlers[channel](args)
   return { call, logs, supervisor, secrets, safeStorage }
 }
@@ -323,7 +323,7 @@ describe('settings: authType and oauth', () => {
 
   it('rejects oauth.connect with OAUTH_UNAVAILABLE and resolves disconnect without changing anything', async () => {
     const h = harness()
-    for (const provider of ['google', 'microsoft', 'slack']) {
+    for (const provider of ['google', 'microsoft']) {
       const error = await failure(h.call(CHANNELS.oauthConnect, { provider }))
       expect(error).toBeInstanceOf(HostError)
       expect(hostErrorCode(error)).toBe('OAUTH_UNAVAILABLE')

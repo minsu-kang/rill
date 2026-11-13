@@ -46,13 +46,13 @@ const TARGETS: Readonly<Record<ProviderId, Target>> = {
   meta: { url: 'https://api.meta.ai/v1/models', headers: bearer },
 }
 
-async function readBounded(response: Response): Promise<string> {
+export async function readBounded(response: Response, limit = MAX_BODY_BYTES): Promise<string> {
   const reader = response.body?.getReader()
   if (reader === undefined) return ''
   const parts: Uint8Array[] = []
   let size = 0
   try {
-    while (size < MAX_BODY_BYTES) {
+    while (size < limit) {
       const { done, value } = await reader.read()
       if (done) break
       parts.push(value)
@@ -67,7 +67,7 @@ async function readBounded(response: Response): Promise<string> {
     bytes.set(part, offset)
     offset += part.byteLength
   }
-  return new TextDecoder().decode(bytes.subarray(0, MAX_BODY_BYTES))
+  return new TextDecoder().decode(bytes.subarray(0, limit))
 }
 
 async function discard(response: Response): Promise<void> {

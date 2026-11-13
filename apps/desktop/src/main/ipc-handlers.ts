@@ -3,17 +3,24 @@ import { ConfigError, normalizeFolder, type ConfigStore } from './config-store'
 import type { EngineSupervisor } from './engine-supervisor'
 import type { KeyChecker } from './key-check'
 import { SecretStoreError, type SecretStore } from './secret-store'
+import type { SlackChecker } from './slack-check'
 import {
   CHANNELS,
   HostError,
   isKeyVerdict,
+  isSlackVerdict,
   encodeCustomAuth,
+  encodeSlackBot,
+  findNameCollision,
+  foldName,
+  slackAccountText,
   validateArgs,
   validateResult,
   type Channel,
   type CustomAuth,
   type ProviderId,
   type SetProviderKeyOptions,
+  type SetSlackBotOptions,
   type Settings,
   type SettingsPatch,
 } from '../shared/host-api'
@@ -40,6 +47,7 @@ export interface IpcDeps {
   app: AppLike
   loginItem: { set(enabled: boolean): void }
   keyCheck: KeyChecker
+  slackCheck: SlackChecker
   log?: (message: string) => void
 }
 
@@ -83,11 +91,26 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
   const picked = new Set<string>()
   const pickedFolders = new Set<string>()
   const keyGenerations = new Map<ProviderId, number>()
+  const slackGenerations = new Map<string, number>()
 
   function supersede(provider: ProviderId): number {
     const generation = (keyGenerations.get(provider) ?? 0) + 1
     keyGenerations.set(provider, generation)
     return generation
+  }
+
+  function supersedeSlack(name: string): number {
+    const key = foldName(name)
+    const generation = (slackGenerations.get(key) ?? 0) + 1
+    slackGenerations.set(key, generation)
+    return generation
+  }
+
+  async function requireFreeSlackName(name: string): Promise<void> {
+    const existing = await deps.secrets.listConnections()
+    if (findNameCollision([...existing.map((entry) => entry.name), name]) !== undefined) throw new HostError('NAME_COLLISION')
+    const same = existing.find((entry) => entry.name === name)
+    if (same !== undefined && same.kind !== 'slack') throw new HostError('NAME_COLLISION')
   }
 
   function restartEngine(): void {
@@ -164,11 +187,30 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
       const connection = { name, kind: 'http' as const, secret: encodeCustomAuth(auth), authType: auth.type }
       if (await deps.secrets.setConnection(connection, { mayReplace: (existing) => existing.kind === 'http' && existing.authType !== undefined })) restartEngine()
     },
+    [CHANNELS.secretsSetSlackBot]: async ({ name, token, channel, options }: { name: string; token: string; channel?: string; options?: SetSlackBotOptions }) => {
+      if (!deps.secrets.encryptionAvailable()) throw new HostError('NO_KEYCHAIN')
+      await requireFreeSlackName(name)
+      const generation = supersedeSlack(name)
+      const verdict = await deps.slackCheck(token)
+      if (slackGenerations.get(foldName(name)) !== generation) throw new HostError('SUPERSEDED')
+      if (!isSlackVerdict(verdict)) throw new HostError('INTERNAL')
+      if (verdict.status === 'invalid' && options?.saveAnyway !== true) throw new HostError('TOKEN_INVALID')
+      const account = slackAccountText(verdict)
+      const connection = {
+        name,
+        kind: 'slack' as const,
+        secret: encodeSlackBot({ token, ...(channel === undefined ? {} : { channel }) }),
+        slack: { mode: 'bot' as const, ...(account === undefined ? {} : { account }), ...(channel === undefined ? {} : { channel }) },
+      }
+      if (await deps.secrets.setConnection(connection, { mayReplace: (existing) => existing.kind === 'slack' })) restartEngine()
+      return { verdict }
+    },
     [CHANNELS.oauthConnect]: async () => {
       throw new HostError('OAUTH_UNAVAILABLE')
     },
     [CHANNELS.oauthDisconnect]: async () => undefined,
     [CHANNELS.secretsRemoveConnection]: async ({ name }: { name: string }) => {
+      supersedeSlack(name)
       if (await deps.secrets.removeConnection(name)) restartEngine()
     },
     [CHANNELS.dialogsPickFolder]: async () => {

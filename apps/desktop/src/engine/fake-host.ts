@@ -11,9 +11,14 @@ import {
   PROVIDER_IDS,
   SecretValueSchema,
   SetProviderKeyOptionsSchema,
+  SetSlackBotOptionsSchema,
   findNameCollision,
+  foldName,
   isByteInput,
+  isSlackVerdict,
   isValidCustomAuth,
+  isValidSlackBot,
+  slackAccountText,
   type AttachmentRef,
   type EngineInfo,
   type EngineStatus,
@@ -21,7 +26,9 @@ import {
   type KeyVerdict,
   type ProviderId,
   type SetProviderKeyOptions,
+  type SetSlackBotOptions,
   type Settings,
+  type SlackVerdict,
 } from '../shared/host-api'
 
 export interface FakeHostState {
@@ -41,10 +48,15 @@ export type FakeHost = HostApi & { state(): FakeHostSnapshot; setEngine(status: 
 
 export type FakeKeyCheck = (provider: ProviderId, key: string) => KeyVerdict | Promise<KeyVerdict>
 
+export type FakeSlackCheck = (token: string) => SlackVerdict | Promise<SlackVerdict>
+
+export const FAKE_SLACK_VERDICT: SlackVerdict = { status: 'valid', workspace: 'Rill Team', bot: 'rill-bot' }
+
 export interface FakeHostOptions {
   restartDelayMs?: number
   info?: EngineInfo
   keyChecks?: FakeKeyCheck
+  slackChecks?: FakeSlackCheck
 }
 
 const MIB = 1024 * 1024
@@ -69,7 +81,6 @@ const TYPES: Readonly<Record<string, { mediaType: AttachmentRef['mediaType']; li
 const FAKE_ACCOUNTS: Readonly<Record<(typeof OAUTH_PROVIDERS)[number], string>> = {
   google: 'someone@example.com',
   microsoft: 'someone@contoso.example',
-  slack: 'Rill Team workspace',
 }
 
 const SAMPLE_FOLDERS = ['/Users/demo/Receipts', '/Users/demo/Documents', '/Users/demo/Downloads', '/Users/demo/Projects']
@@ -122,6 +133,8 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
   const delay = options.restartDelayMs ?? 150
   const info = options.info ?? FAKE_ENGINE_INFO
   const keyChecks: FakeKeyCheck = options.keyChecks ?? (() => ({ status: 'valid' }))
+  const slackChecks: FakeSlackCheck = options.slackChecks ?? (() => ({ ...FAKE_SLACK_VERDICT }))
+  const slackGenerations = new Map<string, number>()
   let restartCalls = 0
   let restartTimer: ReturnType<typeof setTimeout> | undefined
   let folderSerial = 0
@@ -154,6 +167,13 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
 
   function engineChanged(): void {
     void restart()
+  }
+
+  function supersedeSlack(name: string): number {
+    const key = foldName(name)
+    const generation = (slackGenerations.get(key) ?? 0) + 1
+    slackGenerations.set(key, generation)
+    return generation
   }
 
   function requireKeychain(): void {
@@ -267,8 +287,29 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
         settings.connections = [...settings.connections.filter((entry) => entry.name !== connection.name), { name: connection.name, kind: 'http', authType: connection.auth.type }]
         engineChanged()
       },
+      async setSlackBot(bot: { name: string; token: string; channel?: string }, saveOptions?: SetSlackBotOptions) {
+        if (!isValidSlackBot(bot) || (saveOptions !== undefined && !Value.Check(SetSlackBotOptionsSchema, saveOptions))) {
+          throw new HostError('INVALID_ARGUMENTS')
+        }
+        requireKeychain()
+        const names = settings.connections.map((entry) => entry.name)
+        const existing = settings.connections.find((entry) => entry.name === bot.name)
+        if (findNameCollision([...names, bot.name]) !== undefined || (existing !== undefined && existing.kind !== 'slack')) throw new HostError('NAME_COLLISION')
+        const generation = supersedeSlack(bot.name)
+        const verdict = await slackChecks(bot.token)
+        if (slackGenerations.get(foldName(bot.name)) !== generation) throw new HostError('SUPERSEDED')
+        if (!isSlackVerdict(verdict)) throw new HostError('INTERNAL')
+        if (verdict.status === 'invalid' && saveOptions?.saveAnyway !== true) throw new HostError('TOKEN_INVALID')
+        if (existing === undefined && settings.connections.length >= MAX_CONNECTIONS) throw new HostError('INVALID_ARGUMENTS')
+        const account = slackAccountText(verdict)
+        const slack = { mode: 'bot' as const, ...(account === undefined ? {} : { account }), ...(bot.channel === undefined ? {} : { channel: bot.channel }) }
+        settings.connections = [...settings.connections.filter((entry) => entry.name !== bot.name), { name: bot.name, kind: 'slack', slack }]
+        engineChanged()
+        return { verdict }
+      },
       async removeConnection(name) {
         requireKeychain()
+        supersedeSlack(name)
         if (!settings.connections.some((entry) => entry.name === name)) return
         settings.connections = settings.connections.filter((entry) => entry.name !== name)
         engineChanged()

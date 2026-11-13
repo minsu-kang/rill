@@ -46,7 +46,7 @@ const region = (t: T, key: 'accounts' | 'custom' | 'other') => screen.getByRole(
 const field = (label: string) => screen.getByLabelText(label) as HTMLInputElement
 const typeSelect = (t: T) => screen.getByLabelText(t('app.connections.custom.authType')) as HTMLSelectElement
 const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement
-const providerCard = (t: T, provider: 'google' | 'microsoft' | 'slack') => screen.getByText(t(`app.connections.provider.${provider}`), { selector: 'strong' }).closest('li') as HTMLElement
+const providerCard = (t: T, provider: 'google' | 'microsoft') => screen.getByText(t(`app.connections.provider.${provider}`), { selector: 'strong' }).closest('li') as HTMLElement
 
 function labelsOf(container: HTMLElement): string[] {
   return [...container.querySelectorAll('label')].map((label) => (label.firstChild?.textContent ?? '').trim())
@@ -80,11 +80,11 @@ describe('layout', () => {
     expect(screen.queryByText(t('app.connections.other.heading'))).toBeNull()
   })
 
-  it('shows three account cards, Google, Microsoft and Slack, each with a status chip', async () => {
+  it('shows two account cards, Google and Microsoft, each with a status chip', async () => {
     const { t } = await open()
     const cards = within(region(t, 'accounts')).getAllByRole('listitem')
-    expect(cards).toHaveLength(3)
-    for (const provider of ['google', 'microsoft', 'slack'] as const) {
+    expect(cards).toHaveLength(2)
+    for (const provider of ['google', 'microsoft'] as const) {
       expect(within(providerCard(t, provider)).getByText(t('app.connections.account.notConnected'))).toBeTruthy()
     }
     expect(screen.queryByText(t('app.connections.kind.slack' as never))).toBeNull()
@@ -102,7 +102,7 @@ describe('accounts', () => {
   it('disables every Connect button and says why, while sign-in is not available', async () => {
     const { t, host } = await open()
     const note = screen.getByText(t('app.connections.accounts.unavailable'))
-    for (const provider of ['google', 'microsoft', 'slack'] as const) {
+    for (const provider of ['google', 'microsoft'] as const) {
       const connect = within(providerCard(t, provider)).getByRole('button', { name: t('app.connections.account.connectLabel', { provider: t(`app.connections.provider.${provider}`) }) }) as HTMLButtonElement
       expect(connect.disabled).toBe(true)
       expect(connect.getAttribute('aria-describedby')).toBe(note.id)
@@ -132,7 +132,7 @@ describe('accounts', () => {
   it('shows a failed connect as an alert with the fixed text', async () => {
     const { t, user, host } = await open({ init: { settings: fakeSettings({ oauth: ONLINE }) } })
     vi.spyOn(host.oauth, 'connect').mockRejectedValue(new HostError('OAUTH_UNAVAILABLE'))
-    await user.click(button(t('app.connections.account.connectLabel', { provider: 'Slack' })))
+    await user.click(button(t('app.connections.account.connectLabel', { provider: 'Microsoft' })))
     expect((await screen.findByRole('alert')).textContent).toBe(t('app.error.host.OAUTH_UNAVAILABLE'))
   })
 

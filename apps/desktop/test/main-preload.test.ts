@@ -69,6 +69,7 @@ describe('preload bridge: calls', () => {
       [CHANNELS.attachmentsAddFromPath]: REF,
       [CHANNELS.attachmentsAddFromBytes]: REF,
       [CHANNELS.secretsSetProviderKey]: VERDICT,
+      [CHANNELS.secretsSetSlackBot]: VERDICT,
     })
     const api = createHostApi(ipc)
     await api.engine.info()
@@ -81,9 +82,10 @@ describe('preload bridge: calls', () => {
     await api.secrets.clearProviderKey('anthropic')
     await api.secrets.setConnection({ name: 'team', kind: 'slack', secret: 's' })
     await api.secrets.setCustomConnection({ name: 'My API', auth: { type: 'bearer', token: 'k' } })
+    await api.secrets.setSlackBot({ name: 'alerts', token: 'xoxb-SLACKTOKENMARKER0123', channel: '#a' }, { saveAnyway: true })
     await api.secrets.removeConnection('team')
     await api.oauth.connect('google')
-    await api.oauth.disconnect('slack')
+    await api.oauth.disconnect('microsoft')
     await api.dialogs.pickFolder()
     await api.dialogs.pickFile('attachment')
     await api.attachments.addFromPath('/a/b.txt')
@@ -100,9 +102,10 @@ describe('preload bridge: calls', () => {
       [CHANNELS.secretsClearProviderKey, { provider: 'anthropic' }],
       [CHANNELS.secretsSetConnection, { name: 'team', kind: 'slack', secret: 's' }],
       [CHANNELS.secretsSetCustomConnection, { name: 'My API', auth: { type: 'bearer', token: 'k' } }],
+      [CHANNELS.secretsSetSlackBot, { name: 'alerts', token: 'xoxb-SLACKTOKENMARKER0123', channel: '#a', options: { saveAnyway: true } }],
       [CHANNELS.secretsRemoveConnection, { name: 'team' }],
       [CHANNELS.oauthConnect, { provider: 'google' }],
-      [CHANNELS.oauthDisconnect, { provider: 'slack' }],
+      [CHANNELS.oauthDisconnect, { provider: 'microsoft' }],
       [CHANNELS.dialogsPickFolder],
       [CHANNELS.dialogsPickFile, { kind: 'attachment' }],
       [CHANNELS.attachmentsAddFromPath, { path: '/a/b.txt' }],

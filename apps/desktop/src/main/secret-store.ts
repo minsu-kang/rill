@@ -7,12 +7,15 @@ import {
   CONNECTION_KINDS,
   ConnectionNameSchema,
   MAX_SECRET_LENGTH,
+  SlackSummarySchema,
   PROVIDER_IDS,
   findNameCollision,
   type AuthType,
   type ConnectionKind,
   type ConnectionSummary,
   type ProviderId,
+  type SlackSummary,
+  hasWholeText,
 } from '../shared/host-api'
 
 export interface SafeStorageLike {
@@ -26,6 +29,7 @@ export interface StoredConnection {
   kind: ConnectionKind
   secret: string
   authType?: AuthType
+  slack?: SlackSummary
 }
 
 export interface SecretStore {
@@ -87,14 +91,23 @@ function isAuthType(value: unknown): value is AuthType {
   return typeof value === 'string' && (AUTH_TYPES as readonly string[]).includes(value)
 }
 
-function validConnection(connection: { name?: unknown; kind?: unknown; secret?: unknown; authType?: unknown }): boolean {
+function validSlack(value: unknown): boolean {
+  return Value.Check(SlackSummarySchema, value) && hasWholeText(value.channel) && hasWholeText(value.account)
+}
+
+function validConnection(connection: { name?: unknown; kind?: unknown; secret?: unknown; authType?: unknown; slack?: unknown }): boolean {
   if (typeof connection.name !== 'string' || !Value.Check(ConnectionNameSchema, connection.name) || !isKind(connection.kind)) return false
   if (!validSecret(connection.secret, secretLimit(connection.kind))) return false
+  if (connection.slack !== undefined && (connection.kind !== 'slack' || !validSlack(connection.slack))) return false
   return connection.authType === undefined || (connection.kind === 'http' && isAuthType(connection.authType))
 }
 
-function summary({ name, kind, authType }: StoredConnection): ConnectionSummary {
-  return authType === undefined ? { name, kind } : { name, kind, authType }
+function summary({ name, kind, authType, slack }: StoredConnection): ConnectionSummary {
+  return { name, kind, ...(authType === undefined ? {} : { authType }), ...(slack === undefined ? {} : { slack: { ...slack } }) }
+}
+
+function sameSlack(left: SlackSummary | undefined, right: SlackSummary | undefined): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
 }
 
 function isProvider(value: unknown): value is ProviderId {
@@ -115,9 +128,15 @@ function parseState(text: string): State {
     if (!isProvider(entry?.provider) || !validSecret(entry.value)) throw new Error('shape')
     state.providerKeys.set(entry.provider, entry.value)
   }
-  for (const entry of connections as Array<{ name?: unknown; kind?: unknown; secret?: unknown; authType?: unknown }>) {
+  for (const entry of connections as Array<{ name?: unknown; kind?: unknown; secret?: unknown; authType?: unknown; slack?: unknown }>) {
     if (!validConnection(entry ?? {})) throw new Error('shape')
-    state.connections.push({ name: entry.name as string, kind: entry.kind as ConnectionKind, secret: entry.secret as string, ...(entry.authType === undefined ? {} : { authType: entry.authType as AuthType }) })
+    state.connections.push({
+      name: entry.name as string,
+      kind: entry.kind as ConnectionKind,
+      secret: entry.secret as string,
+      ...(entry.authType === undefined ? {} : { authType: entry.authType as AuthType }),
+      ...(entry.slack === undefined ? {} : { slack: entry.slack as SlackSummary }),
+    })
   }
   return state
 }
@@ -221,7 +240,7 @@ export function createSecretStore(deps: { dir: string; safeStorage: SafeStorageL
         }
         const current = state.connections[existing]!
         if (options?.mayReplace?.(current) === false) throw new SecretStoreError('name_collision')
-        if (current.kind === connection.kind && current.secret === connection.secret && current.authType === connection.authType) return false
+        if (current.kind === connection.kind && current.secret === connection.secret && current.authType === connection.authType && sameSlack(current.slack, connection.slack)) return false
         state.connections[existing] = { ...connection }
         return true
       })

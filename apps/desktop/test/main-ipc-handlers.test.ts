@@ -10,6 +10,7 @@ import type { KeyChecker } from '../src/main/key-check'
 import { createSecretStore, type SafeStorageLike } from '../src/main/secret-store'
 import { CHANNELS, HostError, MAX_SECRET_LENGTH, hostErrorCode, validateResult, type Channel, type EngineInfo, type EngineStatus, type KeyVerdict } from '../src/shared/host-api'
 
+const unusedSlackCheck = async () => ({ status: 'valid' as const })
 const MARKER = 'IPC-MARKER'
 const KEY = `sk-ant-${MARKER}-key`
 const HOOK = `https://hooks.example.test/${MARKER}`
@@ -45,7 +46,7 @@ function harness(options: { available?: boolean; picks?: string[]; verdict?: Key
   const app = { quit: vi.fn() }
   const loginItem = { set: vi.fn() }
   const keyCheck = vi.fn<KeyChecker>(async () => options.verdict ?? { status: 'valid' })
-  const handlers = createIpcHandlers({ config, secrets, supervisor, attachments, dialog, app, loginItem, keyCheck })
+  const handlers = createIpcHandlers({ config, secrets, supervisor, attachments, dialog, app, loginItem, keyCheck, slackCheck: unusedSlackCheck })
   const call = (channel: Channel, args?: unknown) => handlers[channel](args)
   const allow = async (...folders: string[]) => {
     for (const folder of folders) {
@@ -265,7 +266,7 @@ describe('ipc handlers: settings', () => {
     const h = harness()
     const logs: string[] = []
     h.supervisor.status.mockReturnValue({ state: 'running', restarts: 0, token: 'leak' } as never)
-    const handlers = createIpcHandlers({ config: h.config, secrets: h.secrets, supervisor: h.supervisor, attachments: createAttachmentStore({ dir: join(dir, 'a') }), dialog: h.dialog, app: h.app, loginItem: h.loginItem, keyCheck: h.keyCheck, log: (line) => logs.push(line) })
+    const handlers = createIpcHandlers({ config: h.config, secrets: h.secrets, supervisor: h.supervisor, attachments: createAttachmentStore({ dir: join(dir, 'a') }), dialog: h.dialog, app: h.app, loginItem: h.loginItem, keyCheck: h.keyCheck, slackCheck: unusedSlackCheck, log: (line) => logs.push(line) })
     expect(await failure(handlers[CHANNELS.engineStatus](undefined))).toMatchObject({ message: 'INTERNAL' })
     expect(logs).toEqual([`result of ${CHANNELS.engineStatus} did not match its schema`])
   })
@@ -339,6 +340,7 @@ describe('ipc handlers: secrets', () => {
       app: h.app,
       loginItem: h.loginItem,
       keyCheck: h.keyCheck,
+      slackCheck: unusedSlackCheck,
     })
     const calls: Array<[Channel, unknown]> = [
       [CHANNELS.settingsGet, undefined],
@@ -486,6 +488,7 @@ describe('ipc handlers: key check before saving', () => {
       app: base.app,
       loginItem: base.loginItem,
       keyCheck: base.keyCheck,
+      slackCheck: unusedSlackCheck,
       log: (line) => logs.push(line),
     })
     const seen: unknown[] = []
@@ -703,6 +706,7 @@ describe('ipc handlers: dialogs and attachments', () => {
       app: h.app,
       loginItem: h.loginItem,
       keyCheck: h.keyCheck,
+      slackCheck: unusedSlackCheck,
     })
     expect(await failure(full[CHANNELS.attachmentsAddFromBytes]({ name: 'a.txt', bytes: new Uint8Array([1]) }))).toMatchObject({ message: 'ATTACHMENT_REJECTED' })
   })
@@ -726,7 +730,7 @@ describe('unexpected failures are logged by name only', () => {
     const logs: string[] = []
     const h = harness()
     const broken = { ...h.secrets, setProviderKey: async () => { throw new TypeError(`cannot use ${KEY} here`) } }
-    const handlers = createIpcHandlers({ config: h.config, secrets: broken as never, supervisor: h.supervisor, attachments: createAttachmentStore({ dir: join(dir, 'a2') }), dialog: h.dialog, app: h.app, loginItem: h.loginItem, keyCheck: h.keyCheck, log: (line) => logs.push(line) })
+    const handlers = createIpcHandlers({ config: h.config, secrets: broken as never, supervisor: h.supervisor, attachments: createAttachmentStore({ dir: join(dir, 'a2') }), dialog: h.dialog, app: h.app, loginItem: h.loginItem, keyCheck: h.keyCheck, slackCheck: unusedSlackCheck, log: (line) => logs.push(line) })
     const error = await failure(handlers[CHANNELS.secretsSetProviderKey]({ provider: 'anthropic', value: KEY }))
     expect(hostErrorCode(error)).toBe('INTERNAL')
     expect(logs).toEqual(['rill:secrets:set-provider-key failed: TypeError'])
@@ -738,7 +742,7 @@ describe('unexpected failures are logged by name only', () => {
     const h = harness()
     const { SecretStoreError } = await import('../src/main/secret-store')
     const broken = { ...h.secrets, setProviderKey: async () => { throw new SecretStoreError('write_failed') } }
-    const handlers = createIpcHandlers({ config: h.config, secrets: broken as never, supervisor: h.supervisor, attachments: createAttachmentStore({ dir: join(dir, 'a3') }), dialog: h.dialog, app: h.app, loginItem: h.loginItem, keyCheck: h.keyCheck, log: (line) => logs.push(line) })
+    const handlers = createIpcHandlers({ config: h.config, secrets: broken as never, supervisor: h.supervisor, attachments: createAttachmentStore({ dir: join(dir, 'a3') }), dialog: h.dialog, app: h.app, loginItem: h.loginItem, keyCheck: h.keyCheck, slackCheck: unusedSlackCheck, log: (line) => logs.push(line) })
     await failure(handlers[CHANNELS.secretsSetProviderKey]({ provider: 'anthropic', value: KEY }))
     expect(logs).toEqual(['rill:secrets:set-provider-key failed: SecretStoreError:write_failed'])
   })
@@ -746,7 +750,7 @@ describe('unexpected failures are logged by name only', () => {
   it('does not log the failures that already have their own code', async () => {
     const logs: string[] = []
     const h = harness({ available: false })
-    const handlers = createIpcHandlers({ config: h.config, secrets: h.secrets, supervisor: h.supervisor, attachments: createAttachmentStore({ dir: join(dir, 'a4') }), dialog: h.dialog, app: h.app, loginItem: h.loginItem, keyCheck: h.keyCheck, log: (line) => logs.push(line) })
+    const handlers = createIpcHandlers({ config: h.config, secrets: h.secrets, supervisor: h.supervisor, attachments: createAttachmentStore({ dir: join(dir, 'a4') }), dialog: h.dialog, app: h.app, loginItem: h.loginItem, keyCheck: h.keyCheck, slackCheck: unusedSlackCheck, log: (line) => logs.push(line) })
     const error = await failure(handlers[CHANNELS.secretsSetProviderKey]({ provider: 'anthropic', value: KEY }))
     expect(hostErrorCode(error)).toBe('NO_KEYCHAIN')
     expect(logs).toEqual([])

@@ -189,7 +189,7 @@ describe('no secret can appear in a result type', () => {
 
   it('has no secret-like field in Settings or its connection summary, at runtime', () => {
     expect(Object.keys(SettingsSchema.properties).filter((name) => SECRETISH.test(name) && name !== 'encryptionAvailable')).toEqual([])
-    expect(Object.keys(ConnectionSummarySchema.properties)).toEqual(['name', 'kind', 'authType'])
+    expect(Object.keys(ConnectionSummarySchema.properties)).toEqual(['name', 'kind', 'authType', 'slack'])
     expect(Object.keys(SettingsPatchSchema.properties).filter((name) => SECRETISH.test(name))).toEqual([])
     expect(Object.keys(EngineStatusSchema.properties)).toEqual(['state', 'error', 'restarts'])
     expect(Object.keys(EngineInfoSchema.properties)).toEqual(['url', 'token', 'protocol'])

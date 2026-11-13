@@ -12,6 +12,7 @@ export const appKo = {
   'app.error.host.ATTACHMENT_REJECTED': '이 파일은 받을 수 없어요.',
   'app.error.host.KEY_INVALID': '이 키는 쓸 수 없는 키로 보여요. 제공사가 받아 주지 않았거나 API 키 형식이 아니에요. 키를 다시 확인해 주세요. 그래도 쓰려면 그대로 저장할 수 있어요.',
   'app.error.host.KEY_MALFORMED': '이 키에는 공백, 줄바꿈, 또는 영문·숫자·기호가 아닌 글자가 들어 있어서 API 키가 될 수 없어요. 저장하지 않았어요. 키를 다시 복사해 주세요.',
+  'app.error.host.TOKEN_INVALID': '슬랙이 이 토큰을 받아 주지 않아서 저장하지 않았어요. xoxb-로 시작하는 Bot User OAuth Token을 복사했는지 확인해 주세요. 그래도 쓰려면 그대로 저장할 수 있어요.',
   'app.error.host.SUPERSEDED': '이 키에 더 최근 변경이 있어서 이번 입력은 저장하지 않았어요.',
   'app.error.host.OAUTH_UNAVAILABLE': '이 버전에서는 아직 로그인할 수 없어요.',
   'app.error.host.INTERNAL': '알 수 없는 오류가 났어요. 다시 시도해 주세요.',

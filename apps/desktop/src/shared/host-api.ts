@@ -24,8 +24,8 @@ export const AUTH_TYPES = ['none', 'apiKey', 'bearer', 'basic'] as const
 export const AuthTypeSchema = Type.Union([Type.Literal('none'), Type.Literal('apiKey'), Type.Literal('bearer'), Type.Literal('basic')])
 export type AuthType = Type.Static<typeof AuthTypeSchema>
 
-export const OAUTH_PROVIDERS = ['google', 'microsoft', 'slack'] as const
-export const OAuthProviderSchema = Type.Union([Type.Literal('google'), Type.Literal('microsoft'), Type.Literal('slack')])
+export const OAUTH_PROVIDERS = ['google', 'microsoft'] as const
+export const OAuthProviderSchema = Type.Union([Type.Literal('google'), Type.Literal('microsoft')])
 export type OAuthProvider = Type.Static<typeof OAuthProviderSchema>
 
 export const MAX_FOLDERS = 50
@@ -38,12 +38,16 @@ export const MAX_AUTH_NAME_LENGTH = 128
 export const MAX_AUTH_VALUE_LENGTH = 2000
 export const MAX_AUTH_USERNAME_LENGTH = 256
 export const MAX_ACCOUNT_LENGTH = 200
+export const MAX_SLACK_TEXT_LENGTH = 80
+export const MAX_SLACK_CHANNEL_LENGTH = 80
 
 const MODEL_PATTERN = '^[a-z0-9][a-z0-9._-]{1,63}$'
 const NO_CONTROL = '^[^\\u0000-\\u001f\\u007f]+$'
 const NO_CONTROL_AT_ALL = '^[^\\u0000-\\u001f\\u007f-\\u009f]+$'
 const NO_CONTROL_OR_COLON = '^[^:\\u0000-\\u001f\\u007f-\\u009f]+$'
 const NO_CONTROL_OR_NOTHING = '^[^\\u0000-\\u001f\\u007f-\\u009f]*$'
+const SLACK_TOKEN_PATTERN = '^xoxb-[A-Za-z0-9-]{10,200}$'
+const SLACK_CHANNEL_PATTERN = '^[^\\s\\u0000-\\u001f\\u007f-\\u009f]+$'
 const HEADER_NAME = "^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$"
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
 export const FORBIDDEN_AUTH_NAMES: ReadonlySet<string> = new Set([
@@ -125,7 +129,23 @@ export const EngineStatusSchema = Type.Object(
   closed,
 )
 
-export const ConnectionSummarySchema = Type.Object({ name: ConnectionNameSchema, kind: ConnectionKindSchema, authType: Type.Optional(AuthTypeSchema) }, closed)
+export const SlackTokenSchema = Type.String({ pattern: SLACK_TOKEN_PATTERN })
+export const SlackChannelSchema = Type.String({ minLength: 1, maxLength: MAX_SLACK_CHANNEL_LENGTH, pattern: SLACK_CHANNEL_PATTERN })
+const SlackTextSchema = Type.String({ minLength: 1, maxLength: MAX_SLACK_TEXT_LENGTH, pattern: NO_CONTROL_AT_ALL })
+
+export const SlackSummarySchema = Type.Object(
+  {
+    mode: Type.Literal('bot'),
+    account: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_ACCOUNT_LENGTH, pattern: NO_CONTROL_AT_ALL })),
+    channel: Type.Optional(SlackChannelSchema),
+  },
+  closed,
+)
+
+export const ConnectionSummarySchema = Type.Object(
+  { name: ConnectionNameSchema, kind: ConnectionKindSchema, authType: Type.Optional(AuthTypeSchema), slack: Type.Optional(SlackSummarySchema) },
+  closed,
+)
 
 export const OAuthAccountSchema = Type.Object(
   { provider: OAuthProviderSchema, account: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_ACCOUNT_LENGTH, pattern: NO_CONTROL })) },
@@ -184,6 +204,18 @@ export const SetProviderKeyArgsSchema = Type.Object(
   closed,
 )
 export const SetProviderKeyResultSchema = Type.Object({ verdict: KeyVerdictSchema }, closed)
+export const SlackVerdictSchema = Type.Union([
+  Type.Object({ status: Type.Literal('valid'), workspace: Type.Optional(SlackTextSchema), bot: Type.Optional(SlackTextSchema) }, closed),
+  Type.Object({ status: Type.Literal('invalid'), reason: Type.Literal('unauthorized') }, closed),
+  Type.Object({ status: Type.Literal('unverified'), reason: UnverifiedReasonSchema }, closed),
+])
+export const SetSlackBotOptionsSchema = Type.Object({ saveAnyway: Type.Optional(Type.Boolean()) }, closed)
+export const SlackBotSchema = Type.Object({ name: ConnectionNameSchema, token: SlackTokenSchema, channel: Type.Optional(SlackChannelSchema) }, closed)
+export const SetSlackBotArgsSchema = Type.Object(
+  { name: ConnectionNameSchema, token: SlackTokenSchema, channel: Type.Optional(SlackChannelSchema), options: Type.Optional(SetSlackBotOptionsSchema) },
+  closed,
+)
+export const SetSlackBotResultSchema = Type.Object({ verdict: SlackVerdictSchema }, closed)
 export const ClearProviderKeyArgsSchema = Type.Object({ provider: ProviderIdSchema }, closed)
 export const SetConnectionArgsSchema = Type.Object(
   { name: ConnectionNameSchema, kind: ConnectionKindSchema, secret: SecretValueSchema },
@@ -213,6 +245,11 @@ export type KeyInvalidReason = Type.Static<typeof InvalidReasonSchema>
 export type KeyUnverifiedReason = Type.Static<typeof UnverifiedReasonSchema>
 export type SetProviderKeyOptions = Type.Static<typeof SetProviderKeyOptionsSchema>
 export type SetProviderKeyResult = Type.Static<typeof SetProviderKeyResultSchema>
+export type SlackSummary = Type.Static<typeof SlackSummarySchema>
+export type SlackVerdict = Type.Static<typeof SlackVerdictSchema>
+export type SlackBot = Type.Static<typeof SlackBotSchema>
+export type SetSlackBotOptions = Type.Static<typeof SetSlackBotOptionsSchema>
+export type SetSlackBotResult = Type.Static<typeof SetSlackBotResultSchema>
 
 export interface HostApi {
   engine: {
@@ -230,6 +267,7 @@ export interface HostApi {
     clearProviderKey(provider: ProviderId): Promise<void>
     setConnection(connection: { name: string; kind: ConnectionKind; secret: string }): Promise<void>
     setCustomConnection(connection: { name: string; auth: CustomAuth }): Promise<void>
+    setSlackBot(bot: { name: string; token: string; channel?: string }, options?: SetSlackBotOptions): Promise<SetSlackBotResult>
     removeConnection(name: string): Promise<void>
   }
   oauth: {
@@ -250,7 +288,7 @@ export interface HostApi {
 export const HOST_API_METHODS = {
   engine: { info: true, status: true, restart: true, onStatus: true },
   settings: { get: true, update: true },
-  secrets: { setProviderKey: true, clearProviderKey: true, setConnection: true, setCustomConnection: true, removeConnection: true },
+  secrets: { setProviderKey: true, clearProviderKey: true, setConnection: true, setCustomConnection: true, setSlackBot: true, removeConnection: true },
   oauth: { connect: true, disconnect: true },
   dialogs: { pickFolder: true, pickFile: true },
   attachments: { addFromPath: true, addFromBytes: true },
@@ -267,6 +305,7 @@ export const CHANNELS = {
   secretsClearProviderKey: 'rill:secrets:clear-provider-key',
   secretsSetConnection: 'rill:secrets:set-connection',
   secretsSetCustomConnection: 'rill:secrets:set-custom-connection',
+  secretsSetSlackBot: 'rill:secrets:set-slack-bot',
   secretsRemoveConnection: 'rill:secrets:remove-connection',
   oauthConnect: 'rill:oauth:connect',
   oauthDisconnect: 'rill:oauth:disconnect',
@@ -293,6 +332,7 @@ export const CONTRACTS: Record<Channel, { args: Type.TSchema; result: Type.TSche
   [CHANNELS.secretsClearProviderKey]: { args: ClearProviderKeyArgsSchema, result: Type.Undefined() },
   [CHANNELS.secretsSetConnection]: { args: SetConnectionArgsSchema, result: Type.Undefined() },
   [CHANNELS.secretsSetCustomConnection]: { args: SetCustomConnectionArgsSchema, result: Type.Undefined() },
+  [CHANNELS.secretsSetSlackBot]: { args: SetSlackBotArgsSchema, result: SetSlackBotResultSchema },
   [CHANNELS.secretsRemoveConnection]: { args: RemoveConnectionArgsSchema, result: Type.Undefined() },
   [CHANNELS.oauthConnect]: { args: OAuthArgsSchema, result: Type.Undefined() },
   [CHANNELS.oauthDisconnect]: { args: OAuthArgsSchema, result: Type.Undefined() },
@@ -307,6 +347,7 @@ export function validateArgs(channel: Channel, args: unknown): boolean {
   if (!Value.Check(CONTRACTS[channel].args, args)) return false
   if (channel === CHANNELS.attachmentsAddFromBytes) return isByteInput((args as { bytes: unknown }).bytes)
   if (channel === CHANNELS.secretsSetCustomConnection) return isValidCustomAuth((args as { auth: unknown }).auth)
+  if (channel === CHANNELS.secretsSetSlackBot) return hasWholeText((args as { channel?: string }).channel)
   return true
 }
 
@@ -316,6 +357,28 @@ export function validateResult(channel: Channel, result: unknown): boolean {
 
 export function isKeyVerdict(value: unknown): value is KeyVerdict {
   return Value.Check(KeyVerdictSchema, value)
+}
+
+export function isSlackVerdict(value: unknown): value is SlackVerdict {
+  return Value.Check(SlackVerdictSchema, value)
+}
+
+export function hasWholeText(value: string | undefined): boolean {
+  return value === undefined || !LONE_SURROGATE.test(value)
+}
+
+export function isValidSlackBot(value: unknown): value is SlackBot {
+  return Value.Check(SlackBotSchema, value) && hasWholeText(value.channel)
+}
+
+export function encodeSlackBot(bot: { token: string; channel?: string }): string {
+  return JSON.stringify({ rillSlack: 1, token: bot.token, ...(bot.channel === undefined ? {} : { channel: bot.channel }) })
+}
+
+export function slackAccountText(verdict: SlackVerdict): string | undefined {
+  if (verdict.status !== 'valid') return undefined
+  if (verdict.bot !== undefined && verdict.workspace !== undefined) return `${verdict.bot} in ${verdict.workspace}`
+  return verdict.bot ?? verdict.workspace
 }
 
 export function validateStatus(value: unknown): value is EngineStatus {
@@ -347,6 +410,7 @@ export const HOST_ERROR_CODES = [
   'ATTACHMENT_REJECTED',
   'KEY_INVALID',
   'KEY_MALFORMED',
+  'TOKEN_INVALID',
   'SUPERSEDED',
   'OAUTH_UNAVAILABLE',
   'INTERNAL',

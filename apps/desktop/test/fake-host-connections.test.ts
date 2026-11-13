@@ -47,11 +47,10 @@ describe('createFakeHost custom connections', () => {
 
   it('connects example accounts with neutral names', async () => {
     const host = createFakeHost({ settings: fakeSettings({ oauth: { available: true, accounts: [] } }) })
-    for (const provider of ['google', 'microsoft', 'slack'] as const) await host.oauth.connect(provider)
+    for (const provider of ['google', 'microsoft'] as const) await host.oauth.connect(provider)
     expect((await host.settings.get()).oauth.accounts).toEqual([
       { provider: 'google', account: 'someone@example.com' },
       { provider: 'microsoft', account: 'someone@contoso.example' },
-      { provider: 'slack', account: 'Rill Team workspace' },
     ])
   })
 
@@ -94,14 +93,14 @@ describe('createFakeHost oauth', () => {
   it('simulates a connect and a disconnect when it is available', async () => {
     const host = createFakeHost({ settings: fakeSettings({ oauth: { available: true, accounts: [] } }) })
     await host.oauth.connect('google')
-    await host.oauth.connect('slack')
+    await host.oauth.connect('microsoft')
     await host.oauth.connect('google')
     const accounts = (await host.settings.get()).oauth.accounts
-    expect(accounts.map((entry) => entry.provider)).toEqual(['google', 'slack'])
+    expect(accounts.map((entry) => entry.provider)).toEqual(['google', 'microsoft'])
     expect(accounts.every((entry) => typeof entry.account === 'string' && entry.account.length > 0)).toBe(true)
     await host.oauth.disconnect('google')
-    expect((await host.settings.get()).oauth.accounts.map((entry) => entry.provider)).toEqual(['slack'])
-    await host.oauth.disconnect('microsoft')
+    expect((await host.settings.get()).oauth.accounts.map((entry) => entry.provider)).toEqual(['microsoft'])
+    await host.oauth.disconnect('google')
     expect((await host.settings.get()).oauth.accounts).toHaveLength(1)
   })
 

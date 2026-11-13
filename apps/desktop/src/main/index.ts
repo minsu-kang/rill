@@ -10,6 +10,7 @@ import { createEngineSupervisor, type ForkLike } from './engine-supervisor'
 import { createIpcHandlers, type DialogLike } from './ipc-handlers'
 import { applyDevDockIcon } from './dock-icon'
 import { createKeyChecker } from './key-check'
+import { createSlackChecker } from './slack-check'
 import { applyLoginItem, launchedHidden } from './login-item'
 import { createSecretStore, type SafeStorageLike } from './secret-store'
 import { runSmoke, watchCspConsole } from './smoke'
@@ -85,6 +86,7 @@ async function start(): Promise<void> {
     app: { quit: () => app.quit() },
     loginItem: { set: (enabled) => applyLoginItem(app, enabled) },
     keyCheck: createKeyChecker({ fetch: (url, init) => fetch(url, init) }),
+    slackCheck: createSlackChecker({ fetch: (url, init) => fetch(url, init) }),
     log,
   })
   const updateSettings = handlers[CHANNELS.settingsUpdate]

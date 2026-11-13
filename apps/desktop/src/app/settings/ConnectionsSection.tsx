@@ -208,7 +208,7 @@ function SlackWebhook({ api, locked, full, onRemove }: GroupProps) {
   )
 }
 
-function Accounts({ api, locked, full, onRemove }: GroupProps) {
+function Accounts({ api, locked }: GroupProps) {
   const t = useT()
   const host = useHost()
   const action = useAction()
@@ -266,7 +266,6 @@ function Accounts({ api, locked, full, onRemove }: GroupProps) {
                   {t(connected ? 'app.connections.account.disconnect' : 'app.connections.account.connect')}
                 </button>
               </div>
-              {provider === 'slack' ? <SlackWebhook api={api} locked={locked} full={full} onRemove={onRemove} /> : null}
             </li>
           )
         })}
@@ -281,6 +280,19 @@ function Accounts({ api, locked, full, onRemove }: GroupProps) {
           {t(action.error)}
         </p>
       )}
+    </section>
+  )
+}
+
+function SlackBlock(props: GroupProps) {
+  const t = useT()
+  const headingId = useId()
+  return (
+    <section className={look.group} aria-labelledby={headingId}>
+      <h3 id={headingId} className={look.groupTitle}>
+        {t('app.connections.provider.slack')}
+      </h3>
+      <SlackWebhook {...props} />
     </section>
   )
 }
@@ -490,6 +502,7 @@ export function ConnectionsSection({ api, locked }: { api: SettingsApi; locked: 
       <p className={controls.note}>{t('app.connections.intro')}</p>
       {full ? <p className={controls.warn}>{t('app.connections.limit')}</p> : null}
       <Accounts api={api} locked={locked} full={full} onRemove={setRemoving} />
+      <SlackBlock api={api} locked={locked} full={full} onRemove={setRemoving} />
       <CustomConnection api={api} locked={locked} full={full} onRemove={setRemoving} />
       {other.length === 0 ? null : <OtherSecrets entries={other} disabled={locked || action.busy} onRemove={setRemoving} />}
       {removing === undefined ? null : (

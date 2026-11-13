@@ -81,7 +81,7 @@ describe('createFakeHost secrets', () => {
     const everything = JSON.stringify([settings, host.state(), Object.keys(host), Object.keys(host.secrets), String(host.secrets.setProviderKey)])
     expect(everything).not.toContain(MARKER)
     expect(everything).not.toContain('MARKER')
-    expect(Object.keys(host.secrets).sort()).toEqual(['clearProviderKey', 'removeConnection', 'setConnection', 'setCustomConnection', 'setProviderKey'])
+    expect(Object.keys(host.secrets).sort()).toEqual(['clearProviderKey', 'removeConnection', 'setConnection', 'setCustomConnection', 'setProviderKey', 'setSlackBot'])
   })
 
   it('clears a provider key and removes a connection, and refuses when there is no keychain', async () => {

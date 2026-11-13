@@ -60,6 +60,13 @@ export function createHostApi(ipc: IpcLike): HostApi {
       clearProviderKey: (provider) => call(CHANNELS.secretsClearProviderKey, { provider }),
       setConnection: (connection) => call(CHANNELS.secretsSetConnection, { name: connection.name, kind: connection.kind, secret: connection.secret }),
       setCustomConnection: (connection) => call(CHANNELS.secretsSetCustomConnection, { name: connection.name, auth: connection.auth }),
+      setSlackBot: (bot, options) =>
+        call(CHANNELS.secretsSetSlackBot, {
+          name: bot.name,
+          token: bot.token,
+          ...(bot.channel === undefined ? {} : { channel: bot.channel }),
+          ...(options === undefined ? {} : { options }),
+        }),
       removeConnection: (name) => call(CHANNELS.secretsRemoveConnection, { name }),
     },
     oauth: {
