@@ -209,6 +209,11 @@ describe('the reviewer part: the panel', () => {
     ])
   })
 
+  it('gives each chip the style of its own severity', () => {
+    showPart({ state: done() })
+    for (const chip of document.querySelectorAll('[data-severity]')) expect(chip.className).toContain(chip.getAttribute('data-severity'))
+  })
+
   it('says that nothing was found when there are no findings', () => {
     showPart({ state: done(reviewResultOf(reviewCases.clean)) })
     expect(screen.getByText(reviewCases.clean.summary)).toBeTruthy()
@@ -630,12 +635,67 @@ describe('the chat with a reviewer', () => {
     expect(screen.queryByText(en['chat.review.sent'])).toBeNull()
   })
 
-  it('loads the agents again when the engine says the reviewer is gone or is not one', async () => {
-    const { world } = await planned({ intercept: (method) => (method === 'reviewPlan' ? Promise.reject(new RillError('AGENT_NOT_FOUND', 'x')) : undefined) })
+  it.each(['AGENT_NOT_FOUND', 'AGENT_NOT_REVIEWER'])('loads the agents again when the engine answers %s', async (code) => {
+    const { world } = await planned({ intercept: (method) => (method === 'reviewPlan' ? Promise.reject(new RillError(code, 'x')) : undefined) })
     const before = world.callsOf('listAgents').length
     fireEvent.click(reviewButton())
     await screen.findByRole('alert')
     await waitFor(() => expect(world.callsOf('listAgents').length).toBeGreaterThan(before))
+  })
+
+  it('does not load the agents again for another error', async () => {
+    const { world } = await planned({ intercept: (method) => (method === 'reviewPlan' ? Promise.reject(new RillError('REVIEW_PROVIDER', 'x')) : undefined) })
+    const before = world.callsOf('listAgents').length
+    fireEvent.click(reviewButton())
+    await screen.findByRole('alert')
+    expect(world.callsOf('listAgents')).toHaveLength(before)
+  })
+
+  it('drops a failure that comes after Cancel: no alert, and the button stays as it was', async () => {
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await planned({ intercept: (method) => (method === 'reviewPlan' ? gate.then(() => Promise.reject(new RillError('REVIEW_PROVIDER', 'x'))) : undefined) })
+    fireEvent.click(reviewButton())
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    await act(async () => {
+      release?.()
+      await gate
+      await Promise.resolve()
+    })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(reviewButton().textContent).toBe('Ask a reviewer')
+  })
+
+  it('shows the answer of the second ask, not a late answer of the first one that was cancelled', async () => {
+    const gates: Array<() => void> = []
+    let asked = 0
+    await planned({
+      intercept: (method) => {
+        if (method !== 'reviewPlan') return undefined
+        const mine = asked++
+        return new Promise((resolve) => {
+          gates[mine] = () => resolve(reviewResultOf(mine === 0 ? reviewCases.mixed : reviewCases.clean))
+        })
+      },
+    })
+    fireEvent.click(reviewButton())
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    fireEvent.click(reviewButton())
+    await screen.findByText(en['chat.review.asking'])
+    await act(async () => {
+      gates[0]!()
+      await Promise.resolve()
+    })
+    expect(screen.queryByRole('article', { name: en['chat.review.panel'] })).toBeNull()
+    expect(screen.getByText(en['chat.review.asking'])).toBeTruthy()
+    await act(async () => {
+      gates[1]!()
+      await Promise.resolve()
+    })
+    expect(await screen.findByText(reviewCases.clean.summary)).toBeTruthy()
+    expect(screen.queryByText(reviewCases.mixed.summary)).toBeNull()
   })
 
   it('shows REVIEW_BUSY from the engine when another review is still running, and the card of the first review keeps its place', async () => {

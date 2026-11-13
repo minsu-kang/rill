@@ -93,6 +93,14 @@ describe('parseSkillFile: what is refused', () => {
     expect(parseSkillFile(`${FILE}${filler}`).fields).toBeUndefined()
   })
 
+  it('takes a file of exactly 64 KiB as far as the size goes, and refuses one byte more', () => {
+    const head = '---\nname: A\n---\n\n# Body\n\n'
+    const exact = `${head}${'a'.repeat(SKILL_FILE_MAX_BYTES - head.length)}`
+    expect(new TextEncoder().encode(exact).length).toBe(SKILL_FILE_MAX_BYTES)
+    expect(codes(exact)).not.toContain('too_large')
+    expect(codes(`${exact}a`)).toEqual(['too_large'])
+  })
+
   it('text that was not valid UTF-8', () => {
     expect(codes(FILE.replace('Before', 'B\ufffdfore'))).toEqual(['not_utf8'])
   })

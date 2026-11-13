@@ -13,7 +13,7 @@ import { skillsStoreFor } from '../src/engine/skills'
 import { fakeData } from '../src/fixtures'
 import { agentFixtures, agentOf } from '../src/fixtures/agents'
 import { memoryFixtures, models, outcomeOf, results } from '../src/fixtures/plan'
-import { skillFixtures, skillOf } from '../src/fixtures/skills'
+import { filler, skillFixtures, skillOf } from '../src/fixtures/skills'
 import { en } from '../src/i18n/en'
 import { ko } from '../src/i18n/ko'
 import { violations } from './axe'
@@ -296,6 +296,54 @@ describe('the skills picker', () => {
     await user.click(box('Skill 01'))
     expect(box('Skill 09').disabled).toBe(false)
     expect(screen.queryByText(en['agents.skills.limit'])).toBeNull()
+  })
+
+  describe('at the edge of the limits', () => {
+    const [a, b, c] = [skillOf('skill-edge-a', { name: 'Edge A', body: filler(3500) }), skillOf('skill-edge-b', { name: 'Edge B', body: filler(2500) }), skillOf('skill-edge-c', { name: 'Edge C', body: filler(2501) })]
+    const edge = (...ids: string[]) => mount({ agents: [{ ...terse, skillIds: ids }], skills: [a, b, c] })
+    const meter = (): HTMLElement => within(skillsGroup()).getByRole('meter', { name: en['agents.skills.meterLabel'] })
+    const fill = (): string => (meter().firstElementChild as HTMLElement).className
+    const text = (pattern: string): HTMLElement => within(skillsGroup()).getByText(pattern)
+
+    it('lets a skill that fills the budget exactly be checked, and keeps the meter calm and Save on at 6,000', async () => {
+      const { user } = edge(a.id)
+      await ready()
+      await open(/Terse reviewer/)
+      expect(box('Edge B').disabled).toBe(false)
+      expect(box('Edge C').disabled).toBe(true)
+      await user.click(box('Edge B'))
+      expect(text('6,000 of 6,000 characters').className).not.toMatch(/countOver/)
+      expect(fill()).toMatch(/meterFill/)
+      expect(fill()).not.toMatch(/meterOver/)
+      expect(meter().getAttribute('aria-valuenow')).toBe('6000')
+      expect(button('Save').disabled).toBe(false)
+    })
+
+    it('turns the meter red one character past 6,000, caps its value at 6,000, and keeps Save off', async () => {
+      edge(a.id, c.id)
+      await ready()
+      await open(/Terse reviewer/)
+      expect(text('6,001 of 6,000 characters').className).toMatch(/countOver/)
+      expect(fill()).toMatch(/meterOver/)
+      expect(meter().getAttribute('aria-valuenow')).toBe('6000')
+      fireEvent.change(field('Persona'), { target: { value: 'Another persona' } })
+      expect(button('Save').disabled).toBe(true)
+    })
+
+    it('takes 8 skills and refuses a 9th in the draft that came from a race, by the count', async () => {
+      const [first, second] = [skillFixtures.full.slice(0, 8).map((skill) => skill.id), skillFixtures.full.slice(0, 9).map((skill) => skill.id)]
+      const eight = mount({ agents: [{ ...terse, skillIds: first }], skills: skillFixtures.full })
+      await ready()
+      await open(/Terse reviewer/)
+      fireEvent.change(field('Persona'), { target: { value: 'Another persona' } })
+      expect(button('Save').disabled).toBe(false)
+      eight.view.unmount()
+      mount({ agents: [{ ...terse, skillIds: second }], skills: skillFixtures.full })
+      await ready()
+      await open(/Terse reviewer/)
+      fireEvent.change(field('Persona'), { target: { value: 'Another persona' } })
+      expect(button('Save').disabled).toBe(true)
+    })
   })
 
   it('stops at 6,000 characters: a skill that no longer fits is off, with a reason', async () => {
