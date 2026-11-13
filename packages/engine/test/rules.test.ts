@@ -81,6 +81,14 @@ describe('normaliseRule, common to every kind', () => {
     expect(problemOf('allowHost', 'x'.repeat(RULE_MAX_INPUT_CHARS + 1))).toBe('too_long')
   })
 
+  it('accepts an input of exactly the limit as far as its length goes, and counts characters after NFC', () => {
+    expect(problemOf('allowHost', 'x'.repeat(RULE_MAX_INPUT_CHARS))).not.toBe('too_long')
+    expect(problemOf('allowHost', 'x'.repeat(RULE_MAX_INPUT_CHARS + 1))).toBe('too_long')
+    const decomposed = 'e\u0301'.repeat((RULE_MAX_INPUT_CHARS + 2) / 2)
+    expect([...decomposed].length).toBeGreaterThan(RULE_MAX_INPUT_CHARS)
+    expect(problemOf('allowHost', decomposed)).not.toBe('too_long')
+  })
+
   it('names the rule that failed in the problems and never the value', () => {
     const marker = 'RULE-MARKER-31bd'
     for (const [kind, raw] of [

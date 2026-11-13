@@ -821,6 +821,20 @@ describe('runs that wait in the queue', () => {
     expect(events.filter((event) => event.type === 'run.finished' && event.runId === second.runId)).toEqual([{ type: 'run.finished', at: expect.any(Number), runId: second.runId, status: 'failed', error: RULE_VIOLATION_MESSAGE }])
   })
 
+  it('names each rule code once in run.blocked, however many nodes break a rule', async () => {
+    const ctx = setup({ maxConcurrentRuns: 1 })
+    const gated = ctx.engine.deploy(wf('gated', [manual, node('g', 'test.gate@1')]))
+    const target = ctx.engine.deploy(wf('target', [manual, call(API, 'n1'), call(API, 'n2'), call('https://other.example.com/', 'n3')]))
+    const first = ctx.engine.enqueueRun(gated)
+    await waitFor(() => ctx.gate.entered.length === 1)
+    const second = ctx.engine.enqueueRun(target)
+    forbid(ctx.engine, 'http.request')
+    ctx.gate.release()
+    await first.done
+    expect((await second.done).status).toBe('failed')
+    expect(ctx.events.filter((event) => event.type === 'run.blocked')).toEqual([{ type: 'run.blocked', at: expect.any(Number), workflowId: target, codes: ['rule_violation'] }])
+  })
+
   it('fails a queued dry run the same way', async () => {
     const { engine, gate, first, second } = await queuedBehindGate({ dryRun: true })
     forbid(engine, 'http.request')

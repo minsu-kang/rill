@@ -70,6 +70,11 @@ describe('hostOfUrl', () => {
     expect(hostOfUrl('http://[0:0:0:0:0:0:0:1]:80/')).toBe('[::1]')
   })
 
+  it('refuses a host that is only a dot', () => {
+    expect(hostOfUrl('http://./')).toBeUndefined()
+    expect(judgeUrl('http://./', ['*.example.com', 'a.com'])).toEqual({ ok: false, reason: 'invalid' })
+  })
+
   it('returns nothing for a URL it cannot parse, with a scheme other than http or https, or without a scheme', () => {
     for (const url of ['', 'allowed.com', '//allowed.com/', 'ftp://allowed.com/', 'file:///etc/passwd', 'javascript:alert(1)', 'https://allowed.com:99999/', 'https://[::1/', 'https://a b.com/', 'https://%00.com/']) {
       expect(hostOfUrl(url), url).toBeUndefined()
@@ -100,6 +105,18 @@ describe('hostMatches', () => {
 
   it('treats a pattern as case-insensitive', () => {
     expect(hostMatches('api.example.com', 'API.Example.COM')).toBe(true)
+  })
+
+  it('never matches a wildcard that has nothing after the dot', () => {
+    expect(hostMatches('a.', '*.')).toBe(false)
+    expect(hostMatches('a.b', '*.')).toBe(false)
+  })
+
+  it('reads a bracketed host as an address even when it has dots, and a name that starts with four numbers as a name', () => {
+    expect(hostMatches('[::ffff:1.2.3.4]', '*.3.4]')).toBe(false)
+    expect(hostMatches('1.2.3.4.example.com', '*.example.com')).toBe(true)
+    expect(hostMatches('1.2.3.4.example.com', '*.4.example.com')).toBe(true)
+    expect(judgeUrl('https://1.2.3.4.example.com/', ['*.example.com'])).toEqual({ ok: true, host: '1.2.3.4.example.com' })
   })
 })
 
@@ -284,7 +301,7 @@ describe('judgeConfigUrl', () => {
 
   it('does not let a literal that looks like a placeholder change the verdict', () => {
     expect(judgeConfigUrl('https://rillref0q.example.com/{{t1.output.a}}', ['rillref0q.example.com'])).toEqual({ ok: true, host: 'rillref0q.example.com' })
-    expect(judgeConfigUrl('https://RILLREF1Q.example.com/{{t1.output.a}}', ['rillref1q.example.com'])).toEqual({ ok: true, host: 'rillref1q.example.com' })
+    expect(judgeConfigUrl('https://RILLREF0Q.example.com/{{t1.output.a}}', ['rillref0q.example.com'])).toEqual({ ok: true, host: 'rillref0q.example.com' })
   })
 
   it('says invalid for a URL that has a reference only after the host but no scheme', () => {
