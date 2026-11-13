@@ -278,7 +278,16 @@ export function Conversation(props: ConversationProps) {
           </div>
         ) : null}
         {state.entries.map(renderEntry)}
-        {planning ? <div className={styles.thinking}>{t('chat.panel.thinking')}</div> : null}
+        {planning ? (
+          <div className={styles.thinking}>
+            <span className={styles.dots} aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+            {t('chat.panel.thinking')}
+          </div>
+        ) : null}
       </div>
       <div className={styles.bottom}>
         {modelsState.status === 'loading' ? <p className={styles.note}>{t('chat.panel.loadingModels')}</p> : null}

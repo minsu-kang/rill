@@ -737,6 +737,26 @@ describe('ChatPanel: lifecycle', () => {
     expect(screen.queryByText('Working on a plan…')).toBeNull()
   })
 
+  it('draws the planning bubble with decorative dots that assistive technology skips', async () => {
+    show({ script: scripted(['hang']) })
+    await ready()
+    ask('x')
+    const bubble = (await screen.findByText('Working on a plan…')) as HTMLElement
+    const dots = bubble.querySelector('span[aria-hidden="true"]')
+    expect(dots).not.toBeNull()
+    expect(dots!.querySelectorAll('i')).toHaveLength(3)
+    expect(bubble.textContent).toBe('Working on a plan…')
+  })
+
+  it('marks every message with who sent it so the bubble can sit on its side', async () => {
+    show({ script: scripted([outcomeOf(results.unsupported)]) })
+    await ready()
+    ask('x')
+    await screen.findByRole('article', { name: 'Rill' })
+    expect(screen.getByRole('article', { name: 'You' }).getAttribute('data-role')).toBe('user')
+    expect(screen.getByRole('article', { name: 'Rill' }).getAttribute('data-role')).toBe('assistant')
+  })
+
   it('renders the model text of a result as text', async () => {
     const base = results.unsupported as Extract<typeof results.unsupported, { kind: 'unsupported' }>
     const { container } = show({

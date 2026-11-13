@@ -1,24 +1,35 @@
 .bubble {
+  align-self: flex-start;
   max-width: 100%;
-  padding: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  border-radius: 18px 18px 18px 4px;
   background: var(--surface-raised);
+  overflow-wrap: anywhere;
 }
 
 .bubble[data-role='user'] {
   align-self: flex-end;
-  background: var(--accent-subtle);
-  border-color: var(--status-running-border);
+  max-width: 88%;
+  padding: var(--space-2) var(--space-3);
+  border-color: transparent;
+  border-radius: 18px 18px 4px 18px;
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
-.bubble::before {
-  display: block;
-  margin-bottom: var(--space-1);
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: 700;
-  content: attr(aria-label);
+.bubble[data-role='user'] .file {
+  border-color: color-mix(in srgb, var(--on-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--on-accent) 14%, transparent);
+  color: inherit;
+}
+
+.bubble[data-role='user'] .meta,
+.bubble[data-role='user'] .subheading,
+.bubble[data-role='user'] .answers dt {
+  color: inherit;
+  opacity: 0.85;
 }
 
 .body {
@@ -44,6 +55,7 @@
 .file {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
   gap: var(--space-2);
   padding: 0 var(--space-2);
   border: 1px solid var(--border-default);
@@ -62,6 +74,7 @@
 
 .meta {
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .badge {
@@ -71,6 +84,7 @@
   background: var(--badge-external-bg);
   color: var(--badge-external-text);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .subheading {
