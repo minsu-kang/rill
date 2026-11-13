@@ -13,6 +13,7 @@ export { SIGNATURES as FILE_SIGNATURES, MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES, MAX
 export { httpRequest } from './nodes/http-request'
 export { notifySlack } from './nodes/notify-slack'
 export * from './branches'
+export * from './connection-auth'
 export * from './roles'
 export { csvAppend, encodeRow } from './nodes/csv-append'
 export * from './guard'

@@ -24,6 +24,14 @@ A JSON object that maps a connection name to a secret string, or to an object wi
 
 Nodes can use both forms. The planner is told only about the second form, by name and kind (`slack`, `http` or `webhookSecret`), and never receives a secret. A bad kind or a secret that is not a string stops the command with a usage error.
 
+The secret of an `http` connection can also describe how `http.request` signs the call. The secret is then a JSON text with `"rillAuth": 1` and a `type` of `none`, `apiKey`, `bearer` or `basic`:
+
+    { "rillAuth": 1, "type": "apiKey", "in": "query", "name": "api_key", "value": "..." }
+    { "rillAuth": 1, "type": "bearer", "token": "..." }
+    { "rillAuth": 1, "type": "basic", "username": "...", "password": "..." }
+
+`apiKey` goes into a header or into the query of the URL (an existing parameter or header of that name is replaced), `bearer` and `basic` set `Authorization`, and `none` sends no credential. `auth.header` and `auth.scheme` of the node are ignored for such a secret. Names are 1 to 128 characters of the HTTP token set and never `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Cookie` or `Set-Cookie`; values are 1 to 2000 characters without control characters; a username has no `:`. A JSON object that has a `rillAuth` key and does not fit this shape fails the node with the fixed text `connection <name> has a malformed auth value`, and the secret is not sent. Any other string keeps its older meaning: it is the bearer token by default, or the value that `auth.scheme` and `auth.header` describe. The node replaces the components of a structured secret, and the base64 login of `basic`, with `<secret>` in the error text and in the response it records, and the failure explanation hides them like any other connection secret. An API key in a query can still appear in the log of the server that receives the call.
+
 ### Model provider
 
 The provider and model serve `llm.extract` steps in every command and the planner in `serve`.

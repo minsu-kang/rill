@@ -1,5 +1,5 @@
 import type { Workflow } from '@rill/dsl'
-import { fieldRoles, valueAtPointer, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
+import { fieldRoles, secretParts, valueAtPointer, type ConnectionResolver, type NodeRegistry } from '@rill/nodes-core'
 import type { RunSummaryRow, StepDetailRow } from './store'
 
 export const MAX_CONCURRENT_EXPLAINS = 2
@@ -75,7 +75,7 @@ export function connectionSecrets(
   for (const name of names) {
     try {
       const secret = connections.get(name)
-      if (secret !== undefined) secrets.push(secret)
+      if (secret !== undefined) secrets.push(secret, ...secretParts(secret))
     } catch {
       continue
     }

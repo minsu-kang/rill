@@ -23,6 +23,14 @@ export async function startTestServer(): Promise<TestServer> {
     })
     req.on('end', () => {
       seen.push({ method: req.method ?? '', url: req.url ?? '', headers: req.headers, body })
+      const route = (req.url ?? '').split('?')[0]
+      if (route === '/echo-request' || route === '/echo-error') {
+        res.statusCode = route === '/echo-error' ? 400 : 200
+        res.setHeader('content-type', 'application/json')
+        res.setHeader('x-echo-auth', String(req.headers.authorization ?? ''))
+        res.end(JSON.stringify({ url: req.url, headers: req.headers }))
+        return
+      }
       switch (req.url) {
         case '/json':
           res.setHeader('content-type', 'application/json')
