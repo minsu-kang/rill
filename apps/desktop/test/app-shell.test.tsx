@@ -46,6 +46,13 @@ async function connected(): Promise<void> {
   await screen.findByText(t('app.top.engine.connected'))
 }
 
+const HELD_RESTART_MS = 60_000
+
+function finishRestart(world: FakeWorld): void {
+  const { engine } = world.host.state()
+  act(() => world.host.setEngine({ state: 'running', restarts: engine.restarts + 1 }))
+}
+
 const tab = (name: string) => within(screen.getByRole('navigation', { name: t('app.top.screens') })).getByRole('button', { name })
 
 async function workflowsLoaded(): Promise<void> {
@@ -476,7 +483,7 @@ describe('engine changes', () => {
   })
 
   it('restarts the engine when the model is changed in the chat, and reloads the model list', async () => {
-    const { user, world } = mount({ hostInit: { settings: KEYED }, restartDelayMs: 60 })
+    const { user, world } = mount({ hostInit: { settings: KEYED }, restartDelayMs: HELD_RESTART_MS })
     await connected()
     await user.click(await screen.findByRole('button', { name: t('chat.model.label') }))
     const sol = await screen.findByRole('button', { name: /GPT-6.1 Sol/ })
@@ -484,8 +491,10 @@ describe('engine changes', () => {
     await user.click(sol)
     await waitFor(() => expect(world.host.state().settings.provider).toBe('openai'))
     await screen.findByText(t('app.top.engine.restarting'))
+    expect(screen.queryByText(t('app.top.engine.connected'))).toBeNull()
+    finishRestart(world)
     await screen.findByText(t('app.top.engine.connected'))
-    expect(world.callsOf('llmModels').length).toBeGreaterThanOrEqual(2)
+    await waitFor(() => expect(world.callsOf('llmModels').length).toBeGreaterThanOrEqual(2))
   })
 
   async function restartedWhileFocused(focus: () => Promise<HTMLElement>, during?: () => void) {

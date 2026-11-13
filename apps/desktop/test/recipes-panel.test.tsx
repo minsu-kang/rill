@@ -1,5 +1,5 @@
 import { RillError, type MethodName, type MethodParams, type MethodResult } from '@rill/protocol'
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { EngineClient } from '../src/engine/client'
@@ -19,23 +19,26 @@ const CONNECTIONS: RecipePanelProps['connections'] = [{ name: 'slack-ops', kind:
 
 function spied(client: EngineClient) {
   const calls: Array<{ method: string; params: unknown }> = []
+  const answers: Array<Promise<unknown>> = []
   const wrapped: EngineClient = {
     request: <M extends MethodName>(method: M, params: MethodParams<M>) => {
       calls.push({ method, params })
-      return client.request(method, params)
+      const answer = client.request(method, params)
+      answers.push(answer.then(() => undefined, () => undefined))
+      return answer
     },
     onEvent: (listener) => client.onEvent(listener),
   }
-  return { client: wrapped, calls }
+  return { client: wrapped, calls, answered: () => Promise.all(answers) }
 }
 
 function setup(overrides: Partial<RecipePanelProps> = {}, data = fixtureRecipeData(), locale: 'ko' | 'en' = 'ko') {
-  const { client, calls } = spied(withRecipeMethods(createFakeClient(fakeData), data))
+  const { client, calls, answered } = spied(withRecipeMethods(createFakeClient(fakeData), data))
   const onDeployed = vi.fn()
   const onAction = vi.fn()
   const props: RecipePanelProps = { client, catalog, connections: CONNECTIONS, onDeployed, onAction, ...overrides }
   const view = renderThemed(<RecipePanel {...props} />, { locale })
-  return { calls, onDeployed, onAction, view, user: userEvent.setup(), props }
+  return { calls, answered, onDeployed, onAction, view, user: userEvent.setup(), props }
 }
 
 const choose = (user: ReturnType<typeof userEvent.setup>, title: string) => user.click(screen.getByRole('button', { name: t('recipes.card.chooseLabel', { title }) }))
@@ -334,12 +337,38 @@ describe('RecipePanel focus', () => {
   })
 
   it('keeps focus where it is when a problem comes back to the form', async () => {
-    const { user } = setup({}, { ...fixtureRecipeData(), instantiate: failingInstantiate(['url: bad_url']) })
+    const { user, answered } = setup({}, { ...fixtureRecipeData(), instantiate: failingInstantiate(['url: bad_url']) })
+    await screen.findAllByRole('article')
+    await choose(user, HEALTH.title.ko)
+    await fillHealth(user)
+    const button = screen.getByRole('button', { name: ko['recipes.form.submit'] })
+    button.focus()
+    await act(async () => {
+      fireEvent.click(button)
+      await answered()
+    })
+    await screen.findByText(ko['recipes.rule.bad_url'])
+    expect(focused()).toBe(button)
+  })
+
+  it.fails('PRODUCT GAP: loses the focus when the engine takes longer than a frame to answer, because the submit button is disabled meanwhile', async () => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const base = withRecipeMethods(createFakeClient(fakeData), { ...fixtureRecipeData(), instantiate: failingInstantiate(['url: bad_url']) })
+    const client: EngineClient = {
+      onEvent: (listener) => base.onEvent(listener),
+      request: <M extends MethodName>(method: M, params: MethodParams<M>) => (method === 'instantiateRecipe' ? gate.then(() => base.request(method, params)) : base.request(method, params)),
+    }
+    const user = userEvent.setup()
+    renderThemed(<RecipePanel client={client} catalog={catalog} connections={CONNECTIONS} />)
     await screen.findAllByRole('article')
     await choose(user, HEALTH.title.ko)
     await fillHealth(user)
     const button = screen.getByRole('button', { name: ko['recipes.form.submit'] })
     await user.click(button)
+    await waitFor(() => expect(button.hasAttribute('disabled')).toBe(true))
+    for (let frame = 0; frame < 2; frame += 1) await new Promise((resolve) => requestAnimationFrame(resolve))
+    await act(async () => release())
     await screen.findByText(ko['recipes.rule.bad_url'])
     expect(focused()).toBe(button)
   })

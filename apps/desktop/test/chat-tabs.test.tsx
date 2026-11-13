@@ -318,7 +318,9 @@ describe('chat tabs: requests that finish in the background', () => {
     await ready()
     ask('now')
     await screen.findByText(summary)
-    expect(within(itemOf(tabNamed('now'))).queryByRole('img')).toBeNull()
+    const item = itemOf(tabNamed('now'))
+    await waitFor(() => expect(within(item).queryByRole('img', { name: 'Working' })).toBeNull())
+    expect(within(item).queryByRole('img')).toBeNull()
   })
 
   it('lets a second tab send while the first one works, and delivers both answers', async () => {
@@ -460,9 +462,10 @@ describe('chat tabs: closing', () => {
     show({}, { port: { ...basePort, remove } })
     await ready()
     const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
-    fireEvent.change(input, { target: { files: [new File(['x'], 'unsent.txt', { type: 'text/plain' })] } })
-    await waitFor(() => expect(screen.getByText('Attachments 1/5')).toBeTruthy())
-    await act(async () => undefined)
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [new File(['x'], 'unsent.txt', { type: 'text/plain' })] } })
+    })
+    expect(screen.getByText('Attachments 1/5')).toBeTruthy()
     fireEvent.click(closeButton('New chat'))
     confirmClose()
     expect(remove).toHaveBeenCalledExactlyOnceWith('att-tab-10-xxxxxxxx')

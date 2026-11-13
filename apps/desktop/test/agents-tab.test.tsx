@@ -138,6 +138,13 @@ function mountApp(initial: Parameters<typeof App>[0]['initial'] = {}) {
 describe('the Agents tab of the app', () => {
   const main = (): HTMLElement => screen.getByRole('main')
 
+  async function forbidNodeType(user: ReturnType<typeof userEvent.setup>, region: HTMLElement, type: string): Promise<void> {
+    const select = (): HTMLSelectElement => within(region).getByRole<HTMLSelectElement>('combobox', { name: 'Node type' })
+    await waitFor(() => expect(select().querySelector(`option[value="${type}"]`)).not.toBeNull())
+    await user.selectOptions(select(), type)
+    await user.click(within(region).getByRole('button', { name: 'Add' }))
+  }
+
   it('shows the sub-navigation and, by default, the agents', async () => {
     const { user } = mountApp()
     await user.click(within(screen.getByRole('navigation', { name: t('app.top.screens') })).getByRole('button', { name: 'Agents' }))
@@ -164,8 +171,7 @@ describe('the Agents tab of the app', () => {
   it('offers the node types of the engine catalog and sends the rule to the engine', async () => {
     const { user, world } = mountApp({ tab: 'agents', agentsSection: 'rules' })
     const region = await screen.findByRole('region', { name: 'Forbidden nodes' })
-    await user.selectOptions(within(region).getByRole('combobox', { name: 'Node type' }), 'http.request')
-    await user.click(within(region).getByRole('button', { name: 'Add' }))
+    await forbidNodeType(user, region, 'http.request')
     await within(region).findByRole('list', { name: 'Forbidden node types' })
     expect(world.callsOf('saveRule').map((call) => call.params)).toEqual([{ kind: 'forbidNode', value: 'http.request' }])
   })
@@ -201,8 +207,7 @@ describe('the Agents tab of the app', () => {
     const region = await screen.findByRole('region', { name: 'Forbidden nodes' })
     const panel = screen.getByRole('region', { name: 'Existing workflows' })
     expect(await within(panel).findByText('No workflow breaks a rule.')).toBeTruthy()
-    await user.selectOptions(within(region).getByRole('combobox', { name: 'Node type' }), 'http.request')
-    await user.click(within(region).getByRole('button', { name: 'Add' }))
+    await forbidNodeType(user, region, 'http.request')
     const list = await within(panel).findByRole('list', { name: 'Workflows that break a rule' })
     expect(list.textContent).toContain('forbidden by the rules')
   })
