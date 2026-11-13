@@ -218,6 +218,7 @@ The engine checks in this order and stops at the first failure, so a refusal cha
 | `workflows` | The row is deleted. |
 | `plans` | Kept. Only `workflow_id` is set to null, because it points at a workflow that is gone. `confirmed` stays: it records which flags the user approved, not a link. The request text, the result and the meta of a plan are the user's own history and do not need the workflow row, and a plan can be deployed again with `deployPlan`, which writes `workflow_id` and `confirmed` anew. |
 | `memory_items` | Untouched. A note has no link to a workflow. |
+| `agents`, `app_state` | Untouched. An agent has no link to a workflow, and a plan keeps the `agent_id` it was made with. |
 
 Other windows learn of the delete through the `workflow.deleted` event.
 

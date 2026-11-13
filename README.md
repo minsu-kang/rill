@@ -33,6 +33,7 @@ Rill is an independent project and has no affiliation with any workflow-automati
 | Failure explanation | For a failed run, one button asks the model to explain the cause. The step record is sent with secrets masked, the answer comes back as a closed schema, and nothing is stored or executed. Suggested actions are buttons that the app owns. |
 | Five providers | Anthropic (the default), OpenAI, Gemini, Grok and Meta behind one interface that declares what each model can do. Keys are encrypted with Electron `safeStorage`, whose key is in the macOS keychain. |
 | Memory | Up to 20 short notes that you write yourself ("my receipts live in ~/Receipts"). The planner reads them on each request. Nothing else can create or change a note. |
+| Agents | Up to 12 named agents, each with a persona and instructions that you write. You pick the active one in the chat header or on the Agents tab, and the planner and the failure explanation follow it. The built-in Default agent changes nothing. An agent can be exported to and imported from a Markdown file after a review screen. Nothing else can create or change an agent. |
 | Rules | Forbid node types, allow only some hosts for `http.request`, and cap the planning effort. The shared validator enforces them, so the planner repairs its own plans, and deploy, activation, run start and trigger firing refuse what breaks them. A run that is already running is not cut. The engine side is built and tested; the screen that edits the rules is not built yet. |
 | Storybook | Every screen is a story with fixtures and a fake engine. Look at all of it without an API key, an engine or Electron. |
 | Desktop shell | Tray icon, open at login, secrets encrypted with `safeStorage`, a hardened window, and a macOS installer built with electron-builder. |
@@ -43,7 +44,7 @@ Rill is an independent project and has no affiliation with any workflow-automati
 flowchart LR
   subgraph app["Rill.app (Electron)"]
     subgraph renderer["Renderer process (sandboxed page)"]
-      ui["React screens: chat, graph, inspector, history, recipes, settings"]
+      ui["React screens: chat, graph, inspector, history, recipes, agents, settings"]
       client["RillClient from @rill/protocol"]
     end
     preload["Preload: window.rill host API"]
@@ -84,7 +85,7 @@ flowchart LR
 | `@rill/nodes-core` | The 12 built-in nodes (4 triggers, 8 actions) and the shared validator. One definition per node gives the planner its catalog, the validator its rules and the executor its code. |
 | `@rill/engine` | Durable executor, scheduler, folder watch, webhook listener, SQLite store, WebSocket server and the `rill-engine` command line. |
 | `@rill/llm` | One `LlmProvider` interface over five providers, with declared capabilities, usage and a dated price table. |
-| `@rill/planner` | Request to workflow: generation, validation, repair, patch mode, provenance flags, memory and failure explanation. |
+| `@rill/planner` | Request to workflow: generation, validation, repair, patch mode, provenance flags, memory, agents and failure explanation. |
 | `@rill/recipes` | The ready-made workflows and their parameter validators. |
 | `@rill/eval` | The evaluation harness for the extraction node and the planner. |
 | `apps/desktop` | The Electron app and the React renderer, with Storybook. |
@@ -125,9 +126,9 @@ The short version. [docs/security.md](docs/security.md) has the threat model, th
 3. Files are limited to the folders you picked in the system dialog. The validator rejects a workflow that names a path outside them, and the nodes check the real path again at run time.
 4. The model chooses the graph only while planning. A running `llm.extract` returns fields limited by a schema, so an instruction hidden in a PDF cannot add or reorder nodes.
 5. A plan value that did not come from your own words (an attachment, a new send or write target, a path built from document content) carries a flag. The plan cannot be deployed until you confirm each flag.
-6. Everything that sends content to a model provider is marked "external transfer": attachments, notes, failure explanations and the receipt recipe.
-7. Attachments, run data, web responses and model output are untrusted. Attachments, notes and run data are wrapped in random tags before a model sees them. Model output is shown only as plain text, and hidden-character tricks are made visible.
-8. A memory note is created only by your explicit save. A plan, an attachment or a model answer has no way to write one, and invisible formatting characters are refused.
+6. Everything that sends content to a model provider is marked "external transfer": attachments, notes, agent settings, failure explanations and the receipt recipe.
+7. Attachments, run data, web responses and model output are untrusted. Attachments, notes, agent settings and run data are wrapped in random tags before a model sees them. Model output is shown only as plain text, and hidden-character tricks are made visible.
+8. A memory note or an agent is created only by your explicit save. A plan, an attachment, run data, an imported file or a model answer has no way to write one, and invisible formatting characters are refused. An agent cannot change the safety rules, the validation or the confirmation flags.
 9. Failure explanations mask secrets in several encodings, and new URLs, hosts and email addresses in the model's answer are replaced before they can become your next request.
 10. The window runs with context isolation and the sandbox on, Node integration off, denied permissions and navigation, and a custom `app://` scheme. The built app adds a strict content security policy. The packed app flips the Electron fuses and turns the developer tools off. Development mode (`dev`) has no content security policy and keeps the developer tools on.
 

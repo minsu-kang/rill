@@ -13,9 +13,10 @@ The screens take their data as props or read it through a small `EngineClient` i
 | Run history | `src/runs/` | The runs of a workflow with a status, a relative time, a dry-run tag and the start of the error. Picking a run draws its states on the graph. |
 | Workspace | `src/workspace/` | The three screens together as in the design: graph in the middle, inspector on the right, history below. Live events from the client change the node cards as they arrive. |
 | Failure explanation | `src/explain/` | The "why did it fail" flow for a failed run: a notice of what is sent to the model provider, an effort choice, the explanation card with the likely cause, signal chips, action buttons and an optional fix proposal handed to the chat box as a draft. |
+| Agents | `src/app/agents/`, `src/chat/AgentPicker.tsx` | The Agents screen (a list, an editor, an import review) and the agent picker in the chat header. See [Agents](#agents). |
 | Recipe gallery | `src/recipes/` | The six ready-made recipes with search and tag filter, a form built from each recipe's params, a draft preview with the graph, side-effect lines and the "external transfer" line, and a deploy button. |
-| Chat panel | `src/chat/` | The right pane: chat tabs, each a conversation with the planner (questions, workflow preview, unsupported), an effort control, file attachments, flag confirmation before deploy, a model picker and a notes screen. See the next section. |
-| App shell | `src/app/` | The top bar, the page container, the Workflows, Recipes and Settings screens and the chat aside, wired to the host API and the engine client. See [The window](#the-window). |
+| Chat panel | `src/chat/` | The right pane: chat tabs, each a conversation with the planner (questions, workflow preview, unsupported), an effort control, file attachments, flag confirmation before deploy, a model picker, an agent picker and a notes screen. See the next section. |
+| App shell | `src/app/` | The top bar, the page container, the Workflows, Recipes, Agents and Settings screens and the chat aside, wired to the host API and the engine client. See [The window](#the-window). |
 | Shared pieces | `src/ui/`, `src/theme/`, `src/i18n/` | Status chip and icons, color tokens for light and dark, and a typed Korean and English dictionary. |
 
 Run state lives in `src/model/` as pure functions: `statesFromSteps` for a finished run, `reduceEvent` for the live event stream, `displayState` for what a card shows. A trigger writes no step row, so a trigger of an open run is shown as succeeded.
@@ -44,7 +45,7 @@ What the person sees and decides:
 - Send is Ctrl+Enter or Cmd+Enter. Plain Enter is a line break, so a multi-line draft is safe to write. It is never sent while a plan runs, while a file is being added, with an empty draft, with more than 8000 characters or without a model.
 - Questions: a default that is one of the options is preselected and counts as an answer. A question with no options is a free text field that starts empty; the model default is shown beside it as a suggestion that the person accepts with a click or types over. A default that is not one of the options is ignored. The planner also treats an unchanged default as model text, never as text the person wrote. Answers travel as the `answers` of a user turn, never as part of the request text, because the planner treats a chosen option differently from text the person wrote.
 - Flags: each flag of a plan has its own checkbox, grouped by node. Deploy stays disabled until the confirmed keys equal the flag keys of the plan (`flagKey` from `@rill/protocol`); the engine requires the same.
-- Every place that sends something to the model provider says so: the composer notice (request, attached files, notes), the badge on each attached file, the model picker (`dataNote`) and the notes screen.
+- Every place that sends something to the model provider says so: the composer notice (request, attached files, notes, agent settings), the badge on each attached file, the model picker (`dataNote`) and the notes screen.
 - A plan that is running can be cancelled and the draft and attachments come back. When the engine has answered `cancelPlan` (or failed to) and the plan request has still not settled, the panel leaves the planning state itself and ignores a late answer for that plan. Closing the panel, or closing the chat tab, while a plan runs sends `cancelPlan` and drops the answer.
 - Only the newest workflow card can be deployed. An earlier one says that a newer plan replaced it, and its flag boxes and Deploy button are off. While a new plan is being made, every Deploy button is off.
 - The notes switch is on only when the engine reported at least one note. While `listMemory` is pending or failed, the composer says "Notes not loaded", leaves notes out of the transfer notice and sends `useMemory: false`, so what the screen says is what leaves the computer.
@@ -53,7 +54,7 @@ Text written by the model (summary, questions, options, reason, nearest idea, fl
 
 ### Chat tabs
 
-The panel holds up to 8 chats as tabs. `ChatPanel` owns the header (title, the Chat, Model and Notes switch, the model text), the tab strip and the shared views. Each tab is a `Conversation` (`src/chat/Conversation.tsx`) with its own reducer, draft, attachments, effort, notes switch, deploy state and running request. The list of tabs is a pure reducer in `src/chat/model/tabs.ts`.
+The panel holds up to 8 chats as tabs. `ChatPanel` owns the header (title, the Chat, Model and Notes switch, the model text and the agent picker), the tab strip and the shared views. Each tab is a `Conversation` (`src/chat/Conversation.tsx`) with its own reducer, draft, attachments, effort, notes switch, deploy state and running request. The list of tabs is a pure reducer in `src/chat/model/tabs.ts`.
 
 - Every tab stays mounted while the app runs, and the inactive ones are hidden. Switching between tabs loses nothing. The tabs also survive closing and opening the chat aside, because the app keeps the panel mounted.
 - The tabs live in memory only. After a restart of the app there is one empty chat. Nothing is saved to disk.
@@ -109,6 +110,7 @@ Good places to start:
 - `Recipes/RecipeGallery`, `Recipes/RecipeForm` and `Recipes/FieldInput`: the six recipes, every field kind, problems at fields, general issues, unknown rules and no matching connection.
 - `Recipes/DraftPreview` and `Recipes/RecipePanel`: with and without the external transfer line, deploying, deployed and failed, and the whole flow against a fake service.
 - `App/Settings/ConnectionsSection`: the empty screen, sign-in not available and connected, one story per auth type of a custom connection, a filled form, a saved one, the errors (missing fields, a bad key name, a duplicate name), no keychain and the 200 connection limit. The Slack card has its own group, `App/Settings/SlackCard`: the empty card, the steps open, a filled form, checking, confirmed, saved but not confirmed, refused with "save anyway", saved anyway, the saved list with two bots and an old webhook, no keychain, and the static overviews (every result, light and dark, Korean and English). The stories that submit a form click through with a play function, so open them in the browser. The saved key placeholder shows in `App/Settings/KeysSection` (`SomeConfigured`).
+- `App/Agents/AgentsScreen`: `A few agents` is the start; `Editor with errors`, `New agent`, `Delete confirmation`, `Unsaved changes prompt`, `Import review`, `Import review with problems` and `Export` click through the rest. `Chat/AgentPicker` has the picker in every state (default, custom, long and hostile names, loading, load error, a failing change).
 - `Chat/ChatPanel`: `Flow` is the one to click through. `Chat/PlanResultCard`, `Chat/QuestionCard` and `Chat/FlagConfirm` show each state of the cards, `Chat/Composer` and `Chat/EffortSlider` the input line, and `Chat/ModelPicker` and `Chat/MemoryPanel` the two screens behind it.
 
 To share a static copy: `pnpm --filter @rill/desktop build-storybook` writes `apps/desktop/storybook-static/`, which git ignores.
@@ -124,6 +126,45 @@ Every component file in `src/graph`, `src/inspector`, `src/runs`, `src/workspace
 
 Every text a person reads goes through `useT()`. Add the key to both `src/i18n/ko.ts` and `src/i18n/en.ts`; a test fails when the two differ.
 
+## Agents
+
+An agent is a name with a persona and instructions. The planner and the failure explanation follow the active one. The engine owns them (see `packages/engine/README.md`); the renderer reads and changes them only through `listAgents`, `saveAgent`, `deleteAgent` and `setActiveAgent`.
+
+**One state for the whole window.** `src/engine/agents.ts` keeps one store per engine client (`agentsStoreFor(client)`, the hook `useAgents(client)`). It loads the list once when the first component subscribes, keeps the list in the engine's order (the built-in Default first, then the saved agents by name), and runs the writes one after another, so the last choice wins. The chat picker, every chat tab, the Agents screen and the explain panel read the same state, so a change on the Agents tab shows in the chat header at once. `useAgentsState(client)` only watches and never loads: the explain panel uses it, so it sends no request of its own. A write that fails with `AGENT_NOT_FOUND` loads the list again.
+
+**The chat header.** `AgentPicker` is a small select next to the model text: the built-in Default (translated, never the engine's text) first, then the saved agents. It stays enabled while a request runs, and a running request keeps the agent it started with. Changing it calls `setActiveAgent` and takes effect for the next request of every chat tab. While the list is loading, or has failed, the picker says so, and the requests carry no `agentId` (an absent id means Default), so what the screen says is what leaves the computer. Each `plan` and `explainRun` request carries `agentId` only for a loaded, non-default agent. The transfer notice names "agent settings" when the active agent has a persona or instructions. An answer says which agent made it (`meta.agentUsed`) and when the settings were left out (`meta.agentDropped`). An error from `setActiveAgent` shows the fixed text of its code, and `AGENT_NOT_FOUND` also reloads the list.
+
+**The Agents tab** (between Recipes and Settings). `AgentsScreen` takes the client and, in the app, the host's file dialogs:
+
+- A list on the left (Default first, then the saved agents by name; the selected one has `aria-current`, the one in use has a mark), "New agent", "Import…" and a count out of 12. At 12 agents both buttons are off and a note says why.
+- An editor on the right with the four fields, a counter in code points, the rule as a hint, and a message under a field that breaks a rule. The rules are the engine's: `normaliseAgentField` from `@rill/protocol` checks each field as you type, so the screen and the engine cannot differ. Save is off until something changed and every field is valid; Enter in the name field saves; a double submit sends one request. "Use this agent" makes it the active one and is off while the agent has unsaved changes. Delete asks first, names the agent as plain text and says when Default takes over. Default is read only: no field, no Save, no Delete.
+- Unsaved edits are not lost silently. Leaving the editor for another agent, "New agent" or an import asks first (Keep editing or Discard changes), and the draft lives in a small store per client (`src/app/agents/model/view.ts`), so an edit survives a visit to another tab.
+- Above the screen: what an agent is, the "external transfer" notice naming agent settings, and the advice not to write secrets, passwords or personal data in them.
+- The text of a name or description from the engine is shown as plain text with hidden characters made visible (`‹U+202E›`) and truncated by the layout. A status line (`role="status"`) says what was done and an alert says what failed, always with the fixed text of the error code.
+
+**Import and export (Markdown).** The file looks like this:
+
+    ---
+    name: Terse reviewer
+    description: Short answers
+    ---
+
+    # Persona
+
+    Calm and brief.
+
+    # Instructions
+
+    Name every default you pick.
+
+`parseAgentFile` in `src/app/agents/agent-file.ts` is strict and written by hand (no dependency): at most 64 KiB, no replacement character (text that was not valid UTF-8), the first line is `---`, the front matter holds only `name:` and `description:` once each on a line of their own, and the two headings are exactly `# Persona` and `# Instructions`, once each and in that order, with nothing but blank lines before the first. Any other line that starts with `# ` is a problem; `##` and deeper headings, a bare `---` and a line like `#tag` are text. One leading byte order mark and Windows line endings are accepted. The text of the persona and the instructions must not contain `agent-profile-` in any case. The fields then pass the same normalisation as a save. Every problem is reported with a plain message and, where it belongs to a line, the line number, never the text of the file. `serialiseAgentFile` writes the same format and refuses an agent that has a line starting with `# ` in its persona or instructions, since that line would not read back.
+
+Import opens the system file dialog (`.md`, one file) and shows a review screen: the file name, the parsed fields, every problem, the line "nothing is saved or switched on yet", and the transfer note. The name and the description can be edited there (a name that already exists, ignoring case, must be changed first); the persona and the instructions are shown as they are in the file and are changed by editing the file. Save adds a new agent; the import never makes it active, and cancel saves nothing. Export asks for a file name with the system save dialog and writes the saved agent (it is off while there are unsaved changes).
+
+**The host side.** `dialogs.openText()` returns `{ name, text }` or `undefined` when the dialog is cancelled; `dialogs.saveText({ suggestedName, text })` returns `{ saved }`. Both have TypeBox schemas in `src/shared/host-api.ts` (text up to 64 KiB of UTF-8, a suggested name without control characters or slashes), a preload bridge, IPC handlers and entries in the fake host. `src/main/text-files.ts` reads and writes the file: only a regular file, opened without following links, at most 64 KiB (a larger file is refused from its size before it is read, and one that grew is stopped at 64 KiB plus one byte), and it hands the text over as it is, decoded as UTF-8 with replacement characters, with no parser, no JSON and no normalisation. Errors are the fixed host codes `FILE_TOO_LARGE`, `FILE_REJECTED` and `INTERNAL`; the path and the text never reach a log or an error.
+
+**Fakes and stories.** `src/engine/fake-agents.ts` implements the four methods with the engine's rules and errors, and `withPlanMethods` uses it: the fake planner records the `agentId` of every plan request (`planAgentIds()`) and refuses an unknown id before it runs the script. The Storybook groups are `Chat/AgentPicker`, `App/Agents/AgentsScreen`, `App/Agents/AgentList`, `App/Agents/AgentEditor` and `App/Agents/AgentImportReview`; the screen stories click through the editor with errors, the new agent form, the limit, the delete and unsaved prompts, the import review (clean, with problems, not an agent file, hostile text) and the export.
+
 ## The explain panel
 
 `ExplainPanel` in `src/explain/` takes an `EngineClient`, the open run and two callbacks. It never starts a run, turns a workflow off or sends a chat message by itself.
@@ -137,7 +178,7 @@ Every text a person reads goes through `useT()`. Add the key to both `src/i18n/k
     }
 
 - The button is enabled for a failed run only. Every other status shows a reason next to it. (The engine also explains a finished run that has a failed step; the panel follows the plan and asks only for failed runs.)
-- The first click opens a notice: "the step record, with secrets hidden, is sent to the model provider", with the provider and model when `model` is given. "Do not ask again in this session" lives in component state only and is forgotten on remount; the notice comes back when `model` changes.
+- The first click opens a notice: "the step record, with secrets hidden, is sent to the model provider", with the provider and model when `model` is given. "Do not ask again in this session" lives in component state only and is forgotten on remount; the notice comes back when `model` or the active agent changes. With an agent that has a persona or instructions, the notice adds a line that they are sent too, and the request carries the agent's id (see [Agents](#agents)).
 - Effort is `low`, `medium` or `high` (default `medium`). It is not the planner slider.
 - While a request runs the panel can be closed. That does not cancel the request on the server, and the card says the answer is thrown away.
 - `retry_run` and `deactivate_workflow` ask for confirmation inside the card before `onAction` is called. `open_connections`, `edit_node`, `check_input_file` and `wait_and_retry` call it at once (they navigate or remind; `wait_and_retry` is only a text). `none` shows no button. In the app, `retry_run` and `deactivate_workflow` then ask a second time in a dialog of the app; for a real run the retry dialog lists what will happen, built from the steps and the node catalog, and stays off while the catalog or the steps are not known.
@@ -145,7 +186,7 @@ Every text a person reads goes through `useT()`. Add the key to both `src/i18n/k
 - `nodeId` in the `onAction` context comes from the fix proposal or the first signal. It is model or engine text: the host must check that the node exists before it selects it.
 - Model text is plain text with a length cap and a "show more" button. A message key is shown for each error code; the server text never reaches the screen.
 
-`src/explain/model/` holds the pure parts (`explainReducer`, `explainErrorKey`, `canExplain`, the label functions), `src/explain/useExplain.ts` the hook, and `src/engine/fake-explain.ts` the Storybook and test wrapper `withExplainMethod(client, script)`, which checks params and answers against the real `explainRun` schema. Fixtures are in `src/fixtures/explain.ts`.
+`src/explain/model/` holds the pure parts (`explainReducer`, `explainErrorKey`, `canExplain`, the label functions), `src/explain/useExplain.ts` the hook, and `src/engine/fake-explain.ts` the Storybook and test wrapper `withExplainMethod(client, script, { agents })`, which checks params and answers against the real `explainRun` schema and, when it is given the fake agents, refuses an unknown `agentId` like the engine. Fixtures are in `src/fixtures/explain.ts`.
 
 ## The recipe panel
 
@@ -205,14 +246,14 @@ The host contract:
 | Part | Files | What it does |
 | --- | --- | --- |
 | Host API | `src/shared/host-api.ts` | The typed API between the window and the main process, defined once with TypeBox schemas. Main, preload and renderer all check against it. |
-| Main process | `src/main/` | Plain modules that take Electron and file system objects as arguments, so Vitest runs them without Electron: `config-store`, `secret-store`, `key-check`, `engine-supervisor`, `attachments`, `ipc-handlers`. Only `index.ts`, `window.ts`, `tray.ts` and `login-item.ts` touch real Electron objects. |
+| Main process | `src/main/` | Plain modules that take Electron and file system objects as arguments, so Vitest runs them without Electron: `config-store`, `secret-store`, `key-check`, `engine-supervisor`, `attachments`, `text-files`, `ipc-handlers`. Only `index.ts`, `window.ts`, `tray.ts` and `login-item.ts` touch real Electron objects. |
 | Preload | `src/preload/` | Exposes `window.rill`, the host API, and nothing else. It never exposes `ipcRenderer`. |
 | App root | `src/renderer-shell/` | `LiveRoot` renders the app with the theme and with the language of the setting, and sets `<html lang>`. Outside the app, without `window.rill`, it says to run it inside the app. |
 | Engine bundle | `scripts/bundle-engine.ts` | Bundles `packages/engine` into one `.mjs` file with esbuild. The app starts it with `utilityProcess.fork`. |
 
 ### The window
 
-- Top bar: the brand, the workflow switcher, the three screens, and the chat toggle (narrow windows only). While the engine is connected its state is a small green dot with the tooltip "Engine connected". A visually hidden live region carries the words and the `data-rill-ping` attributes that the smoke check reads. In every other state (connecting, reconnecting, restarting, stopped, no host) the text chip shows again, with the reason and the restart button when the engine is stopped. The external transfer badge and the model are not in the top bar: the model text is in the header of the chat panel and opens the Model view, and the transfer notice stays beside the Send button.
+- Top bar: the brand, the workflow switcher, the four screens (Workflows, Recipes, Agents and Settings), and the chat toggle (narrow windows only). While the engine is connected its state is a small green dot with the tooltip "Engine connected". A visually hidden live region carries the words and the `data-rill-ping` attributes that the smoke check reads. In every other state (connecting, reconnecting, restarting, stopped, no host) the text chip shows again, with the reason and the restart button when the engine is stopped. The external transfer badge and the model are not in the top bar: the model text is in the header of the chat panel and opens the Model view, and the transfer notice stays beside the Send button.
 - Page padding: every screen sits in one page container (`src/app/Page.tsx`). It keeps 24px from the window edge, 16px when the window is under 700px wide, and the content is at most 1200px wide and centered.
 - Language: Settings, General has a Language select with System default, English and 한국어. The labels are the same in every language. The choice is saved in `config.json` and applies at once. System default follows `navigator.language`: a language that starts with `ko` means Korean, anything else English. `LiveRoot` starts from the system language, draws the app only after the first read of the settings has finished (or after one second), so the language never flashes, switches when the select saves, and keeps `<html lang>` in step. The window title and the native menus do not change.
 - Delete a workflow: the Delete button stands after the run buttons. Its dialog names the workflow, says that the run history is deleted too and that it cannot be undone. The engine refuses with `WORKFLOW_BUSY` while a run is queued or running, and the dialog then says that the run is still in progress and to try again when it has finished; for an active workflow it also says to deactivate it first, so that no new run keeps it busy. After a delete the window shows the next workflow, or the empty state, and refreshes the list. Other windows refresh through the `workflow.deleted` event. The focus moves to the workflow switcher, or to the main area when no workflow is left.
@@ -248,7 +289,7 @@ Everything is in `~/Library/Application Support/Rill`:
 | --- | --- |
 | `config.json` | Allowed folders, provider, model, the login setting and the language (`system`, `en` or `ko`; a file from an older version without it, or with a value that is not one of these, reads as `system` and keeps the other settings). No secrets. A corrupt file is kept as `config.json.bak` and the defaults are used. |
 | `secrets.bin` | The provider keys and the connection secrets (with the auth type of a custom connection, which is not secret), encrypted as one blob with Electron `safeStorage`. A file that cannot be decrypted is moved to `secrets.bin.bak` (or `secrets.bin.bak.1` to `.9` when that name is taken; no backup is ever overwritten) the next time a key or connection is saved, and the keys must be entered again. When all ten names are taken, saving is refused. |
-| `rill.db` | The engine database (workflows, runs, plans, memory). |
+| `rill.db` | The engine database (workflows, runs, plans, memory, agents and the active agent). |
 | `attachments/` | Files the user attached, copied there as `<id>.<ext>` with mode 0600 in a folder with mode 0700. At most 500 files and 512 MiB in total; a file over either limit is refused with `ATTACHMENT_REJECTED`. Half-written `.partial-*` files left by a crash are removed at start. |
 
 When `safeStorage` is not available (no keychain), saving a key or a connection is refused with a clear error and the engine is not started. There is no plaintext fallback. The window never receives a secret: settings return only which providers have a key, the name, kind and auth type of each connection, and whether sign-in is available. The engine gets a secret only through the environment of its process: the key of the chosen provider in its own variable (`ANTHROPIC_API_KEY` and so on) and the connections as JSON in `RILL_CONNECTIONS`. No connections file is ever written. The environment of a process is not private on macOS: any process of the same user can read the original environment block of the engine (for example with `ps -E -p <pid>`) without a keychain prompt, and the engine cannot hide it by deleting the variables. This is a known limit of passing secrets by environment. The token alone is enough to drive the engine over `ws://127.0.0.1`. Moving the secrets to a message channel needs a change in the engine CLI and is not done here.

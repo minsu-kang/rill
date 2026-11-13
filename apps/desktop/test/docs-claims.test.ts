@@ -70,7 +70,7 @@ describe('README', () => {
   it('limits the random tags to what is wrapped in them', () => {
     const bullet = lineWith(readme, '7. Attachments')
     const sentence = bullet.split('. ').find((part) => part.includes('random tags'))!
-    expect(sentence).toMatch(/^Attachments, notes and run data are wrapped in random tags/)
+    expect(sentence).toMatch(/^Attachments, notes, agent settings and run data are wrapped in random tags/)
     expect(sentence).not.toMatch(/web responses|model output/)
   })
 
