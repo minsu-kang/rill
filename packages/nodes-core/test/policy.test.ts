@@ -258,6 +258,35 @@ describe('judgeConfigUrl', () => {
     }
   })
 
+  it('refuses a reference that the URL parser reads as the host after extra slashes or a backslash', () => {
+    for (const url of [
+      'https:///{{t1.output.h}}.example.com/p',
+      'https://\\{{t1.output.h}}.example.com/p',
+      'https:////{{t1.output.h}}/',
+      'https:\\\\{{t1.output.h}}.example.com/p',
+      'https:/\\/{{t1.output.h}}.example.com/p',
+      'https:///{{t1.output.h}}',
+      'HTTPS:///{{t1.output.h}}.EXAMPLE.com/',
+    ]) {
+      expect(judgeConfigUrl(url, ['*.example.com', 'api.example.com']), url).toEqual({ ok: false, reason: 'template' })
+    }
+  })
+
+  it('judges the real host when extra slashes come before a literal host', () => {
+    expect(judgeConfigUrl('https:///api.example.com/{{t1.output.id}}', patterns)).toEqual({ ok: true, host: 'api.example.com' })
+    expect(judgeConfigUrl('https://\\api.example.com/{{t1.output.id}}', patterns)).toEqual({ ok: true, host: 'api.example.com' })
+    expect(judgeConfigUrl('https:///evil.com/{{t1.output.id}}', patterns)).toEqual({ ok: false, reason: 'not_allowed', host: 'evil.com' })
+  })
+
+  it('refuses a reference next to a name that is converted to punycode', () => {
+    expect(judgeConfigUrl('https://bücher{{t1.output.h}}.de/', ['*.de'])).toEqual({ ok: false, reason: 'template' })
+  })
+
+  it('does not let a literal that looks like a placeholder change the verdict', () => {
+    expect(judgeConfigUrl('https://rillref0q.example.com/{{t1.output.a}}', ['rillref0q.example.com'])).toEqual({ ok: true, host: 'rillref0q.example.com' })
+    expect(judgeConfigUrl('https://RILLREF1Q.example.com/{{t1.output.a}}', ['rillref1q.example.com'])).toEqual({ ok: true, host: 'rillref1q.example.com' })
+  })
+
   it('says invalid for a URL that has a reference only after the host but no scheme', () => {
     expect(judgeConfigUrl('api.example.com/{{t1.output.id}}', patterns)).toEqual({ ok: false, reason: 'invalid' })
     expect(judgeConfigUrl('ftp://api.example.com/{{t1.output.id}}', patterns)).toEqual({ ok: false, reason: 'invalid' })

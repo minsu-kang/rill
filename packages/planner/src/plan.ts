@@ -378,7 +378,7 @@ class Run {
     const capped = this.capabilities.reasoningCappedByMaxTokens
     return {
       provider: this.deps.provider.name,
-      effort: { requested: this.request.effort, ...this.effort, cappedByRule: this.cappedByRule },
+      effort: { requested: this.request.effort, ...this.effort, collapsed: this.effort.effective !== this.request.effort, cappedByRule: this.cappedByRule },
       reasoningCapped: capped,
       ...(capped ? {} : { costNote: SOFT_CAP_NOTE }),
       memoryUsed: this.memory.used.length,

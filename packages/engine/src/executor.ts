@@ -6,9 +6,10 @@ import {
   type WorkflowNode,
 } from '@rill/dsl'
 import type { LlmProvider } from '@rill/llm'
-import { RetryableError, hostCheckFor, type ActionNodeDefinition, type ConnectionResolver, type NodeRegistry, type Policy } from '@rill/nodes-core'
+import { RetryableError, hostCheckFor, isEmptyPolicy, policyIssues, type ActionNodeDefinition, type ConnectionResolver, type NodeRegistry, type Policy } from '@rill/nodes-core'
 import Value from 'typebox/value'
 import type { EngineEventInput } from './events'
+import { RULE_VIOLATION_MESSAGE } from './rules'
 import type { RunRow, Store } from './store'
 
 export interface RunResult {
@@ -94,12 +95,20 @@ export class RunExecutor {
 
   async execute(run: RunRow): Promise<RunResult> {
     const workflow = this.store.getWorkflow(run.workflowId)
-    const order = topologicalOrder(workflow)
+    const policy = this.policy?.()
     const outputs: Record<string, unknown> = {}
+    if (run.status === 'queued' && policy !== undefined && !isEmptyPolicy(policy)) {
+      const issues = policyIssues(workflow, policy)
+      if (issues.length > 0) {
+        this.emit({ type: 'run.blocked', workflowId: run.workflowId, codes: [...new Set(issues.map((issue) => issue.code))] })
+        return this.failRun(run.id, RULE_VIOLATION_MESSAGE, outputs)
+      }
+    }
+    const order = topologicalOrder(workflow)
     if (!order) return this.failRun(run.id, 'graph contains a cycle', outputs)
     const nodes = new Map(workflow.nodes.map((n) => [n.id, n]))
     const settled = new Map<string, 'done' | 'skipped'>()
-    const hostAllowed = hostCheckFor(this.policy?.())
+    const hostAllowed = hostCheckFor(policy)
     this.store.abandonRunningAttempts(run.id)
     this.store.markRunRunning(run.id)
     this.emit({ type: 'run.started', runId: run.id, workflowId: run.workflowId, dryRun: run.dryRun })

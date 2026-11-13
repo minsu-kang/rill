@@ -7,9 +7,7 @@ export interface Policy {
 
 export const HOST_RULE_NODE = 'http.request'
 
-const MARK = '\u0001'
 const IPV4 = /^\d+\.\d+\.\d+\.\d+$/
-const AUTHORITY = /^[a-z][a-z0-9+.-]*:\/\/([^/?#\\]*)/i
 
 export function baseNodeType(type: string): string {
   return type.replace(/@\d+$/, '')
@@ -56,16 +54,32 @@ export function hostCheckFor(policy: Policy | undefined): ((url: string) => bool
 
 export type ConfigUrlJudgement = UrlJudgement | { ok: false; reason: 'template' }
 
+function placeholderFor(value: string): string {
+  const lower = value.toLowerCase()
+  let index = 0
+  while (lower.includes(`rillref${index}q`)) index += 1
+  return `rillref${index}q`
+}
+
 export function judgeConfigUrl(value: string, patterns: readonly string[]): ConfigUrlJudgement {
-  const masked = replaceRefs(value, () => MARK)
-  const authority = AUTHORITY.exec(masked)?.[1]
-  if (authority === undefined) {
-    const firstSlash = masked.search(/[/?#\\]/)
-    const head = firstSlash === -1 ? masked : masked.slice(0, firstSlash)
-    return head.includes(MARK) ? { ok: false, reason: 'template' } : { ok: false, reason: 'invalid' }
+  const mark = placeholderFor(value)
+  const masked = replaceRefs(value, () => mark)
+  let parsed: URL | undefined
+  try {
+    parsed = new URL(masked)
+  } catch {
+    parsed = undefined
   }
-  if (authority.includes(MARK)) return { ok: false, reason: 'template' }
-  return judgeUrl(masked.replaceAll(MARK, 'x'), patterns)
+  if (parsed === undefined) {
+    const prefix = /^[a-z][a-z0-9+.-]*:[/\\]*/i.exec(masked)?.[0] ?? ''
+    const rest = masked.slice(prefix.length)
+    const end = rest.search(/[/?#\\]/)
+    const head = prefix + (end === -1 ? rest : rest.slice(0, end))
+    return head.includes(mark) ? { ok: false, reason: 'template' } : { ok: false, reason: 'invalid' }
+  }
+  const spelled = [parsed.protocol, parsed.username, parsed.password, parsed.hostname, parsed.port]
+  if (spelled.some((part) => part.toLowerCase().includes(mark))) return { ok: false, reason: 'template' }
+  return judgeUrl(masked, patterns)
 }
 
 function allowedHint(patterns: readonly string[]): string {

@@ -140,7 +140,7 @@ describe('the effort meta of a plan', () => {
   const rounds: unknown[] = []
   const usage = { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
   const meta = (detail: unknown) => ({ rounds, usage, costUsd: null, model: 'm', effort: 'high', fallbackUsed: false, effortDetail: detail })
-  const detail = { requested: 'xhigh', effective: 'high', native: 'high', collapsed: false, cappedByRule: true }
+  const detail = { requested: 'xhigh', effective: 'high', native: 'high', collapsed: true, cappedByRule: true }
 
   it('says whether a rule capped the effort', () => {
     expect(Value.Check(PlanMetaSchema, meta(detail))).toBe(true)

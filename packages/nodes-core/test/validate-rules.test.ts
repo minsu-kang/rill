@@ -110,7 +110,15 @@ describe('rule_violation for a host that is not allowed', () => {
     expect(brief(issues)).toEqual(['3 rule_violation /nodes/1/config/url'])
     expect(issues[0]!.message).toBe('node n1: the host of this URL is only known at run time; with allowed hosts set, write the host into the URL')
     expect(issues[0]!.hint).toBe('allowed hosts: api.example.com, *.example.org')
-    for (const url of ['{{t1.output.body.url}}', 'https://api.{{t1.output.body.d}}/x', '{{t1.output.body.scheme}}://api.example.com/', 'https://api.example.com{{t1.output.body.t}}/']) {
+    for (const url of [
+      '{{t1.output.body.url}}',
+      'https://api.{{t1.output.body.d}}/x',
+      '{{t1.output.body.scheme}}://api.example.com/',
+      'https://api.example.com{{t1.output.body.t}}/',
+      'https:///{{t1.output.body.t}}.example.org/',
+      'https://\\{{t1.output.body.t}}.example.org/',
+      'https:////{{t1.output.body.t}}/',
+    ]) {
       expect(rules(chain(webhook, call(url)), allowed).map((issue) => issue.message), url).toEqual([issues[0]!.message])
     }
   })

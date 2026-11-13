@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Db } from '../src/db'
 import { Engine, WorkflowValidationError, type EngineOptions } from '../src/engine'
 import type { EngineEvent } from '../src/events'
-import { RuleViolationError } from '../src/rules'
+import { RULE_VIOLATION_MESSAGE, RuleViolationError } from '../src/rules'
 import { RecipeInvalidError } from '../src/recipes'
 import { ManualClock } from './manual-clock'
 import { ScriptedProvider, flaggedWorkflow, patchReply, plainWorkflow, planInput, questionsReply, workflowReply, type Step } from './plan-helpers'
@@ -295,7 +295,7 @@ describe('plan with rules', () => {
     engine.saveRule({ kind: 'maxPlanEffort', value: 'medium' })
     const outcome = await engine.plan(planInput({ planId: 'p1', effort: 'xhigh' }))
     expect(provider!.requests[0]!.effort).toBe('medium')
-    expect(outcome.meta.effortDetail).toEqual({ requested: 'xhigh', effective: 'medium', native: 'medium', collapsed: false, cappedByRule: true })
+    expect(outcome.meta.effortDetail).toEqual({ requested: 'xhigh', effective: 'medium', native: 'medium', collapsed: true, cappedByRule: true })
     expect(outcome.meta.effort).toBe('xhigh')
     expect(engine.getPlan('p1').effort).toBe('xhigh')
     expect(engine.getPlan('p1').meta?.effortDetail?.cappedByRule).toBe(true)
@@ -414,24 +414,33 @@ describe('the model request with no rule that matters is byte-identical to the f
     }
   })
 
-  it('differs from the frozen copy only in the rules lines of the user message once a node or host rule exists', async () => {
-    const actual = await scenarios((engine) => {
-      engine.saveRule({ kind: 'forbidNode', value: 'notify.slack' })
-      engine.saveRule({ kind: 'allowHost', value: 'hooks.invalid' })
-    })
+  const ruleVariants: Array<[string, (engine: Engine) => void, string]> = [
+    ['a node rule and a host rule', (engine) => void [engine.saveRule({ kind: 'forbidNode', value: 'notify.slack' }), engine.saveRule({ kind: 'allowHost', value: 'hooks.invalid' })], '\\nRules set by the user, enforced by validation:\\n- Never use these node types: [^\\n]*\\n- http\\.request may only call these hosts: [^\\n]*'],
+    ['only a node rule', (engine) => void engine.saveRule({ kind: 'forbidNode', value: 'notify.slack' }), '\\nRules set by the user, enforced by validation:\\n- Never use these node types: [^\\n]*'],
+    ['only a host rule', (engine) => void engine.saveRule({ kind: 'allowHost', value: 'hooks.invalid' }), '\\nRules set by the user, enforced by validation:\\n- http\\.request may only call these hosts: [^\\n]*'],
+  ]
+
+  it.each(ruleVariants)('with %s: differs from the frozen copy only in the rules lines of the user message', async (_name, rules, lines) => {
+    const actual = await scenarios(rules)
+    const strip = new RegExp(lines, 'g')
+    type Request = { systemBlocks: unknown; messages: Array<{ content: unknown }>; schemaSha256: string; maxTokens: number; effort: string }
     for (const [index, entry] of frozen.entries()) {
-      const was = JSON.stringify(entry.requests)
-      const now = JSON.stringify(actual[index]!.requests)
-      expect(now, entry.name).not.toBe(was)
-      const stripped = (actual[index]!.requests as Array<{ messages: Array<{ content: unknown }> }>).map((request) => ({
-        ...request,
-        messages: request.messages.map((message) => ({
+      const was = entry.requests as Request[]
+      const now = actual[index]!.requests as Request[]
+      expect(JSON.stringify(now), entry.name).not.toBe(JSON.stringify(was))
+      expect(now.length, entry.name).toBe(was.length)
+      for (const [round, request] of now.entries()) {
+        const before = was[round]!
+        expect(request.systemBlocks, `${entry.name} ${round} system blocks`).toEqual(before.systemBlocks)
+        expect(request.schemaSha256, `${entry.name} ${round} schema`).toBe(before.schemaSha256)
+        expect(request.maxTokens, `${entry.name} ${round} max tokens`).toBe(before.maxTokens)
+        expect(request.effort, `${entry.name} ${round} effort`).toBe(before.effort)
+        const stripped = request.messages.map((message) => ({
           ...message,
-          content: typeof message.content === 'string' ? message.content.replace(/\nRules set by the user, enforced by validation:\n- [^\n]*\n- [^\n]*/g, '') : message.content,
-        })),
-      }))
-      const expected = (entry.requests as Array<{ messages: Array<{ content: unknown }> }>).map((request) => request)
-      expect(JSON.stringify(stripped.map((request) => request.messages)), entry.name).toBe(JSON.stringify(expected.map((request) => request.messages)))
+          content: typeof message.content === 'string' ? message.content.replace(strip, '') : message.content,
+        }))
+        expect(JSON.stringify(stripped), `${entry.name} ${round} messages`).toBe(JSON.stringify(before.messages))
+      }
     }
   })
 })
@@ -776,6 +785,110 @@ describe('runs that are already running', () => {
     allow(engine, 'api.example.com')
     const [result] = await engine.recover()
     expect(result?.status).toBe('succeeded')
+    expect(fetched).toEqual([])
+  })
+})
+
+describe('runs that wait in the queue', () => {
+  async function waitFor(check: () => boolean): Promise<void> {
+    for (let index = 0; index < 500 && !check(); index++) await new Promise((resolve) => setTimeout(resolve, 2))
+    expect(check()).toBe(true)
+  }
+
+  async function queuedBehindGate(options: { dryRun?: boolean } = {}) {
+    const ctx = setup({ maxConcurrentRuns: 1 })
+    const gated = ctx.engine.deploy(wf('gated', [manual, node('g', 'test.gate@1')]))
+    const target = ctx.engine.deploy(wf('target', [manual, call(API)]))
+    const first = ctx.engine.enqueueRun(gated)
+    await waitFor(() => ctx.gate.entered.length === 1)
+    const second = ctx.engine.enqueueRun(target, {}, options)
+    return { ...ctx, first, second, target }
+  }
+
+  it('fails a queued run before any node when a forbidNode rule is saved while it waits, and says why with a fixed text', async () => {
+    const { engine, gate, events, first, second, target } = await queuedBehindGate()
+    forbid(engine, 'http.request')
+    gate.release()
+    expect((await first.done).status).toBe('succeeded')
+    const result = await second.done
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe(RULE_VIOLATION_MESSAGE)
+    expect(fetched).toEqual([])
+    expect(engine.getRunDetail(second.runId).steps).toEqual([])
+    expect(engine.getRunDetail(second.runId).run.status).toBe('failed')
+    expect(events.filter((event) => event.type === 'run.blocked')).toEqual([{ type: 'run.blocked', at: expect.any(Number), workflowId: target, codes: ['rule_violation'] }])
+    expect(events.filter((event) => event.type === 'run.started' && event.runId === second.runId)).toEqual([])
+    expect(events.filter((event) => event.type === 'run.finished' && event.runId === second.runId)).toEqual([{ type: 'run.finished', at: expect.any(Number), runId: second.runId, status: 'failed', error: RULE_VIOLATION_MESSAGE }])
+  })
+
+  it('fails a queued dry run the same way', async () => {
+    const { engine, gate, first, second } = await queuedBehindGate({ dryRun: true })
+    forbid(engine, 'http.request')
+    gate.release()
+    await first.done
+    const result = await second.done
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe(RULE_VIOLATION_MESSAGE)
+  })
+
+  it('fails a queued run whose host is not in a host rule that was saved while it waited, before any request', async () => {
+    const { engine, gate, first, second } = await queuedBehindGate()
+    allow(engine, 'zzz.example.com')
+    gate.release()
+    await first.done
+    const result = await second.done
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe(RULE_VIOLATION_MESSAGE)
+    expect(fetched).toEqual([])
+  })
+
+  it('runs a queued run that follows the rules saved while it waited', async () => {
+    const { engine, gate, first, second } = await queuedBehindGate()
+    forbid(engine, 'transform')
+    allow(engine, 'api.example.com')
+    gate.release()
+    await first.done
+    expect((await second.done).status).toBe('succeeded')
+    expect(fetched).toEqual([API])
+  })
+
+  it('names no node, host or URL in the failure of a queued run', async () => {
+    const { engine, gate, first, second } = await queuedBehindGate()
+    forbid(engine, 'http.request')
+    gate.release()
+    await first.done
+    const result = await second.done
+    expect(result.error).not.toMatch(/http|api\.example|n1/)
+  })
+
+  it('fails a run that is still queued after a crash when recover finds it, and resumes a running one', async () => {
+    const { engine, events } = setup()
+    const id = engine.deploy(wf('a', [manual, call(API)]))
+    const queued = engine.store.createRun({ workflowId: id, payload: {}, dryRun: false })
+    const running = engine.store.createRun({ workflowId: id, payload: {}, dryRun: false })
+    engine.store.markRunRunning(running.id)
+    forbid(engine, 'http.request')
+    const results = await engine.recover()
+    const byId = new Map(results.map((result) => [result.runId, result]))
+    expect(byId.get(queued.id)).toMatchObject({ status: 'failed', error: RULE_VIOLATION_MESSAGE })
+    expect(byId.get(running.id)).toMatchObject({ status: 'succeeded' })
+    expect(fetched).toEqual([API])
+    expect(events.filter((event) => event.type === 'run.blocked')).toHaveLength(1)
+  })
+
+  it('also fails a queued run that a trigger fired before the rule was saved', async () => {
+    const { engine, gate, clock, first } = await queuedBehindGate()
+    void first
+    const id = engine.deploy(wf('cron', [cron, call(API)]))
+    await engine.activate(id)
+    clock.advance(30_000)
+    await waitFor(() => engine.listRuns({ workflowId: id }).length === 1)
+    forbid(engine, 'http.request')
+    gate.release()
+    await engine.idle()
+    const [run] = engine.listRuns({ workflowId: id })
+    expect(run?.status).toBe('failed')
+    expect(run?.error).toBe(RULE_VIOLATION_MESSAGE)
     expect(fetched).toEqual([])
   })
 })

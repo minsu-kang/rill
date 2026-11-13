@@ -1,4 +1,5 @@
 import type { Workflow } from '@rill/dsl'
+import { ANTHROPIC_CAPABILITIES, EFFORT_LEVELS, findModel } from '@rill/llm'
 import { describe, expect, it } from 'vitest'
 import { PlanError, createPlanner, encodeGeneration, type PatchOp, type PlanRequest } from '../src/index'
 import { EFFORT_BUDGETS, currentTurnText, targetedText } from '../src/prompt'
@@ -245,7 +246,7 @@ describe('the planning effort cap', () => {
     expect(provider.calls[0]!.request.maxTokens).toBe(EFFORT_BUDGETS.medium.maxTokens)
     expect(provider.calls[0]!.options?.timeoutMs).toBe(EFFORT_BUDGETS.medium.timeoutMs)
     expect(result.effort).toBe('xhigh')
-    expect(result.meta.effort).toEqual({ requested: 'xhigh', effective: 'medium', native: 'medium', collapsed: false, cappedByRule: true })
+    expect(result.meta.effort).toEqual({ requested: 'xhigh', effective: 'medium', native: 'medium', collapsed: true, cappedByRule: true })
   })
 
   it('does not touch a request at or below the cap', async () => {
@@ -275,6 +276,28 @@ describe('the planning effort cap', () => {
         expect(result.meta.effort.cappedByRule, `${effort} under ${cap}`).toBe(index > capIndex)
       }
     }
+  })
+
+  it('reports collapsed as whether the level that ran differs from the one asked for, also under a cap', async () => {
+    const providers = [
+      ['all levels', () => new FakeProvider([{ data: workflowData(delayOnly()) }], { name: 'fake', capabilities: ANTHROPIC_CAPABILITIES })],
+      ['gemini', () => new FakeProvider([{ data: workflowData(delayOnly()) }], { name: 'gemini', capabilities: findModel('gemini:gemini-3.8-flash')!.capabilities })],
+    ] as const
+    for (const [label, make] of providers) {
+      for (const effort of EFFORT_LEVELS) {
+        for (const cap of [undefined, ...EFFORT_LEVELS]) {
+          const result = await createPlanner({ provider: make(), registry }).plan(request({ effort, ...(cap === undefined ? {} : { maxEffort: cap }) }))
+          const detail = result.meta.effort
+          expect(detail.collapsed, `${label} ${effort} cap ${cap}`).toBe(detail.effective !== detail.requested)
+        }
+      }
+    }
+  })
+
+  it('says collapsed and cappedByRule together when a cap above the provider level lowers it', async () => {
+    const provider = new FakeProvider([{ data: workflowData(delayOnly()) }], { name: 'fake', capabilities: ANTHROPIC_CAPABILITIES })
+    const result = await createPlanner({ provider, registry }).plan(request({ effort: 'xhigh', maxEffort: 'high' }))
+    expect(result.meta.effort).toEqual({ requested: 'xhigh', effective: 'high', native: 'high', collapsed: true, cappedByRule: true })
   })
 
   it('never refuses: a request above the cap is answered', async () => {
