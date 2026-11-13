@@ -13,7 +13,7 @@ import type { ConnectionState } from '../src/app/connection'
 import type { EngineClient } from '../src/engine/client'
 import { createFakeHost, fakeSettings, type FakeHost, type FakeHostState } from '../src/engine/fake-host'
 import { createTranslator, type Locale } from '../src/i18n'
-import { HostError, MAX_FOLDERS } from '../src/shared/host-api'
+import { HostError, KEY_INVALID_REASONS, KEY_UNVERIFIED_REASONS, MAX_FOLDERS, type KeyVerdict } from '../src/shared/host-api'
 import { renderThemed } from './render'
 import { violations } from './axe'
 
@@ -369,6 +369,240 @@ describe('KeysSection', () => {
     expect(document.body.textContent).not.toContain('MARKER')
     expect(document.body.innerHTML).not.toContain('MARKER')
     expect([...document.querySelectorAll('input')].every((input) => !input.value.includes('MARKER'))).toBe(true)
+  })
+})
+
+describe('KeysSection key check', () => {
+  const INVALID: KeyVerdict = { status: 'invalid', reason: 'unauthorized' }
+
+  function hostWith(keyChecks: (provider: string, key: string) => KeyVerdict | Promise<KeyVerdict>, init: Partial<FakeHostState> = {}) {
+    return createFakeHost(init, { restartDelayMs: 0, keyChecks: keyChecks as never })
+  }
+
+  async function open(host: FakeHost, locale: Locale = 'ko') {
+    const shown = show({ host, section: 'keys', locale })
+    await ready(shown.t)
+    return shown
+  }
+
+  function rowOf(t: ReturnType<typeof createTranslator>, provider = 'Anthropic') {
+    const field = screen.getByLabelText(t('app.keys.input', { provider })) as HTMLInputElement
+    return { field, row: field.closest('li')!, form: field.closest('form')! }
+  }
+
+  async function submit(user: ReturnType<typeof userEvent.setup>, t: ReturnType<typeof createTranslator>, value = MARKER, provider = 'Anthropic') {
+    const { field } = rowOf(t, provider)
+    await user.type(field, `${value}{Enter}`)
+  }
+
+  it('says once, next to the fields, that saving asks the provider with a model-list request', async () => {
+    const { host, t } = await open(createFakeHost())
+    expect(screen.getAllByText(t('app.keys.checkNote'))).toHaveLength(1)
+    const noteId = screen.getByText(t('app.keys.checkNote')).id
+    expect(noteId).not.toBe('')
+    for (const field of document.querySelectorAll('input')) expect(field.getAttribute('aria-describedby')).toBe(noteId)
+    expect(host.state().settings.configuredProviders).toEqual([])
+  })
+
+  it('shows that it is checking, keeps the row off while it runs, and sends a double submit once', async () => {
+    let release: (verdict: KeyVerdict) => void = () => undefined
+    const host = hostWith(() => new Promise<KeyVerdict>((resolve) => (release = resolve)))
+    const save = vi.spyOn(host.secrets, 'setProviderKey')
+    const { t, user } = await open(host)
+    const { field, row, form } = rowOf(t)
+    await user.type(field, MARKER)
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+    expect(within(row).getByRole('status').textContent).toBe(t('app.keys.checking'))
+    expect(field.disabled).toBe(true)
+    expect((within(form).getByRole('button', { name: t('app.keys.save') }) as HTMLButtonElement).disabled).toBe(true)
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(field.value).toBe('')
+    await act(async () => release({ status: 'valid' }))
+    expect(await within(row).findByText(t('app.keys.saved'))).toBeTruthy()
+    expect(within(row).queryByText(t('app.keys.checking'))).toBeNull()
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
+  it('says the provider accepts a valid key, clears the field and moves focus to the result in a live region', async () => {
+    const { host, t, user } = await open(hostWith(() => ({ status: 'valid' })))
+    await submit(user, t)
+    const { row, field } = rowOf(t)
+    const result = await within(row).findByText(t('app.keys.saved'))
+    expect(result.getAttribute('role')).toBe('status')
+    await waitFor(() => expect(document.activeElement).toBe(result))
+    expect(field.value).toBe('')
+    expect(host.state().settings.configuredProviders).toEqual(['anthropic'])
+    expect(within(row).getByText(t('app.keys.configured'))).toBeTruthy()
+    expect(document.body.innerHTML).not.toContain('MARKER')
+  })
+
+  it.each(KEY_UNVERIFIED_REASONS)('saves the key and says in plain words that it could not be confirmed: %s', async (reason) => {
+    const { host, t, user } = await open(hostWith(() => ({ status: 'unverified', reason })))
+    await submit(user, t)
+    const { row, field } = rowOf(t)
+    const text = t('app.keys.unverified', { reason: t(`app.keys.reason.${reason}`) })
+    const result = await within(row).findByText(text)
+    expect(result.getAttribute('role')).toBe('status')
+    expect(text).not.toContain('app.keys')
+    await waitFor(() => expect(document.activeElement).toBe(result))
+    expect(field.value).toBe('')
+    expect(host.state().settings.configuredProviders).toEqual(['anthropic'])
+    expect(document.body.innerHTML).not.toContain('MARKER')
+  })
+
+  it('refuses a key the provider rejects: nothing is saved, the notice offers save anyway and close, and the key is not on the page', async () => {
+    const host = hostWith(() => INVALID)
+    const save = vi.spyOn(host.secrets, 'setProviderKey')
+    const { t, user } = await open(host)
+    await submit(user, t)
+    const { row, field } = rowOf(t)
+    const notice = await within(row).findByRole('alert')
+    expect(notice.textContent).toContain(t('app.error.host.KEY_INVALID'))
+    expect(within(notice).getAllByRole('button').map((button) => button.textContent)).toEqual([t('app.keys.saveAnyway'), t('app.common.close')])
+    await waitFor(() => expect(document.activeElement).toBe(notice))
+    expect(host.state().settings.configuredProviders).toEqual([])
+    expect(host.state().restartCalls).toBe(0)
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(field.value).toBe('')
+    expect(document.body.innerHTML).not.toContain('MARKER')
+    expect(document.body.textContent).not.toContain('MARKER')
+    for (const element of document.querySelectorAll('*')) {
+      for (const attribute of element.getAttributeNames()) expect(element.getAttribute(attribute), attribute).not.toContain('MARKER')
+    }
+    expect([...document.querySelectorAll('input')].every((input) => input.value === '')).toBe(true)
+  })
+
+  it('sends saveAnyway once with the same key, and says it was saved as it is', async () => {
+    const host = hostWith(() => INVALID)
+    const save = vi.spyOn(host.secrets, 'setProviderKey')
+    const { t, user } = await open(host)
+    await submit(user, t)
+    const { row } = rowOf(t)
+    const button = within(await within(row).findByRole('alert')).getByRole('button', { name: t('app.keys.saveAnyway') })
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(await within(row).findByText(t('app.keys.savedAnyway', { reason: t('app.keys.reason.unauthorized') }))).toBeTruthy()
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenNthCalledWith(1, 'anthropic', MARKER)
+    expect(save).toHaveBeenNthCalledWith(2, 'anthropic', MARKER, { saveAnyway: true })
+    expect(host.state().settings.configuredProviders).toEqual(['anthropic'])
+    expect(within(row).queryByRole('alert')).toBeNull()
+    expect(document.body.innerHTML).not.toContain('MARKER')
+  })
+
+  it('forgets the key when the notice is closed, so nothing can send it later', async () => {
+    const host = hostWith(() => INVALID)
+    const save = vi.spyOn(host.secrets, 'setProviderKey')
+    const { t, user } = await open(host)
+    await submit(user, t)
+    const { row, field } = rowOf(t)
+    await user.click(within(await within(row).findByRole('alert')).getByRole('button', { name: t('app.common.close') }))
+    expect(within(row).queryByRole('alert')).toBeNull()
+    expect(within(row).queryByRole('button', { name: t('app.keys.saveAnyway') })).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(field))
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(host.state().settings.configuredProviders).toEqual([])
+  })
+
+  it('forgets the key when the field is edited, and a later refusal holds only the new key', async () => {
+    const host = hostWith(() => INVALID)
+    const save = vi.spyOn(host.secrets, 'setProviderKey')
+    const { t, user } = await open(host)
+    await submit(user, t, `${MARKER}-first`)
+    const { row, field } = rowOf(t)
+    await within(row).findByRole('alert')
+    await user.type(field, 'x')
+    expect(within(row).queryByRole('alert')).toBeNull()
+    await user.clear(field)
+    await submit(user, t, `${MARKER}-second`)
+    await user.click(within(await within(row).findByRole('alert')).getByRole('button', { name: t('app.keys.saveAnyway') }))
+    await within(row).findByText(t('app.keys.savedAnyway', { reason: t('app.keys.reason.unauthorized') }))
+    expect(save).toHaveBeenLastCalledWith('anthropic', `${MARKER}-second`, { saveAnyway: true })
+    expect(save.mock.calls.filter((call) => call[1] === `${MARKER}-first`)).toHaveLength(1)
+  })
+
+  it('forgets the key when remove is pressed, and leaves nothing on the page after unmount', async () => {
+    const host = hostWith(() => INVALID, { settings: fakeSettings({ configuredProviders: ['anthropic'] }) })
+    const save = vi.spyOn(host.secrets, 'setProviderKey')
+    const { t, user, view } = await open(host)
+    await submit(user, t)
+    const { row } = rowOf(t)
+    await within(row).findByRole('alert')
+    await user.click(within(row).getByRole('button', { name: t('app.keys.remove') }))
+    expect(await within(row).findByText(t('app.keys.removed'))).toBeTruthy()
+    expect(within(row).queryByRole('button', { name: t('app.keys.saveAnyway') })).toBeNull()
+    expect(save).toHaveBeenCalledTimes(1)
+    view.unmount()
+    expect(document.body.innerHTML).not.toContain('MARKER')
+  })
+
+  it('shows the existing fixed text for any other failure, and goes back to the idle state', async () => {
+    const host = hostWith(() => ({ status: 'valid' }))
+    vi.spyOn(host.secrets, 'setProviderKey').mockRejectedValue(new HostError('ENGINE_UNAVAILABLE'))
+    const { t, user } = await open(host)
+    await submit(user, t)
+    const { row, field } = rowOf(t)
+    expect((await within(row).findByRole('alert')).textContent).toBe(t('app.error.host.ENGINE_UNAVAILABLE'))
+    expect(within(row).queryByText(t('app.keys.checking'))).toBeNull()
+    expect(within(row).queryByRole('button', { name: t('app.keys.saveAnyway') })).toBeNull()
+    expect(field.disabled).toBe(false)
+    expect(document.body.innerHTML).not.toContain('MARKER')
+  })
+
+  it('shows the fixed text, and no second chance, when save anyway then fails', async () => {
+    const host = hostWith(() => INVALID)
+    const { t, user } = await open(host)
+    await submit(user, t)
+    const { row } = rowOf(t)
+    const alert = await within(row).findByRole('alert')
+    vi.spyOn(host.secrets, 'setProviderKey').mockRejectedValue(new HostError('NO_KEYCHAIN'))
+    await user.click(within(alert).getByRole('button', { name: t('app.keys.saveAnyway') }))
+    await waitFor(() => expect(within(row).getByRole('alert').textContent).toBe(t('app.error.host.NO_KEYCHAIN')))
+    expect(within(row).queryByRole('button', { name: t('app.keys.saveAnyway') })).toBeNull()
+  })
+
+  it('keeps the other rows alone while one row is checked', async () => {
+    let release: (verdict: KeyVerdict) => void = () => undefined
+    const host = hostWith(() => new Promise<KeyVerdict>((resolve) => (release = resolve)))
+    const { t, user } = await open(host)
+    await submit(user, t)
+    const other = rowOf(t, 'OpenAI')
+    expect(other.field.disabled).toBe(false)
+    expect(within(other.row).queryByRole('status')).toBeNull()
+    await act(async () => release({ status: 'valid' }))
+    await screen.findByText(t('app.keys.saved'))
+  })
+
+  it('has texts for every verdict reason in both languages, and none that is a missing key', async () => {
+    for (const locale of ['ko', 'en'] as const) {
+      const t = createTranslator(locale)
+      for (const reason of [...KEY_INVALID_REASONS, ...KEY_UNVERIFIED_REASONS]) {
+        const key = `app.keys.reason.${reason}` as const
+        expect(t(key), `${locale} ${key}`).not.toBe(key)
+      }
+      for (const key of ['app.keys.checkNote', 'app.keys.checking', 'app.keys.unverified', 'app.keys.savedAnyway', 'app.keys.saveAnyway', 'app.error.host.KEY_INVALID'] as const) {
+        expect(t(key), `${locale} ${key}`).not.toBe(key)
+      }
+    }
+  })
+
+  it('works in English, with the reason in the sentence', async () => {
+    const { t, user } = await open(hostWith(() => ({ status: 'unverified', reason: 'rate_limited' })), 'en')
+    await submit(user, t)
+    const { row } = rowOf(t)
+    const text = await within(row).findByRole('status')
+    expect(text.textContent).toBe('Saved, but the key could not be confirmed. The provider is limiting requests for the moment. You can still use it. The key is never shown again.')
+  })
+
+  it('has no axe violations while checking, and in each result', async () => {
+    for (const verdict of [{ status: 'valid' }, { status: 'unverified', reason: 'timeout' }, INVALID] as KeyVerdict[]) {
+      const { t, user, view } = await open(hostWith(() => verdict))
+      await submit(user, t)
+      await waitFor(() => expect(within(rowOf(t).row).queryByText(t('app.keys.checking'))).toBeNull())
+      expect(await violations(view.container)).toEqual([])
+      view.unmount()
+    }
   })
 })
 
