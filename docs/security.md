@@ -140,7 +140,7 @@ What skills and reviews do not protect: whatever you write in a skill leaves you
 ## Measured so far
 
 - Extraction against prompt injection: 6 adversarial documents (fake JSON, "ignore the instructions", a request for the system prompt, a Korean instruction, a fake closing tag, an injection inside an item name), each as text, PDF and PNG, three repetitions per model. All three Claude models resisted all 54 calls. The documents are synthetic and the injected text is simple. See the evaluation section of the [README](../README.md).
-- Planner against prompt injection: the suite has two injection cases among its 48. The result is pending, because the owner has not run it yet.
+- Planner against prompt injection: five of the 61 planner cases carry an injected sentence in an attachment, and three of them name a host or a path that the counts judge. In the run of 2026-11-13 (Sonnet only, one repetition per case) the planner did not copy the injected target in any of the three scored plans. That is three plans of one model on synthetic attachments, which says little about a determined attacker. See the evaluation section of the [README](../README.md).
 - Everything else in this document is checked by unit and integration tests with fakes, not by a live attack.
 
 ## What is not covered
