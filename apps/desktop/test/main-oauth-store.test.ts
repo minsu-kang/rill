@@ -168,6 +168,7 @@ describe('oauth section: the file format', () => {
   it('treats a newer or damaged oauth section as unreadable and keeps the file as a backup instead of dropping it', async () => {
     const damaged: unknown[] = [
       { version: 2, providerKeys: [], connections: [], oauth: { apps: { google: GOOGLE_APP }, accounts: {}, futureField: 1 } },
+      { version: 2, providerKeys: [], connections: [], oauth: { apps: { google: { ...GOOGLE_APP, futureField: 1 } }, accounts: {} } },
       { version: 2, providerKeys: [], connections: [], oauth: { apps: { github: { clientId: 'x' } }, accounts: {} } },
       { version: 2, providerKeys: [], connections: [] },
       { version: 2, providerKeys: [], connections: [], oauth: { apps: { google: { clientId: 'not a client id' } }, accounts: {} } },
@@ -216,15 +217,24 @@ describe('oauth section: validation of the app', () => {
   it('accepts a Google Client ID of the documented shape, with or without a secret, and refuses anything else', async () => {
     const { store } = setup()
     expect(await store.setOAuthApp('google', { clientId: GOOGLE_CLIENT_ID })).toBe(true)
-    for (const clientId of ['', 'plain', '123456789012-abc.apps.googleusercontent.com.evil.example', '123456789012-abc.apps.googleusercontent.co', 'abc-def.apps.googleusercontent.com', '123456789012-abc def.apps.googleusercontent.com', '123456789012-.apps.googleusercontent.com', ` ${GOOGLE_CLIENT_ID}`, `${GOOGLE_CLIENT_ID}\n`, `${'1'.repeat(150)}-${'a'.repeat(100)}.apps.googleusercontent.com`, MICROSOFT_CLIENT_ID]) {
+    for (const clientId of ['', 'plain', '123456789012-abc.apps.googleusercontent.com.evil.example', '123456789012-abc.apps.googleusercontent.co', 'abc-def.apps.googleusercontent.com', '-abc.apps.googleusercontent.com', '123456789012-abc def.apps.googleusercontent.com', '123456789012-.apps.googleusercontent.com', ` ${GOOGLE_CLIENT_ID}`, `${GOOGLE_CLIENT_ID}\n`, `${'1'.repeat(150)}-${'a'.repeat(100)}.apps.googleusercontent.com`, MICROSOFT_CLIENT_ID]) {
       expect(await reasonOf(store.setOAuthApp('google', { clientId })), JSON.stringify(clientId)).toBe('invalid_value')
     }
+  })
+
+  it('accepts a Client ID of exactly 200 characters, refuses 201, and refuses an app record with an unknown field', async () => {
+    const { store } = setup()
+    const id = (length: number) => `123456789012-${'a'.repeat(length - 40)}.apps.googleusercontent.com`
+    expect(id(200)).toHaveLength(200)
+    expect(await store.setOAuthApp('google', { clientId: id(200) })).toBe(true)
+    expect(await reasonOf(store.setOAuthApp('google', { clientId: id(201) }))).toBe('invalid_value')
+    expect(await reasonOf(store.setOAuthApp('google', { ...GOOGLE_APP, extra: 'x' } as never))).toBe('invalid_value')
   })
 
   it('accepts a Microsoft Client ID that is a GUID and refuses anything else', async () => {
     const { store } = setup()
     for (const clientId of [MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_ID.toUpperCase()]) expect(await store.setOAuthApp('microsoft', { clientId })).toBe(true)
-    for (const clientId of ['', 'not-a-guid', GOOGLE_CLIENT_ID, MICROSOFT_CLIENT_ID.slice(1), `${MICROSOFT_CLIENT_ID}0`, `{${MICROSOFT_CLIENT_ID}}`, MICROSOFT_CLIENT_ID.replace(/-/g, '')]) {
+    for (const clientId of ['', 'not-a-guid', GOOGLE_CLIENT_ID, MICROSOFT_CLIENT_ID.slice(1), MICROSOFT_CLIENT_ID.slice(0, -1), `${MICROSOFT_CLIENT_ID}0`, `{${MICROSOFT_CLIENT_ID}}`, MICROSOFT_CLIENT_ID.replace(/-/g, '')]) {
       expect(await reasonOf(store.setOAuthApp('microsoft', { clientId })), clientId).toBe('invalid_value')
     }
   })

@@ -756,6 +756,17 @@ describe('wake', () => {
     expect(harness.clock.pending()).toBe(1)
   })
 
+  it('refreshes a token with six minutes or less left, and keeps one that has a second more', async () => {
+    const lifetime = 3599_000
+    for (const [left, refreshes] of [[360_000, 1], [361_000, 0]] as const) {
+      const harness = await connected()
+      harness.clock.jump(lifetime - left)
+      harness.manager.resume()
+      await settle()
+      expect(harness.refreshCalls(), `${left} ms left`).toHaveLength(refreshes)
+    }
+  })
+
   it('does nothing for an account that needs reconnecting or is not set up', async () => {
     const harness = await connected()
     harness.queue.push(() => json({ error: 'invalid_grant' }, 400))

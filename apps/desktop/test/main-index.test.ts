@@ -468,6 +468,7 @@ describe('app entry: sign-in to Google and Microsoft', () => {
     tokenEndpoint(() => pending)
     const h = await load()
     expect(FakeBrowserWindow.instances).toHaveLength(1)
+    await new Promise((resolve) => setTimeout(resolve, 100))
     expect(h.fork).not.toHaveBeenCalled()
     answer(new Response(JSON.stringify({ access_token: ACCESS, expires_in: 3599, token_type: 'Bearer' }), { status: 200 }))
     await up(h)

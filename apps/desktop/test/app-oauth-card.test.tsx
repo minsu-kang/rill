@@ -165,6 +165,16 @@ describe('the account cards: states and chips', () => {
     expect(host.state().settings.oauth.accounts[0]!.status).toBe('not_connected')
   })
 
+  it('shows the waiting state as soon as Connect is pressed, before the host has reported the status', async () => {
+    const { t, user, host } = await open({ init: { settings: settingsWith([googleSetUp, microsoftSetUp]) } })
+    vi.spyOn(host.oauth, 'connect').mockImplementation(() => new Promise(() => undefined))
+    await user.click(connectButton(t, 'google'))
+    expect(within(card(t, 'google')).getByText(t('app.oauth.status.connecting'))).toBeTruthy()
+    expect(within(card(t, 'google')).getByText(t('app.oauth.waiting'))).toBeTruthy()
+    expect(button(card(t, 'google'), t('app.oauth.cancelLabel', { provider: 'Google' }))).toBeTruthy()
+    expect(within(card(t, 'google')).queryByRole('button', { name: t('app.oauth.connectLabel', { provider: 'Google' }) })).toBeNull()
+  })
+
   it('shows Connected as the account after a sign-in and announces it as a status that has the focus', async () => {
     const { t, user } = await open({ init: { settings: settingsWith([googleSetUp, microsoftSetUp]) } })
     await user.click(connectButton(t, 'google'))
@@ -479,6 +489,27 @@ describe('the account cards: saving the app', () => {
     gate.resolve()
     await waitFor(() => expect(within(card(t, 'google')).getByText(t('app.oauth.saved'))).toBeTruthy())
     expect(setApp).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a second submit that comes before the busy state is drawn, with no complaint about the emptied secret field', async () => {
+    const { t, user, host } = await open()
+    const gate = deferred()
+    const setApp = vi.spyOn(host.oauth, 'setApp').mockImplementation(async () => {
+      await gate.promise
+      return {}
+    })
+    await expand(user, t, 'google')
+    await user.type(clientIdField(t, 'google'), GOOGLE_ID)
+    await user.type(secretField(t), SECRET)
+    const form = clientIdField(t, 'google').closest('form')!
+    act(() => {
+      form.requestSubmit()
+      form.requestSubmit()
+    })
+    expect(setApp).toHaveBeenCalledTimes(1)
+    expect(within(card(t, 'google')).queryByRole('alert')).toBeNull()
+    gate.resolve()
+    await waitFor(() => expect(within(card(t, 'google')).getByText(t('app.oauth.saved'))).toBeTruthy())
   })
 
   it('refuses a Client ID of the wrong shape with a plain sentence, focuses the field and sends nothing', async () => {

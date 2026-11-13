@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto'
-import { createServer, type Server } from 'node:http'
-import { afterEach, describe, expect, it } from 'vitest'
+import { EventEmitter } from 'node:events'
+import { createServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from 'node:http'
+import { connect } from 'node:net'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OAUTH_TIMEOUT_MS, REQUEST_TIMEOUT_MS, buildAuthorizeUrl, createPkcePair, createStateValue, refreshTokens, revokeRefreshToken, startSignIn, type FlowDeps, type SignIn } from '../src/main/oauth-flow'
 import { HostError, type OAuthProvider } from '../src/shared/host-api'
 import {
@@ -257,6 +259,49 @@ describe('the loopback server', () => {
     await flow.settled
     expect(await refuses(flow.port)).toBe(true)
     expect(flow.clock.pending()).toBe(0)
+  })
+
+  it('answers a second valid callback that arrives before the server closes with 404, and exchanges the first code only', async () => {
+    let listener!: RequestListener
+    const flow = await start({
+      createServer: (handler) => {
+        listener = handler
+        return createServer(handler)
+      },
+    })
+    const request = (code: string) => ({ url: `/oauth/callback?code=${code}&state=${flow.state}`, method: 'GET', headers: { host: `127.0.0.1:${flow.port}` } }) as unknown as IncomingMessage
+    const response = () => Object.assign(new EventEmitter(), { statusCode: 0, setHeader: () => undefined, end: () => undefined })
+    const one = response()
+    const two = response()
+    listener(request('FIRSTCODE'), one as unknown as ServerResponse)
+    listener(request('SECONDCODE'), two as unknown as ServerResponse)
+    expect(one.statusCode).toBe(200)
+    expect(two.statusCode).toBe(404)
+    one.emit('finish')
+    expect((await flow.settled).ok).toBe(true)
+    expect(flow.calls.filter((call) => call.url.includes('/token')).map((call) => call.form.get('code'))).toEqual(['FIRSTCODE'])
+  })
+
+  it('closes the server before the code is exchanged, not after', async () => {
+    const gate = deferred<Response>()
+    const flow = await start({ respond: (call) => (call.url.includes('/token') ? gate.promise : userinfo(call)) })
+    await flow.callback({ code: 'x', state: flow.state })
+    await vi.waitFor(async () => expect(await refuses(flow.port)).toBe(true))
+    gate.resolve(tokenAnswer())
+    expect((await flow.settled).ok).toBe(true)
+  })
+
+  it('closes the server even when a client holds a half-sent request open', async () => {
+    const flow = await start()
+    const socket = connect({ host: '127.0.0.1', port: flow.port })
+    socket.on('error', () => undefined)
+    await new Promise<void>((resolve) => socket.once('connect', () => resolve()))
+    socket.write('GET /oauth/callback?code=y HTTP/1.1\r\nHost: 127.0.0.1')
+    await settle()
+    await flow.callback({ code: 'x', state: flow.state })
+    expect((await flow.settled).ok).toBe(true)
+    expect(await refuses(flow.port)).toBe(true)
+    socket.destroy()
   })
 
   it('closes the server when the flow ends in a refusal, and when the callback is for a denial', async () => {
