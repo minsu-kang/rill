@@ -2,6 +2,7 @@ import { MEMORY_MAX_INPUT_CHARS, MEMORY_MAX_ITEMS, type MemoryItem } from '@rill
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import type { EngineClient } from '../engine/client'
 import { useT, type MessageKey } from '../i18n'
+import { useKeepFocus } from '../ui/useKeepFocus'
 import { ClampedText } from './ClampedText'
 import { ErrorNotice } from './ErrorNotice'
 import { ExternalTransferNotice } from './ExternalTransferNotice'
@@ -26,6 +27,8 @@ export function MemoryPanel({ client }: MemoryPanelProps) {
   const [error, setError] = useState<MessageKey | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const alive = useRef(true)
+
+  useKeepFocus(busy)
 
   useEffect(() => {
     alive.current = true

@@ -15,6 +15,7 @@ import type { EngineClient } from '../src/engine/client'
 import { createFakeHost, fakeSettings, type FakeHost, type FakeHostState } from '../src/engine/fake-host'
 import { createTranslator, type Locale } from '../src/i18n'
 import { HostError, KEY_INVALID_REASONS, KEY_UNVERIFIED_REASONS, MAX_FOLDERS, type KeyVerdict } from '../src/shared/host-api'
+import { frames, gate } from './keep-focus'
 import { renderThemed } from './render'
 import { violations } from './axe'
 
@@ -181,6 +182,42 @@ describe('FoldersSection', () => {
     await ready(t)
     await user.click(screen.getByRole('button', { name: t('app.folders.add') }))
     expect((await screen.findByRole('alert')).textContent).toBe(t('app.error.host.INVALID_SETTINGS'))
+  })
+
+  it('gives the focus back to the Add button when the host refuses the folder after a slow answer', async () => {
+    const wait = gate()
+    const host = createFakeHost({ folderPicks: ['/x'] })
+    vi.spyOn(host.settings, 'update').mockImplementation(() => wait.promise.then(() => Promise.reject(new HostError('INVALID_SETTINGS'))))
+    const { t, user } = show({ host })
+    await ready(t)
+    const add = screen.getByRole('button', { name: t('app.folders.add') }) as HTMLButtonElement
+    add.focus()
+    await user.keyboard(' ')
+    await waitFor(() => expect(add.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await screen.findByRole('alert')
+    expect(document.activeElement).toBe(add)
+  })
+
+  it('gives the focus back to the Add button when a folder was added after a slow answer', async () => {
+    const wait = gate()
+    const host = createFakeHost({ folderPicks: ['/Users/demo/Receipts'] })
+    const update = host.settings.update.bind(host.settings)
+    vi.spyOn(host.settings, 'update').mockImplementation((patch) => wait.promise.then(() => update(patch)))
+    const { t, user } = show({ host })
+    await ready(t)
+    const add = screen.getByRole('button', { name: t('app.folders.add') }) as HTMLButtonElement
+    add.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(add.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await screen.findByText('/Users/demo/Receipts')
+    expect(add.disabled).toBe(false)
+    expect(document.activeElement).toBe(add)
   })
 
   it('shows folder names with invisible characters made visible', async () => {
@@ -430,6 +467,22 @@ describe('KeysSection key check', () => {
     const { field } = rowOf(t, provider)
     await user.type(field, `${value}{Enter}`)
   }
+
+  it('gives the focus back to the field where Enter was pressed when the answer is slow and a failure', async () => {
+    const wait = gate()
+    const host = createFakeHost({}, { restartDelayMs: 0 })
+    vi.spyOn(host.secrets, 'setProviderKey').mockImplementation(() => wait.promise.then(() => Promise.reject(new HostError('INTERNAL'))))
+    const { t, user } = await open(host)
+    const { field } = rowOf(t)
+    await user.type(field, `${MARKER}{Enter}`)
+    await waitFor(() => expect(field.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await screen.findByRole('alert')
+    expect(field.disabled).toBe(false)
+    expect(document.activeElement).toBe(field)
+  })
 
   it('says once, next to the fields, that saving asks the provider with a model-list request', async () => {
     const { host, t } = await open(createFakeHost())

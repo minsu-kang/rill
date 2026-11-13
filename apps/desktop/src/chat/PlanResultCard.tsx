@@ -2,6 +2,7 @@ import { flagKey, type NodeInfo, type PatchOp } from '@rill/protocol'
 import { useT, type MessageKey, type Translate } from '../i18n'
 import { WorkflowGraph } from '../graph/WorkflowGraph'
 import { NO_STATES } from '../model/status'
+import { useKeepFocus } from '../ui/useKeepFocus'
 import { ClampedText } from './ClampedText'
 import { ErrorNotice } from './ErrorNotice'
 import { FlagConfirm } from './FlagConfirm'
@@ -48,6 +49,7 @@ function describePatch(t: Translate, op: PatchOp): string {
 
 export function PlanResultCard({ entry, catalog, confirmed, onToggleFlag, onDeploy, deploying, deployError, superseded = false, planning = false, review }: PlanResultCardProps) {
   const t = useT()
+  useKeepFocus(deploying)
   const { result } = entry
   if (result.kind !== 'workflow') return null
   const flags = result.flags

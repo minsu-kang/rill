@@ -10,6 +10,7 @@ import { failingInstantiate, fixtureRecipeData, hostileRecipes, recipeInfos, rec
 import { createTranslator } from '../src/i18n'
 import { ko } from '../src/i18n/ko'
 import { RecipePanel, type RecipePanelProps } from '../src/recipes/RecipePanel'
+import { frames, gate } from './keep-focus'
 import { renderThemed } from './render'
 
 const t = createTranslator('ko')
@@ -300,6 +301,15 @@ describe('RecipePanel flow', () => {
   })
 })
 
+function answeredLate(method: MethodName, wait: Promise<void>, refusal?: RillError): EngineClient {
+  const base = withRecipeMethods(createFakeClient(fakeData), fixtureRecipeData())
+  return {
+    onEvent: (listener) => base.onEvent(listener),
+    request: <M extends MethodName>(name: M, params: MethodParams<M>) =>
+      name === method ? wait.then(() => (refusal === undefined ? base.request(name, params) : Promise.reject(refusal))) : base.request(name, params),
+  }
+}
+
 describe('RecipePanel focus', () => {
   const focused = () => document.activeElement
   const submitForm = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: ko['recipes.form.submit'] }))
@@ -353,7 +363,7 @@ describe('RecipePanel focus', () => {
     expect(focused()).toBe(button)
   })
 
-  it.fails('PRODUCT GAP: loses the focus when the engine takes longer than a frame to answer, because the submit button is disabled meanwhile', async () => {
+  it('keeps the focus on the submit button when the engine takes longer than a frame to say what is wrong', async () => {
     let release: () => void = () => undefined
     const gate = new Promise<void>((resolve) => (release = resolve))
     const base = withRecipeMethods(createFakeClient(fakeData), { ...fixtureRecipeData(), instantiate: failingInstantiate(['url: bad_url']) })
@@ -373,6 +383,42 @@ describe('RecipePanel focus', () => {
     await act(async () => release())
     await screen.findByText(ko['recipes.rule.bad_url'])
     expect(focused()).toBe(button)
+  })
+
+  it('lands on the preview heading, and not on the submit button that is gone, when a slow answer is good', async () => {
+    const wait = gate()
+    const user = userEvent.setup()
+    renderThemed(<RecipePanel client={answeredLate('instantiateRecipe', wait.promise)} catalog={catalog} connections={CONNECTIONS} />)
+    await screen.findAllByRole('article')
+    await choose(user, HEALTH.title.ko)
+    await fillHealth(user)
+    const button = screen.getByRole('button', { name: ko['recipes.form.submit'] })
+    button.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(button.hasAttribute('disabled')).toBe(true))
+    await frames()
+    expect(focused()).toBe(document.body)
+    await wait.open()
+    expect(focused()).toBe(await screen.findByRole('heading', { name: ko['recipes.preview.heading'] }))
+  })
+
+  it('keeps the focus on the Deploy button when a slow deploy is refused', async () => {
+    const wait = gate()
+    const user = userEvent.setup()
+    renderThemed(<RecipePanel client={answeredLate('deploy', wait.promise, new RillError('INVALID_WORKFLOW', 'x'))} catalog={catalog} connections={CONNECTIONS} />)
+    await screen.findAllByRole('article')
+    await choose(user, HEALTH.title.ko)
+    await fillHealth(user)
+    await submitForm(user)
+    const deploy = await screen.findByRole('button', { name: ko['recipes.preview.deploy'] })
+    deploy.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(deploy.hasAttribute('disabled')).toBe(true))
+    await frames()
+    expect(focused()).toBe(document.body)
+    await wait.open()
+    await screen.findByRole('alert')
+    expect(focused()).toBe(deploy)
   })
 
   it('does not take focus from another place when the preview arrives', async () => {

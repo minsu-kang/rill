@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TopBar, type TopBarProps } from '../src/app/TopBar'
 import { createTranslator } from '../src/i18n'
 import { violations } from './axe'
+import { frames } from './keep-focus'
 import { renderThemed } from './render'
 
 afterEach(cleanup)
@@ -89,6 +90,18 @@ describe('top bar when the engine is not connected', () => {
   it('disables the restart button while a restart is in progress', () => {
     bar({ connection: { state: 'engine_stopped', status: { state: 'stopped', restarts: 1 } }, restarting: true })
     expect((screen.getByRole('button', { name: t('app.top.engine.restart') }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('gives the focus back to the restart button when a restart that took longer than a frame did not bring the engine back', async () => {
+    const stopped: TopBarProps['connection'] = { state: 'engine_stopped', status: { state: 'stopped', error: 'start_timeout', restarts: 1 } }
+    const view = bar({ connection: stopped })
+    const restart = screen.getByRole('button', { name: t('app.top.engine.restart') })
+    restart.focus()
+    view.rerender(<TopBar {...props({ connection: stopped, restarting: true })} />)
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    view.rerender(<TopBar {...props({ connection: stopped })} />)
+    expect(document.activeElement).toBe(restart)
   })
 
   it('has no restart button while connecting, reconnecting or restarting', () => {

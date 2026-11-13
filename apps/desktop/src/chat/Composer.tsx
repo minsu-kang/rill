@@ -1,6 +1,7 @@
 import { type AttachmentRef, type LlmModelInfo, type LlmModelsResult, type PlanEffort } from '@rill/protocol'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { useT } from '../i18n'
+import { useKeepFocus } from '../ui/useKeepFocus'
 import { AttachmentChips } from './AttachmentChips'
 import { EffortSlider } from './EffortSlider'
 import { ExternalTransferNotice, type TransferItem } from './ExternalTransferNotice'
@@ -107,6 +108,8 @@ export function Composer(props: ComposerProps) {
       mounted.current = false
     }
   }, [])
+
+  useKeepFocus(busy)
 
   useEffect(() => {
     if (wasBusy.current && !busy && (document.activeElement === null || document.activeElement === document.body)) text.current?.focus()

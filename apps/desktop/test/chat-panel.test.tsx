@@ -1,5 +1,6 @@
 import { flagKey, RillError, type EngineEvent, type PlanResultBody } from '@rill/protocol'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { ChatPanel, type ChatPanelProps } from '../src/chat/ChatPanel'
 import type { AttachmentPort } from '../src/chat/Composer'
@@ -8,6 +9,7 @@ import { catalog } from '../src/fixtures'
 import { metas, models, modelsNothingConfigured, outcomeOf, results } from '../src/fixtures/plan'
 import { en } from '../src/i18n/en'
 import { makeWorld, scripted, type WorldOptions } from './chat-world'
+import { frames, gate } from './keep-focus'
 import { renderThemed } from './render'
 
 const port: AttachmentPort = {
@@ -294,6 +296,25 @@ describe('ChatPanel: cancel and errors', () => {
     expect((await screen.findByRole('alert')).textContent).toContain(en['chat.error.INVALID_WORKFLOW'])
     expect(document.body.textContent).not.toContain('SECRET-DEPLOY-TEXT')
     expect((screen.getByRole('button', { name: 'Deploy' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('gives the focus back to the Deploy button when a slow deploy is refused', async () => {
+    const wait = gate()
+    show({ intercept: (method) => (method === 'deployPlan' ? wait.promise.then(() => Promise.reject(new RillError('INVALID_WORKFLOW', 'x', ['x']))) : undefined) })
+    await ready()
+    ask('x')
+    await screen.findByText(workflowSummary)
+    const user = userEvent.setup()
+    const deploy = screen.getByRole('button', { name: 'Deploy' }) as HTMLButtonElement
+    deploy.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(deploy.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await screen.findByRole('alert')
+    expect(deploy.disabled).toBe(false)
+    expect(document.activeElement).toBe(deploy)
   })
 
   it('ignores a second send while a plan is running', async () => {

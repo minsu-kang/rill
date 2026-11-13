@@ -14,6 +14,7 @@ import type { NodeInfo } from '@rill/protocol'
 import type { EngineClient } from '../src/engine/client'
 import { catalog, FIXTURE_NOW, fakeData, ids, workflowOf, node, edge } from '../src/fixtures'
 import { createTranslator } from '../src/i18n'
+import { frames, gate } from './keep-focus'
 import { renderThemed } from './render'
 import { violations } from './axe'
 
@@ -308,6 +309,65 @@ describe('WorkflowActions: dry run', () => {
     const alert = await screen.findByText(t('app.wf.error.NOT_FOUND'))
     expect(alert.textContent).not.toContain('secret detail')
     expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+})
+
+describe('WorkflowActions: focus while a request runs', () => {
+  function refusedLate(method: string, wait: ReturnType<typeof gate>, base: EngineClient): EngineClient {
+    return { onEvent: base.onEvent, request: (name, params) => (name === method ? wait.promise.then(() => Promise.reject(new RillError('NOT_FOUND', 'x'))) : base.request(name, params)) }
+  }
+
+  it('gives the focus back to the Activate button when a slow answer refuses it', async () => {
+    const w = world()
+    const wait = gate()
+    await show(w, ids.workflows.webhook, undefined, refusedLate('activate', wait, w.client))
+    const user = userEvent.setup()
+    const activate = button(t('app.wf.actions.activate'))
+    activate.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(activate.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await screen.findByRole('alert')
+    expect(activate.disabled).toBe(false)
+    expect(document.activeElement).toBe(activate)
+  })
+
+  it('gives the focus back to the button of the dialog, which stays open, when a slow answer refuses the dry run', async () => {
+    const w = world()
+    const wait = gate()
+    await show(w, 'wf-manual', undefined, refusedLate('startRun', wait, w.client))
+    const user = userEvent.setup()
+    await user.click(button(t('app.wf.actions.dryRun')))
+    const submit = screen.getByRole('button', { name: t('app.payload.submitDry') }) as HTMLButtonElement
+    submit.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(submit.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await screen.findByText(t('app.wf.error.NOT_FOUND'))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(submit.disabled).toBe(false)
+    expect(document.activeElement).toBe(submit)
+  })
+
+  it('gives the focus back to the confirm button of the delete dialog when a slow answer refuses the delete', async () => {
+    const w = world()
+    const wait = gate()
+    await show(w, 'wf-manual', undefined, refusedLate('deleteWorkflow', wait, w.client))
+    const user = userEvent.setup()
+    await user.click(button(t('app.wf.actions.delete')))
+    const confirm = screen.getByRole('button', { name: t('app.delete.confirm') }) as HTMLButtonElement
+    confirm.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(confirm.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await screen.findByText(t('app.wf.error.NOT_FOUND'))
+    expect(document.activeElement).toBe(confirm)
   })
 })
 

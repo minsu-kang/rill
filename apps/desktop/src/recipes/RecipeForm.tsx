@@ -2,6 +2,7 @@ import type { RecipeInfo, RecipeValues } from '@rill/protocol'
 import { useMemo, useState, type FormEvent, type RefCallback } from 'react'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { SafeText } from '../ui/SafeText'
+import { useKeepFocus } from '../ui/useKeepFocus'
 import { FieldInput } from './FieldInput'
 import { problemsToFields } from './model/problems'
 import { toRequestValues, valueErrorKey, valueOf, withVisibleConnections, type FormValues, type HostConnection, type ValueError } from './model/values'
@@ -30,6 +31,7 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
 export function RecipeForm({ recipe, values, onValuesChange, connections, onPickPath, submitting = false, problems = NO_PROBLEMS, failureKey, onSubmit, onBack, headingRef }: RecipeFormProps) {
   const t = useT()
   const locale = useLocale()
+  useKeepFocus(submitting)
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, ValueError>>>({})
   const [edited, setEdited] = useState<ReadonlySet<string>>(new Set())
   const server = useMemo(() => problemsToFields(problems, recipe.params), [problems, recipe.params])

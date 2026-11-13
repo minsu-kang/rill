@@ -4,6 +4,7 @@ import { WorkflowGraph } from '../graph/WorkflowGraph'
 import { useT, type MessageKey } from '../i18n'
 import { NO_STATES } from '../model/status'
 import { SafeText } from '../ui/SafeText'
+import { useKeepFocus } from '../ui/useKeepFocus'
 import { useStepFocus } from '../ui/useStepFocus'
 import styles from './DraftPreview.module.css'
 import type { DeployView } from './useRecipes'
@@ -28,6 +29,7 @@ export function DraftPreview({ draft, catalog, deploy, onDeploy, onEdit, onActio
   const t = useT()
   const headingId = useId()
   const doneRef = useStepFocus(deploy.phase)
+  useKeepFocus(deploy.phase === 'deploying')
   const effects = draft.summary.sideEffects
 
   return (

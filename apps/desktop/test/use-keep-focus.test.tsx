@@ -5,10 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useAction } from '../src/app/settings/useAction'
 import { canRestoreFocus } from '../src/ui/focusRestore'
 import { useKeepFocus } from '../src/ui/useKeepFocus'
-
-const frames = async (count = 2): Promise<void> => {
-  for (let index = 0; index < count; index += 1) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-}
+import { frames } from './keep-focus'
 
 interface FormProps {
   name?: string

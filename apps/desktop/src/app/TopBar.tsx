@@ -1,5 +1,6 @@
 import type { Ref } from 'react'
 import { useT } from '../i18n'
+import { useKeepFocus } from '../ui/useKeepFocus'
 import type { ConnectionState } from './connection'
 import controls from './controls.module.css'
 import type { PingState } from './glue/usePing'
@@ -31,6 +32,7 @@ function engineKey(connection: Pick<ConnectionState, 'state' | 'status'>) {
 
 export function TopBar({ tab, onTab, connection, ping, onRestart, restarting = false, chatOpen, onToggleChat, chatToggleRef }: TopBarProps) {
   const t = useT()
+  useKeepFocus(restarting)
   const stopped = connection.state === 'engine_stopped'
   const reason = connection.status?.error
   const key = engineKey(connection)

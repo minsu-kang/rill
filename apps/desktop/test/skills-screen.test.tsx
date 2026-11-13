@@ -17,6 +17,7 @@ import { HostError } from '../src/shared/host-api'
 import { en } from '../src/i18n/en'
 import { ko } from '../src/i18n/ko'
 import { violations } from './axe'
+import { frames, gate } from './keep-focus'
 import { renderThemed } from './render'
 
 const [receipts, slack] = skillFixtures.few as [Skill, Skill, Skill]
@@ -654,6 +655,45 @@ describe('focus and the live region', () => {
     await user.click(listItem(/Slack message style/))
     const title = screen.getByRole('heading', { level: 3, name: 'Slack message style' })
     await waitFor(() => expect(document.activeElement).toBe(title))
+  })
+
+  it('gives the focus back to the Save button when a slow save is refused', async () => {
+    const wait = gate()
+    const { user, inner } = mount({
+      skills: skillFixtures.few,
+      intercept: (method, params) => (method === 'saveSkill' ? wait.promise.then(() => inner.request(method, params as MethodParams<'saveSkill'>)) : undefined),
+    })
+    await ready()
+    change('Name', 'slack MESSAGE style')
+    const save = button('Save')
+    save.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(save.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await screen.findByRole('alert')
+    expect(save.disabled).toBe(false)
+    expect(document.activeElement).toBe(save)
+  })
+
+  it('gives the focus back to the Name field where Enter was pressed after a slow save went through', async () => {
+    const wait = gate()
+    const { user, inner } = mount({
+      skills: skillFixtures.few,
+      intercept: (method, params) => (method === 'saveSkill' ? wait.promise.then(() => inner.request(method, params as MethodParams<'saveSkill'>)) : undefined),
+    })
+    await ready()
+    change('Name', 'Receipts checklist 2')
+    const name = field('Name')
+    name.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(name.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Saved.'))
+    expect(document.activeElement).toBe(field('Name'))
   })
 
   it('announces a result in a status region that is always there', async () => {

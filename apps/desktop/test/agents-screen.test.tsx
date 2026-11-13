@@ -14,6 +14,7 @@ import { createTranslator, type Locale } from '../src/i18n'
 import { en } from '../src/i18n/en'
 import { ko } from '../src/i18n/ko'
 import { violations } from './axe'
+import { frames, gate } from './keep-focus'
 import { renderThemed } from './render'
 
 const [terse, kind, plain] = agentFixtures.few as [Agent, Agent, Agent]
@@ -500,6 +501,47 @@ describe('focus and live regions', () => {
     mount({ agents: agentFixtures.few, activeAgentId: terse.id })
     await ready()
     expect(document.activeElement).toBe(document.body)
+  })
+
+  it('gives the focus back to the Save button when a slow save is refused', async () => {
+    const wait = gate()
+    const { user, inner } = mount({
+      agents: agentFixtures.few,
+      activeAgentId: terse.id,
+      intercept: (method, params) => (method === 'saveAgent' ? wait.promise.then(() => inner.request(method, params as MethodParams<'saveAgent'>)) : undefined),
+    })
+    await ready()
+    change('Name', 'plain TONE only')
+    const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement
+    save.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(save.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await screen.findByRole('alert')
+    expect(save.disabled).toBe(false)
+    expect(document.activeElement).toBe(save)
+  })
+
+  it('gives the focus back to the Name field where Enter was pressed after a slow save went through', async () => {
+    const wait = gate()
+    const { user, inner } = mount({
+      agents: agentFixtures.few,
+      activeAgentId: terse.id,
+      intercept: (method, params) => (method === 'saveAgent' ? wait.promise.then(() => inner.request(method, params as MethodParams<'saveAgent'>)) : undefined),
+    })
+    await ready()
+    change('Name', 'Terse reviewer 2')
+    const name = field('Name')
+    name.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(name.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Saved.'))
+    expect(document.activeElement).toBe(field('Name'))
   })
 
   it('keeps one polite status for what was done and one alert for what failed', async () => {

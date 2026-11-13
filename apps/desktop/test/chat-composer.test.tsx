@@ -6,6 +6,7 @@ import { Composer, type AttachmentPort, type ComposerProps } from '../src/chat/C
 import { activeModelOf } from '../src/chat/model/models'
 import { attachmentRefs, models, modelsNothingConfigured } from '../src/fixtures/plan'
 import { violations } from './axe'
+import { frames } from './keep-focus'
 import { renderThemed } from './render'
 
 const opus = activeModelOf(models)!
@@ -445,6 +446,38 @@ describe('Composer: focus', () => {
     screen.getByRole('button', { name: 'Stop editing' }).focus()
     again(view, { busy: false, editContext })
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Stop editing' }))
+  })
+
+  it('puts the focus back in the text field after a send with Ctrl+Enter that took longer than a frame', async () => {
+    const view = show()
+    box().focus()
+    fireEvent.keyDown(box(), { key: 'Enter', ctrlKey: true })
+    again(view, { busy: true })
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    again(view, { busy: false })
+    expect(document.activeElement).toBe(box())
+  })
+
+  it('puts the focus in the text field after a send with the Send button, which is replaced by Cancel while it runs', async () => {
+    const view = show()
+    screen.getByRole('button', { name: 'Send' }).focus()
+    again(view, { busy: true })
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    again(view, { busy: false })
+    expect(document.activeElement).toBe(box())
+  })
+
+  it('gives the focus back to the control that had it when the send was started from somewhere else', async () => {
+    const view = show()
+    const attach = screen.getByRole('button', { name: 'Attach files' })
+    attach.focus()
+    again(view, { busy: true })
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    again(view, { busy: false })
+    expect(document.activeElement).toBe(attach)
   })
 
   it('does not move the focus on the first render, nor while the send goes on', () => {

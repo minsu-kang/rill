@@ -1,10 +1,12 @@
 import { MEMORY_MAX_INPUT_CHARS, RillError, type MemoryItem } from '@rill/protocol'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { MemoryPanel } from '../src/chat/MemoryPanel'
 import { en } from '../src/i18n/en'
 import { memoryFixtures } from '../src/fixtures/plan'
 import { makeWorld, type WorldOptions } from './chat-world'
+import { frames, gate } from './keep-focus'
 import { renderThemed } from './render'
 
 function show(memory: MemoryItem[], intercept?: WorldOptions['intercept']) {
@@ -289,5 +291,67 @@ describe('MemoryPanel: lifecycle', () => {
     finish({ items: [...memoryFixtures.three] })
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(world.calls.map((call) => call.method)).toEqual(['listMemory'])
+  })
+})
+
+describe('MemoryPanel: focus', () => {
+  function refusedLate(method: 'saveMemory' | 'deleteMemory') {
+    const wait = gate()
+    const answer: WorldOptions['intercept'] = (name) => (name === method ? wait.promise.then(() => Promise.reject(new RillError('INTERNAL', 'x'))) : undefined)
+    return { wait, answer }
+  }
+
+  it('gives the focus back to the Save button when a slow answer refuses the new note', async () => {
+    const { wait, answer } = refusedLate('saveMemory')
+    show([...memoryFixtures.three], answer)
+    await loaded()
+    const user = userEvent.setup()
+    await user.type(input(), 'Weekly reports go to ~/Reports')
+    const button = save()
+    button.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(button.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await screen.findByRole('alert')
+    expect(button.disabled).toBe(false)
+    expect(document.activeElement).toBe(button)
+  })
+
+  it('gives the focus back to the Save button of an edit when a slow answer refuses it', async () => {
+    const { wait, answer } = refusedLate('saveMemory')
+    show([...memoryFixtures.three], answer)
+    await loaded()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: `Edit note: ${memoryFixtures.three[0]!.text}` }))
+    const button = editorSave()
+    button.focus()
+    await user.keyboard(' ')
+    await waitFor(() => expect(button.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await screen.findByRole('alert')
+    expect(button.disabled).toBe(false)
+    expect(document.activeElement).toBe(button)
+  })
+
+  it('gives the focus back to the confirm button of a delete when a slow answer refuses it', async () => {
+    const { wait, answer } = refusedLate('deleteMemory')
+    show([...memoryFixtures.three], answer)
+    await loaded()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: `Delete note: ${memoryFixtures.three[1]!.text}` }))
+    const confirm = screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement
+    confirm.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(confirm.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await screen.findByRole('alert')
+    expect(confirm.disabled).toBe(false)
+    expect(document.activeElement).toBe(confirm)
   })
 })

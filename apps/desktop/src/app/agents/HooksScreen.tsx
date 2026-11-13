@@ -30,7 +30,7 @@ export interface HooksScreenProps {
 
 type Asking = { kind: 'delete'; hook: Hook } | { kind: 'discard'; then(): void }
 
-type Focus = { kind: 'editor' } | { kind: 'edit'; id: string } | { kind: 'new' } | { kind: 'list' } | { kind: 'element'; element: HTMLElement }
+type Focus = { kind: 'editor' } | { kind: 'edit'; id: string } | { kind: 'new' } | { kind: 'list' }
 
 const VISIBLE_CHARS = 80
 const SUMMARY_CHARS = 60
@@ -45,14 +45,7 @@ function findFocus(container: HTMLElement, target: Focus): HTMLElement | null {
       return container.querySelector<HTMLElement>('[data-hook-list-title]')
     case 'edit':
       return [...container.querySelectorAll<HTMLElement>('[data-hook-edit]')].find((button) => button.dataset.hookEdit === target.id) ?? null
-    case 'element':
-      return target.element.isConnected && container.contains(target.element) ? target.element : null
   }
-}
-
-function nobodyHasFocus(element: HTMLElement): boolean {
-  const { activeElement } = document
-  return activeElement === null || activeElement === document.body || activeElement === element
 }
 
 export function HooksScreen({ client, connections, onOpenConnections, timeZone }: HooksScreenProps) {
@@ -86,7 +79,6 @@ export function HooksScreen({ client, connections, onOpenConnections, timeZone }
     }
     if (element.matches(':disabled')) return
     pendingFocus.current = undefined
-    if (target.kind === 'element' && !nobodyHasFocus(element)) return
     element.focus()
   })
 
@@ -109,11 +101,6 @@ export function HooksScreen({ client, connections, onOpenConnections, timeZone }
   const dialogError = asking?.kind === 'delete' ? action.error : undefined
   const editorError = asking === undefined && open !== undefined && origin === 'editor' ? action.error : undefined
   const pageError = asking === undefined && !(open !== undefined && origin === 'editor') ? action.error : undefined
-
-  function focusedControl(): Focus | undefined {
-    const { activeElement } = document
-    return activeElement instanceof HTMLElement && root.current?.contains(activeElement) === true ? { kind: 'element', element: activeElement } : undefined
-  }
 
   function begin(next: { id?: string; draft: HookDraft }): void {
     action.clearError()
@@ -159,7 +146,6 @@ export function HooksScreen({ client, connections, onOpenConnections, timeZone }
     const input = check.input
     setOrigin('editor')
     setStatus(undefined)
-    pendingFocus.current = focusedControl()
     void action.run(async () => {
       try {
         const hook = await store.save(id === undefined ? input : { ...input, id })
@@ -180,7 +166,6 @@ export function HooksScreen({ client, connections, onOpenConnections, timeZone }
   function toggle(hook: Hook): void {
     setOrigin('page')
     setStatus(undefined)
-    pendingFocus.current = focusedControl()
     void action.run(async () => {
       await store.save({ ...inputOfHook(hook), id: hook.id, enabled: !hook.enabled })
       setStatus(hook.enabled ? 'agents.hooks.status.switchedOff' : 'agents.hooks.status.switchedOn')

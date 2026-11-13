@@ -14,6 +14,7 @@ import { memoryFixtures, models, outcomeOf, results } from '../src/fixtures/plan
 import { createTranslator, type Locale } from '../src/i18n'
 import type { ConnectionSummary } from '../src/shared/host-api'
 import { violations as axeViolations } from './axe'
+import { frames, gate } from './keep-focus'
 import { renderThemed } from './render'
 
 interface Options {
@@ -1316,6 +1317,58 @@ describe('the focus and the live regions', () => {
     } finally {
       stop()
     }
+  })
+
+  it('keeps the focus on the switch through a slow answer, with the focus rules of the browser at work', async () => {
+    const wait = gate()
+    const { user, inner } = mount({
+      hooks: hookFixtures.some,
+      intercept: (method, params) => (method === 'saveHook' ? wait.promise.then(() => inner.request(method, params as MethodParams<'saveHook'>)) : undefined),
+    })
+    await ready()
+    const toggle = within(rowOf('team-slack to #alerts')).getByRole('switch') as HTMLInputElement
+    toggle.focus()
+    await user.keyboard(' ')
+    await waitFor(() => expect(toggle.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await waitFor(() => expect(toggle.checked).toBe(false))
+    expect(toggle.disabled).toBe(false)
+    expect(document.activeElement).toBe(toggle)
+  })
+
+  it('keeps the focus in the field where Enter was pressed through a slow refusal, with the focus rules of the browser at work', async () => {
+    const wait = gate()
+    const { user } = mount({ intercept: (method) => (method === 'saveHook' ? wait.promise.then(() => Promise.reject(new RillError('INTERNAL', 'x'))) : undefined) })
+    await open(user)
+    await pickConnection(user)
+    const channel = field('Channel (optional)') as HTMLInputElement
+    await user.type(channel, '#ops{Enter}')
+    await waitFor(() => expect(channel.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await within(editor()).findByRole('alert')
+    expect(channel.disabled).toBe(false)
+    expect(document.activeElement).toBe(channel)
+  })
+
+  it('keeps the focus on the confirm button of the dialog when a slow delete is refused', async () => {
+    const wait = gate()
+    const { user } = mount({ hooks: hookFixtures.some, intercept: (method) => (method === 'deleteHook' ? wait.promise.then(() => Promise.reject(new RillError('INTERNAL', 'x'))) : undefined) })
+    await ready()
+    await user.click(within(rowOf('ops-webhook')).getByRole('button', { name: /^Delete the hook/ }))
+    const dialog = await screen.findByRole('dialog')
+    const confirm = within(dialog).getByRole('button', { name: 'Delete hook' }) as HTMLButtonElement
+    confirm.focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(confirm.disabled).toBe(true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    await wait.open()
+    await within(dialog).findByRole('alert')
+    expect(document.activeElement).toBe(confirm)
   })
 
   it('has one live region for what happened, which stays in the page while it is empty', async () => {
