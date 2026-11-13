@@ -184,13 +184,44 @@ describe('the hook store', () => {
   })
 
   it('does not load the list again for a refusal that says nothing about the list', async () => {
-    const { client, count } = world({ hooks: [seedHook('h1')] })
+    const { client, count } = world({
+      hooks: [seedHook('h1')],
+      intercept: (method, params) => (method === 'saveHook' && (params as HookInput).event === other.event ? Promise.reject(new RillError('INVALID_PARAMS', 'x')) : undefined),
+    })
     const { result } = renderHook(() => useHookStore(client))
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
     await act(async () => {
       await expect(result.current.store.save({ ...record, action: { type: 'deactivateAfterFailures', count: 1 } })).rejects.toMatchObject({ code: 'HOOK_INVALID' })
     })
+    await act(async () => {
+      await expect(result.current.store.save(other)).rejects.toMatchObject({ code: 'INVALID_PARAMS' })
+    })
     expect(count('listHooks')).toBe(1)
+  })
+
+  it('does not load the list again after a write when no load is on its way, also after a load that failed', async () => {
+    let fail = false
+    const { client, base, count } = world({ hooks: [seedHook('h1')], intercept: (method) => (method === 'listHooks' && fail ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined) })
+    const { result } = renderHook(() => useHookStore(client))
+    await waitFor(() => expect(result.current.state.status).toBe('ready'))
+    await act(async () => {
+      await result.current.store.save(other)
+    })
+    expect(count('listHooks')).toBe(1)
+    fail = true
+    act(() => {
+      base.emit({ type: 'workflow.deleted', at: 1, workflowId })
+    })
+    await waitFor(() => expect(result.current.state.status).toBe('error'))
+    fail = false
+    await act(async () => {
+      await result.current.store.refresh()
+    })
+    expect(result.current.state.status).toBe('ready')
+    await act(async () => {
+      await result.current.store.save({ ...record, event: 'plan.deployed' })
+    })
+    expect(count('listHooks')).toBe(3)
   })
 
   it('loads the list again when the answer of a save is lost, since the engine may have saved the hook', async () => {

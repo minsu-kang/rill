@@ -2,7 +2,9 @@ import { HOOK_MAX_ITEMS, RillError, hookMessage, type Hook, type HookLogEntry, t
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
+import { HookActivity } from '../src/app/agents/HookActivity'
 import { HooksScreen } from '../src/app/agents/HooksScreen'
+import { hookLabels } from '../src/app/agents/model/hooks'
 import type { EngineClient } from '../src/engine/client'
 import { createFakeClient, type FakeData } from '../src/engine/fake-client'
 import { withPlanMethods } from '../src/engine/fake-plan'
@@ -755,6 +757,7 @@ describe('what the form prevents', () => {
     expect(saveButton().disabled).toBe(false)
     await pickConnection(user, 'no-default-channel')
     expect(within(editor()).queryByText(/This connection is a webhook/)).toBeNull()
+    expect(within(editor()).queryByText(/has no default channel/)).toBeNull()
     await user.clear(field('Channel (optional)'))
     expect(within(editor()).getByText(/This bot connection has no default channel/)).toBeTruthy()
     expect(saveButton().disabled).toBe(false)
@@ -990,17 +993,17 @@ describe('the activity', () => {
   })
 
   it.each([
-    ['ok', 'Done'],
-    ['failed', 'Failed'],
-    ['skipped_cooldown', 'Skipped, in cooldown'],
-    ['rate_limited', 'Skipped, limit reached'],
-    ['blocked_by_rule', 'Blocked by a rule'],
-    ['skipped_inactive', 'Nothing to do'],
-  ] as const)('says %s as %s, in a word and not by color alone', async (outcome, word) => {
+    ['ok', 'Done', /outcomeOk/],
+    ['failed', 'Failed', /outcomeFailed/],
+    ['skipped_cooldown', 'Skipped, in cooldown', /outcomeSkipped/],
+    ['rate_limited', 'Skipped, limit reached', /outcomeSkipped/],
+    ['blocked_by_rule', 'Blocked by a rule', /outcomeBlocked/],
+    ['skipped_inactive', 'Nothing to do', /outcomeSkipped/],
+  ] as const)('says %s as %s, in a word and not by color alone', async (outcome, word, chipClass) => {
     mount({ hooks: hookFixtures.one, log: [logRow('hook-failed-all', ids.workflows.receipt, 'run.failed', outcome, 5, outcome === 'failed' ? 'unknown' : null)] })
     await ready()
     const items = await within(activity()).findAllByRole('listitem')
-    expect(within(items[0]!).getByText(word)).toBeTruthy()
+    expect(within(items[0]!).getByText(word).className).toMatch(chipClass)
   })
 
   it.each([['connection'], ['timeout'], ['http_status'], ['slack_error'], ['unknown']] as const)('shows the code %s of a failed row', async (code) => {
@@ -1016,6 +1019,8 @@ describe('the activity', () => {
     const items = await within(activity()).findAllByRole('listitem')
     const removed = items.find((item) => (item.textContent ?? '').includes('Deleted hook'))!
     expect(removed.textContent).toContain('A run fails')
+    expect(removed.querySelector('em')?.textContent).toBe('Deleted hook')
+    expect(items.filter((item) => item.querySelector('em') !== null)).toEqual([removed])
     const gone = items.find((item) => (item.textContent ?? '').includes('A workflow whose name is not available'))
     expect(gone).toBeTruthy()
   })
@@ -1088,6 +1093,24 @@ describe('the activity', () => {
     await ready()
     expect(await within(activity()).findByText(/^Nothing yet\./)).toBeTruthy()
     expect(within(activity()).queryByRole('list')).toBeNull()
+    expect(activity().textContent).not.toContain('Showing')
+  })
+
+  it('does not say that nothing happened while the rows are on their way, nor when they could not be loaded', async () => {
+    const waiting = mount({ hooks: hookFixtures.some, intercept: (method) => (method === 'listHookLog' ? new Promise(() => undefined) : undefined) })
+    await ready()
+    expect(activity().textContent).not.toContain('Nothing yet')
+    expect(within(activity()).getByRole('status').textContent).toBe('Loading the activity…')
+    waiting.view.unmount()
+    mount({ hooks: hookFixtures.some, intercept: (method) => (method === 'listHookLog' ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined) })
+    await within(await screen.findByRole('region', { name: 'Activity' })).findByRole('alert')
+    expect(activity().textContent).not.toContain('Nothing yet')
+  })
+
+  it('says that it is loading before the rows were asked for', () => {
+    renderThemed(<HookActivity log={{ status: 'idle', entries: [] }} hooks={[]} visible={hookLabels(createTranslator('en'), new Map(), (text) => text)} names={new Map()} clip={(text) => text} onRefresh={() => undefined} />, { locale: 'en' })
+    expect(screen.getByRole('status').textContent).toBe('Loading the activity…')
+    expect(screen.queryByText(/^Nothing yet\./)).toBeNull()
   })
 
   it('says that it is loading, and then shows the rows', async () => {
