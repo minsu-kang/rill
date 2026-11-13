@@ -1,6 +1,6 @@
 import { useId, useRef, useState, type FormEvent } from 'react'
 import { useT } from '../../i18n'
-import { MAX_SECRET_LENGTH, PROVIDER_IDS, PROVIDER_KEY_ENV, type ProviderId } from '../../shared/host-api'
+import { MAX_SECRET_LENGTH, PROVIDER_IDS, type ProviderId } from '../../shared/host-api'
 import { PROVIDER_LABELS } from './providers'
 import controls from '../controls.module.css'
 import { useHost } from '../host'
@@ -10,12 +10,8 @@ import { useAction } from './useAction'
 
 export function KeysSection({ api, locked }: { api: SettingsApi; locked: boolean }) {
   const t = useT()
-  const headingId = useId()
   return (
-    <section className={styles.panel} aria-labelledby={headingId}>
-      <h3 id={headingId} className={styles.sub}>
-        {t('app.keys.heading')}
-      </h3>
+    <section className={styles.panel} aria-label={t('app.settings.section.keys')}>
       <p className={controls.note}>{t('app.keys.intro')}</p>
       <ul className={controls.list}>
         {PROVIDER_IDS.map((provider) => (
@@ -67,7 +63,6 @@ function KeyRow({ provider, configured, locked, api }: { provider: ProviderId; c
         <div className={styles.itemMain}>
           <strong>{label}</strong>
           <span className={configured ? controls.chipOk : controls.chip}>{configured ? t('app.keys.configured') : t('app.keys.notConfigured')}</span>
-          <span className={controls.note}>{t('app.keys.env', { env: PROVIDER_KEY_ENV[provider] })}</span>
         </div>
         <label className={`${controls.label} ${styles.grow}`} htmlFor={inputId}>
           {t('app.keys.input', { provider: label })}

@@ -26,7 +26,6 @@ export function ConnectionsSection({ api, locked }: { api: SettingsApi; locked: 
   const t = useT()
   const host = useHost()
   const action = useAction()
-  const headingId = useId()
   const nameId = useId()
   const kindId = useId()
   const secretId = useId()
@@ -78,10 +77,7 @@ export function ConnectionsSection({ api, locked }: { api: SettingsApi; locked: 
   }
 
   return (
-    <section className={styles.panel} aria-labelledby={headingId}>
-      <h3 id={headingId} className={styles.sub}>
-        {t('app.connections.heading')}
-      </h3>
+    <section className={styles.panel} aria-label={t('app.settings.section.connections')}>
       <p className={controls.note}>{t('app.connections.intro')}</p>
       {connections.length === 0 ? (
         <p className={controls.note}>{t('app.connections.empty')}</p>

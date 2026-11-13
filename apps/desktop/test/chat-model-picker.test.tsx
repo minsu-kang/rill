@@ -25,11 +25,12 @@ describe('ModelPicker', () => {
     expect(screen.getAllByRole('button').filter((button) => button.getAttribute('aria-current') === 'true')).toHaveLength(1)
   })
 
-  it('disables the provider that has no key, labels it and says which variable to set', () => {
+  it('disables the provider that has no key, labels it and points to the API keys screen without naming a variable', () => {
     renderThemed(<ModelPicker models={models} />, { locale: 'en' })
     const grok = screen.getByRole('group', { name: 'xAI Grok' })
     expect(grok.textContent).toContain('Key needed')
-    expect(grok.textContent).toContain('XAI_API_KEY')
+    expect(grok.textContent).toContain('API keys screen in Settings')
+    expect(grok.textContent).not.toContain('XAI_API_KEY')
     for (const button of within(grok).getAllByRole('button')) expect(button.getAttribute('aria-disabled')).toBe('true')
   })
 

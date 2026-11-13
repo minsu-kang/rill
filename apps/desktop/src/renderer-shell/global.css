@@ -1,0 +1,17 @@
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  overflow: hidden;
+  background: Canvas;
+  color: CanvasText;
+}

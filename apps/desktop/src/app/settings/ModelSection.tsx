@@ -1,5 +1,5 @@
 import type { LlmModelsResult } from '@rill/protocol'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ModelPicker } from '../../chat/ModelPicker'
 import type { EngineClient } from '../../engine/client'
 import { useT } from '../../i18n'
@@ -25,7 +25,6 @@ export function ModelSection({ api, client, connection, onGoKeys }: ModelSection
   const t = useT()
   const host = useHost()
   const action = useAction()
-  const headingId = useId()
   const [loaded, setLoaded] = useState<Loaded | undefined>(undefined)
 
   useEffect(() => {
@@ -56,10 +55,7 @@ export function ModelSection({ api, client, connection, onGoKeys }: ModelSection
   }
 
   return (
-    <section className={styles.panel} aria-labelledby={headingId}>
-      <h3 id={headingId} className={styles.sub}>
-        {t('app.model.heading')}
-      </h3>
+    <section className={styles.panel} aria-label={t('app.settings.section.model')}>
       <p className={controls.note}>{t('app.model.intro')}</p>
       <section className={controls.warn} role="note" aria-label={t('app.model.transfer.heading')}>
         <span className={controls.badge}>{t('badge.externalTransfer')}</span> <strong>{t('app.model.transfer.heading')}</strong>

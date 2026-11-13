@@ -11,7 +11,6 @@ export function GeneralSection({ api, connection }: { api: SettingsApi; connecti
   const t = useT()
   const host = useHost()
   const action = useAction()
-  const headingId = useId()
   const loginId = useId()
   const state = connection.status?.state ?? 'starting'
   const error = connection.status?.error
@@ -29,10 +28,7 @@ export function GeneralSection({ api, connection }: { api: SettingsApi; connecti
   }
 
   return (
-    <section className={styles.panel} aria-labelledby={headingId}>
-      <h3 id={headingId} className={styles.sub}>
-        {t('app.general.heading')}
-      </h3>
+    <section className={styles.panel} aria-label={t('app.settings.section.general')}>
       <div className={styles.checkbox}>
         <input id={loginId} type="checkbox" checked={api.settings.openAtLogin} disabled={action.busy} onChange={(event) => toggle(event.target.checked)} />
         <label htmlFor={loginId}>{t('app.general.openAtLogin')}</label>

@@ -24,7 +24,7 @@ function ProviderGroup({ provider, models, active, onSelect }: { provider: LlmPr
         {markHidden(provider.label)}
         {provider.configured ? null : <span className={styles.badge}>{t('chat.model.keyNeeded')}</span>}
       </h4>
-      {provider.configured ? null : <p className={styles.hint}>{t('chat.model.keyHint', { env: markHidden(provider.keyEnv) })}</p>}
+      {provider.configured ? null : <p className={styles.hint}>{t('chat.model.keyHint')}</p>}
       <div className={styles.models}>
         {models.map((model) => {
           const isActive = active !== null && active.provider === model.provider && active.model === model.id

@@ -58,7 +58,7 @@ export const chatEn: Record<keyof typeof chatKo, string> = {
   'chat.effort.hintLatency': 'about {seconds} s',
   'chat.model.label': 'Model',
   'chat.model.keyNeeded': 'Key needed',
-  'chat.model.keyHint': 'Add a key on the Keys screen in Settings to use it. ({env})',
+  'chat.model.keyHint': 'Add a key on the API keys screen in Settings to use it.',
   'chat.model.active': 'In use',
   'chat.model.dataNote': 'Data handling',
   'chat.model.tier.strong': 'Strong',

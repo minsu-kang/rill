@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useState } from 'react'
 import { useT, type MessageKey } from '../../i18n'
 import { escapeInvisible } from '../../model/text'
 import { MAX_FOLDERS } from '../../shared/host-api'
@@ -13,7 +13,6 @@ export function FoldersSection({ api }: { api: SettingsApi }) {
   const t = useT()
   const host = useHost()
   const action = useAction()
-  const headingId = useId()
   const [notice, setNotice] = useState<MessageKey | undefined>(undefined)
   const folders = api.settings.allowedFolders
   const full = folders.length >= MAX_FOLDERS
@@ -41,10 +40,7 @@ export function FoldersSection({ api }: { api: SettingsApi }) {
   }
 
   return (
-    <section className={styles.panel} aria-labelledby={headingId}>
-      <h3 id={headingId} className={styles.sub}>
-        {t('app.folders.heading')}
-      </h3>
+    <section className={styles.panel} aria-label={t('app.settings.section.folders')}>
       <p className={controls.note}>{t('app.folders.intro')}</p>
       {folders.length === 0 ? (
         <p className={controls.warn}>{t('app.folders.empty')}</p>

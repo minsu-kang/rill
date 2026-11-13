@@ -56,7 +56,7 @@ export const chatKo = {
   'chat.effort.hintLatency': '약 {seconds}초',
   'chat.model.label': '모델',
   'chat.model.keyNeeded': '키 필요',
-  'chat.model.keyHint': '설정의 키 화면에서 키를 추가하면 쓸 수 있어요. ({env})',
+  'chat.model.keyHint': '설정의 API 키 화면에서 키를 추가하면 쓸 수 있어요.',
   'chat.model.active': '사용 중',
   'chat.model.dataNote': '데이터 취급',
   'chat.model.tier.strong': '고성능',

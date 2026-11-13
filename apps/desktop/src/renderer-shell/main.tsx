@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { watchCspViolations } from '../app/csp-watch'
+import './global.css'
 import type { Locale } from '../i18n'
 import { ThemeProvider, type Theme } from '../theme/ThemeProvider'
 import { Root } from './Root'
