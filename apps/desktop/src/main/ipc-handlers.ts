@@ -45,6 +45,12 @@ export type IpcHandler = (args: unknown) => Promise<unknown>
 
 const MAX_PICKED = 100
 
+export function describeError(error: unknown): string {
+  if (!(error instanceof Error)) return 'non-error'
+  const reason = (error as { reason?: unknown }).reason
+  return typeof reason === 'string' ? `${error.name}:${reason}` : error.name
+}
+
 export function toHostError(error: unknown): HostError {
   if (error instanceof HostError) return error
   if (error instanceof ConfigError) return new HostError('INVALID_SETTINGS')
@@ -183,7 +189,9 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
       try {
         result = await run[channel](args as never)
       } catch (error) {
-        throw toHostError(error)
+        const failed = toHostError(error)
+        if (failed.code === 'INTERNAL') deps.log?.(`${channel} failed: ${describeError(error)}`)
+        throw failed
       }
       if (!validateResult(channel, result)) {
         deps.log?.(`result of ${channel} did not match its schema`)

@@ -156,7 +156,8 @@ function KeyRow({ provider, configured, locked, api, noteId }: { provider: Provi
       let verdict: KeyVerdict
       try {
         const call = saveAnyway ? host.secrets.setProviderKey(provider, value, { saveAnyway: true }) : host.secrets.setProviderKey(provider, value)
-        verdict = (await call).verdict
+        const result = (await call) as { verdict?: KeyVerdict } | undefined
+        verdict = result?.verdict ?? { status: 'unverified', reason: 'unexpected_status' }
       } catch (error) {
         if (hostErrorCode(error) === 'KEY_INVALID') {
           if (mounted.current) {

@@ -394,6 +394,20 @@ describe('KeysSection', () => {
   })
 })
 
+describe('KeysSection with a host that answers the old way', () => {
+  it('treats an answer without a verdict as saved but not confirmed instead of showing an unknown error', async () => {
+    const host = createFakeHost({}, { restartDelayMs: 0 })
+    const old = { ...host, secrets: { ...host.secrets, setProviderKey: async (provider: never, value: string) => { await host.secrets.setProviderKey(provider, value); return undefined as never } } }
+    const { t, user } = show({ host: old as never, section: 'keys' })
+    await ready(t)
+    await user.type(document.querySelectorAll('input')[0] as HTMLInputElement, 'OLD-HOST-KEY-0123456789')
+    await user.click(screen.getAllByRole('button', { name: t('app.keys.save') })[0]!)
+    await waitFor(() => expect(document.querySelectorAll('input')[0]!.getAttribute('placeholder')).toBe(KEY_MASK))
+    expect(screen.queryByText(t('app.error.host.INTERNAL'))).toBeNull()
+    expect(document.querySelector('[role="status"]')).not.toBeNull()
+  })
+})
+
 describe('KeysSection key check', () => {
   const INVALID: KeyVerdict = { status: 'invalid', reason: 'unauthorized' }
 
