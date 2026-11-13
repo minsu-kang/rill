@@ -21,7 +21,7 @@ const STEPS = {
 } as const satisfies Record<OAuthProvider, readonly MessageKey[]>
 
 type Notice = { kind: 'saved' } | { kind: 'connected'; account: string | undefined } | { kind: 'disconnected' } | { kind: 'removed' }
-type Problem = 'clientId' | 'secret'
+type Problem = 'clientId' | 'secret' | 'secretMissing'
 
 export function oauthStatusOf(oauth: OAuthState, provider: OAuthProvider): { status: OAuthStatus; account: string | undefined } {
   const entry = oauth.accounts.find((account) => account.provider === provider)
@@ -125,6 +125,11 @@ export function OAuthCard({ provider, api, locked }: { provider: OAuthProvider; 
       return
     }
     const secret = (secretField.current?.value ?? '').trim()
+    if (provider === 'google' && secret === '') {
+      setProblem('secretMissing')
+      secretField.current?.focus()
+      return
+    }
     if (secret !== '' && !isOAuthClientSecret(secret)) {
       setProblem('secret')
       secretField.current?.focus()
@@ -348,10 +353,11 @@ export function OAuthCard({ provider, api, locked }: { provider: OAuthProvider; 
                       spellCheck={false}
                       maxLength={SECRET_INPUT_LIMIT}
                       disabled={formOff}
-                      aria-invalid={problem === 'secret' ? true : undefined}
+                      aria-required="true"
+                      aria-invalid={problem === 'secret' || problem === 'secretMissing' ? true : undefined}
                       aria-describedby={secretHintId}
                       onInput={() => {
-                        if (problem === 'secret') setProblem(undefined)
+                        if (problem === 'secret' || problem === 'secretMissing') setProblem(undefined)
                       }}
                     />
                   </label>
@@ -368,7 +374,7 @@ export function OAuthCard({ provider, api, locked }: { provider: OAuthProvider; 
               {configured && hasAccountToDrop ? <p className={controls.warn}>{t('app.oauth.replaceNote')}</p> : null}
               {problem === undefined ? null : (
                 <p className={controls.error} role="alert">
-                  {problem === 'clientId' ? t(`app.oauth.clientId.invalid.${provider}`) : t('app.oauth.secret.invalid')}
+                  {problem === 'clientId' ? t(`app.oauth.clientId.invalid.${provider}`) : problem === 'secretMissing' ? t('app.oauth.secret.required') : t('app.oauth.secret.invalid')}
                 </p>
               )}
               <button type="submit" className={controls.primary} disabled={formOff || !filled}>

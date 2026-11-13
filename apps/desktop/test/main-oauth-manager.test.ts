@@ -2,7 +2,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createOAuthManager, type OAuthManager } from '../src/main/oauth-manager'
 import type { OAuthStore } from '../src/main/oauth-manager'
 import { SecretStoreError, createSecretStore, type OAuthAccountRecord, type OAuthAppRecord, type SafeStorageLike } from '../src/main/secret-store'
@@ -82,6 +82,45 @@ function memoryStore(available = true): MemoryStore {
     clearOAuthAccount: async (provider) => accounts.delete(provider),
   }
   return store
+}
+
+type QueuedName = 'setOAuthApp' | 'clearOAuthApp' | 'setOAuthAccount' | 'clearOAuthAccount'
+
+function queuedStore(inner: OAuthStore) {
+  let tail: Promise<unknown> = Promise.resolve()
+  const holds = new Map<QueuedName, Promise<void>>()
+  const failures = new Set<QueuedName>()
+  const serial = <T,>(name: QueuedName | 'read', work: () => Promise<T>): Promise<T> => {
+    const hold = name === 'read' ? undefined : holds.get(name)
+    if (name !== 'read') holds.delete(name)
+    const fails = name !== 'read' && failures.delete(name)
+    const run = tail.then(async () => {
+      if (hold !== undefined) await hold
+      if (fails) throw new Error('keychain locked')
+      return work()
+    })
+    tail = run.catch(() => undefined)
+    return run
+  }
+  const store: OAuthStore = {
+    encryptionAvailable: () => inner.encryptionAvailable(),
+    getOAuth: () => serial('read', () => inner.getOAuth()),
+    setOAuthApp: (provider, app) => serial('setOAuthApp', () => inner.setOAuthApp(provider, app)),
+    clearOAuthApp: (provider) => serial('clearOAuthApp', () => inner.clearOAuthApp(provider)),
+    setOAuthAccount: (provider, account) => serial('setOAuthAccount', () => inner.setOAuthAccount(provider, account)),
+    clearOAuthAccount: (provider) => serial('clearOAuthAccount', () => inner.clearOAuthAccount(provider)),
+  }
+  return {
+    store,
+    hold(name: QueuedName): () => void {
+      const gate = deferred<void>()
+      holds.set(name, gate.promise)
+      return () => gate.resolve()
+    },
+    failNext(name: QueuedName): void {
+      failures.add(name)
+    },
+  }
 }
 
 type Responder = (call: RecordedCall) => Response | Promise<Response>
@@ -555,6 +594,18 @@ describe('refresh', () => {
     expect(harness.logs).toEqual(['oauth google: the sign-in was withdrawn, reconnect needed'])
   })
 
+  it('goes to needs reconnect when the provider answers 400 unauthorized_client or invalid_request, and does not retry', async () => {
+    for (const error of ['unauthorized_client', 'invalid_request']) {
+      const harness = await connected({}, 'microsoft')
+      harness.queue.push(() => json({ error, error_description: 'PROVIDERTEXTMARKER' }, 400))
+      await harness.clock.advance(GOOGLE_EXPIRY_DELAY)
+      expect(await statusOf(harness.manager, 'microsoft'), error).toEqual({ provider: 'microsoft', status: 'needs_reconnect', account: 'Alex Doe' })
+      expect(harness.messages, error).toEqual([{ type: 'connection.remove', name: 'microsoft' }])
+      expect(harness.clock.pending(), error).toBe(0)
+      expect(scanFor(harness.logs.join('\n'))).toEqual([])
+    }
+  })
+
   it('goes to needs reconnect on invalid_client too, and survives a restart of the app in that state', async () => {
     const harness = await connected()
     harness.queue.push(() => json({ error: 'invalid_client' }, 401))
@@ -731,21 +782,42 @@ describe('the engine', () => {
     const harness = await connected()
     harness.messages.length = 0
     harness.manager.syncEngine()
-    expect(harness.messages).toEqual([{ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_ACCESS }])
+    expect(harness.messages).toEqual([
+      { type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_ACCESS },
+      { type: 'connection.remove', name: 'microsoft' },
+    ])
     expect(Object.keys(harness.messages[0] as object).sort()).toEqual(['kind', 'name', 'secret', 'type'])
+    expect(Object.keys(harness.messages[1] as object).sort()).toEqual(['name', 'type'])
   })
 
-  it('sends nothing for an account that is not connected, has no token or whose token has expired', async () => {
+  it('tells the engine to drop an account that is not connected, has no token or whose token has expired', async () => {
+    const removes = [
+      { type: 'connection.remove', name: 'google' },
+      { type: 'connection.remove', name: 'microsoft' },
+    ]
     const harness = build()
     await withApp(harness)
     harness.manager.syncEngine()
-    expect(harness.messages).toEqual([])
+    expect(harness.messages).toEqual(removes)
     const connectedOne = await connected()
     connectedOne.messages.length = 0
     connectedOne.clock.jump(GOOGLE_EXPIRY_DELAY + 400_000)
     connectedOne.manager.syncEngine()
-    expect(connectedOne.messages).toEqual([])
+    expect(connectedOne.messages).toEqual(removes)
     expect(connectedOne.manager.accountConnections()).toEqual([])
+  })
+
+  it('tells an engine that was not listening when the account was disconnected to forget it once it runs', async () => {
+    const harness = await connected()
+    harness.failSends(true)
+    await harness.manager.disconnect('google')
+    expect(harness.messages).toEqual([])
+    harness.failSends(false)
+    harness.manager.syncEngine()
+    expect(harness.messages).toEqual([
+      { type: 'connection.remove', name: 'google' },
+      { type: 'connection.remove', name: 'microsoft' },
+    ])
   })
 
   it('sends tokens for both providers after a restart of the engine', async () => {
@@ -914,6 +986,157 @@ describe('changing the app', () => {
     expect(harness.calls).toEqual([])
     expect(harness.messages).toEqual([])
     expect(harness.manager.accountConnections()).toHaveLength(1)
+  })
+})
+
+describe('a write that overlaps a refresh', () => {
+  const STALE_REFRESH = '1//0gREFRESHMARKER-STALE-0123456789abcdefghijkl'
+  const OTHER_GOOGLE_ID = '987654321098-zyxwvutsrqponm.apps.googleusercontent.com'
+
+  async function queuedConnected(provider: OAuthProvider) {
+    const queued = queuedStore(memoryStore())
+    const harness = await connected({ store: queued.store }, provider)
+    return { ...harness, queued }
+  }
+
+  async function refreshInFlight(harness: Awaited<ReturnType<typeof queuedConnected>>) {
+    const gate = deferred<Response>()
+    harness.queue.push(() => gate.promise)
+    await harness.clock.advance(GOOGLE_EXPIRY_DELAY)
+    return gate
+  }
+
+  it('does not write a rotated refresh token behind a disconnect that is still writing', async () => {
+    const h = await queuedConnected('microsoft')
+    const gate = await refreshInFlight(h)
+    const release = h.queued.hold('clearOAuthAccount')
+    const disconnecting = h.manager.disconnect('microsoft')
+    await settle()
+    gate.resolve(microsoftTokenAnswer({ access_token: MICROSOFT_ACCESS_2, refresh_token: MICROSOFT_REFRESH_2 }))
+    await settle()
+    release()
+    await disconnecting
+    await settle()
+    expect((await h.realStore.getOAuth()).accounts).toEqual({})
+    expect(h.messages).toEqual([{ type: 'connection.remove', name: 'microsoft' }])
+    expect(h.manager.accountConnections()).toEqual([])
+    const again = build({ store: h.realStore })
+    expect(await statusOf(again.manager, 'microsoft')).toEqual({ provider: 'microsoft', status: 'not_connected' })
+  })
+
+  it('does not write the reconnect mark behind a disconnect that is still writing', async () => {
+    const h = await queuedConnected('microsoft')
+    const gate = await refreshInFlight(h)
+    const release = h.queued.hold('clearOAuthAccount')
+    const disconnecting = h.manager.disconnect('microsoft')
+    await settle()
+    gate.resolve(json({ error: 'invalid_grant' }, 400))
+    await settle()
+    release()
+    await disconnecting
+    await settle()
+    expect((await h.realStore.getOAuth()).accounts).toEqual({})
+    expect(h.logs).toEqual([])
+    const again = build({ store: h.realStore })
+    expect(await statusOf(again.manager, 'microsoft')).toEqual({ provider: 'microsoft', status: 'not_connected' })
+  })
+
+  it('does not keep the old sign-in under a new app that is still being written', async () => {
+    const h = await queuedConnected('google')
+    const gate = await refreshInFlight(h)
+    const release = h.queued.hold('setOAuthApp')
+    const saving = h.manager.setApp('google', { clientId: OTHER_GOOGLE_ID })
+    await settle()
+    gate.resolve(tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: GOOGLE_REFRESH_2 }))
+    await settle()
+    release()
+    await saving
+    await settle()
+    const records = await h.realStore.getOAuth()
+    expect(records.apps.google).toEqual({ clientId: OTHER_GOOGLE_ID })
+    expect(records.accounts).toEqual({})
+    expect(h.manager.accountConnections()).toEqual([])
+    expect(await statusOf(h.manager)).toEqual({ provider: 'google', status: 'not_connected' })
+  })
+
+  it('does not write an account behind an app that is being removed', async () => {
+    const h = await queuedConnected('google')
+    const gate = await refreshInFlight(h)
+    const release = h.queued.hold('clearOAuthApp')
+    const removing = h.manager.clearApp('google')
+    await settle()
+    gate.resolve(tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: GOOGLE_REFRESH_2 }))
+    await settle()
+    release()
+    await removing
+    await settle()
+    expect(await h.realStore.getOAuth()).toEqual({ apps: {}, accounts: {} })
+    expect(h.logs).toEqual([])
+    expect(h.clock.pending()).toBe(0)
+  })
+
+  it('does not let a stale rotated refresh token replace the account that a new sign-in is saving', async () => {
+    const h = await queuedConnected('google')
+    const gate = await refreshInFlight(h)
+    const release = h.queued.hold('setOAuthAccount')
+    h.queue.push(() => tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: GOOGLE_REFRESH_2 }))
+    const signingIn = h.manager.connect('google')
+    await vi.waitFor(() => expect(h.events.some(([name]) => name === 'store.account')).toBe(true))
+    gate.resolve(tokenAnswer({ refresh_token: STALE_REFRESH }))
+    await settle()
+    release()
+    await signingIn
+    await settle()
+    expect((await h.realStore.getOAuth()).accounts.google!.refreshToken).toBe(GOOGLE_REFRESH_2)
+    expect(h.manager.accountConnections()).toEqual([{ name: 'google', kind: 'google', secret: GOOGLE_ACCESS_2 }])
+  })
+
+  it('keeps the account and refreshes it again when the store cannot clear it', async () => {
+    const h = await queuedConnected('google')
+    const gate = await refreshInFlight(h)
+    const release = h.queued.hold('clearOAuthAccount')
+    h.queued.failNext('clearOAuthAccount')
+    const outcome = h.manager.disconnect('google').then(
+      () => 'done',
+      () => 'failed',
+    )
+    await settle()
+    gate.resolve(tokenAnswer({ access_token: GOOGLE_ACCESS_2 }))
+    await settle()
+    release()
+    expect(await outcome).toBe('failed')
+    await settle()
+    expect(await statusOf(h.manager)).toEqual({ provider: 'google', status: 'connected', account: 'someone@example.com' })
+    expect(h.messages).not.toContainEqual({ type: 'connection.remove', name: 'google' })
+    expect(h.refreshCalls()).toHaveLength(2)
+    expect(h.clock.pending()).toBe(1)
+    expect(h.manager.accountConnections()).toEqual([{ name: 'google', kind: 'google', secret: GOOGLE_ACCESS }])
+  })
+
+  it('keeps the account and its refresh schedule when the store cannot save a new app', async () => {
+    const h = await queuedConnected('google')
+    h.queued.failNext('setOAuthApp')
+    await expect(h.manager.setApp('google', { clientId: OTHER_GOOGLE_ID })).rejects.toBeInstanceOf(Error)
+    expect((await statusOf(h.manager))!.status).toBe('connected')
+    expect(h.clock.pending()).toBe(1)
+    await h.clock.advance(GOOGLE_EXPIRY_DELAY)
+    expect(h.refreshCalls()).toHaveLength(1)
+  })
+
+  it('refreshes again after a sign-in attempt that ended while the refresh timer ran', async () => {
+    const h = await connected()
+    h.setMode('none')
+    await h.clock.advance(GOOGLE_EXPIRY_DELAY - 60_000)
+    const pending = codeOf(h.manager.connect('google'))
+    await settle()
+    await h.clock.advance(70_000)
+    expect(h.refreshCalls()).toHaveLength(0)
+    h.manager.cancel('google')
+    expect(await pending).toBe('OAUTH_CANCELLED')
+    await settle()
+    expect((await statusOf(h.manager))!.status).toBe('connected')
+    expect(h.refreshCalls()).toHaveLength(1)
+    expect(h.clock.pending()).toBe(1)
   })
 })
 

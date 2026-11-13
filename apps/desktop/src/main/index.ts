@@ -71,7 +71,7 @@ async function start(): Promise<void> {
   const secrets = createSecretStore({ dir: userData, safeStorage: smoke ? smokeStorage : safeStorage, log })
   const attachments = createAttachmentStore({ dir: join(userData, 'attachments') })
   await attachments.sweepPartials().catch(() => undefined)
-  const accounts: { manager?: OAuthManager } = {}
+  const accounts: { manager?: OAuthManager; ready: Promise<void> } = { ready: Promise.resolve() }
   const supervisor = createEngineSupervisor({
     fork: utilityProcess.fork as unknown as ForkLike,
     bundlePath,
@@ -79,6 +79,7 @@ async function start(): Promise<void> {
     secrets,
     config,
     oauthConnections: () => accounts.manager?.accountConnections() ?? [],
+    oauthReady: () => accounts.ready,
     log,
   })
   const oauth = createOAuthManager({
@@ -134,7 +135,7 @@ async function start(): Promise<void> {
     })
   }
 
-  await oauth.start().catch(() => log('oauth start failed'))
+  accounts.ready = oauth.start().catch(() => log('oauth start failed'))
   void supervisor.start()
   const window = createMainWindow({
     BrowserWindow: BrowserWindow as unknown as new (options: Record<string, unknown>) => BrowserWindowLike,

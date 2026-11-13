@@ -56,6 +56,7 @@ export interface EngineSupervisorDeps {
   secrets: SecretStore
   config: ConfigStore
   oauthConnections?: () => readonly AccountConnection[]
+  oauthReady?: () => Promise<unknown>
   clock?: ClockLike
   randomToken?: () => string
   forceKill?: (child: ChildLike) => void
@@ -170,6 +171,9 @@ export function createEngineSupervisor(deps: EngineSupervisorDeps): EngineSuperv
   }
 
   async function buildSpawn(): Promise<{ args: string[]; env: Record<string, string>; token: string }> {
+    await Promise.resolve()
+      .then(() => deps.oauthReady?.())
+      .catch(() => undefined)
     settingsRead = true
     const config = await deps.config.get()
     const key = await deps.secrets.getProviderKey(config.provider)

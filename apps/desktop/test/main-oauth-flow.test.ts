@@ -499,6 +499,32 @@ describe('the code exchange', () => {
     expect(errorOf(outcome).code).toBe('OAUTH_SCOPE_MISSING')
   })
 
+  it('revokes the Google refresh token of a grant that lacks a data scope, before it ends with OAUTH_SCOPE_MISSING', async () => {
+    const { flow, outcome } = await complete({ respond: (call) => (call.url.includes('/token') ? tokenAnswer({ scope: 'openid https://www.googleapis.com/auth/userinfo.email' }) : call.url.includes('/revoke') ? new Response('', { status: 200 }) : userinfo(call)) })
+    expect(errorOf(outcome).code).toBe('OAUTH_SCOPE_MISSING')
+    expect(flow.calls.map((call) => call.url)).toEqual(['https://oauth2.googleapis.com/token', 'https://oauth2.googleapis.com/revoke'])
+    expect(flow.calls[1]!.init.method).toBe('POST')
+    expect(flow.calls[1]!.form.get('token')).toBe(GOOGLE_REFRESH)
+    expect(scanFor(JSON.stringify(errorOf(outcome)))).toEqual([])
+  })
+
+  it('still ends with OAUTH_SCOPE_MISSING when the revoke of a short grant fails or is refused', async () => {
+    const failing = await complete({ respond: (call) => (call.url.includes('/token') ? tokenAnswer({ scope: 'openid' }) : call.url.includes('/revoke') ? Promise.reject(new Error('offline PROVIDERTEXTMARKER')) : userinfo(call)) })
+    expect(errorOf(failing.outcome).code).toBe('OAUTH_SCOPE_MISSING')
+    expect(failing.flow.calls.filter((call) => call.url.includes('/revoke'))).toHaveLength(1)
+    const refused = await complete({ respond: (call) => (call.url.includes('/token') ? tokenAnswer({ scope: 'openid' }) : call.url.includes('/revoke') ? json({ error: 'invalid_token' }, 400) : userinfo(call)) })
+    expect(errorOf(refused.outcome).code).toBe('OAUTH_SCOPE_MISSING')
+  })
+
+  it('has nothing to revoke for Microsoft, and revokes nothing when the grant is complete', async () => {
+    const microsoft = await complete({ provider: 'microsoft', respond: (call) => (call.url.endsWith('/token') ? microsoftTokenAnswer({ scope: 'User.Read Files.Read' }) : json({})) })
+    expect(errorOf(microsoft.outcome).code).toBe('OAUTH_SCOPE_MISSING')
+    expect(microsoft.flow.calls).toHaveLength(1)
+    const whole = await complete()
+    expect(whole.outcome.ok).toBe(true)
+    expect(whole.flow.calls.filter((call) => call.url.includes('/revoke'))).toEqual([])
+  })
+
   it('maps every other failure to OAUTH_EXCHANGE_FAILED without a word of the answer', async () => {
     const wrongAccess = 'has space and \u0000 control'
     const answers: Array<[string, (call: RecordedCall) => Response | Promise<Response>]> = [
@@ -627,13 +653,26 @@ describe('refreshTokens', () => {
     }
   })
 
+  it('says revoked for a 400 unauthorized_client or invalid_request, which a repeat of the same request cannot cure', async () => {
+    for (const error of ['unauthorized_client', 'invalid_request']) {
+      for (const provider of ['google', 'microsoft'] as const) {
+        const { fetch } = recordingFetch(() => json({ error, error_description: 'PROVIDERTEXTMARKER' }, 400))
+        const outcome = await refreshTokens({ provider, app: provider === 'google' ? GOOGLE_APP : MICROSOFT_APP, refreshToken: GOOGLE_REFRESH, deps: { fetch, clock: clock() } })
+        expect(outcome, `${provider} ${error}`).toEqual({ kind: 'revoked' })
+      }
+    }
+  })
+
   it('says transient for 5xx, 429, a network error, a timeout, unusable answers and other 4xx errors', async () => {
     const cases: Array<() => Response | Promise<Response>> = [
       () => new Response('PROVIDERTEXTMARKER', { status: 500 }),
       () => new Response('PROVIDERTEXTMARKER', { status: 503 }),
       () => new Response('x', { status: 429 }),
-      () => json({ error: 'invalid_request' }, 400),
+      () => json({ error: 'invalid_request' }, 500),
+      () => json({ error: 'unauthorized_client' }, 500),
+      () => json({ error: 'invalid_request' }, 429),
       () => json({ error: 'temporarily_unavailable' }, 400),
+      () => json({ error: 'invalid_scope' }, 400),
       () => new Response('<html>PROVIDERTEXTMARKER</html>', { status: 400 }),
       () => new Response('not json', { status: 200 }),
       () => json({ expires_in: 3599 }),

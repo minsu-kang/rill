@@ -121,7 +121,7 @@ The installer is signed ad hoc and not notarized, so macOS blocks a downloaded c
 
 The short version. [docs/security.md](docs/security.md) has the threat model, the place in the code where each control lives, and what is not covered.
 
-1. Keys and connection secrets are encrypted with Electron `safeStorage`, whose key is in the macOS keychain. So are the Client secret and the refresh token of a Google or Microsoft sign-in. They are never written to the database, a workflow or a log, and the window never receives one. Without a keychain, saving is refused. A short-lived access token lives in memory only.
+1. Keys and connection secrets are encrypted with Electron `safeStorage`, whose key is in the macOS keychain. So are the Client secret and the refresh token of a Google or Microsoft sign-in. They are never written to the database, a workflow or a log, and the window never receives one. Without a keychain, saving is refused. A short-lived access token is never written to disk, but it reaches the engine through its environment at start and over its parent channel, so the engine process holds it ([docs/security.md](docs/security.md) lists this).
 2. The engine listens on `127.0.0.1` only and requires a random token that is new on every start. It also checks the `Host` and `Origin` headers.
 3. Files are limited to the folders you picked in the system dialog. The validator rejects a workflow that names a path outside them, and the nodes check the real path again at run time.
 4. The model chooses the graph only while planning. A running `llm.extract` returns fields limited by a schema, so an instruction hidden in a PDF cannot add or reorder nodes.

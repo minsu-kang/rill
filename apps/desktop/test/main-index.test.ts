@@ -459,6 +459,23 @@ describe('app entry: sign-in to Google and Microsoft', () => {
     await quit(h)
   })
 
+  it('opens the window while the refresh is still waiting, and starts the engine with the token when it answers', async () => {
+    storeAccount()
+    let answer!: (response: Response) => void
+    const pending = new Promise<Response>((resolve) => {
+      answer = resolve
+    })
+    tokenEndpoint(() => pending)
+    const h = await load()
+    expect(FakeBrowserWindow.instances).toHaveLength(1)
+    expect(h.fork).not.toHaveBeenCalled()
+    answer(new Response(JSON.stringify({ access_token: ACCESS, expires_in: 3599, token_type: 'Bearer' }), { status: 200 }))
+    await up(h)
+    const [, , options] = h.fork.mock.calls[0] as unknown as [string, string[], { env: Record<string, string> }]
+    expect(JSON.parse(options.env.RILL_CONNECTIONS!)).toEqual({ google: { secret: ACCESS, kind: 'google' } })
+    await quit(h)
+  })
+
   it('starts the engine without the token when the refresh fails, and sends the token over the channel once a retry works', async () => {
     storeAccount()
     let attempts = 0
@@ -471,7 +488,7 @@ describe('app entry: sign-in to Google and Microsoft', () => {
     await up(h)
     const [, , options] = h.fork.mock.calls[0] as unknown as [string, string[], { env: Record<string, string> }]
     expect(options.env.RILL_CONNECTIONS).toBeUndefined()
-    expect(h.children[0]!.postMessage).not.toHaveBeenCalled()
+    expect(h.children[0]!.postMessage.mock.calls).toEqual([[{ type: 'connection.remove', name: 'google' }], [{ type: 'connection.remove', name: 'microsoft' }]])
     await quit(h)
   })
 
@@ -494,7 +511,7 @@ describe('app entry: sign-in to Google and Microsoft', () => {
     await vi.waitFor(() => expect(h.children[1]!.postMessage).toHaveBeenCalledWith({ type: 'connection.set', name: 'google', kind: 'google', secret: ACCESS }))
     const [, , options] = h.fork.mock.calls[1] as unknown as [string, string[], { env: Record<string, string> }]
     expect(JSON.parse(options.env.RILL_CONNECTIONS!)).toEqual({ google: { secret: ACCESS, kind: 'google' } })
-    expect(h.children[0]!.postMessage).toHaveBeenCalledTimes(1)
+    expect(h.children[0]!.postMessage.mock.calls.filter(([message]) => (message as { type: string }).type === 'connection.set')).toHaveLength(1)
     await quit(h)
   })
 

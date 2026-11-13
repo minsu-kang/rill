@@ -28,7 +28,7 @@ export const OAUTH_PROVIDERS = ['google', 'microsoft'] as const
 export const OAuthProviderSchema = Type.Union([Type.Literal('google'), Type.Literal('microsoft')])
 export type OAuthProvider = Type.Static<typeof OAuthProviderSchema>
 
-export const OAUTH_REDIRECT_REGISTRATION: Readonly<Partial<Record<OAuthProvider, string>>> = { microsoft: 'http://localhost' }
+export const OAUTH_REDIRECT_REGISTRATION: Readonly<Partial<Record<OAuthProvider, string>>> = { microsoft: 'http://localhost/oauth/callback' }
 
 export const OAUTH_STATUSES = ['not_configured', 'not_connected', 'connecting', 'connected', 'needs_reconnect'] as const
 export const OAuthStatusSchema = Type.Union([

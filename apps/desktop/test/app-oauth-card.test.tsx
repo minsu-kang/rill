@@ -260,6 +260,7 @@ describe('the account cards: every error has its own sentence', () => {
     vi.spyOn(host.oauth, 'setApp').mockRejectedValue(new HostError('NO_KEYCHAIN'))
     await expand(user, t, 'google')
     await user.type(clientIdField(t, 'google'), GOOGLE_ID)
+    await user.type(secretField(t), SECRET)
     await user.click(saveButton(t, 'google'))
     expect((await within(card(t, 'google')).findByRole('alert')).textContent).toBe(t('app.error.host.NO_KEYCHAIN'))
     vi.spyOn(host.oauth, 'disconnect').mockRejectedValue(new HostError('INTERNAL'))
@@ -304,11 +305,11 @@ describe('the account cards: the Set up part', () => {
     await expand(user, t, 'microsoft')
     await expand(user, t, 'google')
     const block = within(card(t, 'microsoft')).getByLabelText(t('app.oauth.redirect.label')) as HTMLInputElement
-    expect(block.value).toBe('http://localhost')
+    expect(block.value).toBe('http://localhost/oauth/callback')
     expect(block.readOnly).toBe(true)
     expect(within(card(t, 'microsoft')).getByRole('button', { name: t('app.oauth.redirect.copyLabel') })).toBeTruthy()
     expect(within(card(t, 'microsoft')).getByText(t('app.oauth.redirect.note'))).toBeTruthy()
-    expect(within(card(t, 'google')).queryByDisplayValue('http://localhost')).toBeNull()
+    expect(within(card(t, 'google')).queryByDisplayValue('http://localhost/oauth/callback')).toBeNull()
   })
 
   it('copies the address with the clipboard and says so in a status', async () => {
@@ -316,7 +317,7 @@ describe('the account cards: the Set up part', () => {
     await expand(user, t, 'microsoft')
     const writeText = stubClipboard(async () => undefined)
     await user.click(within(card(t, 'microsoft')).getByRole('button', { name: t('app.oauth.redirect.copyLabel') }))
-    expect(writeText).toHaveBeenCalledExactlyOnceWith('http://localhost')
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('http://localhost/oauth/callback')
     const status = await within(card(t, 'microsoft')).findByText(t('app.oauth.redirect.copied'))
     expect(status.getAttribute('role')).toBe('status')
   })
@@ -359,6 +360,8 @@ describe('the account cards: the Set up part', () => {
     }
     expect(within(card(t, 'microsoft')).queryByLabelText(t('app.oauth.secret.label'))).toBeNull()
     expect(secretField(t).type).toBe('password')
+    expect(secretField(t).getAttribute('aria-required')).toBe('true')
+    expect(t('app.oauth.secret.label')).not.toMatch(/optional|선택/i)
     expect(secretField(t).getAttribute('autocomplete')).toBe('off')
     expect(document.getElementById(secretField(t).getAttribute('aria-describedby')!)!.textContent).toBe(t('app.oauth.secret.hint'))
     expect(t('app.oauth.secret.hint')).toMatch(/never shown again/)
@@ -404,13 +407,36 @@ describe('the account cards: saving the app', () => {
     expect(toggle(t, 'google').getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('sends a Google app without a secret when the field is empty, and a Microsoft app with only its ID', async () => {
+  it('sends a Microsoft app with only its ID', async () => {
+    const { t, user, host } = await open()
+    const setApp = vi.spyOn(host.oauth, 'setApp')
+    await save(user, t, 'microsoft', MICROSOFT_ID)
+    expect(setApp.mock.calls).toEqual([[{ provider: 'microsoft', clientId: MICROSOFT_ID }]])
+  })
+
+  it('refuses a Google app without a Client secret, says why, focuses the field and sends nothing until it is filled', async () => {
     const { t, user, host } = await open()
     const setApp = vi.spyOn(host.oauth, 'setApp')
     await save(user, t, 'google', GOOGLE_ID)
-    await save(user, t, 'microsoft', MICROSOFT_ID)
-    expect(setApp.mock.calls).toEqual([[{ provider: 'google', clientId: GOOGLE_ID }], [{ provider: 'microsoft', clientId: MICROSOFT_ID }]])
-    expect(within(card(t, 'google')).getByText(t('app.oauth.app.noSecret'))).toBeTruthy()
+    const alert = await within(card(t, 'google')).findByRole('alert')
+    expect(alert.textContent).toBe(t('app.oauth.secret.required'))
+    expect(document.activeElement).toBe(secretField(t))
+    expect(secretField(t).getAttribute('aria-invalid')).toBe('true')
+    expect(setApp).not.toHaveBeenCalled()
+    expect(within(card(t, 'google')).queryByText(t('app.oauth.saved'))).toBeNull()
+    await user.type(secretField(t), SECRET)
+    expect(within(card(t, 'google')).queryByRole('alert')).toBeNull()
+    expect(secretField(t).getAttribute('aria-invalid')).toBeNull()
+    await user.click(saveButton(t, 'google'))
+    expect(setApp).toHaveBeenCalledExactlyOnceWith({ provider: 'google', clientId: GOOGLE_ID, clientSecret: SECRET })
+  })
+
+  it('treats a Client secret of only blanks as missing', async () => {
+    const { t, user, host } = await open()
+    const setApp = vi.spyOn(host.oauth, 'setApp')
+    await save(user, t, 'google', GOOGLE_ID, '   ')
+    expect((await within(card(t, 'google')).findByRole('alert')).textContent).toBe(t('app.oauth.secret.required'))
+    expect(setApp).not.toHaveBeenCalled()
   })
 
   it('never lets the Client secret into the page: not in the text, not in an attribute, not in a field, not before and not after saving', async () => {
@@ -445,6 +471,7 @@ describe('the account cards: saving the app', () => {
     })
     await expand(user, t, 'google')
     await user.type(clientIdField(t, 'google'), GOOGLE_ID)
+    await user.type(secretField(t), SECRET)
     await user.click(saveButton(t, 'google'))
     await user.type(clientIdField(t, 'google'), '{Enter}').catch(() => undefined)
     await user.keyboard('{Enter}')
@@ -490,6 +517,7 @@ describe('the account cards: saving the app', () => {
     await expand(user, t, 'google')
     expect(within(card(t, 'google')).getByText(t('app.oauth.replaceNote'))).toBeTruthy()
     await user.type(clientIdField(t, 'google'), '987654321098-zyxwvutsrqponm.apps.googleusercontent.com')
+    await user.type(secretField(t), SECRET)
     await user.click(saveButton(t, 'google'))
     expect(await within(card(t, 'google')).findByText(t('app.oauth.status.not_connected'))).toBeTruthy()
     expect(host.state().settings.oauth.accounts[0]).toEqual({ provider: 'google', status: 'not_connected' })
@@ -498,7 +526,7 @@ describe('the account cards: saving the app', () => {
 
   it('does not mix the two cards: saving Google leaves Microsoft untouched', async () => {
     const { t, user } = await open()
-    await save(user, t, 'google', GOOGLE_ID)
+    await save(user, t, 'google', GOOGLE_ID, SECRET)
     expect(chip(t, 'microsoft', 'not_configured')).toBeTruthy()
     expect(within(card(t, 'microsoft')).queryByText(t('app.oauth.saved'))).toBeNull()
   })

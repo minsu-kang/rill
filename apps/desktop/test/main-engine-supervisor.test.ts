@@ -114,6 +114,7 @@ interface Setup {
   forkFails?: number
   processEnv?: Record<string, string | undefined>
   oauthConnections?: Array<{ name: 'google' | 'microsoft'; kind: 'google' | 'microsoft'; secret: string }>
+  oauthReady?: () => Promise<unknown>
 }
 
 function setup(options: Setup = {}) {
@@ -150,6 +151,7 @@ function setup(options: Setup = {}) {
     randomToken: () => `token-${String(++tokenCounter).padStart(16, '0')}`,
     forceKill: (child) => forceKills.push(child),
     ...(options.oauthConnections === undefined ? {} : { oauthConnections: () => options.oauthConnections! }),
+    ...(options.oauthReady === undefined ? {} : { oauthReady: options.oauthReady }),
     env: options.processEnv ?? { PATH: '/usr/bin', HOME: '/Users/test', LANG: 'en_US.UTF-8', ANTHROPIC_API_KEY: 'LEAK', OPENAI_API_KEY: 'LEAK', AWS_SECRET_ACCESS_KEY: 'LEAK', RILL_TOKEN: 'LEAK', RILL_CONNECTIONS: 'LEAK', USER: 'LEAK', SHELL: 'LEAK', TMPDIR: 'LEAK', NODE_OPTIONS: 'LEAK' },
     log: (message) => logs.push(message),
   })
@@ -840,6 +842,36 @@ describe('engine supervisor: connections of signed-in accounts', () => {
     await restart
     expect(JSON.parse(forks[0]!.options.env.RILL_CONNECTIONS!).google.secret).toBe(GOOGLE_TOKEN)
     expect(JSON.parse(forks[1]!.options.env.RILL_CONNECTIONS!).google.secret).toBe(`ya29.${MARKER}NEWER000000`)
+  })
+
+  it('shows starting and forks nothing until the sign-ins are ready, then reads the tokens', async () => {
+    let release!: () => void
+    const ready = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const tokens: Array<{ name: 'google'; kind: 'google'; secret: string }> = []
+    const { supervisor, forks } = await started({ oauthReady: () => ready, oauthConnections: tokens })
+    await settle()
+    expect(forks).toHaveLength(0)
+    expect(supervisor.status()).toEqual({ state: 'starting', restarts: 0 })
+    tokens.push({ name: 'google', kind: 'google', secret: GOOGLE_TOKEN })
+    release()
+    await settle()
+    expect(forks).toHaveLength(1)
+    expect(JSON.parse(forks[0]!.options.env.RILL_CONNECTIONS!)).toEqual({ google: { secret: GOOGLE_TOKEN, kind: 'google' } })
+  })
+
+  it('starts without waiting more when the sign-ins failed to get ready', async () => {
+    const rejected = await started({ oauthReady: () => Promise.reject(new Error('refresh failed')) })
+    await settle()
+    expect(rejected.forks).toHaveLength(1)
+    const thrown = await started({
+      oauthReady: () => {
+        throw new Error('refresh failed')
+      },
+    })
+    await settle()
+    expect(thrown.forks).toHaveLength(1)
   })
 
   it('keeps a saved connection that has the same name instead of an account entry', async () => {

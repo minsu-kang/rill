@@ -144,6 +144,30 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
     slot.generation += 1
   }
 
+  function suspend(slot: Slot): void {
+    clearTimer(slot)
+    slot.refreshing = undefined
+    slot.generation += 1
+  }
+
+  function rearm(provider: OAuthProvider): void {
+    const slot = slotOf(provider)
+    if (slot.status !== 'connected' || slot.refreshToken === undefined) return
+    const stale = slot.accessToken === undefined || slot.expiresAt === undefined || slot.expiresAt - clock.now() <= REFRESH_MARGIN_MS + RESUME_SLACK_MS
+    if (stale) void refresh(provider)
+    else schedule(provider)
+  }
+
+  async function guardedWrite(provider: OAuthProvider, write: () => Promise<unknown>): Promise<void> {
+    suspend(slotOf(provider))
+    try {
+      await write()
+    } catch (error) {
+      rearm(provider)
+      throw error
+    }
+  }
+
   function send(message: unknown): void {
     try {
       deps.engine.send(message)
@@ -321,7 +345,7 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
       const slot = slotOf(provider)
       const oldToken = slot.persistedToken
       const wasConnected = slot.status === 'connected'
-      await store.setOAuthApp(provider, app)
+      await guardedWrite(provider, () => store.setOAuthApp(provider, app))
       apps.set(provider, { clientId: app.clientId, ...(app.clientSecret === undefined ? {} : { clientSecret: app.clientSecret }) })
       forget(provider)
       if (wasConnected) pushRemove(provider)
@@ -338,7 +362,7 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
       const slot = slotOf(provider)
       const oldToken = slot.persistedToken
       const wasConnected = slot.status === 'connected'
-      await store.clearOAuthApp(provider)
+      await guardedWrite(provider, () => store.clearOAuthApp(provider))
       apps.delete(provider)
       forget(provider)
       if (wasConnected) pushRemove(provider)
@@ -369,12 +393,14 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
         const result = await signIn.done
         const oldToken = slot.persistedToken
         try {
-          await store.setOAuthAccount(provider, {
-            refreshToken: result.refreshToken,
-            scope: result.scope,
-            ...(result.account === undefined ? {} : { account: result.account }),
-            connectedAt: clock.now(),
-          })
+          await guardedWrite(provider, () =>
+            store.setOAuthAccount(provider, {
+              refreshToken: result.refreshToken,
+              scope: result.scope,
+              ...(result.account === undefined ? {} : { account: result.account }),
+              connectedAt: clock.now(),
+            }),
+          )
         } catch (error) {
           await revoke(provider, result.refreshToken)
           throw error
@@ -398,6 +424,7 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
         change(provider, () => {
           if (slot.status === 'connecting') slot.status = previous
         })
+        if (slot.timer === undefined && slot.refreshing === undefined) rearm(provider)
         throw error
       } finally {
         if (active?.signIn === signIn) active = undefined
@@ -417,7 +444,7 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
       if (slot.status !== 'connected' && slot.status !== 'needs_reconnect') return
       const oldToken = slot.persistedToken
       const wasConnected = slot.status === 'connected'
-      await store.clearOAuthAccount(provider)
+      await guardedWrite(provider, () => store.clearOAuthAccount(provider))
       forget(provider)
       if (wasConnected) pushRemove(provider)
       change(provider, () => {
@@ -427,13 +454,7 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
     },
 
     resume() {
-      for (const provider of OAUTH_PROVIDERS) {
-        const slot = slotOf(provider)
-        if (slot.status !== 'connected' || slot.refreshToken === undefined) continue
-        const stale = slot.accessToken === undefined || slot.expiresAt === undefined || slot.expiresAt - clock.now() <= REFRESH_MARGIN_MS + RESUME_SLACK_MS
-        if (stale) void refresh(provider)
-        else schedule(provider)
-      }
+      for (const provider of OAUTH_PROVIDERS) rearm(provider)
     },
 
     accountConnections() {
@@ -444,7 +465,10 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
     },
 
     syncEngine() {
-      for (const provider of OAUTH_PROVIDERS) pushToken(provider)
+      for (const provider of OAUTH_PROVIDERS) {
+        if (hasLiveToken(slotOf(provider))) pushToken(provider)
+        else pushRemove(provider)
+      }
     },
 
     onChange(listener) {

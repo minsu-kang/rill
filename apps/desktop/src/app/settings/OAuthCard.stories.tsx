@@ -120,6 +120,8 @@ export const InvalidClientId: Story = { args: staged(), play: (context) => typeA
 
 export const InvalidMicrosoftClientId: Story = { args: staged(), play: (context) => typeAndSave(context, 'microsoft', GOOGLE_ID) }
 
+export const MissingClientSecret: Story = { args: staged(), play: (context) => typeAndSave(context, 'google', GOOGLE_ID) }
+
 export const InvalidClientSecret: Story = { args: staged(), play: (context) => typeAndSave(context, 'google', GOOGLE_ID, 'a secret with spaces') }
 
 export const AppSaved: Story = { args: staged(), play: (context) => typeAndSave(context, 'google', GOOGLE_ID, DEMO_SECRET) }

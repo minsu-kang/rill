@@ -349,7 +349,10 @@ export function startSignIn(input: { provider: OAuthProvider; app: OAuthApp; dep
       const grant = await exchange({ provider, app, code: outcome.code, redirect, verifier, deps, outer: abort.signal })
       const config = OAUTH_PROVIDER_CONFIGS[provider]
       if (grant.refreshToken === undefined) throw failure('OAUTH_SCOPE_MISSING')
-      if (grant.scope !== undefined && !grantsRequiredScopes(provider, grant.scope)) throw failure('OAUTH_SCOPE_MISSING')
+      if (grant.scope !== undefined && !grantsRequiredScopes(provider, grant.scope)) {
+        await revokeRefreshToken({ provider, refreshToken: grant.refreshToken, deps })
+        throw failure('OAUTH_SCOPE_MISSING')
+      }
       const account = await fetchAccount(provider, grant.accessToken, [grant.accessToken, grant.refreshToken], deps, abort.signal)
       if (abort.signal.aborted) throw failure('OAUTH_CANCELLED')
       return {
@@ -397,6 +400,7 @@ export async function refreshTokens(input: { provider: OAuthProvider; app: OAuth
       const body = await readJson(response)
       const code = body === undefined ? undefined : body.error
       if (code === 'invalid_grant' || code === 'invalid_client') return { kind: 'revoked' }
+      if (response.status === 400 && (code === 'unauthorized_client' || code === 'invalid_request')) return { kind: 'revoked' }
       return retryAfterMs === undefined ? { kind: 'transient' } : { kind: 'transient', retryAfterMs }
     })
   } catch {

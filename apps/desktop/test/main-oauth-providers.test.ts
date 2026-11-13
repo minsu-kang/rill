@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { createCoreRegistry } from '@rill/nodes-core'
 import { describe, expect, it } from 'vitest'
+import { CALLBACK_PATH } from '../src/main/oauth-flow'
 import { OAUTH_PROVIDER_CONFIGS, grantsRequiredScopes, normalizeScope, redirectUri, requiredScopes } from '../src/main/oauth-providers'
 import { OAUTH_PROVIDERS, OAUTH_REDIRECT_REGISTRATION } from '../src/shared/host-api'
 
@@ -113,9 +114,13 @@ describe('grantsRequiredScopes', () => {
 })
 
 describe('the redirect address that the card shows', () => {
-  it('is the start of the address that the sign-in uses for Microsoft, and there is none for Google, whose loopback address needs no registration', () => {
-    expect(OAUTH_REDIRECT_REGISTRATION.microsoft).toBe('http://localhost')
-    expect(redirectUri('microsoft', 51234).startsWith(`${OAUTH_REDIRECT_REGISTRATION.microsoft}:`)).toBe(true)
+  it('is the address that the sign-in sends for Microsoft without the port and with the path, and there is none for Google, whose loopback address needs no registration', () => {
+    expect(OAUTH_REDIRECT_REGISTRATION.microsoft).toBe('http://localhost/oauth/callback')
+    const sent = new URL(redirectUri('microsoft', 51234))
+    expect(sent.port).toBe('51234')
+    sent.port = ''
+    expect(sent.href).toBe(new URL(OAUTH_REDIRECT_REGISTRATION.microsoft!).href)
+    expect(new URL(OAUTH_REDIRECT_REGISTRATION.microsoft!).pathname).toBe(CALLBACK_PATH)
     expect(OAUTH_REDIRECT_REGISTRATION.google).toBeUndefined()
     expect(OAUTH_PROVIDER_CONFIGS.google.redirectHost).toBe('127.0.0.1')
   })
