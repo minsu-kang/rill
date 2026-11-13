@@ -196,6 +196,18 @@ describe('the Slack card: saving', () => {
     expect(document.activeElement).toBe(field(t, 'channel'))
   })
 
+  it('keeps the save button disabled until both a name and a token are typed', async () => {
+    const { t, user } = await open()
+    await user.type(field(t, 'token'), TOKEN)
+    expect(save(t).disabled).toBe(true)
+    await user.type(field(t, 'name'), '   ')
+    expect(save(t).disabled).toBe(true)
+    await user.type(field(t, 'name'), 'alerts')
+    expect(save(t).disabled).toBe(false)
+    await user.clear(field(t, 'token'))
+    expect(save(t).disabled).toBe(true)
+  })
+
   it('refuses a name that another connection of any kind uses, in any case, without calling the host', async () => {
     const { t, user, host } = await open({ init: { settings: fakeSettings({ connections: [{ name: 'Billing', kind: 'http', authType: 'bearer' }] }) } })
     const set = vi.spyOn(host.secrets, 'setSlackBot')

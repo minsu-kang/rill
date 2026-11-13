@@ -411,6 +411,17 @@ describe('ipc handler: setSlackBot', () => {
       expect(await h.setBot({ token: OTHER_TOKEN, channel: '#x' })).toEqual({ verdict: VALID })
     })
 
+    it('refuses to replace a connection of another kind that was saved under the name while the check ran', async () => {
+      const h = harness()
+      const gates = gated(h, [TOKEN])
+      const pending = h.setBot({ name: 'team' })
+      await started(h, 1)
+      await h.call(CHANNELS.secretsSetConnection, { name: 'team', kind: 'http', secret: 'abc' })
+      gates[TOKEN]!()
+      expect(code(await failure(pending))).toBe('NAME_COLLISION')
+      expect(await h.secrets.listConnections()).toEqual([{ name: 'team', kind: 'http' }])
+    })
+
     it('does not count a call that fails before any check, such as one without a keychain', async () => {
       const h = harness()
       const gates = gated(h, [TOKEN])

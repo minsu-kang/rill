@@ -160,7 +160,6 @@ export function SlackCard({ api, locked, full, onRemove }: { api: SettingsApi; l
   const channelField = useRef<HTMLInputElement>(null)
   const held = useRef<string | undefined>(undefined)
   const mounted = useRef(true)
-  const submitting = useRef(false)
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [channel, setChannel] = useState('')
@@ -170,7 +169,7 @@ export function SlackCard({ api, locked, full, onRemove }: { api: SettingsApi; l
   const { connections } = api.settings
   const slackEntries = connections.filter((entry) => entry.kind === 'slack')
   const connected = slackEntries.some((entry) => entry.slack?.confirmed === true)
-  const unconfirmed = !connected && slackEntries.some((entry) => entry.slack !== undefined)
+  const unconfirmed = slackEntries.some((entry) => entry.slack !== undefined)
   const replacing = slackEntries.some((entry) => entry.name === name.trim())
   const off = locked || action.busy || full
 
@@ -185,39 +184,34 @@ export function SlackCard({ api, locked, full, onRemove }: { api: SettingsApi; l
   function send(bot: Bot, saveAnyway: boolean): void {
     held.current = undefined
     setView({ kind: 'checking' })
-    submitting.current = true
-    void action
-      .run(async () => {
-        let verdict: SlackVerdict
-        try {
-          const call = saveAnyway ? host.secrets.setSlackBot(bot, { saveAnyway: true }) : host.secrets.setSlackBot(bot)
-          const result = (await call) as { verdict?: SlackVerdict } | undefined
-          verdict = result?.verdict ?? { status: 'unverified', reason: 'unexpected_status' }
-        } catch (error) {
-          if (hostErrorCode(error) === 'TOKEN_INVALID') {
-            if (mounted.current) {
-              held.current = bot.token
-              setView({ kind: 'refused' })
-            }
-            return
+    void action.run(async () => {
+      let verdict: SlackVerdict
+      try {
+        const call = saveAnyway ? host.secrets.setSlackBot(bot, { saveAnyway: true }) : host.secrets.setSlackBot(bot)
+        const result = (await call) as { verdict?: SlackVerdict } | undefined
+        verdict = result?.verdict ?? { status: 'unverified', reason: 'unexpected_status' }
+      } catch (error) {
+        if (hostErrorCode(error) === 'TOKEN_INVALID') {
+          if (mounted.current) {
+            held.current = bot.token
+            setView({ kind: 'refused' })
           }
-          setView({ kind: 'idle' })
-          throw error
+          return
         }
-        setName('')
-        setChannel('')
-        setView({ kind: 'checked', verdict })
-        await api.reload()
-      })
-      .finally(() => {
-        submitting.current = false
-      })
+        setView({ kind: 'idle' })
+        throw error
+      }
+      setName('')
+      setChannel('')
+      setView({ kind: 'checked', verdict })
+      await api.reload()
+    })
   }
 
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault()
     const field = tokenField.current
-    if (field === null || off || submitting.current) return
+    if (field === null || off) return
     const trimmed = name.trim()
     const refused = slackNameProblem(trimmed, connections)
     if (refused !== undefined) {
@@ -247,7 +241,7 @@ export function SlackCard({ api, locked, full, onRemove }: { api: SettingsApi; l
 
   function saveAnyway(): void {
     const token = held.current
-    if (token === undefined || off || submitting.current) return
+    if (token === undefined || off) return
     const channelText = channel.trim()
     send({ name: name.trim(), token, ...(channelText === '' ? {} : { channel: channelText }) }, true)
   }

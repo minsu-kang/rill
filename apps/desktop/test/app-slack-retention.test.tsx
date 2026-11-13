@@ -82,6 +82,23 @@ describe('SlackCard token retention', () => {
     expect(held()).toEqual([])
   })
 
+  it('does not hold a token that was refused after the card went away during the check', async () => {
+    let release: (verdict: SlackVerdict) => void = () => undefined
+    const host = createFakeHost({}, { slackChecks: () => new Promise<SlackVerdict>((resolve) => (release = resolve)) })
+    const view = renderThemed(
+      <HostProvider host={host}>
+        <SlackCard api={api} locked={false} full={false} onRemove={() => undefined} />
+      </HostProvider>,
+      { locale: 'en' },
+    )
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText(t('app.slackBot.name')), 'alerts')
+    await user.type(screen.getByLabelText(t('app.slackBot.token')), `${TOKEN}{Enter}`)
+    view.unmount()
+    await act(async () => release(invalid()))
+    expect(held()).toEqual([])
+  })
+
   it('never holds a token that Slack accepted', async () => {
     const host = createFakeHost({}, {})
     renderThemed(

@@ -85,6 +85,10 @@ describe('slack check: the verdict', () => {
     expect(isSlackVerdict(result)).toBe(true)
   })
 
+  it.each(['\u200e', '\u200f', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066', '\u2067', '\u2068', '\u2069'])('removes the bidirectional mark U+%s', async (mark) => {
+    expect(await verdictOf(() => json({ ok: true, team: `Ac${mark}me`, user: `bo${mark}t` }))).toEqual({ status: 'valid', workspace: 'Acme', bot: 'bot' })
+  })
+
   it.each(['invalid_auth', 'not_authed', 'token_revoked', 'token_expired', 'account_inactive'])('is invalid for ok false with %s', async (error) => {
     expect(await verdictOf(() => json({ ok: false, error }))).toEqual({ status: 'invalid', reason: 'unauthorized' })
   })

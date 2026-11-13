@@ -17,7 +17,7 @@ function slackAnswer(body: unknown): { ok: boolean; error?: unknown } | undefine
       return undefined
     }
   }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  if (typeof value !== 'object' || value === null) return undefined
   const { ok, error } = value as { ok?: unknown; error?: unknown }
   return typeof ok === 'boolean' ? { ok, error } : undefined
 }

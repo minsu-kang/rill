@@ -60,10 +60,8 @@ export function slackSecretParts(secret: string): string[] {
 
 export function isSlackBotSecret(secret: string): boolean {
   if (parseSlackSecret(secret).kind === 'bot') return true
-  const trimmed = secret.replace(LEADING_BLANK, '')
-  if (!trimmed.startsWith('{')) return false
   try {
-    const data: unknown = JSON.parse(trimmed)
+    const data: unknown = JSON.parse(secret.replace(LEADING_BLANK, ''))
     return isRecord(data) && 'rillSlack' in data
   } catch {
     return false

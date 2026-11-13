@@ -957,6 +957,12 @@ describe('provenance: the channel of notify.slack', () => {
     expect(brief(flags)).toEqual(['n1 /nodes/1/config/channel attachment_origin', 'n1 /nodes/1/config/channel new_egress_target'])
   })
 
+  it('does not fold a hash sign out of a connection name', () => {
+    const step = n('n1', 'notify.slack@1', { connection: '#team', text: 'done' })
+    const flags = provenance(chain(manual, step), { userTexts: ['tell the team on slack'] })
+    expect(brief(flags)).toEqual(['n1 /nodes/1/config/connection new_egress_target'])
+  })
+
   it('flags no step when the channel is left out', () => {
     expect(provenance(chain(manual, n('n1', 'notify.slack@1', { connection: 'slack-bot', text: 'done' })), { userTexts: ['use the slack-bot connection'] })).toEqual([])
   })
