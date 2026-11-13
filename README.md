@@ -121,7 +121,7 @@ The installer is signed ad hoc and not notarized, so macOS blocks a downloaded c
 
 The short version. [docs/security.md](docs/security.md) has the threat model, the place in the code where each control lives, and what is not covered.
 
-1. Keys and connection secrets are encrypted with Electron `safeStorage`, whose key is in the macOS keychain. They are never written to the database, a workflow or a log, and the window never receives one. Without a keychain, saving is refused.
+1. Keys and connection secrets are encrypted with Electron `safeStorage`, whose key is in the macOS keychain. So are the Client secret and the refresh token of a Google or Microsoft sign-in. They are never written to the database, a workflow or a log, and the window never receives one. Without a keychain, saving is refused. A short-lived access token lives in memory only.
 2. The engine listens on `127.0.0.1` only and requires a random token that is new on every start. It also checks the `Host` and `Origin` headers.
 3. Files are limited to the folders you picked in the system dialog. The validator rejects a workflow that names a path outside them, and the nodes check the real path again at run time.
 4. The model chooses the graph only while planning. A running `llm.extract` returns fields limited by a schema, so an instruction hidden in a PDF cannot add or reorder nodes.
@@ -179,10 +179,10 @@ Not run yet. The suite has 48 approved cases: 20 easy, 10 ambiguous (the right a
 - The delivery guarantee is at least once. A crash between sending a Slack message or a spreadsheet row and recording it, or a retry after a server error, can send the message or add the row twice. CSV rows are deduplicated by an idempotency key.
 - A dry run still reads the file and calls the model, because reading is not a side effect. It skips the CSV write, the Slack message, the spreadsheet rows and HTTP requests.
 - Webhook triggers listen on `localhost` only. There is no tunnel and no cloud sync.
-- No sign-in for Google or Microsoft yet. Outputs are CSV, Slack, plain HTTP, a row in Google Sheets and a row in an Excel table on OneDrive. The two spreadsheet nodes take an OAuth access token from a connection that you put into a connections file (see the engine README); getting and refreshing the token in the app is not built, and the two APIs have not been called live. Slack posts through a bot token that you create in your own Slack app and paste into Settings (older incoming webhook connections keep working).
+- The Google and Microsoft sign-in has never run against the real providers. You create your own app in each provider's console and paste its Client ID into Settings; the endpoints, scopes and behaviours come from documentation, and the steps in the desktop README ask you to try it and report what is refused. A Google app in Testing mode needs a new sign-in about every 7 days and Microsoft ends an unused sign-in after 90 days. Outputs are CSV, Slack, plain HTTP, a row in Google Sheets and a row in an Excel table on OneDrive; the two spreadsheet APIs have not been called live either. Slack posts through a bot token that you create in your own Slack app and paste into Settings (older incoming webhook connections keep working).
 - Only the Anthropic adapter has been called live (by the extraction evaluation). The OpenAI, Gemini, Grok and Meta adapters are tested against fake transports built from vendor documentation, and `pnpm eval check-provider` exists to verify them once keys are available. Grok does not read PDFs.
 - No local models (Ollama, hosted Llama).
-- Secrets reach the engine through the environment of its process. On macOS any process of the same user can read that block. [docs/security.md](docs/security.md) lists this and the other gaps.
+- Secrets reach the engine through the environment of its process, and the access token of a signed-in Google or Microsoft account also reaches it over its parent channel when it is refreshed. On macOS any process of the same user can read the environment block. [docs/security.md](docs/security.md) lists this and the other gaps.
 - The extraction numbers come from synthetic receipts. The planner numbers do not exist yet.
 
 ## License

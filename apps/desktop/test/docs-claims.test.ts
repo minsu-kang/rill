@@ -3,6 +3,9 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { CSP } from '../src/main/csp'
+import { OAUTH_TIMEOUT_MS, REQUEST_TIMEOUT_MS } from '../src/main/oauth-flow'
+import { OAUTH_PROVIDER_CONFIGS } from '../src/main/oauth-providers'
+import { OAUTH_REDIRECT_REGISTRATION } from '../src/shared/host-api'
 
 const ROOT = resolve(import.meta.dirname, '../../..')
 const DOCS = ['README.md', 'docs/demo.md', 'docs/security.md']
@@ -167,5 +170,49 @@ describe('paths in the documents', () => {
       }
     }
     expect(missing).toEqual([])
+  })
+})
+
+describe('the sign-in documentation', () => {
+  const desktop = read('apps/desktop/README.md')
+  const guide = desktop.slice(desktop.indexOf('### Google and Microsoft sign-in'), desktop.indexOf('### Connections and API keys'))
+
+  it('has the section and says the flow was never run against the real providers', () => {
+    expect(guide.length).toBeGreaterThan(1000)
+    expect(guide).toMatch(/has not been run against the real services/)
+    expect(security).toMatch(/The sign-in was never run against the real providers/)
+  })
+
+  it('shows Microsoft the registered redirect address and Google none, as the code does', () => {
+    expect(guide).toContain(`\`${OAUTH_REDIRECT_REGISTRATION.microsoft}\``)
+    expect(guide).toMatch(/There is no redirect address to register/)
+    expect(OAUTH_REDIRECT_REGISTRATION.google).toBeUndefined()
+    expect(OAUTH_PROVIDER_CONFIGS.microsoft.redirectHost).toBe('localhost')
+  })
+
+  it('gives the timeouts that the flow uses', () => {
+    expect(OAUTH_TIMEOUT_MS).toBe(3 * 60_000)
+    expect(REQUEST_TIMEOUT_MS).toBe(15_000)
+    expect(guide).toMatch(/after 3 minutes/)
+    expect(guide).toMatch(/15 seconds/)
+    expect(guide).toMatch(/64 KiB/)
+    expect(guide).toMatch(/5 minutes before it expires/)
+    expect(guide).toMatch(/at most 10 seconds/)
+  })
+
+  it('names the files of the sign-in controls, and they exist', () => {
+    for (const name of ['| Loopback sign-in |', '| Refresh tokens and Client secrets |']) {
+      const row = lineWith(security, name)
+      const files = [...row.matchAll(/`((?:apps|packages)\/[^`]+)`/g)].map((match) => match[1]!)
+      expect(files.length, name).toBeGreaterThan(0)
+      for (const file of files) expect(existsSync(join(ROOT, file)), file).toBe(true)
+    }
+  })
+
+  it('names the data scope that the microsoft node needs and the API that the google node needs', () => {
+    expect(OAUTH_PROVIDER_CONFIGS.microsoft.nodeScopes['microsoft.excel.append']).toContain('Files.ReadWrite')
+    expect(guide).toContain('Files.ReadWrite')
+    expect(OAUTH_PROVIDER_CONFIGS.google.nodeScopes['google.sheets.append']).toEqual(['https://www.googleapis.com/auth/spreadsheets'])
+    expect(guide).toContain('Google Sheets API')
   })
 })
