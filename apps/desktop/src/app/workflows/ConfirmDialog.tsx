@@ -10,12 +10,13 @@ export interface ConfirmDialogProps {
   cancelLabel: string
   confirmDisabled?: boolean
   busy?: boolean
+  danger?: boolean
   error?: string | undefined
   onConfirm(): void
   onCancel(): void
 }
 
-export function ConfirmDialog({ title, message, details, confirmLabel, cancelLabel, confirmDisabled = false, busy = false, error, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ title, message, details, confirmLabel, cancelLabel, confirmDisabled = false, busy = false, danger = false, error, onConfirm, onCancel }: ConfirmDialogProps) {
   return (
     <Modal
       title={title}
@@ -25,7 +26,7 @@ export function ConfirmDialog({ title, message, details, confirmLabel, cancelLab
           <button type="button" className={controls.button} data-autofocus="" onClick={onCancel}>
             {cancelLabel}
           </button>
-          <button type="button" className={controls.primary} disabled={confirmDisabled || busy} onClick={onConfirm}>
+          <button type="button" className={danger ? controls.dangerPrimary : controls.primary} disabled={confirmDisabled || busy} onClick={onConfirm}>
             {confirmLabel}
           </button>
         </>

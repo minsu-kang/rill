@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { ids } from '../../fixtures'
-import { ActionsStage, STAGE_MANUAL_ID } from './ActionsStage'
+import { ActionsStage, STAGE_HOSTILE_ID, STAGE_MANUAL_ID } from './ActionsStage'
 
 const meta: Meta<typeof ActionsStage> = { title: 'App/Workflows/WorkflowActions', component: ActionsStage }
 export default meta
@@ -27,6 +27,35 @@ export const PayloadDialogWebhook: Story = { args: { workflowId: ids.workflows.w
 export const PayloadDialogFolder: Story = { args: { workflowId: ids.workflows.receipt }, play: open('dryRun') }
 export const ConfirmWithSideEffects: Story = { args: { workflowId: STAGE_MANUAL_ID }, play: open('runNow') }
 export const ConfirmDeactivate: Story = { args: { workflowId: ids.workflows.receipt }, play: open('deactivate') }
+export const ConfirmDelete: Story = { args: { workflowId: ids.workflows.receipt }, play: open('delete') }
+export const ConfirmDeleteHostileName: Story = { name: 'Confirm delete (hostile name)', args: { workflowId: STAGE_HOSTILE_ID }, play: open('delete') }
+export const DeleteBusyRun: Story = {
+  name: 'Delete refused (a run is running)',
+  args: { workflowId: ids.workflows.receipt, deleteBehavior: 'busy' },
+  play: async (context) => {
+    await open('delete')(context)
+    const dialog = await context.canvas.findByRole('dialog')
+    await context.userEvent.click(dialog.querySelectorAll('button')[1]!)
+  },
+}
+export const DeleteFailed: Story = {
+  name: 'Delete failed',
+  args: { workflowId: ids.workflows.receipt, deleteBehavior: 'fail' },
+  play: async (context) => {
+    await open('delete')(context)
+    const dialog = await context.canvas.findByRole('dialog')
+    await context.userEvent.click(dialog.querySelectorAll('button')[1]!)
+  },
+}
+export const DeleteInProgress: Story = {
+  name: 'Delete in progress',
+  args: { workflowId: ids.workflows.receipt, deleteBehavior: 'hang' },
+  play: async (context) => {
+    await open('delete')(context)
+    const dialog = await context.canvas.findByRole('dialog')
+    await context.userEvent.click(dialog.querySelectorAll('button')[1]!)
+  },
+}
 export const FailedActivation: Story = { args: { workflowId: ids.workflows.webhook, control: { activationError: true } }, play: open('activate') }
 export const InvalidPayload: Story = {
   args: { workflowId: STAGE_MANUAL_ID },

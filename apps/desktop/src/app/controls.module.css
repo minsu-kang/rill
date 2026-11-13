@@ -38,6 +38,40 @@
   color: var(--text-muted);
 }
 
+.danger {
+  composes: button;
+  border-color: var(--status-failed-border);
+  color: var(--status-failed-text);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--status-failed-bg);
+}
+
+.danger:disabled {
+  color: var(--text-muted);
+  border-color: var(--border-default);
+}
+
+.dangerPrimary {
+  composes: button;
+  border-color: var(--status-failed-text);
+  background: var(--status-failed-text);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.dangerPrimary:hover:not(:disabled) {
+  background: var(--status-failed-text);
+  filter: brightness(1.1);
+}
+
+.dangerPrimary:disabled {
+  border-color: var(--border-default);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+}
+
 .input {
   min-width: 0;
   min-height: var(--control-height);

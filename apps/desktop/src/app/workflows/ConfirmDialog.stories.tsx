@@ -11,5 +11,6 @@ type Story = StoryObj<typeof ConfirmDialog>
 
 export const Plain: Story = {}
 export const WithDetails: Story = { args: { details: <ul><li>Slack 메시지 · notify</li><li>HTTP 요청 · forward</li></ul> } }
+export const Danger: Story = { args: { title: '이 워크플로우를 삭제할까요?', message: '“영수증 정리” 워크플로우와 실행 기록이 모두 삭제돼요. 되돌릴 수 없어요.', confirmLabel: '워크플로우 삭제', danger: true } }
 export const Busy: Story = { args: { busy: true } }
 export const WithError: Story = { args: { error: '삭제하지 못했어요.' } }

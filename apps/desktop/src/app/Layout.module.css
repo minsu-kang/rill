@@ -35,6 +35,10 @@
   overflow: auto;
 }
 
+.main:focus {
+  outline: none;
+}
+
 @container app (max-width: 1099px) {
   .body {
     grid-template-columns: minmax(0, 1fr);

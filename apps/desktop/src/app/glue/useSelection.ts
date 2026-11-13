@@ -10,6 +10,7 @@ export interface SelectionApi extends Selection {
   selectWorkflow(workflowId: string | undefined): void
   selectRun(runId: string | undefined): void
   selectNode(nodeId: string | undefined): void
+  forgetWorkflow(workflowId: string): void
 }
 
 export function useSelection(initial: Partial<Selection> = {}): SelectionApi {
@@ -20,6 +21,9 @@ export function useSelection(initial: Partial<Selection> = {}): SelectionApi {
   }, [])
   const selectRun = useCallback((runId: string | undefined) => setSelection((previous) => ({ ...previous, runId })), [])
   const selectNode = useCallback((nodeId: string | undefined) => setSelection((previous) => ({ ...previous, nodeId })), [])
+  const forgetWorkflow = useCallback((workflowId: string) => {
+    setSelection((previous) => (previous.workflowId === workflowId ? { workflowId: undefined, runId: undefined, nodeId: undefined } : previous))
+  }, [])
 
-  return { ...selection, selectWorkflow, selectRun, selectNode }
+  return { ...selection, selectWorkflow, selectRun, selectNode, forgetWorkflow }
 }

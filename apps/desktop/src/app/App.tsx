@@ -66,16 +66,31 @@ export function App({ initial = {} }: AppProps) {
   const [notice, setNotice] = useState<NoticeData | undefined>(undefined)
   const [focusAction, setFocusAction] = useState<'dryRun' | 'activate' | undefined>(undefined)
   const [restarting, setRestarting] = useState(false)
+  const [deletedTick, setDeletedTick] = useState(0)
   const chatRoot = useRef<HTMLElement>(null)
   const chatToggle = useRef<HTMLButtonElement>(null)
   const noticeId = useRef(0)
   const { pending, confirm } = useConfirm<ConfirmText>()
   const lastFocus = useRef<HTMLElement | null>(null)
   const heldFocus = useRef<HTMLElement | null>(null)
+  const { forgetWorkflow } = selection
   const workflowId = selection.workflowId ?? list.workflows[0]?.id
   const { editContext, setEditContext, clearEditContext } = useEditContext(workflowId, initial.workflowId !== undefined && initial.nodeId !== undefined ? { workflowId: initial.workflowId, nodeId: initial.nodeId } : undefined)
   const port = useMemo(() => createAttachmentPort(host), [host])
   const summary = list.workflows.find((item) => item.id === workflowId)
+
+  useEffect(() => {
+    if (client === undefined) return undefined
+    return client.onEvent((event) => {
+      if (event.type === 'workflow.deleted') forgetWorkflow(event.workflowId)
+    })
+  }, [client, forgetWorkflow])
+
+  useEffect(() => {
+    if (deletedTick === 0) return
+    const target = document.querySelector<HTMLElement>('[data-rill-region="topbar"] select') ?? document.querySelector<HTMLElement>('[data-rill-region="workspace"]')
+    target?.focus()
+  }, [deletedTick])
 
   useEffect(() => {
     if (chatFocus > 0) chatRoot.current?.querySelector<HTMLElement>(COMPOSER)?.focus()
@@ -114,6 +129,14 @@ export function App({ initial = {} }: AppProps) {
     setSettingsSection(section)
     setTab('settings')
   }, [])
+
+  const workflowDeleted = (id: string): void => {
+    list.forget(id)
+    forgetWorkflow(id)
+    void list.refresh()
+    notify('app.notice.deleted')
+    setDeletedTick((value) => value + 1)
+  }
 
   const showWorkflow = (id: string, action?: 'dryRun' | 'activate'): void => {
     void list.refresh()
@@ -245,7 +268,7 @@ export function App({ initial = {} }: AppProps) {
         ) : (
           <fieldset className={styles.reset} disabled={!connected}>
             {summary === undefined ? null : (
-              <WorkflowActions key={summary.id} client={client} workflowId={summary.id} summary={summary} catalog={data.catalog} onRunStarted={selection.selectRun} focusAction={focusAction} />
+              <WorkflowActions key={summary.id} client={client} workflowId={summary.id} summary={summary} catalog={data.catalog} onRunStarted={selection.selectRun} onDeleted={workflowDeleted} focusAction={focusAction} />
             )}
             <div className={styles.workspace}>
               <Workspace

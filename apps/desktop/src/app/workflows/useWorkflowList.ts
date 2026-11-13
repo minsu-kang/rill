@@ -6,6 +6,7 @@ export interface WorkflowListState {
   status: 'loading' | 'ready' | 'error'
   workflows: readonly WorkflowSummary[]
   refresh(): Promise<void>
+  forget(workflowId: string): void
 }
 
 type Loaded = { client: EngineClient; workflows: readonly WorkflowSummary[] } | { client: EngineClient; failed: true }
@@ -49,7 +50,7 @@ export function useWorkflowList(client: EngineClient | undefined): WorkflowListS
     }
     window.addEventListener('focus', onFocus)
     const off = client.onEvent((event) => {
-      if (event.type === 'workflow.activated' || event.type === 'workflow.deactivated') void load(client)
+      if (event.type === 'workflow.activated' || event.type === 'workflow.deactivated' || event.type === 'workflow.deleted') void load(client)
     })
     return () => {
       window.removeEventListener('focus', onFocus)
@@ -61,8 +62,12 @@ export function useWorkflowList(client: EngineClient | undefined): WorkflowListS
     if (clientRef.current !== undefined) await load(clientRef.current)
   }, [load])
 
+  const forget = useCallback((workflowId: string): void => {
+    setData((previous) => (previous !== undefined && 'workflows' in previous ? { client: previous.client, workflows: previous.workflows.filter((item) => item.id !== workflowId) } : previous))
+  }, [])
+
   const current = client === undefined ? undefined : data
-  if (current === undefined) return { status: 'loading', workflows: NONE, refresh }
-  if ('failed' in current) return { status: 'error', workflows: NONE, refresh }
-  return { status: 'ready', workflows: current.workflows, refresh }
+  if (current === undefined) return { status: 'loading', workflows: NONE, refresh, forget }
+  if ('failed' in current) return { status: 'error', workflows: NONE, refresh, forget }
+  return { status: 'ready', workflows: current.workflows, refresh, forget }
 }

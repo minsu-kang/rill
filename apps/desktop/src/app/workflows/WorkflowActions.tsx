@@ -18,13 +18,14 @@ export interface WorkflowActionsProps {
   summary: WorkflowSummary
   catalog: readonly NodeInfo[]
   onRunStarted(runId: string): void
+  onDeleted?(workflowId: string): void
   disabled?: boolean
   focusAction?: 'dryRun' | 'activate'
 }
 
-type Dialog = { kind: 'payload'; mode: 'dry' | 'live' } | { kind: 'confirmRun'; payload: unknown } | { kind: 'deactivate' }
+type Dialog = { kind: 'payload'; mode: 'dry' | 'live' } | { kind: 'confirmRun'; payload: unknown } | { kind: 'deactivate' } | { kind: 'delete' }
 
-export function WorkflowActions({ client, workflowId, summary, catalog, onRunStarted, disabled = false, focusAction }: WorkflowActionsProps) {
+export function WorkflowActions({ client, workflowId, summary, catalog, onRunStarted, onDeleted, disabled = false, focusAction }: WorkflowActionsProps) {
   const t = useT()
   const action = useAction(engineErrorKey)
   const [dialog, setDialog] = useState<Dialog | undefined>(undefined)
@@ -71,6 +72,17 @@ export function WorkflowActions({ client, workflowId, summary, catalog, onRunSta
       })
   }
 
+  function remove(): void {
+    void action
+      .run(async () => {
+        await client.request('deleteWorkflow', { workflowId })
+        onDeleted?.(workflowId)
+      })
+      .then((ok) => {
+        if (ok) setDialog(undefined)
+      })
+  }
+
   return (
     <section className={styles.actions} aria-label={t('app.wf.actions.label')}>
       <div className={styles.head}>
@@ -100,6 +112,9 @@ export function WorkflowActions({ client, workflowId, summary, catalog, onRunSta
             {t('app.wf.actions.activate')}
           </button>
         )}
+        <button type="button" data-action="delete" className={`${controls.danger} ${styles.end}`} disabled={off} onClick={() => open({ kind: 'delete' })}>
+          {t('app.wf.actions.delete')}
+        </button>
       </div>
       {!summary.active ? <p className={controls.note}>{t(manual ? 'app.wf.manualHint' : 'app.wf.hint.dryRunFirst')}</p> : null}
       {dialog === undefined && errorText !== undefined ? (
@@ -129,6 +144,19 @@ export function WorkflowActions({ client, workflowId, summary, catalog, onRunSta
           error={errorText}
           onCancel={close}
           onConfirm={toggle}
+        />
+      ) : null}
+      {dialog?.kind === 'delete' ? (
+        <ConfirmDialog
+          title={t('app.delete.title')}
+          message={t('app.delete.message', { name: truncate(escapeInvisible(summary.name), 48) })}
+          confirmLabel={t('app.delete.confirm')}
+          cancelLabel={t('app.common.cancel')}
+          busy={action.busy}
+          danger
+          error={errorText}
+          onCancel={close}
+          onConfirm={remove}
         />
       ) : null}
     </section>

@@ -3,6 +3,7 @@ import type { MessageKey } from '../../i18n'
 const KEYS: Readonly<Record<string, MessageKey>> = {
   ACTIVATION_FAILED: 'app.wf.error.ACTIVATION_FAILED',
   NOT_FOUND: 'app.wf.error.NOT_FOUND',
+  WORKFLOW_BUSY: 'app.wf.error.WORKFLOW_BUSY',
   INVALID_PARAMS: 'app.wf.error.INVALID_PARAMS',
 }
 
