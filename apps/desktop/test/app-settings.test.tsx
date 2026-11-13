@@ -574,6 +574,55 @@ describe('KeysSection key check', () => {
     await screen.findByText(t('app.keys.saved'))
   })
 
+  it('refuses a key that cannot be an API key with its own text before anything is saved, and offers no save anyway', async () => {
+    const host = hostWith(() => ({ status: 'invalid', reason: 'malformed' }))
+    const save = vi.spyOn(host.secrets, 'setProviderKey')
+    const { t, user } = await open(host)
+    await submit(user, t, `${MARKER}\u200bX`)
+    const { row, field } = rowOf(t)
+    const notice = await within(row).findByRole('alert')
+    expect(notice.textContent).toBe(t('app.error.host.KEY_MALFORMED'))
+    expect(notice.textContent).not.toBe(t('app.error.host.KEY_INVALID'))
+    expect(within(row).queryByRole('button', { name: t('app.keys.saveAnyway') })).toBeNull()
+    expect(host.state().settings.configuredProviders).toEqual([])
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(field.disabled).toBe(false)
+    expect(field.value).toBe('')
+    expect(document.body.innerHTML).not.toContain('MARKER')
+  })
+
+  it('says in plain words when a newer change to the same key replaced this one', async () => {
+    const host = hostWith(() => ({ status: 'valid' }))
+    vi.spyOn(host.secrets, 'setProviderKey').mockRejectedValue(new HostError('SUPERSEDED'))
+    const { t, user } = await open(host)
+    await submit(user, t)
+    const { row } = rowOf(t)
+    expect((await within(row).findByRole('alert')).textContent).toBe(t('app.error.host.SUPERSEDED'))
+    expect(within(row).queryByRole('button', { name: t('app.keys.saveAnyway') })).toBeNull()
+    expect(document.body.innerHTML).not.toContain('MARKER')
+  })
+
+  it('tells the user in both languages that the key is sent once to the provider, and nowhere else', () => {
+    const en = createTranslator('en')('app.keys.checkNote')
+    const ko = createTranslator('ko')('app.keys.checkNote')
+    expect(en).toContain('the key is sent once')
+    expect(en).toContain("provider's own API")
+    expect(en).toContain('nowhere else')
+    expect(ko).toContain('키를 한 번')
+    expect(ko).toContain('제공사')
+    expect(ko).toContain('다른 곳에는 보내지 않아요')
+  })
+
+  it('has fixed texts for the new refusal codes in both languages', () => {
+    for (const locale of ['ko', 'en'] as const) {
+      const t = createTranslator(locale)
+      for (const key of ['app.error.host.KEY_MALFORMED', 'app.error.host.SUPERSEDED'] as const) {
+        expect(t(key), `${locale} ${key}`).not.toBe(key)
+        expect(t(key).length, `${locale} ${key}`).toBeGreaterThan(20)
+      }
+    }
+  })
+
   it('has texts for every verdict reason in both languages, and none that is a missing key', async () => {
     for (const locale of ['ko', 'en'] as const) {
       const t = createTranslator(locale)

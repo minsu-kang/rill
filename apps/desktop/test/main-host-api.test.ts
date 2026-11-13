@@ -256,6 +256,14 @@ describe('key check contract', () => {
     expect(hostErrorCode(new Error("Error invoking remote method 'rill:secrets:set-provider-key': Error: KEY_INVALID"))).toBe('KEY_INVALID')
     expect(hostErrorCode(new Error('KEY_INVALIDS'))).toBe('INTERNAL')
   })
+
+  it('names KEY_MALFORMED and SUPERSEDED among the host error codes and reads them out of a remote error', () => {
+    for (const code of ['KEY_MALFORMED', 'SUPERSEDED']) {
+      expect(HOST_ERROR_CODES).toContain(code)
+      expect(hostErrorCode(new Error(`Error invoking remote method 'rill:secrets:set-provider-key': Error: ${code}`))).toBe(code)
+      expect(hostErrorCode(new Error(`${code}S`))).toBe('INTERNAL')
+    }
+  })
 })
 
 describe('host errors', () => {

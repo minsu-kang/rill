@@ -1,0 +1,96 @@
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import type { RefObject } from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { HostProvider } from '../src/app/host'
+import { KeysSection } from '../src/app/settings/KeysSection'
+import type { SettingsApi } from '../src/app/settings/types'
+import { createFakeHost, fakeSettings } from '../src/engine/fake-host'
+import { createTranslator } from '../src/i18n'
+import { renderThemed } from './render'
+
+const refs = vi.hoisted(() => ({ all: [] as Array<{ current: unknown }> }))
+
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>()
+  return {
+    ...actual,
+    useRef: (initial: unknown) => {
+      const ref = actual.useRef(initial)
+      if (!refs.all.includes(ref as { current: unknown })) refs.all.push(ref as { current: unknown })
+      return ref
+    },
+  }
+})
+
+const MARKER = 'retention-secret-MARKER-0123456789'
+const t = createTranslator('ko')
+
+function held(): string[] {
+  return refs.all.map((ref: RefObject<unknown>) => ref.current).filter((value): value is string => typeof value === 'string' && value.includes(MARKER))
+}
+
+function api(): SettingsApi {
+  return { settings: fakeSettings(), apply: () => undefined, reload: async () => undefined }
+}
+
+afterEach(() => {
+  refs.all.length = 0
+})
+
+describe('KeysSection key retention', () => {
+  it('holds a refused key only while the refusal notice is open', async () => {
+    const host = createFakeHost({}, { keyChecks: () => ({ status: 'invalid', reason: 'unauthorized' }) })
+    renderThemed(
+      <HostProvider host={host}>
+        <KeysSection api={api()} locked={false} />
+      </HostProvider>,
+      { locale: 'ko' },
+    )
+    const user = userEvent.setup()
+    const field = screen.getByLabelText(t('app.keys.input', { provider: 'Anthropic' })) as HTMLInputElement
+    await user.type(field, `${MARKER}{Enter}`)
+    const notice = await screen.findByRole('alert')
+    expect(held()).toEqual([MARKER])
+    await user.click(within(notice).getByRole('button', { name: t('app.common.close') }))
+    expect(held()).toEqual([])
+  })
+
+  it('does not keep a refused key in the row after the row went away during the check', async () => {
+    let release: () => void = () => undefined
+    const host = createFakeHost({}, { keyChecks: () => new Promise((resolve) => (release = () => resolve({ status: 'invalid', reason: 'unauthorized' }))) })
+    const view = renderThemed(
+      <HostProvider host={host}>
+        <KeysSection api={api()} locked={false} />
+      </HostProvider>,
+      { locale: 'ko' },
+    )
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText(t('app.keys.input', { provider: 'Anthropic' })), `${MARKER}{Enter}`)
+    await waitFor(() => expect(screen.getAllByRole('status').length).toBeGreaterThan(0))
+    view.unmount()
+    await act(async () => {
+      release()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    expect(held()).toEqual([])
+    expect(host.state().settings.configuredProviders).toEqual([])
+  })
+
+  it('still keeps it for the notice when the row stays', async () => {
+    let release: () => void = () => undefined
+    const host = createFakeHost({}, { keyChecks: () => new Promise((resolve) => (release = () => resolve({ status: 'invalid', reason: 'unauthorized' }))) })
+    renderThemed(
+      <HostProvider host={host}>
+        <KeysSection api={api()} locked={false} />
+      </HostProvider>,
+      { locale: 'ko' },
+    )
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText(t('app.keys.input', { provider: 'Anthropic' })), `${MARKER}{Enter}`)
+    await act(async () => release())
+    const notice = await screen.findByRole('alert')
+    fireEvent.click(within(notice).getByRole('button', { name: t('app.keys.saveAnyway') }))
+    expect(held()).toEqual([])
+  })
+})

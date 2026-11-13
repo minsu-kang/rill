@@ -219,6 +219,7 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
         requireKeychain()
         const verdict = await keyChecks(provider, value)
         if (!Value.Check(KeyVerdictSchema, verdict)) throw new HostError('INTERNAL')
+        if (verdict.status === 'invalid' && verdict.reason === 'malformed') throw new HostError('KEY_MALFORMED')
         if (verdict.status === 'invalid' && options?.saveAnyway !== true) throw new HostError('KEY_INVALID')
         if (!settings.configuredProviders.includes(provider)) settings.configuredProviders = [...settings.configuredProviders, provider]
         if (settings.provider === provider) engineChanged()

@@ -74,6 +74,13 @@ function pickedFolder(path: string): string | undefined {
 export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
   const picked = new Set<string>()
   const pickedFolders = new Set<string>()
+  const keyGenerations = new Map<ProviderId, number>()
+
+  function supersede(provider: ProviderId): number {
+    const generation = (keyGenerations.get(provider) ?? 0) + 1
+    keyGenerations.set(provider, generation)
+    return generation
+  }
 
   function restartEngine(): void {
     deps.supervisor.restart().catch(() => deps.log?.('engine restart failed'))
@@ -128,13 +135,17 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
     },
     [CHANNELS.secretsSetProviderKey]: async ({ provider, value, options }: { provider: ProviderId; value: string; options?: SetProviderKeyOptions }) => {
       if (!deps.secrets.encryptionAvailable()) throw new HostError('NO_KEYCHAIN')
+      const generation = supersede(provider)
       const verdict = await deps.keyCheck(provider, value)
+      if (keyGenerations.get(provider) !== generation) throw new HostError('SUPERSEDED')
       if (!isKeyVerdict(verdict)) throw new HostError('INTERNAL')
+      if (verdict.status === 'invalid' && verdict.reason === 'malformed') throw new HostError('KEY_MALFORMED')
       if (verdict.status === 'invalid' && options?.saveAnyway !== true) throw new HostError('KEY_INVALID')
       await keyChanged(provider, await deps.secrets.setProviderKey(provider, value))
       return { verdict }
     },
     [CHANNELS.secretsClearProviderKey]: async ({ provider }: { provider: ProviderId }) => {
+      supersede(provider)
       await keyChanged(provider, await deps.secrets.clearProviderKey(provider))
     },
     [CHANNELS.secretsSetConnection]: async (connection: { name: string; kind: 'slack' | 'http' | 'webhookSecret'; secret: string }) => {

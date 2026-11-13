@@ -247,6 +247,8 @@ export const HOST_ERROR_CODES = [
   'ENGINE_UNAVAILABLE',
   'ATTACHMENT_REJECTED',
   'KEY_INVALID',
+  'KEY_MALFORMED',
+  'SUPERSEDED',
   'INTERNAL',
 ] as const
 export type HostErrorCode = (typeof HOST_ERROR_CODES)[number]

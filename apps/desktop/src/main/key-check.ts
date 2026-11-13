@@ -21,6 +21,7 @@ interface Target {
   url: string
   headers(key: string): Record<string, string>
   rejection?: RegExp
+  scopeShortfall?: RegExp
 }
 
 const TIMEOUT_MS = 10_000
@@ -35,7 +36,7 @@ const TARGETS: Readonly<Record<ProviderId, Target>> = {
     url: 'https://api.anthropic.com/v1/models',
     headers: (key) => ({ 'x-api-key': key, 'anthropic-version': '2023-06-01', 'User-Agent': USER_AGENT }),
   },
-  openai: { url: 'https://api.openai.com/v1/models', headers: bearer },
+  openai: { url: 'https://api.openai.com/v1/models', headers: bearer, scopeShortfall: /insufficient permissions|missing scopes/i },
   gemini: {
     url: 'https://generativelanguage.googleapis.com/v1beta/models',
     headers: (key) => ({ 'x-goog-api-key': key, 'User-Agent': USER_AGENT }),
@@ -83,6 +84,10 @@ async function classify(target: Target, response: Response): Promise<KeyVerdict>
     const text = await readBounded(response)
     if (target.rejection?.test(text) === true) return { status: 'invalid', reason: 'rejected' }
     return { status: 'unverified', reason: 'unexpected_status' }
+  }
+  if (status === 401 && target.scopeShortfall !== undefined) {
+    const text = await readBounded(response)
+    return target.scopeShortfall.test(text) ? { status: 'unverified', reason: 'forbidden' } : { status: 'invalid', reason: 'unauthorized' }
   }
   await discard(response)
   if (status === 401) return { status: 'invalid', reason: 'unauthorized' }

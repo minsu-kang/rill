@@ -244,7 +244,7 @@ When you save a provider key in Settings, the main process first asks the provid
 | Grok | `https://api.x.ai/v1/models` | `Authorization: Bearer` |
 | Meta | `https://api.meta.ai/v1/models` | `Authorization: Bearer` |
 
-The addresses are a constant keyed by provider, so nothing the user types reaches an address or a header name. The key is never put in a URL or a query string. No cookies are sent, redirects are refused, the request has the generic `User-Agent: Rill`, and it gives up after 10 seconds. The response body is not returned or stored. For a status 400 it is read, up to 4 KiB, only to look for the provider's known wording.
+The addresses are a constant keyed by provider, so nothing the user types reaches an address or a header name. The key is never put in a URL or a query string. No cookies are sent, redirects are refused, the request has the generic `User-Agent: Rill`, and it gives up after 10 seconds. The response body is not returned or stored. For a status 400, and for a 401 from OpenAI, it is read, up to 4 KiB, only to look for the provider's known wording.
 
 The answer becomes one of three verdicts. The rule is conservative: only a clear rejection blocks a key.
 
@@ -252,6 +252,7 @@ The answer becomes one of three verdicts. The rule is conservative: only a clear
 | --- | --- | --- |
 | 2xx | `valid` | |
 | 401 | `invalid` | `unauthorized` |
+| 401 from OpenAI whose body says "insufficient permissions" or "missing scopes" (a restricted project key without the model-list scope) | `unverified` | `forbidden` |
 | 400 whose body has Gemini's `API_KEY_INVALID` or Grok's "incorrect api key" or "invalid api key" wording | `invalid` | `rejected` |
 | Any other 400 | `unverified` | `unexpected_status` |
 | 403 | `unverified` | `forbidden` (some providers answer 403 for a valid key in a region they do not support) |
@@ -261,11 +262,11 @@ The answer becomes one of three verdicts. The rule is conservative: only a clear
 | No answer in 10 seconds | `unverified` | `timeout` |
 | Any other status | `unverified` | `unexpected_status` |
 
-A key that has a space, a control character or a non-ASCII character cannot be sent in a header, so it is `invalid` with the reason `malformed` and nothing is sent. Nothing is sent either when there is no keychain.
+A key that has a space, a control character or a non-ASCII character cannot be sent in a header and cannot be an API key, so nothing is sent: the verdict is `invalid` with the reason `malformed`, and the call throws the host error `KEY_MALFORMED` before anything is saved, with or without `saveAnyway`. The notice then says what is wrong with the key, and has no "save anyway" button. Nothing is sent either when there is no keychain.
 
-`window.rill.secrets.setProviderKey(provider, value, options?)` returns `{ verdict }`. A `valid` or `unverified` key is saved, as before, and the verdict is returned. An `invalid` key is not saved and the call throws the host error `KEY_INVALID`, which crosses the process boundary as the code only. With `{ saveAnyway: true }` the key is checked again and saved whatever the verdict. The engine restarts only when something was saved and the key of the chosen provider changed, as before.
+`window.rill.secrets.setProviderKey(provider, value, options?)` returns `{ verdict }`. A `valid` or `unverified` key is saved, as before, and the verdict is returned. An `invalid` key is not saved and the call throws the host error `KEY_INVALID`, which crosses the process boundary as the code only. With `{ saveAnyway: true }` the key is checked again and saved whatever the verdict, except a malformed one. Calls for the same provider are ordered by the main process: a save or a removal replaces every earlier save of that provider that is still waiting for its check, and the replaced call throws `SUPERSEDED` and saves nothing, so a slow check can never write an older key over a newer one. The engine restarts only when something was saved and the key of the chosen provider changed, as before.
 
-The Keys section shows "checking" while the request runs, then one of: saved and accepted, saved but not confirmed (with the reason in plain words), or refused with a "save anyway" button. The typed key is held in component state only while the refusal notice is open, and is dropped on save, close, edit or when the row goes away. The result is in a live region and takes the focus.
+The Keys section shows "checking" while the request runs, then one of: saved and accepted, saved but not confirmed (with the reason in plain words), or refused with a "save anyway" button. The typed key is held in component state only while the refusal notice is open, and is dropped on save, close, edit or when the row goes away (a refusal that arrives after the row has gone is not kept). The result is in a live region and takes the focus.
 
 The addresses, the headers and the 400 wording come from the vendors' documentation. This project has not called them live yet, so the rule above is untested against the real services: treat a wrong verdict as possible. Because only a clear rejection blocks and "save anyway" always exists, a wrong guess costs one extra click, never a key that cannot be saved. `createFakeHost` takes a `keyChecks` option (a function from provider and key to a verdict, `valid` by default) so stories and tests show every state without a network.
 

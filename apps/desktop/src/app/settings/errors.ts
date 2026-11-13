@@ -10,6 +10,8 @@ const KEYS: Readonly<Record<(typeof HOST_ERROR_CODES)[number], MessageKey>> = {
   ENGINE_UNAVAILABLE: 'app.error.host.ENGINE_UNAVAILABLE',
   ATTACHMENT_REJECTED: 'app.error.host.ATTACHMENT_REJECTED',
   KEY_INVALID: 'app.error.host.KEY_INVALID',
+  KEY_MALFORMED: 'app.error.host.KEY_MALFORMED',
+  SUPERSEDED: 'app.error.host.SUPERSEDED',
   INTERNAL: 'app.error.host.INTERNAL',
 }
 

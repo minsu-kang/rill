@@ -146,6 +146,14 @@ describe('createFakeHost key checks', () => {
     expect(host.state().restartCalls).toBe(1)
   })
 
+  it('refuses a malformed key with KEY_MALFORMED even with saveAnyway, and saves nothing', async () => {
+    const host = createFakeHost({}, { restartDelayMs: 0, keyChecks: () => ({ status: 'invalid', reason: 'malformed' }) })
+    expect(await codeOf(host.secrets.setProviderKey('anthropic', MARKER))).toBe('KEY_MALFORMED')
+    expect(await codeOf(host.secrets.setProviderKey('anthropic', MARKER, { saveAnyway: true }))).toBe('KEY_MALFORMED')
+    expect((await host.settings.get()).configuredProviders).toEqual([])
+    expect(host.state().restartCalls).toBe(0)
+  })
+
   it('mirrors the real argument checks: unknown option, wrong type, over-long key, and no check before them', async () => {
     const keyChecks = vi.fn((): KeyVerdict => ({ status: 'valid' }))
     const host = createFakeHost({}, { keyChecks })

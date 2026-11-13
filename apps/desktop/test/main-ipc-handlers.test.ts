@@ -500,6 +500,152 @@ describe('ipc handlers: key check before saving', () => {
   })
 })
 
+describe('ipc handlers: key check races and refusals', () => {
+  type Gate = { release: (verdict?: KeyVerdict) => void }
+
+  function gated(h: ReturnType<typeof harness>, keys: string[]): Record<string, Gate> {
+    const gates: Record<string, Gate> = {}
+    h.keyCheck.mockImplementation(
+      (_provider, key) =>
+        new Promise<KeyVerdict>((resolve) => {
+          if (!keys.includes(key)) return resolve({ status: 'valid' })
+          gates[key] = { release: (verdict = { status: 'valid' }) => resolve(verdict) }
+        }),
+    )
+    return gates
+  }
+
+  const set = (h: ReturnType<typeof harness>, value: string, provider = 'openai', extra: Record<string, unknown> = {}) =>
+    h.call(CHANNELS.secretsSetProviderKey, { provider, value, ...extra })
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it('keeps the newer key when an older slow check finishes after it, and tells the older call it was superseded', async () => {
+    const h = harness()
+    const gates = gated(h, [`${KEY}-A`])
+    const first = set(h, `${KEY}-A`)
+    await tick()
+    expect(await set(h, `${KEY}-B`)).toEqual({ verdict: { status: 'valid' } })
+    expect(await h.secrets.getProviderKey('openai')).toBe(`${KEY}-B`)
+    gates[`${KEY}-A`]!.release()
+    const error = await failure(first)
+    expect(hostErrorCode(error)).toBe('SUPERSEDED')
+    expect(error.message).toBe('SUPERSEDED')
+    expect(String(error.stack)).not.toContain(MARKER)
+    expect(await h.secrets.getProviderKey('openai')).toBe(`${KEY}-B`)
+  })
+
+  it('supersedes the older call even when the older check finishes first', async () => {
+    const h = harness()
+    const gates = gated(h, [`${KEY}-A`, `${KEY}-B`])
+    const first = set(h, `${KEY}-A`)
+    await tick()
+    const second = set(h, `${KEY}-B`)
+    await tick()
+    gates[`${KEY}-A`]!.release()
+    expect(hostErrorCode(await failure(first))).toBe('SUPERSEDED')
+    expect(await h.secrets.getProviderKey('openai')).toBeUndefined()
+    gates[`${KEY}-B`]!.release()
+    await second
+    expect(await h.secrets.getProviderKey('openai')).toBe(`${KEY}-B`)
+  })
+
+  it('does not restart the engine for a superseded call', async () => {
+    const h = harness()
+    const gates = gated(h, [`${KEY}-A`])
+    const first = set(h, `${KEY}-A`, 'anthropic')
+    await tick()
+    await set(h, `${KEY}-B`, 'anthropic')
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
+    gates[`${KEY}-A`]!.release()
+    await failure(first)
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
+    expect(await h.secrets.getProviderKey('anthropic')).toBe(`${KEY}-B`)
+  })
+
+  it('does not bring back a key that was removed while its check was running', async () => {
+    const h = harness()
+    await set(h, `${KEY}-old`)
+    const gates = gated(h, [`${KEY}-A`])
+    const first = set(h, `${KEY}-A`)
+    await tick()
+    expect(await h.call(CHANNELS.secretsClearProviderKey, { provider: 'openai' })).toBeUndefined()
+    expect(await h.secrets.configuredProviders()).toEqual([])
+    gates[`${KEY}-A`]!.release()
+    expect(hostErrorCode(await failure(first))).toBe('SUPERSEDED')
+    expect(await h.secrets.configuredProviders()).toEqual([])
+    expect(await h.secrets.getProviderKey('openai')).toBeUndefined()
+  })
+
+  it('reports a superseded call as superseded even when its verdict was a refusal', async () => {
+    const h = harness()
+    const gates = gated(h, [`${KEY}-A`])
+    const first = set(h, `${KEY}-A`)
+    await tick()
+    await set(h, `${KEY}-B`)
+    gates[`${KEY}-A`]!.release({ status: 'invalid', reason: 'unauthorized' })
+    expect(hostErrorCode(await failure(first))).toBe('SUPERSEDED')
+    expect(await h.secrets.getProviderKey('openai')).toBe(`${KEY}-B`)
+  })
+
+  it('lets a slow check of one provider finish while another provider is saved', async () => {
+    const h = harness()
+    const gates = gated(h, [`${KEY}-A`])
+    const first = set(h, `${KEY}-A`, 'openai')
+    await tick()
+    await set(h, `${KEY}-G`, 'gemini')
+    await h.call(CHANNELS.secretsClearProviderKey, { provider: 'gemini' })
+    gates[`${KEY}-A`]!.release()
+    expect(await first).toEqual({ verdict: { status: 'valid' } })
+    expect(await h.secrets.getProviderKey('openai')).toBe(`${KEY}-A`)
+  })
+
+  it('lets a later call save normally after a superseded one', async () => {
+    const h = harness()
+    const gates = gated(h, [`${KEY}-A`])
+    const first = set(h, `${KEY}-A`)
+    await tick()
+    await set(h, `${KEY}-B`)
+    gates[`${KEY}-A`]!.release()
+    await failure(first)
+    expect(await set(h, `${KEY}-C`)).toEqual({ verdict: { status: 'valid' } })
+    expect(await h.secrets.getProviderKey('openai')).toBe(`${KEY}-C`)
+  })
+
+  it('does not count a call that fails before any check, such as one without a keychain', async () => {
+    const h = harness()
+    const gates = gated(h, [`${KEY}-A`])
+    const first = set(h, `${KEY}-A`)
+    await tick()
+    h.safeStorage.available = false
+    expect(hostErrorCode(await failure(set(h, `${KEY}-B`)))).toBe('NO_KEYCHAIN')
+    h.safeStorage.available = true
+    gates[`${KEY}-A`]!.release()
+    expect(await first).toEqual({ verdict: { status: 'valid' } })
+    expect(await h.secrets.getProviderKey('openai')).toBe(`${KEY}-A`)
+  })
+
+  it('refuses a malformed key with KEY_MALFORMED, even with saveAnyway, and saves nothing', async () => {
+    const h = harness({ verdict: { status: 'invalid', reason: 'malformed' } })
+    for (const extra of [{}, { options: { saveAnyway: true } }, { options: { saveAnyway: false } }]) {
+      const error = await failure(set(h, `${KEY}-bad`, 'anthropic', extra))
+      expect(hostErrorCode(error)).toBe('KEY_MALFORMED')
+      expect(error.message).toBe('KEY_MALFORMED')
+      expect(String(error.stack)).not.toContain(MARKER)
+    }
+    expect(await h.secrets.configuredProviders()).toEqual([])
+    expect(h.supervisor.restart).not.toHaveBeenCalled()
+  })
+
+  it('still saves an invalid key with another reason when saveAnyway is true', async () => {
+    for (const reason of ['unauthorized', 'rejected'] as const) {
+      const h = harness({ verdict: { status: 'invalid', reason } })
+      expect(hostErrorCode(await failure(set(h, KEY, 'anthropic')))).toBe('KEY_INVALID')
+      expect(await set(h, KEY, 'anthropic', { options: { saveAnyway: true } })).toEqual({ verdict: { status: 'invalid', reason } })
+      expect(await h.secrets.getProviderKey('anthropic')).toBe(KEY)
+    }
+  })
+})
+
 describe('ipc handlers: dialogs and attachments', () => {
   it('opens a folder dialog and returns the choice, or nothing when cancelled', async () => {
     const h = harness({ picks: ['/Users/a/Receipts'] })

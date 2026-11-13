@@ -35,9 +35,38 @@ const REQUESTS: Record<ProviderId, { url: string; headers: Record<string, string
   meta: { url: 'https://api.meta.ai/v1/models', headers: { Authorization: `Bearer ${KEY}`, 'User-Agent': 'Rill' } },
 }
 
+const OPENAI_401_SCOPE = JSON.stringify({ error: { message: 'You have insufficient permissions for this operation. Missing scopes: api.model.read.', type: 'invalid_request_error', code: null } })
+const OPENAI_401_PERMISSIONS = JSON.stringify({ error: { message: 'Insufficient permissions for this resource.', type: 'invalid_request_error' } })
+const OPENAI_401_INVALID = JSON.stringify({ error: { message: 'Incorrect API key provided: sk-****.', type: 'invalid_request_error', param: null, code: 'invalid_api_key' } })
 const GEMINI_400 = JSON.stringify({ error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT', details: [{ reason: 'API_KEY_INVALID' }] } })
 const GROK_400 = JSON.stringify({ code: 'Client specified an invalid argument', error: 'Incorrect API key provided: xai-****. You can obtain an API key from https://console.x.ai.' })
 const GROK_400_OTHER = JSON.stringify({ error: 'Invalid API key' })
+
+function streamedBody(filler: number, tail: string, status: number) {
+  const encoder = new TextEncoder()
+  const state = { pulled: 0, cancelled: false }
+  const chunk = encoder.encode('x'.repeat(1024))
+  let left = filler
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (left > 0) {
+        const part = chunk.subarray(0, Math.min(chunk.byteLength, left))
+        left -= part.byteLength
+        state.pulled += part.byteLength
+        controller.enqueue(part)
+        return
+      }
+      const rest = encoder.encode(tail)
+      state.pulled += rest.byteLength
+      controller.enqueue(rest)
+      controller.close()
+    },
+    cancel() {
+      state.cancelled = true
+    },
+  })
+  return { response: new Response(stream, { status }), state }
+}
 
 afterEach(() => {
   vi.useRealTimers()
@@ -131,6 +160,39 @@ describe('key check: classification', () => {
     }
   })
 
+  it('openai: a 401 for a missing scope or permission is unverified as forbidden, any other 401 stays invalid', async () => {
+    expect(await verdict('openai', 401, OPENAI_401_SCOPE)).toEqual({ status: 'unverified', reason: 'forbidden' })
+    expect(await verdict('openai', 401, OPENAI_401_PERMISSIONS)).toEqual({ status: 'unverified', reason: 'forbidden' })
+    expect(await verdict('openai', 401, '{"error":{"message":"MISSING SCOPES: api.model.read"}}')).toEqual({ status: 'unverified', reason: 'forbidden' })
+    expect(await verdict('openai', 401, OPENAI_401_INVALID)).toEqual({ status: 'invalid', reason: 'unauthorized' })
+    expect(await verdict('openai', 401, '{"error":{"message":"Bad token"}}')).toEqual({ status: 'invalid', reason: 'unauthorized' })
+    expect(await verdict('openai', 401)).toEqual({ status: 'invalid', reason: 'unauthorized' })
+  })
+
+  it('openai: reads the 401 body only up to 4 KiB, cancels it, and never lets it into the verdict', async () => {
+    const { response, state } = streamedBody(FOUR_KIB + 2048, 'Missing scopes: api.model.read', 401)
+    const fetch: KeyCheckFetch = async () => response
+    expect(await createKeyChecker({ fetch })('openai', KEY)).toEqual({ status: 'invalid', reason: 'unauthorized' })
+    expect(state.cancelled).toBe(true)
+    expect(state.pulled).toBeLessThanOrEqual(FOUR_KIB + 1024)
+    const inside = streamedBody(2048, 'Missing scopes: api.model.read', 401)
+    const result = await createKeyChecker({ fetch: async () => inside.response })('openai', KEY)
+    expect(result).toEqual({ status: 'unverified', reason: 'forbidden' })
+    expect(JSON.stringify(result)).not.toContain('scopes')
+  })
+
+  it.each(['anthropic', 'gemini', 'grok', 'meta'] as const)('%s: a 401 stays invalid whatever the body says, and the body is not read', async (provider) => {
+    const { response, state } = streamedBody(1024, 'Missing scopes: insufficient permissions', 401)
+    expect(await createKeyChecker({ fetch: async () => response })(provider, KEY)).toEqual({ status: 'invalid', reason: 'unauthorized' })
+    expect(state.cancelled).toBe(true)
+    expect(state.pulled).toBeLessThanOrEqual(1024)
+  })
+
+  it('openai: a 401 body that cannot be read becomes a network failure, not a verdict about the key', async () => {
+    const broken: KeyCheckFetch = async () => new Response(new ReadableStream({ start: (controller) => controller.error(new Error('reset')) }), { status: 401 })
+    expect(await createKeyChecker({ fetch: broken })('openai', KEY)).toEqual({ status: 'unverified', reason: 'network' })
+  })
+
   it('gemini: 400 with API_KEY_INVALID is invalid, any other 400 is unverified', async () => {
     expect(await verdict('gemini', 400, GEMINI_400)).toEqual({ status: 'invalid', reason: 'rejected' })
     expect(await verdict('gemini', 400, '{"error":{"message":"Bad request"}}')).toEqual({ status: 'unverified', reason: 'unexpected_status' })
@@ -217,31 +279,7 @@ describe('key check: timeout', () => {
 })
 
 describe('key check: the response body', () => {
-  function streamed(filler: number, tail: string) {
-    const encoder = new TextEncoder()
-    const state = { pulled: 0, cancelled: false }
-    const chunk = encoder.encode('x'.repeat(1024))
-    let left = filler
-    const stream = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        if (left > 0) {
-          const part = chunk.subarray(0, Math.min(chunk.byteLength, left))
-          left -= part.byteLength
-          state.pulled += part.byteLength
-          controller.enqueue(part)
-          return
-        }
-        const rest = encoder.encode(tail)
-        state.pulled += rest.byteLength
-        controller.enqueue(rest)
-        controller.close()
-      },
-      cancel() {
-        state.cancelled = true
-      },
-    })
-    return { response: new Response(stream, { status: 400 }), state }
-  }
+  const streamed = (filler: number, tail: string) => streamedBody(filler, tail, 400)
 
   it('reads at most 4 KiB, so wording after that is not seen', async () => {
     const { response, state } = streamed(FOUR_KIB + 2048, 'API_KEY_INVALID')

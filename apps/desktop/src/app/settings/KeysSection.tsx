@@ -133,17 +133,19 @@ function KeyRow({ provider, configured, locked, api, noteId }: { provider: Provi
   const action = useAction()
   const input = useRef<HTMLInputElement>(null)
   const held = useRef<string | undefined>(undefined)
+  const mounted = useRef(true)
   const [filled, setFilled] = useState(false)
   const [view, setView] = useState<KeyView>({ kind: 'idle' })
   const inputId = useId()
   const label = PROVIDER_LABELS[provider]
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
       held.current = undefined
-    },
-    [],
-  )
+    }
+  }, [])
 
   function submit(value: string, saveAnyway: boolean): void {
     held.current = undefined
@@ -155,8 +157,10 @@ function KeyRow({ provider, configured, locked, api, noteId }: { provider: Provi
         verdict = (await call).verdict
       } catch (error) {
         if (hostErrorCode(error) === 'KEY_INVALID') {
-          held.current = value
-          setView({ kind: 'refused' })
+          if (mounted.current) {
+            held.current = value
+            setView({ kind: 'refused' })
+          }
           return
         }
         setView({ kind: 'idle' })
