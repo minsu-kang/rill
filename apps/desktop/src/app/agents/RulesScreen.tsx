@@ -7,6 +7,7 @@ import { useRules } from '../../engine/rules'
 import { useT, type MessageKey, type Translate } from '../../i18n'
 import { checkRuleValue, forbiddableNodes, isPlanEffort, splitRules, widensCap, type RuleProblem } from '../../model/rules'
 import { SafeText } from '../../ui/SafeText'
+import visuallyHidden from '../../ui/visuallyHidden.module.css'
 import controls from '../controls.module.css'
 import type { CatalogStatus } from '../glue/useEngineData'
 import { useAction } from '../settings/useAction'
@@ -257,7 +258,7 @@ export function RulesScreen({ client, catalog, catalogStatus = 'ready', onRetryC
   return (
     <section className={styles.root} aria-labelledby={ids.title}>
       <header className={styles.head}>
-        <h2 id={ids.title} className={styles.title}>
+        <h2 id={ids.title} className={visuallyHidden.hidden}>
           {t('rules.screen.title')}
         </h2>
         <p className={controls.note}>{t('rules.screen.intro')}</p>

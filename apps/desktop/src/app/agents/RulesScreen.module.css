@@ -13,11 +13,6 @@
   max-width: 760px;
 }
 
-.title {
-  margin: 0;
-  font-size: var(--font-size-lg);
-}
-
 .loadError {
   display: flex;
   flex-direction: column;

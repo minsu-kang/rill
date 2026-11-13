@@ -13,9 +13,10 @@
   max-width: 760px;
 }
 
-.title {
-  margin: 0;
-  font-size: var(--font-size-lg);
+.transfer {
+  display: flex;
+  gap: var(--space-1);
+  align-items: baseline;
 }
 
 .loadError {

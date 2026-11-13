@@ -140,3 +140,39 @@ describe.each(['ko', 'en'] as const)('the Settings screen (%s)', (locale) => {
     expect(await violations(view.container)).toEqual([])
   })
 })
+
+describe.each(['ko', 'en'] as const)('the Agents tab (%s)', (locale) => {
+  const t = createTranslator(locale)
+
+  it.each([
+    ['agents', 'agents.screen.title'],
+    ['rules', 'rules.screen.title'],
+  ] as const)('keeps the title of the %s screen for screen readers and does not draw it, because the sub-navigation names it', async (section, key) => {
+    const { view, user } = mount({ tab: 'agents', agentsSection: section }, locale)
+    const heading = await screen.findByRole('heading', { level: 2, name: t(key) })
+    expect(heading.textContent).toBe(t(key))
+    expect(heading.className).toBe(visuallyHidden.hidden)
+    expect(heading.className).not.toMatch(/title/)
+    const subNav = within(view.container.querySelector('main')!).getByRole('navigation')
+    expect(within(subNav).getByRole('button', { name: t(key) }).getAttribute('aria-current')).toBe('page')
+    expect(heading.closest('section')).toBe(screen.getByRole('region', { name: t(key) }))
+    await neverTabsTo(user, heading)
+  })
+
+  it.each(['agents', 'rules'] as const)('has no accessibility violations on the %s screen', async (section) => {
+    const { view } = mount({ tab: 'agents', agentsSection: section }, locale)
+    await screen.findByRole('heading', { level: 2, name: t(section === 'agents' ? 'agents.screen.title' : 'rules.screen.title') })
+    expect(await violations(view.container)).toEqual([])
+  })
+
+  it('has no style of its own for either title', () => {
+    expect(css('app/agents/AgentsScreen.module.css')).not.toMatch(/(?:^|\n)\.title\b/)
+    expect(css('app/agents/RulesScreen.module.css')).not.toMatch(/(?:^|\n)\.title\b/)
+  })
+
+  it('keeps the transfer mark on the same line as its sentence', () => {
+    const rule = css('app/agents/AgentsScreen.module.css').match(/(?:^|\n)\.transfer\s*\{([^}]*)\}/)![1]!
+    expect(rule).toMatch(/display:\s*flex/)
+    expect(rule).toMatch(/align-items:\s*baseline/)
+  })
+})

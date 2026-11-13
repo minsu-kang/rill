@@ -8,6 +8,7 @@ import type { EngineClient } from '../../engine/client'
 import { useT, type MessageKey } from '../../i18n'
 import { HostError, type HostApi } from '../../shared/host-api'
 import { useStepFocus } from '../../ui/useStepFocus'
+import visuallyHidden from '../../ui/visuallyHidden.module.css'
 import controls from '../controls.module.css'
 import { hostErrorKey } from '../settings/errors'
 import { useAction } from '../settings/useAction'
@@ -148,12 +149,13 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
   return (
     <section ref={root} className={styles.root} aria-labelledby="agents-screen-title">
       <header className={styles.head}>
-        <h2 id="agents-screen-title" className={styles.title}>
+        <h2 id="agents-screen-title" className={visuallyHidden.hidden}>
           {t('agents.screen.title')}
         </h2>
         <p className={controls.note}>{t('agents.screen.intro')}</p>
-        <p className={controls.note}>
-          <TransferIcon /> {t('agents.screen.transfer')}
+        <p className={`${controls.note} ${styles.transfer}`}>
+          <TransferIcon />
+          <span>{t('agents.screen.transfer')}</span>
         </p>
       </header>
       {agents.status === 'loading' && !ready ? (
