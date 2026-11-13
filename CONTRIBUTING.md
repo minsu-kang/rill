@@ -16,4 +16,4 @@ Every path has one code owner, @minsu-kang (`.github/CODEOWNERS`). A pull reques
 These settings live on GitHub, not in the repository, so no file can enforce them. Set them once, after the first push:
 
 1. Settings, General, Features, Pull requests: choose "Collaborators only".
-2. Settings, Rules, Rulesets: add a ruleset for the default branch that requires a pull request and a review from code owners, blocks force pushes and deletion, and requires the CI check to pass. Let the owner bypass it, because a sole owner cannot approve their own pull request.
+2. Settings, Rules, Rulesets: add a ruleset for the default branch that requires a pull request and a review from code owners, blocks force pushes and deletion, and requires the CI jobs (`lint`, `typecheck`, `unit-packages`, `unit-desktop` and `build`) to pass. Let the owner bypass it, because a sole owner cannot approve their own pull request.

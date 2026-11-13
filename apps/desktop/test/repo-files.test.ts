@@ -114,3 +114,35 @@ describe('the owner and contribution files', () => {
     expect(read('README.md')).toMatch(/Pull requests are open to collaborators only\. See \[CONTRIBUTING\.md\]\(CONTRIBUTING\.md\)\./)
   })
 })
+
+describe('the workflows', () => {
+  const FILES = readdirSync(join(ROOT, '.github/workflows')).filter((name) => name.endsWith('.yml'))
+  const CI = read('.github/workflows/ci.yml')
+
+  it('pin every action to a full commit', () => {
+    expect(FILES).toContain('ci.yml')
+    for (const name of FILES) {
+      const uses = [...read(`.github/workflows/${name}`).matchAll(/^\s*(?:-\s+)?uses:\s*(\S+)/gm)].map((match) => match[1] ?? '')
+      expect(uses.length, name).toBeGreaterThan(0)
+      for (const action of uses) expect(action, name).toMatch(/@[0-9a-f]{40}$/)
+    }
+  })
+
+  it('run for the default branch only, with read-only access to the repository', () => {
+    expect(CI).toMatch(/push:\n {4}branches: \[main\]\n {2}pull_request:\n {4}branches: \[main\]/)
+    expect(CI).toMatch(/\npermissions:\n {2}contents: read\n/)
+  })
+
+  it('run lint, the type check, both vitest projects and the build as separate jobs', () => {
+    const projects = read('vitest.config.ts').match(/name: '(\w+)'/g) ?? []
+    expect(projects).toEqual(["name: 'packages'"])
+    expect(read('apps/desktop/vitest.config.ts')).toContain("name: 'desktop'")
+    for (const job of ['lint', 'typecheck', 'unit-packages', 'unit-desktop', 'build']) expect(CI, job).toMatch(new RegExp(`\\n  ${job}:\\n`))
+    expect(CI).toContain('pnpm lint')
+    expect(CI).toContain('pnpm typecheck')
+    expect(CI).toContain('pnpm exec vitest run --project packages')
+    expect(CI).toContain('pnpm exec vitest run --project desktop')
+    expect(CI).toContain('pnpm --filter @rill/desktop build')
+    expect(CI).toContain('pnpm install --frozen-lockfile')
+  })
+})
