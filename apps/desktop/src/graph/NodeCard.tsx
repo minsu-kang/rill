@@ -6,6 +6,7 @@ import type { NodeRunState } from '../model/status'
 import { truncate } from '../model/text'
 import { StatusChip } from '../ui/StatusChip'
 import { StatusIcon } from '../ui/StatusIcon'
+import { TransferIcon } from '../ui/TransferMark'
 import styles from './NodeCard.module.css'
 
 export const CARD_SIZE = { width: 264, height: 116 } as const
@@ -67,8 +68,16 @@ export function NodeCard({ node, info, state, selected }: NodeCardProps) {
 }
 
 function Badge({ kind, label, hint }: { kind: BadgeKind; label: string; hint: string | undefined }) {
+  if (kind === 'externalTransfer') {
+    return (
+      <span className={styles.badgeExternal} data-badge={kind} title={hint ?? label}>
+        <TransferIcon />
+        <span className={styles.hidden}>{label}</span>
+      </span>
+    )
+  }
   return (
-    <span className={kind === 'externalTransfer' ? styles.badgeExternal : styles.badgeEffect} data-badge={kind} title={hint}>
+    <span className={styles.badgeEffect} data-badge={kind} title={hint}>
       {label}
     </span>
   )

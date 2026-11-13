@@ -1,6 +1,6 @@
 import { AGENT_DEFAULT_ID, type AgentField } from '@rill/protocol'
 import { useRef, useState } from 'react'
-import { ExternalTransferNotice } from '../../chat/ExternalTransferNotice'
+import { TransferIcon } from '../../ui/TransferMark'
 import { plainText } from '../../chat/model/clamp'
 import { planErrorKey } from '../../chat/model/errors'
 import { useAgents } from '../../engine/agents'
@@ -152,8 +152,9 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
           {t('agents.screen.title')}
         </h2>
         <p className={controls.note}>{t('agents.screen.intro')}</p>
-        <ExternalTransferNotice items={['agent']} />
-        <p className={controls.note}>{t('agents.screen.transfer')}</p>
+        <p className={controls.note}>
+          <TransferIcon /> {t('agents.screen.transfer')}
+        </p>
       </header>
       {agents.status === 'loading' && !ready ? (
         <p className={controls.note} role="status">

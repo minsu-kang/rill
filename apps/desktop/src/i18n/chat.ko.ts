@@ -40,6 +40,7 @@ export const chatKo = {
   'chat.text.more': '더 보기',
   'chat.text.less': '접기',
   'chat.text.hidden': '… 이후 {count}자는 표시하지 않아요',
+  'chat.transfer.short': 'AI 제공자에게 전송돼요',
   'chat.transfer.lead': 'AI 제공자에게 전송돼요:',
   'chat.transfer.item.request': '요청 글',
   'chat.transfer.item.attachments': '붙인 파일',

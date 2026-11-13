@@ -1,21 +1,11 @@
 .notice {
+  display: flex;
   flex: 1 1 auto;
+  align-items: center;
+  gap: var(--space-1);
   min-width: 0;
   margin: 0;
   font-size: var(--font-size-xs);
   line-height: 1.6;
-  color: var(--text-secondary);
-}
-
-.badge {
-  display: inline-block;
-  margin-right: var(--space-2);
-  padding: 0 var(--space-2);
-  border: 1px solid var(--badge-external-border);
-  border-radius: var(--radius-pill);
-  background: var(--badge-external-bg);
-  color: var(--badge-external-text);
-  font-weight: 600;
-  line-height: 1.4;
-  white-space: nowrap;
+  color: var(--text-muted);
 }

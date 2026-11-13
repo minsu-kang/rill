@@ -149,14 +149,6 @@
   font-size: var(--font-size-sm);
 }
 
-.external {
-  padding: 0 var(--space-2);
-  border: 1px solid var(--badge-external-border);
-  border-radius: var(--radius-sm);
-  background: var(--badge-external-bg);
-  color: var(--badge-external-text);
-  font-weight: 600;
-}
 
 .note {
   color: var(--text-secondary);

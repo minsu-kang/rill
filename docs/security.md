@@ -57,7 +57,7 @@ Rill treats the following as data that an attacker may have written. None of it 
 
 ### Agents
 
-An agent is a persona and instructions that you write. They go to the model provider with every plan and every failure explanation while the agent is active, so they are part of what the "external transfer" label names. They are a trusted channel (you wrote them) with a hard edge: they tune tone and working preferences and cannot loosen a rule.
+An agent is a persona and instructions that you write. They go to the model provider with every plan and every failure explanation while the agent is active, so they are part of what the transfer notice under the chat input lists. They are a trusted channel (you wrote them) with a hard edge: they tune tone and working preferences and cannot loosen a rule.
 
 | Control | What it does | Where |
 | --- | --- | --- |

@@ -546,7 +546,7 @@ describe('engine changes', () => {
 })
 
 describe('transfer badge, dialogs and the chat drawer', () => {
-  it('carries the external transfer badge in the composer, the model settings and the dry run dialog, and no longer in the top bar', async () => {
+  it('says in the composer that content is sent, carries the badge in the model settings and the dry run dialog, and not in the top bar', async () => {
     const { user } = mount({ hostInit: { settings: KEYED }, initial: { workflowId: ids.workflows.webhook } })
     await connected()
     const bar = screen.getByRole('banner', { name: t('app.region.top') })
@@ -555,7 +555,7 @@ describe('transfer badge, dialogs and the chat drawer', () => {
     const chat = screen.getByRole('complementary', { name: t('app.region.chat') })
     expect(await within(chat).findByText('Anthropic · Claude Opus 5.5')).toBeTruthy()
     await user.type(screen.getByLabelText(t('chat.composer.label')), '요청')
-    expect(within(chat).getAllByText(t('badge.externalTransfer')).length).toBeGreaterThan(0)
+    expect(within(chat).getByRole('note').textContent).toContain(t('chat.transfer.short'))
     await user.click(await screen.findByRole('button', { name: t('app.wf.actions.dryRun') }))
     expect(within(screen.getByRole('dialog')).getByText(t('badge.externalTransfer'))).toBeTruthy()
     await user.keyboard('{Escape}')

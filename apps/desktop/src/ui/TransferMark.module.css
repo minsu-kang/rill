@@ -1,0 +1,27 @@
+.mark {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.icon {
+  display: block;
+}
+
+.label {
+  margin-left: var(--space-1);
+  font-size: var(--font-size-xs);
+}
+
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

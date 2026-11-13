@@ -41,6 +41,7 @@ export const chatEn: Record<keyof typeof chatKo, string> = {
   'chat.text.more': 'Show more',
   'chat.text.less': 'Show less',
   'chat.text.hidden': '… {count} more characters are not shown',
+  'chat.transfer.short': 'Sent to the AI provider',
   'chat.transfer.lead': 'Sent to the AI provider:',
   'chat.transfer.item.request': 'your request',
   'chat.transfer.item.attachments': 'attached files',

@@ -56,7 +56,7 @@ describe('MemoryPanel: list and counts', () => {
     await loaded()
     expect(screen.getByText('A note is one line of at most 300 characters. You can save up to 20.')).toBeTruthy()
     expect(screen.getByText('Saved notes are sent to the AI provider with every plan request.')).toBeTruthy()
-    expect(screen.getByRole('note').textContent).toContain('External transfer')
+    expect(screen.getByRole('note').textContent).toContain('Sent to the AI provider')
   })
 
   it('shows a load error with a retry, and the notes after the retry', async () => {

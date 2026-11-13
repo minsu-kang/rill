@@ -163,7 +163,7 @@ describe('colors used by the component styles', () => {
     expect(has('JsonView.module.css', '--text-accent', '--accent-subtle')).toBe(true)
     expect(has('RunHistory.module.css', '--status-failed-text')).toBe(true)
     expect(has('JsonView.module.css', '--status-running-text')).toBe(true)
-    expect(has('NodeCard.module.css', '--badge-external-text', '--badge-external-bg')).toBe(true)
+    expect(has('NodeCard.module.css', '--badge-effect-text', '--badge-effect-bg')).toBe(true)
   })
 
   it('keeps the text of a rule with its own background at 4.5:1 on that background', () => {

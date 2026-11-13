@@ -40,6 +40,7 @@ export function FirstRunCard({ settings, onOpen }: FirstRunCardProps) {
         {t('app.firstRun.title')}
       </h2>
       <p className={controls.note}>{t('app.firstRun.intro')}</p>
+      <p className={controls.note}>{t('app.firstRun.transfer')}</p>
       <ol className={styles.items}>
         {firstRunItems(settings).map((item) => (
           <li key={item.id} className={styles.item} data-done={item.done}>

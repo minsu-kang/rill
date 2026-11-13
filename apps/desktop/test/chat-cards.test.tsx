@@ -158,14 +158,14 @@ describe('MessageBubble and UserMessage', () => {
     expect(screen.getByRole('article', { name: 'Rill' }).textContent).toContain('hi')
   })
 
-  it('shows the text, the attachment names and sizes, and a transfer badge', () => {
+  it('shows the text, the attachment names and sizes, without a transfer badge', () => {
     renderThemed(<UserMessage entry={{ role: 'user', text: 'Please sort these', attachments: [attachmentRefs.pdf, attachmentRefs.hostile] }} />, { locale: 'en' })
     expect(screen.getByText('Please sort these')).toBeTruthy()
     const list = screen.getByRole('list', { name: 'Attached files' })
     expect(within(list).getAllByRole('listitem')).toHaveLength(2)
     expect(list.textContent).toContain('Cafe Mori 영수증.pdf')
     expect(list.textContent).toContain('‹U+202E›')
-    expect(list.textContent).toContain('External transfer')
+    expect(list.textContent).not.toContain('External transfer')
   })
 
   it('shows answers next to the question they answer, or the id when the question is unknown', () => {

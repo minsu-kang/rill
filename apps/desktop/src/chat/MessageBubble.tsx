@@ -46,7 +46,6 @@ export function UserMessage({ entry, questions }: UserMessageProps) {
                 <bdi>{safeName(item.name).shown}</bdi>
               </span>
               <span className={styles.meta}>{formatBytes(item.bytes, locale)}</span>
-              <span className={styles.badge}>{t('badge.externalTransfer')}</span>
             </li>
           ))}
         </ul>

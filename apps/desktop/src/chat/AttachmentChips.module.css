@@ -47,15 +47,6 @@
   overflow-wrap: anywhere;
 }
 
-.badge {
-  padding: 0 var(--space-2);
-  border: 1px solid var(--badge-external-border);
-  border-radius: var(--radius-pill);
-  background: var(--badge-external-bg);
-  color: var(--badge-external-text);
-  font-weight: 600;
-  white-space: nowrap;
-}
 
 .remove {
   display: inline-flex;

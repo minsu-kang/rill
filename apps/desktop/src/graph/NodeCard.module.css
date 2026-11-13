@@ -75,7 +75,6 @@
   color: var(--text-secondary);
 }
 
-.badgeExternal,
 .badgeEffect {
   padding: 0 var(--space-2);
   border: 1px solid transparent;
@@ -85,9 +84,20 @@
 }
 
 .badgeExternal {
-  background: var(--badge-external-bg);
-  color: var(--badge-external-text);
-  border-color: var(--badge-external-border);
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .badgeEffect {

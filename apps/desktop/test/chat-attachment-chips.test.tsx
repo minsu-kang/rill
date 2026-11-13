@@ -13,7 +13,7 @@ describe('AttachmentChips', () => {
     expect(container.querySelector('li')).toBeNull()
   })
 
-  it('shows the name and the size of each file and an external transfer badge', () => {
+  it('shows the name and the size of each file, without a transfer badge on each chip (the composer notice says that files are sent)', () => {
     renderThemed(<AttachmentChips items={[attachmentRefs.pdf, attachmentRefs.png]} pending={[]} errors={[]} onRemove={noop} />, { locale: 'en' })
     const list = screen.getByRole('list', { name: 'Attached files' })
     const items = within(list).getAllByRole('listitem')
@@ -21,7 +21,7 @@ describe('AttachmentChips', () => {
     expect(items[0]!.textContent).toContain('Cafe Mori 영수증.pdf')
     expect(items[0]!.textContent).toContain('180 KB')
     expect(items[1]!.textContent).toContain('2 MB')
-    for (const item of items) expect(item.textContent).toContain('External transfer')
+    for (const item of items) expect(item.textContent).not.toContain('External transfer')
   })
 
   it('has a remove button that names the file and gives the id back', () => {

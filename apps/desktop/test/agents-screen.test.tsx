@@ -464,8 +464,7 @@ describe('the note about what is sent', () => {
   it('names the agent settings, says when they are sent and advises against secrets', async () => {
     mount({ agents: agentFixtures.few })
     await ready()
-    const notes = screen.getAllByRole('note')
-    expect(notes[0]!.textContent).toBe(`${en['badge.externalTransfer']}${en['chat.transfer.lead']} agent settings`)
+    expect(screen.queryByRole('note')).toBeNull()
     expect(screen.getByText(en['agents.screen.transfer'])).toBeTruthy()
     expect(screen.getByText(en['agents.screen.transfer']).textContent).toMatch(/secrets, passwords or personal data/)
   })
@@ -474,7 +473,6 @@ describe('the note about what is sent', () => {
     mount({ locale: 'ko' })
     await screen.findByRole('list', { name: ko['agents.list.label'] })
     expect(screen.getByText(ko['agents.screen.transfer'])).toBeTruthy()
-    expect(screen.getAllByRole('note')[0]!.textContent).toContain(ko['chat.transfer.item.agent'])
   })
 })
 

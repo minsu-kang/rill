@@ -4,6 +4,7 @@ import { useLocale, useT } from '../i18n'
 import { SafeText } from '../ui/SafeText'
 import { allTags, filterRecipes, nodeTypeBase, sendsToModelProvider } from './model/filter'
 import styles from './RecipeGallery.module.css'
+import { TransferMark } from '../ui/TransferMark'
 
 export interface RecipeGalleryProps {
   recipes: readonly RecipeInfo[]
@@ -137,7 +138,7 @@ function RecipeCard({ recipe, catalog, onChoose }: { recipe: RecipeInfo; catalog
         ))}
       </ul>
       <div className={styles.notes}>
-        {sendsToModelProvider(recipe) && <span className={styles.external}>{t('badge.externalTransfer')}</span>}
+        {sendsToModelProvider(recipe) && <TransferMark label={t('badge.externalTransfer')} hint={t('badge.externalTransfer.hint')} showLabel />}
         {recipe.needsConnection && <span className={styles.note}>{t('recipes.card.needsConnection')}</span>}
       </div>
       <div>

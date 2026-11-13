@@ -237,10 +237,10 @@ describe('the transfer notice names the agent settings', () => {
   it('lists them for an agent with a persona or instructions, and not for Default or an agent without text', async () => {
     show({ agents: [terse, plain, noText] })
     await ready()
-    expect(notice()).toBe(`${en['badge.externalTransfer']}${en['chat.transfer.lead']} your request, notes`)
+    expect(notice()).toBe(`${en['chat.transfer.lead']} your request, notes`)
     await userEvent.setup().selectOptions(picker(), terse.id)
     await waitFor(() => expect(notice()).toContain(en['chat.transfer.item.agent']))
-    expect(notice()).toBe(`${en['badge.externalTransfer']}${en['chat.transfer.lead']} your request, notes, agent settings`)
+    expect(notice()).toBe(`${en['chat.transfer.lead']} your request, notes, agent settings`)
     await userEvent.setup().selectOptions(picker(), noText.id)
     await waitFor(() => expect(notice()).not.toContain(en['chat.transfer.item.agent']))
     await userEvent.setup().selectOptions(picker(), plain.id)

@@ -249,6 +249,7 @@ export const appKo = {
   'app.main.connecting': '엔진에 연결하는 중이에요…',
   'app.firstRun.title': '시작하기',
   'app.firstRun.intro': '폴더와 API 키를 정하면 첫 워크플로우를 만들 수 있어요.',
+  'app.firstRun.transfer': '내 요청, 붙인 파일, 메모는 내가 고른 AI 제공자에게 전송돼요. 그 밖의 모든 것은 이 컴퓨터에만 있어요.',
   'app.firstRun.folder': '파일을 읽고 쓸 폴더 고르기',
   'app.firstRun.folder.action': '폴더 선택',
   'app.firstRun.key': 'AI 제공자의 API 키 넣기',

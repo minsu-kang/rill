@@ -182,13 +182,13 @@ describe('Composer: effort and memory', () => {
   it('shows the external transfer notice with what leaves the computer', () => {
     const first = show({ state: { draft: 'x', attachments: [], effort: 'medium', useMemory: false } })
     const note = screen.getByRole('note')
-    expect(note.textContent).toContain('External transfer')
-    expect(note.textContent).toContain('your request')
-    expect(note.textContent).not.toContain('attached files')
-    expect(note.textContent).not.toContain('notes')
+    expect(note.textContent).toBe('Sent to the AI provider')
+    expect(note.getAttribute('title')).toBe('Sent to the AI provider: your request')
+    expect(note.querySelector('[class*="badge"]')).toBeNull()
     first.unmount()
     show({ state: { draft: 'x', attachments: [attachmentRefs.pdf], effort: 'medium', useMemory: true } })
     expect(screen.getByRole('note').textContent).toContain('your request, attached files, notes')
+    expect(screen.getByRole('note').getAttribute('title')).toBe(screen.getByRole('note').textContent)
   })
 
   it('does not list notes when memory is on but there are none', () => {
@@ -504,7 +504,7 @@ describe('Composer: layout', () => {
   it('puts the transfer notice and the shortcut hint in one footer row below the toolbar, with the options closed', () => {
     const { container } = show()
     const row = footer(container)
-    expect(within(row).getByRole('note').textContent).toContain('External transfer')
+    expect(within(row).getByRole('note').textContent).toContain('Sent to the AI provider')
     expect(within(row).getByRole('note').textContent).toContain('your request, notes')
     expect(within(row).getByText('Press Ctrl or Cmd + Enter to send')).toBeTruthy()
     expect(toolbar(container).compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()

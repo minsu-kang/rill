@@ -120,7 +120,7 @@ describe('the review of an imported file', () => {
     expect(screen.queryByRole('alert')).toBeNull()
     expect(callsOf('saveAgent')).toEqual([])
     expect(callsOf('setActiveAgent')).toEqual([])
-    expect(screen.getAllByRole('note')[0]!.textContent).toContain('agent settings')
+    expect(screen.getByText(/sent to the model provider with each request/)).toBeTruthy()
   })
 
   it('saves a new agent only when Save is pressed, and never switches it on', async () => {

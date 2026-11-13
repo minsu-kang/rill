@@ -251,6 +251,7 @@ export const appEn: Record<keyof typeof appKo, string> = {
   'app.main.connecting': 'Connecting to the engine…',
   'app.firstRun.title': 'Get started',
   'app.firstRun.intro': 'Choose a folder and add an API key, and you can make your first workflow.',
+  'app.firstRun.transfer': 'Your requests, the files you attach and your notes are sent to the AI provider you choose. Everything else stays on this computer.',
   'app.firstRun.folder': 'Choose a folder to read and write files in',
   'app.firstRun.folder.action': 'Choose folder',
   'app.firstRun.key': 'Add an API key of an AI provider',
