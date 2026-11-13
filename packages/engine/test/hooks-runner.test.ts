@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Db } from '../src/db'
 import { Engine } from '../src/engine'
 import type { EngineEvent } from '../src/events'
+import { HOOK_QUEUE_MAX } from '../src/hooks-runner'
 import { BOT_TOKEN, WEBHOOK_URL, echoWorkflow, failingWorkflow, hookInput, notify, openEngine, slackJson, stubSlack, textOf } from './hook-helpers'
 import { START, deployed, finished, finishedRun, logRows, outcomes, standalone, workflowIn } from './hook-runner-helpers'
 import { ManualClock } from './manual-clock'
@@ -291,6 +292,47 @@ describe('when a hook acts', () => {
     await engine.idle()
     expect(logRows(db).map((row) => row.workflow_id)).toEqual([one, one, two, two, two, two])
     expect(outcomes(db)).toEqual(['ok', 'ok', 'ok', 'skipped_cooldown', 'ok', 'skipped_cooldown'])
+  })
+})
+
+describe('the queue of the runner', () => {
+  async function backlog(waiting: number) {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let first = true
+    stubSlack(async () => {
+      if (first) {
+        first = false
+        await gate
+      }
+      return slackJson({ ok: true })
+    })
+    const { store, runner } = standalone()
+    const workflowId = workflowIn(store, 'w')
+    store.saveHook(hookInput({ action: notify('team-slack') }))
+    store.saveHook(hookInput({ action: { type: 'record' } }))
+    const runIds = Array.from({ length: waiting + 1 }, () => finishedRun(store, workflowId, 'failed'))
+    const read = vi.spyOn(store, 'getRunSummary')
+    runner.handle(finished(runIds[0]!, 'failed', START))
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+    for (let index = 1; index <= waiting; index++) runner.handle(finished(runIds[index]!, 'failed', START + index))
+    release()
+    await runner.idle()
+    return { runIds, handled: read.mock.calls.map((call) => call[0]) }
+  }
+
+  it('holds at most 1000 waiting events and drops the oldest ones, so that the newest failures still decide', async () => {
+    expect(HOOK_QUEUE_MAX).toBe(1000)
+    const { runIds, handled } = await backlog(HOOK_QUEUE_MAX + 10)
+    expect(handled).toEqual([runIds[0], ...runIds.slice(11)])
+  })
+
+  it('keeps every event while the queue is not over the limit', async () => {
+    const { runIds, handled } = await backlog(HOOK_QUEUE_MAX)
+    expect(handled).toEqual(runIds)
   })
 })
 

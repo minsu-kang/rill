@@ -192,17 +192,17 @@ export interface HookCheckEnv {
 
 export type HookCheck = { ok: true; input: HookInput } | { ok: false; problems: HookProblem[] }
 
-function checkNotify(action: { connection: string; channel?: string | undefined }, env: HookCheckEnv, problems: HookProblem[]): HookActionInput {
+function checkNotify(action: { connection: string; channel?: string | undefined }, enabled: boolean, env: HookCheckEnv, problems: HookProblem[]): HookActionInput {
   const connection = normaliseHookText('connection', action.connection)
   const channel = normaliseHookText('channel', action.channel ?? '')
   if (!connection.ok) problems.push({ field: 'connection', rule: connection.rule })
-  else {
+  else if (enabled) {
     const kind = env.connectionKind(connection.value)
     if (kind === 'missing') problems.push({ field: 'connection', rule: 'unknown_connection' })
     else if (kind !== 'slack') problems.push({ field: 'connection', rule: 'not_slack_connection' })
   }
   if (!channel.ok) problems.push({ field: 'channel', rule: channel.rule })
-  if (env.notifyForbidden) problems.push({ field: 'action', rule: 'forbidden_by_rule' })
+  if (enabled && env.notifyForbidden) problems.push({ field: 'action', rule: 'forbidden_by_rule' })
   return {
     type: 'notify',
     connection: connection.ok ? connection.value : '',
@@ -216,7 +216,7 @@ export function checkHookInput(input: HookInput, env: HookCheckEnv): HookCheck {
   let action: HookActionInput
   switch (input.action.type) {
     case 'notify':
-      action = checkNotify(input.action, env, problems)
+      action = checkNotify(input.action, input.enabled, env, problems)
       break
     case 'deactivateAfterFailures': {
       const { count } = input.action
@@ -281,6 +281,7 @@ const LABEL_HIDDEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\p{Default_Ignorable_Code_P
 const LABEL_SCAN_LIMIT = 10_000
 const LABEL_FALLBACK = 'unnamed'
 const SLACK_ESCAPES: Readonly<Record<string, string>> = { '&': '&amp;', '<': '&lt;', '>': '&gt;' }
+const LABEL_QUOTES = /["\u201c\u201d\u201e\u201f\u2033\u2036\uff02]/g
 
 export function hookWorkflowLabel(name: string): string {
   let kept = ''
@@ -306,7 +307,7 @@ export function hookWorkflowLabel(name: string): string {
     length += 1
   }
   const label = kept.trimEnd()
-  return label === '' ? LABEL_FALLBACK : label.replace(/[&<>]/g, (char) => SLACK_ESCAPES[char]!)
+  return label === '' ? LABEL_FALLBACK : label.replace(LABEL_QUOTES, "'").replace(/[&<>]/g, (char) => SLACK_ESCAPES[char]!)
 }
 
 export function hookMessage(event: HookEvent, workflowName: string): string {

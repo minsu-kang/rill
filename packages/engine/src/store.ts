@@ -6,6 +6,8 @@ import {
   AGENT_MAX_ITEMS,
   HOOK_LOG_MAX_ROWS,
   HOOK_MAX_ITEMS,
+  HOOK_RATE_LIMIT,
+  HOOK_RATE_WINDOW_MS,
   MEMORY_MAX_ITEMS,
   RULE_MAX_ITEMS,
   agentNameKey,
@@ -943,7 +945,13 @@ export class Store {
       entry.outcome,
       entry.code,
     )
-    this.db.run('DELETE FROM hook_log WHERE id NOT IN (SELECT id FROM hook_log ORDER BY id DESC LIMIT ?)', HOOK_LOG_MAX_ROWS)
+    const readByLimits = "SELECT id FROM hook_log WHERE outcome IN ('ok', 'failed') AND at > ? ORDER BY id DESC LIMIT ?"
+    this.db.run(
+      `DELETE FROM hook_log WHERE id NOT IN (SELECT id FROM hook_log ORDER BY id DESC LIMIT ?) AND id NOT IN (${readByLimits})`,
+      HOOK_LOG_MAX_ROWS,
+      entry.at - HOOK_RATE_WINDOW_MS,
+      HOOK_RATE_LIMIT,
+    )
   }
 
   listHookLog(options: { limit: number; hookId?: string }): HookLogEntry[] {
@@ -962,9 +970,9 @@ export class Store {
     return this.db.get<{ active: number }>('SELECT active FROM workflows WHERE id = ?', id)?.active === 1
   }
 
-  recentNonDryRuns(workflowId: string, limit: number): Array<{ id: string; status: RunStatus }> {
+  recentFinishedRuns(workflowId: string, limit: number): Array<{ id: string; status: RunStatus }> {
     return this.db.all<{ id: string; status: RunStatus }>(
-      'SELECT id, status FROM runs WHERE workflow_id = ? AND dry_run = 0 ORDER BY created_at DESC, rowid DESC LIMIT ?',
+      "SELECT id, status FROM runs WHERE workflow_id = ? AND dry_run = 0 AND status IN ('succeeded', 'failed', 'cancelled') ORDER BY finished_at DESC, rowid DESC LIMIT ?",
       workflowId,
       limit,
     )

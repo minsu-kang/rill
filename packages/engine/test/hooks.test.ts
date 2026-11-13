@@ -234,6 +234,20 @@ describe('hooks and the rules of Plan 10', () => {
     expect(engine.saveHook(hookInput({ action: notify('team-slack') })).action.type).toBe('notify')
   })
 
+  it('lets the user switch a notify hook off while a rule forbids notify.slack or its connection is gone, and checks it again when it is switched on', () => {
+    const { engine, table } = setup()
+    const hook = engine.saveHook(hookInput({ action: notify('team-slack', '#a') }))
+    const rule = engine.saveRule({ kind: 'forbidNode', value: 'notify.slack' })
+    const off = engine.saveHook({ ...hookInput({ action: notify('team-slack', '#a') }), id: hook.id, enabled: false })
+    expect(off).toMatchObject({ id: hook.id, enabled: false })
+    expect(rules(problemsOf(() => engine.saveHook({ ...hookInput({ action: notify('team-slack', '#a') }), id: hook.id })))).toEqual(['action.forbidden_by_rule'])
+    engine.deleteRule(rule.id)
+    table.remove('team-slack')
+    expect(rules(problemsOf(() => engine.saveHook({ ...hookInput({ action: notify('team-slack', '#a') }), id: hook.id })))).toEqual(['connection.unknown_connection'])
+    expect(engine.saveHook({ ...hookInput({ action: notify('team-slack', '#a') }), id: hook.id, enabled: false }).enabled).toBe(false)
+    expect(engine.listHooks()).toHaveLength(1)
+  })
+
   it('reports the rule together with the other problems', () => {
     const { engine } = setup()
     engine.saveRule({ kind: 'forbidNode', value: 'notify.slack' })

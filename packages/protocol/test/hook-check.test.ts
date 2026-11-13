@@ -65,6 +65,27 @@ describe('checkHookInput', () => {
     expect(asked).toEqual(['team-slack'])
   })
 
+  it('holds a disabled hook to the text rules but not to the connections and the rules, which are checked when it is enabled', () => {
+    const off = (input: HookInput): HookInput => ({ ...input, enabled: false })
+    expect(problems(off(notify('nobody')))).toEqual([])
+    expect(problems(off(notify('api')))).toEqual([])
+    expect(problems(off(notify('team-slack')), { notifyForbidden: true })).toEqual([])
+    expect(problems(off(notify('nobody', 'a b')), { notifyForbidden: true })).toEqual(['channel.whitespace'])
+    expect(problems(off(notify('a\nb')))).toEqual(['connection.control_character'])
+    expect(problems(off(notify('')))).toEqual(['connection.empty'])
+    expect(problems({ ...off(record), scope: { type: 'workflow', workflowId: 'gone' } })).toEqual(['scope.unknown_workflow'])
+    expect(problems(off({ ...record, event: 'plan.deployed', action: { type: 'deactivateAfterFailures', count: 3 } }))).toEqual(['action.only_for_run_failed'])
+    expect(problems(notify('nobody'))).toEqual(['connection.unknown_connection'])
+    expect(problems(notify('team-slack'), { notifyForbidden: true })).toEqual(['action.forbidden_by_rule'])
+    expect(accepted(off(notify('nobody', ' #a '))).action).toEqual({ type: 'notify', connection: 'nobody', channel: '#a' })
+  })
+
+  it('does not ask the environment about a connection for a disabled hook', () => {
+    const asked: string[] = []
+    problems({ ...notify('team-slack'), enabled: false }, { connectionKind: (name) => (asked.push(name), 'slack') })
+    expect(asked).toEqual([])
+  })
+
   it('does not ask whether a workflow exists for the scope all', () => {
     let asked = 0
     problems(record, { workflowExists: () => (asked += 1, true) })

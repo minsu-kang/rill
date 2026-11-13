@@ -133,7 +133,7 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
     if (event.type === 'run.finished') inFlight.delete(event.runId)
   })
 
-  const planned = withPlanMethods(base, {
+  const planned = withPlanMethods({ request: (method, given) => base.request(method, given), onEvent: (listener) => base.onEvent(listener) }, {
     models,
     script: options.plan ?? (() => outcomeOf(results.workflow)),
     memory: [...memoryFixtures.three],
@@ -249,6 +249,7 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
         const answer = (await inner.request(method, params)) as MethodResult<'deployPlan'>
         const workflow = plans.get((params as MethodParams<'deployPlan'>).planId)
         if (workflow !== undefined) register(answer.workflowId, workflow)
+        base.emit({ type: 'plan.deployed', at: Date.now(), workflowId: answer.workflowId, planId: (params as MethodParams<'deployPlan'>).planId })
         return answer as MethodResult<M>
       }
       case 'deploy': {

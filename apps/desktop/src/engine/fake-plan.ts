@@ -5,6 +5,7 @@ import {
   RillError,
   validateParams,
   type Agent,
+  type EngineEvent,
   type Hook,
   type HookLogEntry,
   type LlmModelInfo,
@@ -117,7 +118,7 @@ function activeModelOf(result: LlmModelsResult): LlmModelInfo | undefined {
 
 export type FakePlanClient = EngineClient & { pendingPlans(): string[]; planAgentIds(): Array<string | undefined>; agents: FakeAgents; rules: FakeRules; hooks: FakeHooks }
 
-export function withPlanMethods(client: EngineClient, data: FakePlanData): FakePlanClient {
+export function withPlanMethods(client: EngineClient & { emit?: (event: EngineEvent) => void }, data: FakePlanData): FakePlanClient {
   const records = new Map<string, PlanRecord>()
   for (const item of data.seed ?? []) records.set(item.planId, { result: structuredClone(item.result), flagKeys: item.result.kind === 'workflow' ? item.result.flags.map(flagKey) : [] })
   const pending = new Map<string, (error: RillError) => void>()
@@ -179,6 +180,7 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): FakeP
     if (missing || stray) throw new RillError('PLAN_NOT_CONFIRMED', 'confirm every flag of the plan before deploying')
     deploySerial += 1
     record.workflowId = data.deployId ?? `wf-deployed-${deploySerial}`
+    client.emit?.({ type: 'plan.deployed', at: now(), workflowId: record.workflowId, planId })
     return { workflowId: record.workflowId }
   }
 

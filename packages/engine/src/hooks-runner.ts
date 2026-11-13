@@ -14,6 +14,7 @@ import { SLACK_CONNECTION_KIND, notifyForbidden } from './hooks'
 import type { Store } from './store'
 
 export const HOOK_POST_TIMEOUT_MS = 15_000
+export const HOOK_QUEUE_MAX = 1000
 
 export interface HookRunnerDeps {
   store: Store
@@ -76,6 +77,7 @@ export class HookRunner {
       return
     }
     this.queue.push(job)
+    if (this.queue.length > HOOK_QUEUE_MAX) this.queue.shift()
     this.kick()
   }
 
@@ -159,7 +161,7 @@ export class HookRunner {
       if (notifyForbidden(this.deps.forbiddenNodes())) return { outcome: 'blocked_by_rule', code: null }
       if (this.cooling(hook.id, job.at)) return { outcome: 'skipped_cooldown', code: null }
     }
-    if (this.capped(job.at)) return { outcome: 'rate_limited', code: null }
+    if (action.type !== 'deactivateAfterFailures' && this.capped(job.at)) return { outcome: 'rate_limited', code: null }
     switch (action.type) {
       case 'record':
         return DONE
@@ -190,7 +192,7 @@ export class HookRunner {
 
   private deactivate(count: number, job: HookJob, workflowId: string): HookResult {
     if (job.event !== 'run.failed' || job.runId === undefined) return failure('unknown')
-    const recent = this.deps.store.recentNonDryRuns(workflowId, count)
+    const recent = this.deps.store.recentFinishedRuns(workflowId, count)
     const matches = recent.length === count && recent[0]!.id === job.runId && recent.every((run) => run.status === 'failed')
     if (!matches || !this.deps.store.isWorkflowActive(workflowId)) return SKIPPED_INACTIVE
     this.deps.deactivate(workflowId)

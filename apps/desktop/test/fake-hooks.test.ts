@@ -109,6 +109,16 @@ describe('the fake engine answers the hook methods with the rules of the engine'
     expect((await request('saveHook', notify('team-slack'))).hook.action.type).toBe('notify')
   })
 
+  it('lets a notify hook be switched off while a rule forbids notify.slack, and refuses to switch it on again', async () => {
+    const { request } = make()
+    const hook = (await request('saveHook', notify('team-slack', '#ops'))).hook
+    const rule = (await request('saveRule', { kind: 'forbidNode', value: 'notify.slack' })).rule
+    expect((await request('saveHook', { ...notify('team-slack', '#ops'), id: hook.id, enabled: false })).hook.enabled).toBe(false)
+    expect(lines(await failure(request('saveHook', { ...notify('team-slack', '#ops'), id: hook.id })))).toEqual(['action.forbidden_by_rule'])
+    await request('deleteRule', { id: rule.id })
+    expect((await request('saveHook', { ...notify('team-slack', '#ops'), id: hook.id })).hook.enabled).toBe(true)
+  })
+
   it('checks the count and the event of a deactivation', async () => {
     const { request } = make()
     for (const count of [1, 21]) expect(lines(await failure(request('saveHook', { ...record, action: { type: 'deactivateAfterFailures', count } }))), String(count)).toEqual(['count.out_of_range'])

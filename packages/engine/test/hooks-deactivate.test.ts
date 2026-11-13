@@ -123,13 +123,63 @@ describe('deactivateAfterFailures reads the run history', () => {
     expect(deactivated).toEqual([workflowId])
   })
 
-  it('does not act while a newer run is queued or running', async () => {
-    const { store, end, deactivated, workflowId } = scenario(2)
+  it('is not held back by a newer run that is only queued or running', async () => {
+    const { store, end, deactivated, workflowId, db } = scenario(2)
     const first = finishedRun(store, workflowId, 'failed')
     const second = finishedRun(store, workflowId, 'failed')
     store.createRun({ workflowId, payload: {}, dryRun: false })
-    await end(second, 'failed')
+    const running = store.createRun({ workflowId, payload: {}, dryRun: false })
+    store.markRunRunning(running.id)
     await end(first, 'failed')
+    expect(deactivated).toEqual([])
+    await end(second, 'failed')
+    expect(deactivated).toEqual([workflowId])
+    expect(outcomes(db)).toEqual(['skipped_inactive', 'ok'])
+  })
+
+  it('deactivates a workflow that fails again and again while its next run is always already queued', async () => {
+    const { store, end, deactivated, workflowId, db } = scenario(2)
+    for (let index = 0; index < 6; index++) {
+      const failed = finishedRun(store, workflowId, 'failed')
+      store.createRun({ workflowId, payload: {}, dryRun: false })
+      await end(failed, 'failed')
+    }
+    expect(deactivated).toEqual([workflowId])
+    expect(outcomes(db)).toEqual(['skipped_inactive', 'ok', 'skipped_inactive', 'skipped_inactive', 'skipped_inactive', 'skipped_inactive'])
+  })
+
+  it('does not count a run that is still queued as one of the last runs, and is not reset by it', async () => {
+    const { store, end, deactivated, workflowId } = scenario(2)
+    const first = finishedRun(store, workflowId, 'failed')
+    store.createRun({ workflowId, payload: {}, dryRun: false })
+    const second = finishedRun(store, workflowId, 'failed')
+    await end(first, 'failed')
+    expect(deactivated).toEqual([])
+    await end(second, 'failed')
+    expect(deactivated).toEqual([workflowId])
+  })
+
+  it('judges runs that finish out of order by the time they finished', async () => {
+    const { store, end, deactivated, workflowId, db } = scenario(2)
+    const older = store.createRun({ workflowId, payload: {}, dryRun: false })
+    const newer = store.createRun({ workflowId, payload: {}, dryRun: false })
+    store.finishRun(newer.id, 'failed', 'x')
+    await end(newer.id, 'failed')
+    expect(deactivated).toEqual([])
+    store.finishRun(older.id, 'failed', 'x')
+    await end(older.id, 'failed')
+    expect(deactivated).toEqual([workflowId])
+    expect(outcomes(db)).toEqual(['skipped_inactive', 'ok'])
+  })
+
+  it('is reset by a success that finished last, even when that run was created first', async () => {
+    const { store, end, deactivated, workflowId } = scenario(2)
+    const slow = store.createRun({ workflowId, payload: {}, dryRun: false })
+    const first = finishedRun(store, workflowId, 'failed')
+    const second = finishedRun(store, workflowId, 'failed')
+    store.finishRun(slow.id, 'succeeded')
+    await end(first, 'failed')
+    await end(second, 'failed')
     expect(deactivated).toEqual([])
   })
 

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { HOOK_COOLDOWN_MS, HOOK_RATE_LIMIT, HOOK_RATE_WINDOW_MS } from '@rill/protocol'
+import { HOOK_COOLDOWN_MS, HOOK_LOG_MAX_ROWS, HOOK_RATE_LIMIT, HOOK_RATE_WINDOW_MS } from '@rill/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Db } from '../src/db'
 import { Engine } from '../src/engine'
@@ -214,7 +214,8 @@ describe('the global cap of 30 executed actions per 10 minutes', () => {
     expect(outcomes(db).slice(-3)).toEqual(['rate_limited', 'skipped_cooldown', 'skipped_cooldown'])
   })
 
-  it('stops a deactivation too, so that the workflow stays active until the window has passed', async () => {
+  it('does not stop a deactivation, so that a busy log cannot keep a failing workflow running', async () => {
+    const calls = stubSlack()
     const { store, db, runner, fire, workflowId, deactivated } = failing()
     store.saveHook(RECORD)
     for (let index = 0; index < 30; index++) await fire(START + index)
@@ -223,13 +224,24 @@ describe('the global cap of 30 executed actions per 10 minutes', () => {
     store.saveHook({ ...RECORD, action: { type: 'deactivateAfterFailures', count: 2 } })
     runner.handle(finished(second, 'failed', START + 100))
     await runner.idle()
-    expect(deactivated).toEqual([])
-    expect(outcomes(db).slice(-2)).toEqual(['rate_limited', 'rate_limited'])
-    expect(store.isWorkflowActive(workflowId)).toBe(true)
-    runner.handle(finished(second, 'failed', START + HOOK_RATE_WINDOW_MS + 100))
-    await runner.idle()
     expect(deactivated).toEqual([workflowId])
-    expect(outcomes(db).slice(-2)).toEqual(['ok', 'ok'])
+    expect(outcomes(db).slice(-2)).toEqual(['rate_limited', 'ok'])
+    expect(store.isWorkflowActive(workflowId)).toBe(false)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('still stops a notify hook and a record hook at the cap while a deactivation goes through', async () => {
+    const calls = stubSlack()
+    const { store, db, runner, fire, workflowId } = failing()
+    store.saveHook(RECORD)
+    for (let index = 0; index < 30; index++) await fire(START + index)
+    store.setWorkflowActive(workflowId, true)
+    store.saveHook({ ...RECORD, action: { type: 'deactivateAfterFailures', count: 2 } })
+    store.saveHook(NOTIFY)
+    runner.handle(finished(finishedRun(store, workflowId, 'failed'), 'failed', START + 100))
+    await runner.idle()
+    expect(outcomes(db).slice(-3)).toEqual(['rate_limited', 'ok', 'rate_limited'])
+    expect(calls).toHaveLength(0)
   })
 
   it('does not count skipped, blocked or rate limited rows', async () => {
@@ -297,5 +309,28 @@ describe('the global cap of 30 executed actions per 10 minutes', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('the limits when many other rows are written', () => {
+  const notifyFor = (index: number) => ({ ...NOTIFY, action: { type: 'notify', connection: 'team-slack', channel: `#c${index}` } }) as const
+
+  it('keeps the cap of 30 posts per 10 minutes with 20 hooks and a failing run every 2.5 seconds', async () => {
+    const calls = stubSlack()
+    const { store, fire } = failing()
+    for (let index = 0; index < 20; index++) store.saveHook(notifyFor(index))
+    for (let index = 0; index < 200; index++) await fire(START + index * 2500)
+    expect(calls).toHaveLength(HOOK_RATE_LIMIT)
+  })
+
+  it('keeps the cooldown of a hook while other hooks write more than 500 skipped rows', async () => {
+    const calls = stubSlack()
+    const { store, db, fire } = failing()
+    for (let index = 0; index < 20; index++) store.saveHook(notifyFor(index))
+    for (let index = 0; index < 55; index++) await fire(START + index * 1000)
+    expect(calls).toHaveLength(20)
+    expect(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM hook_log')?.n).toBe(HOOK_LOG_MAX_ROWS + 20)
+    await fire(START + HOOK_COOLDOWN_MS + 1000)
+    expect(calls).toHaveLength(HOOK_RATE_LIMIT)
   })
 })

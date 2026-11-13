@@ -106,7 +106,7 @@ describe('the hook runner has no way to cause a run, a plan, a deploy or a model
 
   it('writes to the store through the log method only', () => {
     expect([...source.matchAll(/store\.(\w+)\(/g)].map((match) => match[1]).sort()).toEqual(
-      ['appendHookLog', 'getRunSummary', 'hookExecutionsSince', 'isWorkflowActive', 'lastHookExecution', 'listHooks', 'recentNonDryRuns', 'workflowName'].sort(),
+      ['appendHookLog', 'getRunSummary', 'hookExecutionsSince', 'isWorkflowActive', 'lastHookExecution', 'listHooks', 'recentFinishedRuns', 'workflowName'].sort(),
     )
   })
 })

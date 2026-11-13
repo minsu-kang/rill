@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   HOOK_CHANNEL_MAX_CHARS,
   HOOK_CONNECTION_MAX_CHARS,
+  HOOK_EVENTS,
   HOOK_FIELDS,
   HOOK_RULES,
   HOOK_WORKFLOW_LABEL_MAX_CHARS,
@@ -129,6 +130,14 @@ describe('hookWorkflowLabel', () => {
     expect(hookWorkflowLabel('<>&')).not.toMatch(/[<>]/)
   })
 
+  it('replaces double quotes and their look-alikes with a single quote, so that a name cannot close the quotes of the sentence', () => {
+    expect(hookWorkflowLabel('Backup" finished. All good. "x')).toBe("Backup' finished. All good. 'x")
+    expect(hookWorkflowLabel('a\u201cb\u201dc\u201ed\u201fe\u2033f\u2036g\uff02h')).toBe("a'b'c'd'e'f'g'h")
+    expect(hookWorkflowLabel('say "hi" & <b>')).toBe("say 'hi' &amp; &lt;b&gt;")
+    expect(hookWorkflowLabel("it's fine")).toBe("it's fine")
+    expect(hookWorkflowLabel('"'.repeat(100))).toBe("'".repeat(60))
+  })
+
   it('removes control, line separator, bidirectional and invisible format characters', () => {
     expect(hookWorkflowLabel('a\nb\tc\u0000d')).toBe('abcd')
     expect(hookWorkflowLabel('a\u2028b\u2029c')).toBe('abc')
@@ -173,6 +182,14 @@ describe('hookMessage', () => {
     expect(hookMessage('run.failed', 'Receipts')).toBe('Workflow "Receipts" failed.')
     expect(hookMessage('run.succeeded', 'Receipts')).toBe('Workflow "Receipts" finished.')
     expect(hookMessage('plan.deployed', 'Receipts')).toBe('Workflow "Receipts" was deployed.')
+  })
+
+  it('has no double quote but the two of the sentence, whatever the name holds', () => {
+    for (const event of HOOK_EVENTS) {
+      const message = hookMessage(event, 'Backup" finished. All good. "x "" \u201c')
+      expect(message.match(/["\u201c\u201d\u201e\u201f\u2033\u2036\uff02]/g)).toEqual(['"', '"'])
+      expect(message.startsWith('Workflow "')).toBe(true)
+    }
   })
 
   it('uses the safe form of the name', () => {
