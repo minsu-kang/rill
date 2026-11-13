@@ -351,16 +351,16 @@ Migration 6 creates `rules` (`id`, `kind`, `value`, `created_at`, `UNIQUE (kind,
 
 ## Agent methods
 
-An agent is a name with a persona and instructions that the user writes. The user picks the active one in the chat, and the planner and the failure explanation follow it. An agent is created, changed, deleted or made active only by an explicit request to one of these four methods. No plan, plan result, attachment, run data, imported file or model answer does it, and the planner package has no database access at all.
+An agent is a name with a persona and instructions that the user writes. The user picks the active one in the chat, and the planner and the failure explanation follow it. An agent is created, changed, deleted or made active only by an explicit request to one of these four methods. No plan, plan result, attachment, run data, imported file or model answer does it, and the planner package has no database access at all. An agent also has a kind and can carry skills: see Kind and skills of an agent and Skill methods. A reviewer agent is not an agent to chat with; it gives a second opinion on a plan (see Review method).
 
 | Method | Params | Result |
 | --- | --- | --- |
 | `listAgents` | none | `agents`, the built-in agent first and then the saved agents by name, and `activeId` |
-| `saveAgent` | `name`, `description`, `persona`, `instructions`, optional `id` | `agent` |
+| `saveAgent` | `name`, `description`, `persona`, `instructions`, optional `id`, optional `kind`, optional `skillIds` | `agent` |
 | `deleteAgent` | `id` | `deleted` |
 | `setActiveAgent` | `id` | nothing |
 
-An agent is `{ id, name, description, persona, instructions, builtin, createdAt, updatedAt }`. `saveAgent` without `id` creates an agent under a new random id (the client does not choose it). With an `id` it edits that agent: the id and `createdAt` stay and `updatedAt` moves, and an unknown id is `AGENT_NOT_FOUND`. `deleteAgent` answers `false` for an id that is not there. The four methods work when the engine has no model provider.
+An agent is `{ id, name, description, persona, instructions, kind, skillIds, builtin, createdAt, updatedAt }`. `saveAgent` without `id` creates an agent under a new random id (the client does not choose it). With an `id` it edits that agent: the id and `createdAt` stay and `updatedAt` moves, and an unknown id is `AGENT_NOT_FOUND`. `deleteAgent` answers `false` for an id that is not there. The four methods work when the engine has no model provider.
 
 The built-in agent has the id `default`. It is not stored: it is always the first entry of `listAgents` with `builtin: true`, an empty persona and empty instructions and both timestamps 0. It cannot be saved over or deleted (`AGENT_BUILTIN`), and `setActiveAgent` accepts it. An app shows its own translated name and description for it, never the text of the engine.
 
@@ -378,11 +378,19 @@ The active agent is one row in the table `app_state` (key `active_agent`), and n
 
 The protocol caps each text at four times its limit (240, 800, 2400 and 12000 characters), only to bound the payload. The error of a rejected agent carries `<field>.<rule>` for every field that fails (the rule is one of `empty`, `control_character`, `line_separator`, `bidi_format`, `format_character`, `too_long`) and never the text. The agent text is user text like a note: it is not logged, not copied into an error, an event or a plan record, and an unexpected failure of `saveAgent` logs only the error name.
 
+### Kind and skills of an agent
+
+An agent has a kind, `assistant` or `reviewer`, and a list of skill ids. `saveAgent` takes both as optional params. A new agent without them is an assistant with no skills. An edit that leaves one out keeps what is stored, so a client that does not know about skills cannot drop them by saving an agent; an edit that sends `kind` or `skillIds` replaces the stored value, and `skillIds: []` clears the list. The built-in agent is an assistant with no skills, and `saveAgent` with its id is still `AGENT_BUILTIN`, whatever else the params say. `kind` and `skillIds` are optional in the protocol schema of an agent, and this engine always sends both.
+
+Where an agent can be used depends on its kind. Only an assistant can be the active agent, appear in a chat picker, or be named by `plan` and `explainRun`. A reviewer is named only by `reviewPlan` (see Review method). `setActiveAgent` with a reviewer, `plan` or `explainRun` with a reviewer's `agentId`, and a `saveAgent` that would turn the active agent into a reviewer are `AGENT_NOT_ASSISTANT`: the user makes another agent active first. For `plan` and `explainRun` the check sits where the `AGENT_NOT_FOUND` check sits, before the model is called, before a plan record is written and before a plan id is used. The text of the error is fixed and names no agent.
+
+`skillIds` is checked in `saveAgent`, after the field rules and before an agent is looked up: every id is a saved skill (`skills.unknown`), none is listed twice (`skills.duplicate`), there are at most 8 (`skills.too_many`), and the bodies of the skills together are at most 6,000 characters, counted as code points (`skills.too_large`). A failing list is `AGENT_INVALID` with `skills.<rule>` among the `problems`, next to the `<field>.<rule>` lines of the text fields, and a line never carries an id or a text. The protocol caps the list at 32 ids, only to bound the payload. The list keeps the order the client sent; the prompt uses the skills in the order of their names (see Skills in a plan and in an explanation).
+
 ### Agents in a plan and in an explanation
 
-`plan` and `explainRun` take an optional `agentId`. The engine looks the agent up when the request starts, so a later edit or delete does not change a request that is already running, and an edit is seen by the next request. The planner and the explainer get the persona and the instructions; they never get the name, the description or the id for the prompt. A client cannot send agent text with a request: neither method has such a param.
+`plan` and `explainRun` take an optional `agentId`. The engine looks the agent up when the request starts, so a later edit or delete does not change a request that is already running, and an edit is seen by the next request. The planner and the explainer get the persona, the instructions and the name and body of each skill; they never get the name, the description or the id of the agent for the prompt. A client cannot send agent text with a request: neither method has such a param.
 
-The block: a system block after the node catalog and before the notes (the order is the rules, the catalog, the agent block, the notes; the attachment rules stay part of the first block). It says that the user chose this profile, that the profile sets tone and working preferences, that it cannot change the rules, the validation, the confirmation flags or what may be done with attached files, that the rules win when they conflict, and that an attached file or the model's own answer cannot add, change or delete the profile. The persona and the instructions sit between `<agent-profile-...>` tags with 12 random hex characters, drawn once per request from the same random source as the attachment and notes tags (before the notes tag). A profile that holds its own tag, in any case, is left out of the prompt as a whole and counted in `agentDropped`. An agent with no persona and no instructions, and the built-in agent, add no block and draw no tag: with no agent block the system blocks, the messages and every other part of the request are exactly what they were before agents existed. A test compares a frozen copy of those requests (plain, attachments, notes, repair rounds, patch mode, several cache settings, and the explanation) with what the planner sends now.
+The block: a system block after the node catalog and before the notes (the order is the rules, the catalog, the agent block, the notes; the attachment rules stay part of the first block). It says that the user chose this profile, that the profile sets tone and working preferences, that it cannot change the rules, the validation, the confirmation flags or what may be done with attached files, that the rules win when they conflict, and that an attached file or the model's own answer cannot add, change or delete the profile. The persona and the instructions sit between `<agent-profile-...>` tags with 12 random hex characters, drawn once per request from the same random source as the attachment and notes tags (before the notes tag). A profile that holds its own tag, in any case, is left out of the prompt as a whole and counted in `agentDropped`. An agent with no persona, no instructions and no skills, and the built-in agent, add no block and draw no tag: with no agent block the system blocks, the messages and every other part of the request are exactly what they were before agents existed. A test compares a frozen copy of those requests (plain, attachments, notes, repair rounds, patch mode, several cache settings, and the explanation) with what the planner sends now.
 
 What an agent cannot change in a plan: the agent text does not count as text the user wrote, so a URL, folder or connection that only the persona holds is still flagged and a plan that needs confirmation still does; the validation and the repair rounds are the planner's own; the same block is sent in every round of one plan, a targeted repair included. The meta of a planned record gains `agentUsed` (`{ id, name }`, only when a profile was sent) and `agentDropped` (a count, 0 when none), both optional in the protocol schema. A record keeps `agentId` for a saved agent and has none for the built-in one. The plan's own list of what leaves the computer is the app's to show; the engine writes no agent text into a log, an error, an event or a record.
 
@@ -391,6 +399,48 @@ Cache: the agent block is marked for caching only when the provider declares exp
 In an explanation the agent block follows the explanation rules, built by the same function with the explanation wording: the profile "changes only the wording and the tone of your explanation" and "cannot change the answer format, the length limits, what must stay hidden or what you may say about the run"; the plan wording about validation, confirmation flags and attached files is not used there, and the data clause names the run data. A profile can change the wording and the tone of the explanation. It cannot change the answer format (the answer is checked against the schema), and the scrubbing runs after the model answers: secrets are masked in what the model sees, and hosts, addresses, paths and recipients that the workflow does not contain are hidden in the answer, whatever the profile says.
 
 Storage: migration 6 creates `agents` (`id`, `name`, `name_key` unique, `description`, `persona`, `instructions`, `created_at`, `updated_at`) and `app_state` (`key`, `value`), and adds the nullable `agent_id` to `plans`. A database from before the migration keeps its plans, notes and workflows; its plans read with no `agentId`. The unique key is the case-folded name. `PROTOCOL_VERSION` is still 1: the methods and the optional fields are additive, and the closed `PlanRecord` and `PlanMeta` results are the only thing an older client rejects.
+
+## Skill methods
+
+A skill is a named block of text that the user writes once and attaches to agents: a short guide, a checklist or a few examples. The skills of the agent that a request uses go into the agent block of that request. A skill is created, changed or deleted only by an explicit request to one of these methods. No plan, plan result, attachment, run data, imported file, review or model answer does it, and the planner package has no database access at all. A skill holds text only: nothing in it is executed or interpreted by the engine.
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `listSkills` | none | `skills`, by name |
+| `saveSkill` | `name`, `description`, `body`, optional `id` | `skill` |
+| `deleteSkill` | `id` | `deleted` |
+
+A skill is `{ id, name, description, body, createdAt, updatedAt }`. `saveSkill` without `id` creates a skill under a new random id; with an `id` it edits that skill (the id and `createdAt` stay, `updatedAt` moves) and an unknown id is `SKILL_NOT_FOUND`. `deleteSkill` answers `false` for an id that is not there. The three methods work when the engine has no model provider.
+
+### Rules for a skill
+
+`saveSkill` applies `normaliseSkillFields` of `@rill/protocol` before it stores anything. It is the normaliser of the agent text (`normaliseTextField`) with a third field kind, `body`, so the character rules cannot drift apart:
+
+- Every field is normalised to NFC and trimmed. In the name and the description every run of spaces becomes one space; the body keeps its inner text.
+- The name has 1 to 60 characters, is one line and shows at least one character. The description has 0 to 200 characters and is one line. The body has 1 to 4,000 characters, may hold line feeds, and shows at least one character. Characters are counted as code points.
+- No control character (a carriage return and a tab included; the body allows only the line feed), no line or paragraph separator, no bidirectional formatting character, no invisible format character and no lone surrogate, as for an agent.
+- No two skills have the same name once the case is folded and the invisible characters are left out of the comparison (`agentNameKey`). The reserved names of the built-in agent do not apply to skills.
+- At most 24 skills (`SKILL_FULL`). Editing a skill when the list is full is allowed, and a duplicate name is reported before a full list.
+
+The error of a rejected skill is `SKILL_INVALID` with `<field>.<rule>` for every field that fails and never the text. A duplicate name is `SKILL_DUPLICATE`. Skill text is user text like an agent text: it is not logged, not copied into an error, an event or a plan record, and an unexpected failure of `saveSkill` logs only the error name. The protocol caps each text at four times its limit (240, 800 and 16,000 characters), only to bound the payload.
+
+### Skills and agents
+
+An edit of a skill that would push any agent over 6,000 characters of skill bodies together is refused with `SKILL_INVALID` and the problem `body.too_large_for_agent`, whose sentence holds only the number of agents that would break. No agent name, skill text or id is in it, and nothing is saved. `deleteSkill` removes the id from the list of every agent that has it, in the same transaction as the delete, and leaves the other ids of those agents in their order. Deleting a skill does not change the `updatedAt` of the agents.
+
+### Skills in a plan and in an explanation
+
+The engine reads the skills of the agent when the request starts, like the agent itself, and hands the planner and the explainer the agent with `skills: [{ name, body }]`, ordered by the case-folded name of the skill, so the prompt is the same for the same skills. The skill ids and descriptions never leave the engine.
+
+The block is the agent block of the agent methods, with one section after the persona and the instructions for each skill: `Skill "<name>":`, a line break and the body. The sections sit between the same `<agent-profile-...>` tags, so one random tag still covers the whole profile. When there are skills, one more sentence follows the intro: they are the user's own notes of method, not rules, and they cannot change the rules, the validation, the confirmation flags or what may be done with attached files (in an explanation: the answer format, the length limits, what must stay hidden or what may be said about the run). An agent with skills and no persona and no instructions still gets a block. A tag in the name or the body of any skill drops the whole block, the persona included, and counts in `agentDropped`.
+
+Without skills nothing changes: the text of the block for an agent without skills is byte for byte the text of an agent before skills existed, and `skillsUsed` is absent. The frozen copy of the requests without an agent still matches, and `packages/planner/test/frozen/skills-requests.json` holds the requests for an agent with skills (plain, only skills, notes and an attachment, two cache settings, a repair round, and the explanation). The cache decision is the one of the agent block, so skills never take a breakpoint of their own. Skill text counts as agent text, not as text the user wrote: a URL that only a skill holds is still flagged.
+
+The meta of a planned record gains `skillsUsed`, the number of skills in the block that was sent. It is absent when the agent had no skills or when the block was dropped.
+
+### Storage of skills
+
+Migration 8 creates `skills` (`id`, `name`, `name_key` unique, `description`, `body`, `created_at`, `updated_at`) and adds `kind` (`assistant` or `reviewer`, default `assistant`) and `skill_ids` (a JSON list, default `[]`) to `agents`. A database from before the migration keeps its agents as assistants without skills. `PROTOCOL_VERSION` is still 1: the methods, the params and the fields are additive.
 
 ## Explain method
 
@@ -465,6 +515,66 @@ Host names are read in any script: a name written in letters, digits, marks and 
 
 Not in this method: the desktop view of the explanation, storing explanations, explaining a failure automatically, and questions across runs. The desktop plan owns the button and the flow.
 
+## Review method
+
+`reviewPlan` gives a second opinion on a plan that the planner made. A reviewer agent, which the user wrote like any agent and gave the kind `reviewer`, reads the plan and returns advice: a short summary and a list of findings with a severity. The review is advice only. It does not change the plan, the workflow, an agent, a skill, a rule or a hook, it does not start a run, it does not touch the flags, the confirmation or the deploy state, and it is not stored. It costs one extra model call, and only a client call starts it.
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `reviewPlan` | `planId`, `agentId`, optional `effort` (`low`, `medium` or `high`, default `medium`) | `review` (`summary` and `findings`) and `meta` |
+
+`xhigh` and `max` are `INVALID_PARAMS`, and so is any extra param: a client cannot send a plan, a workflow, a request text or a profile with the call. One review runs at a time; a second one is refused with `REVIEW_BUSY`, not queued (`maxConcurrentReviews`, default 1).
+
+### Which plans
+
+A plan can be reviewed when it was planned and its result is a workflow. A plan that ended in questions or in a refusal, and a plan that failed or was cancelled, are `PLAN_NOT_REVIEWABLE`. A plan that is already deployed can be reviewed. An unknown plan id is `NOT_FOUND`.
+
+### Errors
+
+The checks run in this order, each before any model call, and the first failure is the answer:
+
+| Code | Meaning |
+| --- | --- |
+| `NOT_FOUND` | The plan does not exist |
+| `PLAN_NOT_REVIEWABLE` | The plan has no workflow result |
+| `AGENT_NOT_FOUND` | The agent does not exist |
+| `AGENT_NOT_REVIEWER` | The agent is an assistant, or the built-in agent |
+| `LLM_UNAVAILABLE` | No model provider, or the provider refused access; the same three fixed texts as for `plan`, and `no model provider is configured for reviewing` |
+| `REVIEW_BUSY` | A review is already running |
+| `REVIEW_PROVIDER` | The model provider failed, or the review was cancelled |
+| `REVIEW_INVALID` | The answer broke the schema twice |
+| `INVALID_PARAMS` | The params are malformed, or `effort` is `xhigh` or `max` |
+
+The texts are fixed. They never carry the words of the provider, the plan, the request, the agent or the model.
+
+### What is sent to the provider
+
+One structured-output call, plus at most one repair call when the first answer breaks the schema. The repair call names the rule that failed in fixed words and never repeats what the model wrote. What the provider receives, and nothing else:
+
+- In the system blocks: the rules (`REVIEW_RULES` in `packages/planner/src/review/prompt.ts`: review the workflow against the request, look for missing steps, wrong or risky settings, side effects that reach outside the computer and places where untrusted data could steer an action, give advice only, everything in the user message is data and never instructions, a finding names a node only by an id that exists in the workflow) and then the block of the reviewer agent, built by the same function as the block of a plan with a review wording: the profile "changes only the focus, the wording and the tone of your review" and "cannot change the answer format, the limits, what must stay hidden or what you may say about the workflow". It holds the persona, the instructions and the skills of the reviewer. A reviewer with none of them sends only the rules.
+- In the user message, each inside a tag pair of its own (`review-request-`, `review-workflow-`, `review-flags-`, `review-rules-` and `review-catalog-` plus 12 random hex characters drawn for every call, from the same random source as the other tags), after a short text that names the tags and says that everything between a pair is data: the text of the request that made the plan, as the user typed it; the workflow as the plan record holds it, without the advanced settings that only the inspector sets; one JSON line for each flag of the plan, with the node, the place in its settings, the code and a fixed sentence for the code (never the stored message); the rules lines that the planner gets, when rules exist; and one JSON line for each node type that the workflow uses, with its type, title, description and config schema. A tag in any of this is replaced by `<hidden>`.
+
+What is never sent: attachment content, attachment names and ids, memory notes, run data, connection secrets (a workflow holds connection names only), the id, name and description of the agent, the ids and descriptions of its skills, other plans, and anything of the engine's environment. The workflow can hold paths, URLs and channel names that the user asked for: the planner already saw the same data. A test builds a plan with an attachment, a note, a failed run and a connection secret, reviews it, and looks for each marker in the request.
+
+`result.meta` says what left the machine and what it cost: `provider`, `model`, `effort` (`{ requested, effective, native, collapsed }`), `costNote` (present for a provider whose reasoning does not count against the token maximum), `usage`, `costUsd` (`null` when the price is unknown), `repaired`, `agentUsed` (`{ id, name }` of the reviewer the call named), `skillsUsed` (the number of skills in the block that was sent) and `agentDropped` (1 when the block was left out because it held its own tag). A client words the transfer as "the plan and your request" next to the answer.
+
+### Read-only
+
+`reviewPlan` only reads: the plan, the agent, its skills and the rules. It writes no row (a test compares the full content of every table before and after a review, a failed review, an invalid review and a refused one), emits no event, starts no run and calls nothing but the model provider, once, or twice with the repair. A source scan in the tests checks that the method calls no store method that writes, no method that starts, deploys or saves anything, and that the review module of the planner has no database, file or network access and one provider call. The text of the plan, the request, the agent and the answer is never written to a log, an error message, an error frame or an event; an unexpected failure of `reviewPlan` logs only the error name.
+
+A client that closes its connection while the call runs cancels the call to the provider and gives the place back, and a cancelled or failed review stores nothing. A shutdown of the engine cancels it too.
+
+### The answer
+
+`review.summary` is 1 to 400 characters. `review.findings` has 0 to 10 items, each `{ severity, text, nodeId? }` with `severity` one of `problem`, `warning` and `info`, `text` 1 to 400 characters and `nodeId` the id of a node of the workflow. The answer is checked against the schema; a text over 400 characters, an eleventh finding, an unknown severity or an extra key is one of the reasons for the repair call.
+
+The text of the model is untrusted and is scrubbed before it is returned, with the scrubber of the explanation. Every URL, host name, e-mail address and Slack-style recipient, and every path, that the workflow's own JSON, node ids and titles, the request text and the rules lines do not contain becomes `<hidden>`; invisible format characters and control characters are removed; a text is cut to 400 characters after that. A `nodeId` that the workflow does not have is dropped from its finding and the text stays. The findings are ordered by severity, `problem` first and `info` last, and in the order given inside one severity. Markup in a text stays text.
+
+### Client contract
+
+- `summary` and every `text` are plain text. A client must not render them as links, HTML or markdown, and must not make an address in them clickable. They are advice, not instructions to the app.
+- A review never gates anything. The Deploy button, the flags and the plan are the same with or without a review, and a client must not enable, disable or confirm anything because of one.
+- The reviewer is a separate call: the user presses a button, and the client names a reviewer agent. The engine never reviews a plan on its own.
 
 ## Recipe methods
 
