@@ -14,14 +14,14 @@ The screens take their data as props or read it through a small `EngineClient` i
 | Workspace | `src/workspace/` | The three screens together as in the design: graph in the middle, inspector on the right, history below. Live events from the client change the node cards as they arrive. |
 | Failure explanation | `src/explain/` | The "why did it fail" flow for a failed run: a notice of what is sent to the model provider, an effort choice, the explanation card with the likely cause, signal chips, action buttons and an optional fix proposal handed to the chat box as a draft. |
 | Recipe gallery | `src/recipes/` | The six ready-made recipes with search and tag filter, a form built from each recipe's params, a draft preview with the graph, side-effect lines and the "external transfer" line, and a deploy button. |
-| Chat panel | `src/chat/` | The left pane: a conversation with the planner (questions, workflow preview, unsupported), an effort slider, file attachments, flag confirmation before deploy, a model picker and a notes screen. See the next section. |
+| Chat panel | `src/chat/` | The right pane: a conversation with the planner (questions, workflow preview, unsupported), an effort slider, file attachments, flag confirmation before deploy, a model picker and a notes screen. See the next section. |
 | Shared pieces | `src/ui/`, `src/theme/`, `src/i18n/` | Status chip and icons, color tokens for light and dark, and a typed Korean and English dictionary. |
 
 Run state lives in `src/model/` as pure functions: `statesFromSteps` for a finished run, `reduceEvent` for the live event stream, `displayState` for what a card shows. A trigger writes no step row, so a trigger of an open run is shown as succeeded.
 
 ## The chat panel
 
-`src/chat/ChatPanel.tsx` is the whole left pane as one component that takes its world as props:
+`src/chat/ChatPanel.tsx` is the whole right pane as one component that takes its world as props:
 
 | Prop | Meaning |
 | --- | --- |

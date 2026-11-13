@@ -47,9 +47,6 @@ export function TopBar({ tab, onTab, list, selectedId, onSelectWorkflow, connect
   const reason = connection.status?.error
   return (
     <header className={styles.bar} data-rill-region="topbar" aria-label={t('app.region.top')}>
-      <button type="button" ref={chatToggleRef} className={styles.chatToggle} aria-expanded={chatOpen} onClick={onToggleChat}>
-        {t(chatOpen ? 'app.top.chat.close' : 'app.top.chat.open')}
-      </button>
       <strong className={styles.brand}>{t('app.name')}</strong>
       <div className={styles.switcher}>
         <WorkflowSwitcher list={list} selectedId={selectedId} onSelect={onSelectWorkflow} />
@@ -85,6 +82,9 @@ export function TopBar({ tab, onTab, list, selectedId, onSelectWorkflow, connect
           <span className={styles.model}>{model === undefined ? t('app.top.transfer.none') : t('app.top.transfer.model', { provider: providerName(model.provider), model: truncate(escapeInvisible(model.model), 40) })}</span>
         </span>
       </div>
+      <button type="button" ref={chatToggleRef} className={styles.chatToggle} aria-expanded={chatOpen} onClick={onToggleChat}>
+        {t(chatOpen ? 'app.top.chat.close' : 'app.top.chat.open')}
+      </button>
     </header>
   )
 }
