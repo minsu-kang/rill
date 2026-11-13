@@ -89,7 +89,7 @@ export function AgentImportReview({ review, outcome, busy, error, headingRef, on
       <p className={controls.note}>{t('agents.import.file', { name: plainText(review.fileName, 80) })}</p>
       <p className={controls.ok}>{t('agents.import.nothing')}</p>
       <p className={controls.note}>{t('agents.import.sent')}</p>
-      {outcome.fields === undefined ? null : <p className={controls.note}>{`${t('agents.import.kind')}: ${t(`agents.kind.${outcome.kind ?? 'assistant'}`)}`}</p>}
+      {outcome.fields === undefined ? null : <p className={controls.note}>{t('agents.import.kindLine', { kind: t(`agents.kind.${outcome.kind ?? 'assistant'}`) })}</p>}
       {outcome.fields === undefined ? null : <p className={controls.note}>{t('agents.import.noSkills')}</p>}
       {problems.length > 0 || outcome.duplicate ? (
         <div className={controls.error} role="alert">

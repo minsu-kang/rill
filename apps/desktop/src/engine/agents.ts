@@ -166,8 +166,12 @@ export function agentIdForRequest(state: AgentsState): string | undefined {
   return state.status === 'ready' && state.activeId !== AGENT_DEFAULT_ID && activeAgentOf(state) !== undefined ? state.activeId : undefined
 }
 
+export function hasAgentText(agent: Pick<Agent, 'persona' | 'instructions' | 'skillIds'>): boolean {
+  return agent.persona !== '' || agent.instructions !== '' || skillIdsOf(agent).length > 0
+}
+
 export function sendsAgentText(state: AgentsState): boolean {
   if (agentIdForRequest(state) === undefined) return false
   const agent = activeAgentOf(state)
-  return agent !== undefined && (agent.persona !== '' || agent.instructions !== '' || skillIdsOf(agent).length > 0)
+  return agent !== undefined && hasAgentText(agent)
 }

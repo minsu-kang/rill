@@ -1,8 +1,8 @@
-import { AGENT_DEFAULT_ID, type Agent, type AgentField, type AgentFields, type AgentKind } from '@rill/protocol'
+import { AGENT_DEFAULT_ID, type Agent, type AgentField, type AgentFields, type AgentKind, type Skill } from '@rill/protocol'
 import { useSyncExternalStore } from 'react'
 import type { EngineClient } from '../../../engine/client'
 import type { FileProblem, ParsedAgentFile } from '../agent-file'
-import { draftOf, emptyDraft, sameDraft, type AgentDraft } from './draft'
+import { draftOf, emptyDraft, sameDraft, withKnownSkills, type AgentDraft } from './draft'
 
 export interface ReviewState {
   fileName: string
@@ -81,19 +81,23 @@ export interface Selection {
   baseline: AgentDraft
   draft: AgentDraft
   dirty: boolean
+  skillsGone: boolean
 }
 
-export function selectionOf(state: ViewState, agents: readonly Agent[], activeId: string): Selection {
+export function selectionOf(state: ViewState, agents: readonly Agent[], activeId: string, skills?: readonly Skill[]): Selection {
   if (state.creating) {
     const baseline = emptyDraft()
-    const draft = state.edits ?? baseline
-    return { agent: undefined, creating: true, baseline, draft, dirty: !sameDraft(draft, baseline) }
+    const shown = state.edits ?? baseline
+    const draft = withKnownSkills(shown, skills)
+    return { agent: undefined, creating: true, baseline, draft, dirty: !sameDraft(draft, baseline), skillsGone: draft !== shown }
   }
   const wanted = state.selectedId ?? activeId
   const agent = agents.find((entry) => entry.id === wanted) ?? agents.find((entry) => entry.id === AGENT_DEFAULT_ID)
-  const baseline = agent === undefined ? emptyDraft() : draftOf(agent)
-  const draft = state.edits ?? baseline
-  return { agent, creating: false, baseline, draft, dirty: !sameDraft(draft, baseline) }
+  const stored = agent === undefined ? emptyDraft() : draftOf(agent)
+  const baseline = withKnownSkills(stored, skills)
+  const shown = state.edits ?? stored
+  const draft = withKnownSkills(shown, skills)
+  return { agent, creating: false, baseline, draft, dirty: !sameDraft(draft, baseline), skillsGone: draft !== shown }
 }
 
 export interface ViewStore {

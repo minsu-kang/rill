@@ -10,12 +10,13 @@ import { skillBudget } from './model/draft'
 export interface SkillsPickerProps {
   skills: SkillsState
   value: readonly string[]
+  gone?: boolean
   disabled: boolean
   onChange(ids: string[]): void
   onRetry(): void
 }
 
-export function SkillsPicker({ skills, value, disabled, onChange, onRetry }: SkillsPickerProps) {
+export function SkillsPicker({ skills, value, gone = false, disabled, onChange, onRetry }: SkillsPickerProps) {
   const t = useT()
   const base = useId()
   const budget = skillBudget(value, skills.skills)
@@ -34,6 +35,7 @@ export function SkillsPicker({ skills, value, disabled, onChange, onRetry }: Ski
     <fieldset className={styles.picker}>
       <legend className={styles.label}>{t('agents.skills.legend')}</legend>
       <p className={styles.hint}>{t('agents.skills.hint', { maxSkills: AGENT_MAX_SKILLS, maxChars: AGENT_SKILLS_MAX_CHARS })}</p>
+      {gone ? <p className={controls.note}>{t('agents.skills.gone')}</p> : null}
       {skills.status === 'loading' && skills.skills.length === 0 ? (
         <p className={controls.note} role="status">
           {t('agents.skills.loading')}

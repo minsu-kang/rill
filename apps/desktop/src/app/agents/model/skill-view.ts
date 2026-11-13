@@ -23,7 +23,7 @@ export type SkillViewAction =
   | { type: 'select'; id: string }
   | { type: 'create' }
   | { type: 'deselect' }
-  | { type: 'edit'; field: SkillField; value: string; base: SkillDraft }
+  | { type: 'edit'; field: SkillField; value: string; base: SkillDraft; id: string | undefined }
   | { type: 'revert' }
   | { type: 'saved'; id: string }
   | { type: 'review'; fileName: string; parsed: { fields: SkillFields | undefined; problems: SkillFileProblem[] } }
@@ -41,8 +41,9 @@ export function skillViewReducer(state: SkillViewState, action: SkillViewAction)
     case 'deselect':
       return INITIAL_SKILL_VIEW
     case 'edit': {
-      const next = { ...(state.edits ?? action.base), [action.field]: action.value }
-      return { ...state, edits: sameSkillDraft(next, action.base) ? undefined : next }
+      const own = state.selectedId === action.id ? state.edits : undefined
+      const next = { ...(own ?? action.base), [action.field]: action.value }
+      return { ...state, selectedId: action.id, edits: sameSkillDraft(next, action.base) ? undefined : next }
     }
     case 'revert':
       return { ...state, edits: undefined }
@@ -77,12 +78,12 @@ export interface SkillSelection {
 export function skillSelectionOf(state: SkillViewState, skills: readonly Skill[]): SkillSelection {
   if (state.creating || (skills.length === 0 && state.review === undefined)) {
     const baseline = emptySkillDraft()
-    const draft = state.edits ?? baseline
+    const draft = (state.selectedId === undefined ? state.edits : undefined) ?? baseline
     return { skill: undefined, creating: true, baseline, draft, dirty: !sameSkillDraft(draft, baseline) }
   }
   const skill = skills.find((entry) => entry.id === state.selectedId) ?? skills[0]
   const baseline = skill === undefined ? emptySkillDraft() : skillDraftOf(skill)
-  const draft = state.edits ?? baseline
+  const draft = (state.selectedId === skill?.id ? state.edits : undefined) ?? baseline
   return { skill, creating: false, baseline, draft, dirty: !sameSkillDraft(draft, baseline) }
 }
 

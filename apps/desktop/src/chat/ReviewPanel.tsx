@@ -10,12 +10,13 @@ import styles from './ReviewPanel.module.css'
 
 export interface ReviewPanelProps {
   result: ReviewResult
+  agentSent?: boolean
   focusRef?: RefCallback<HTMLElement>
 }
 
 const NODE_CAP = 32
 
-export function ReviewPanel({ result, focusRef }: ReviewPanelProps) {
+export function ReviewPanel({ result, agentSent = false, focusRef }: ReviewPanelProps) {
   const t = useT()
   const locale = useLocale()
   const { review, meta } = result
@@ -61,7 +62,7 @@ export function ReviewPanel({ result, focusRef }: ReviewPanelProps) {
           </li>
         )}
       </ul>
-      <p className={styles.sent}>{t('chat.review.sent')}</p>
+      <p className={styles.sent}>{t(agentSent ? 'chat.review.sentAgent' : 'chat.review.sent')}</p>
     </article>
   )
 }

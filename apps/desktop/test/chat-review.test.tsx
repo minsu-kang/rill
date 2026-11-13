@@ -14,8 +14,8 @@ import { ReviewPart, type ReviewPartProps } from '../src/chat/ReviewPart'
 import type { AssistantEntry } from '../src/chat/model/conversation'
 import { IDLE_REVIEW, reviewErrorKey, type ReviewState } from '../src/chat/model/review'
 import { catalog } from '../src/fixtures'
-import { agentFixtures } from '../src/fixtures/agents'
-import { metas, results } from '../src/fixtures/plan'
+import { agentFixtures, agentOf } from '../src/fixtures/agents'
+import { metas, outcomeOf, results } from '../src/fixtures/plan'
 import { findingOf, reviewCases, reviewResultOf } from '../src/fixtures/review'
 import { skillFixtures } from '../src/fixtures/skills'
 import { createTranslator } from '../src/i18n'
@@ -121,6 +121,49 @@ describe('the reviewer part: before a review', () => {
     expect(screen.getByRole('button', { name: ko['chat.review.ask'] })).toBeTruthy()
     expect(screen.getByRole('combobox', { name: ko['chat.review.reviewer'] })).toBeTruthy()
     expect(screen.getByRole('note').textContent).toBe(ko['chat.review.transfer'])
+  })
+})
+
+describe('the reviewer part: what is sent', () => {
+  const [plain, texty] = [{ ...reviewers[1]!, sendsText: false }, { ...reviewers[0]!, sendsText: true }]
+
+  it('says in the note before the button is pressed that the settings of the reviewer are sent too, when it has any', () => {
+    showPart({ reviewers: [texty] })
+    expect(screen.getByRole('note').textContent).toBe(en['chat.review.transferAgent'])
+    expect(en['chat.review.transferAgent']).toContain('the plan, your request and the settings of this reviewer')
+  })
+
+  it('keeps the shorter note for a reviewer that has no persona, instructions or skills', () => {
+    showPart({ reviewers: [plain] })
+    expect(screen.getByRole('note').textContent).toBe(en['chat.review.transfer'])
+  })
+
+  it('follows the reviewer that is picked', async () => {
+    showPart({ reviewers: [texty, plain] })
+    expect(screen.getByRole('note').textContent).toBe(en['chat.review.transferAgent'])
+    await userEvent.setup().selectOptions(screen.getByRole('combobox'), plain.id)
+    expect(screen.getByRole('note').textContent).toBe(en['chat.review.transfer'])
+    await userEvent.setup().selectOptions(screen.getByRole('combobox'), texty.id)
+    expect(screen.getByRole('note').textContent).toBe(en['chat.review.transferAgent'])
+  })
+
+  it('says it in Korean too', () => {
+    showPart({ reviewers: [texty] }, 'ko')
+    expect(screen.getByRole('note').textContent).toBe(ko['chat.review.transferAgent'])
+    expect(ko['chat.review.transferAgent']).not.toBe(ko['chat.review.transfer'])
+  })
+
+  it('says under the answer that the settings of the reviewer were sent, when they were', () => {
+    showPart({ state: { ...(done() as Extract<ReviewState, { phase: 'done' }>), agentSent: true } })
+    expect(screen.getByText(en['chat.review.sentAgent'])).toBeTruthy()
+    expect(screen.queryByText(en['chat.review.sent'])).toBeNull()
+    expect(en['chat.review.sentAgent']).toContain('the settings of the reviewer were sent to the AI provider')
+  })
+
+  it('keeps the shorter line under the answer of a reviewer that had nothing to send', () => {
+    showPart({ state: { ...(done() as Extract<ReviewState, { phase: 'done' }>), agentSent: false } })
+    expect(screen.getByText(en['chat.review.sent'])).toBeTruthy()
+    expect(screen.queryByText(en['chat.review.sentAgent'])).toBeNull()
   })
 })
 
@@ -284,6 +327,25 @@ describe('reviewErrorKey', () => {
     }
   })
 
+  it.each(['connection closed', 'request timed out: reviewPlan', 'connection is not open'])('gives an error without a code, such as "%s", the text for a lost connection', (message) => {
+    expect(reviewErrorKey(new Error(message))).toBe('chat.review.error.connection')
+  })
+
+  it('keeps the general text for an error with a code that is not known, and for a thing that is not an error', () => {
+    expect(reviewErrorKey(new RillError('SOMETHING_ELSE', 'x'))).toBe('chat.review.error.generic')
+    expect(reviewErrorKey({ message: 'no code and not an Error' })).toBe('chat.review.error.generic')
+  })
+
+  it('has a text for a lost connection that differs from the others in both languages and never uses the message', () => {
+    for (const locale of ['en', 'ko'] as const) {
+      const t = createTranslator(locale)
+      const others = ['NOT_FOUND', 'PLAN_NOT_REVIEWABLE', 'AGENT_NOT_FOUND', 'AGENT_NOT_REVIEWER', 'LLM_UNAVAILABLE', 'REVIEW_BUSY', 'REVIEW_PROVIDER', 'REVIEW_INVALID', 'INVALID_PARAMS', 'INTERNAL'].map((code) => t(reviewErrorKey({ code })))
+      const lost = t(reviewErrorKey(new Error('SECRET-DETAIL')))
+      expect(others).not.toContain(lost)
+      expect(lost).not.toContain('SECRET-DETAIL')
+    }
+  })
+
   it('reads a thing that is not an error as the general text', () => {
     expect(reviewErrorKey(undefined)).toBe('chat.review.error.generic')
     expect(reviewErrorKey('x')).toBe('chat.review.error.generic')
@@ -292,9 +354,27 @@ describe('reviewErrorKey', () => {
 })
 
 describe('ReviewPanel on its own', () => {
-  it('labels itself and takes the focus ref', () => {
+  it('labels itself and is not a tab stop without a focus ref', () => {
     renderThemed(<ReviewPanel result={result} />, { locale: 'en' })
-    expect(screen.getByRole('article', { name: en['chat.review.panel'] })).toBeTruthy()
+    expect(screen.getByRole('article', { name: en['chat.review.panel'] }).hasAttribute('tabindex')).toBe(false)
+  })
+
+  it('hands its element to the focus ref and can be focused by it, but not by Tab', () => {
+    const focusRef = vi.fn()
+    renderThemed(<ReviewPanel result={result} focusRef={focusRef} />, { locale: 'en' })
+    const panel = screen.getByRole('article', { name: en['chat.review.panel'] })
+    expect(panel.getAttribute('tabindex')).toBe('-1')
+    expect(focusRef).toHaveBeenCalledWith(panel)
+    panel.focus()
+    expect(document.activeElement).toBe(panel)
+  })
+
+  it('says which line was sent depending on the flag', () => {
+    const view = renderThemed(<ReviewPanel result={result} agentSent />, { locale: 'en' })
+    expect(screen.getByText(en['chat.review.sentAgent'])).toBeTruthy()
+    view.unmount()
+    renderThemed(<ReviewPanel result={result} />, { locale: 'en' })
+    expect(screen.getByText(en['chat.review.sent'])).toBeTruthy()
   })
 })
 
@@ -406,10 +486,48 @@ describe('the chat with a reviewer', () => {
     expect(screen.getByRole('status', { name: '' }).textContent).toContain('Asking the reviewer')
     expect(await screen.findByRole('article', { name: en['chat.review.panel'] })).toBeTruthy()
     expect(world.callsOf('reviewPlan').map((call) => call.params)).toEqual([{ planId: 'plan-1', agentId: 'agent-reviewer-ko' }])
-    expect(screen.getByText(en['chat.review.sent'])).toBeTruthy()
+    expect(screen.getByText(en['chat.review.sentAgent'])).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Deploy' }) as HTMLButtonElement).outerHTML).toBe(before)
     expect(world.callsOf('deployPlan')).toEqual([])
     expect(world.callsOf('plan')).toHaveLength(1)
+  })
+
+  it('changes nothing of the card when an answer comes: the flags, the graph, the text and the Deploy button stay as they were', async () => {
+    const { world } = show({ script: () => outcomeOf(results.flagged) })
+    await ready()
+    ask('send the totals')
+    await screen.findByRole('button', { name: 'Deploy' })
+    const flagBoxes = (): HTMLInputElement[] => screen.getAllByRole('checkbox').filter((item) => (item as HTMLInputElement).getAttribute('aria-label')?.startsWith('I checked')) as HTMLInputElement[]
+    fireEvent.click(flagBoxes()[0]!)
+    fireEvent.click(flagBoxes()[1]!)
+    const snapshot = (): { flags: string[]; deploy: string; card: string } => {
+      const card = document.querySelector('[data-plan-card]')!.cloneNode(true) as HTMLElement
+      card.querySelectorAll('[role="group"][aria-label="' + en['chat.review.group'] + '"]').forEach((part) => part.remove())
+      const deploy = screen.getByRole('button', { name: 'Deploy' }) as HTMLButtonElement
+      return { flags: flagBoxes().map((box) => `${box.getAttribute('aria-label')}:${box.checked}:${box.disabled}`), deploy: `${deploy.disabled}:${deploy.outerHTML}`, card: card.outerHTML }
+    }
+    const settled = async (): Promise<ReturnType<typeof snapshot>> => {
+      let previous = snapshot()
+      for (let round = 0; round < 40; round++) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 25))
+        })
+        const next = snapshot()
+        if (JSON.stringify(next) === JSON.stringify(previous)) return next
+        previous = next
+      }
+      throw new Error('the card did not settle')
+    }
+    const before = await settled()
+    expect(before.flags.filter((line) => line.endsWith(':true:false'))).toHaveLength(2)
+    expect(before.card).toContain('react-flow__node')
+    expect(before.card).toContain('react-flow__edge')
+    fireEvent.click(reviewButton())
+    await screen.findByRole('article', { name: en['chat.review.panel'] })
+    expect(await settled()).toEqual(before)
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(await settled()).toEqual(before)
+    expect(world.callsOf('deployPlan')).toEqual([])
   })
 
   it('hides the select with one reviewer, and offers none to an assistant', async () => {
@@ -487,6 +605,31 @@ describe('the chat with a reviewer', () => {
     expect(screen.queryByRole('article', { name: en['chat.review.panel'] })).toBeNull()
   })
 
+  it('shows the text of a lost connection for an error without a code, never its message', async () => {
+    await planned({ intercept: (method) => (method === 'reviewPlan' ? Promise.reject(new Error('connection closed SECRET-DETAIL')) : undefined) })
+    fireEvent.click(reviewButton())
+    expect((await screen.findByRole('alert')).textContent).toBe(en['chat.review.error.connection'])
+    expect(document.body.textContent).not.toContain('SECRET')
+    expect(reviewButton().textContent).toBe('Try again')
+  })
+
+  it('says what is sent with the reviewer that is picked: the settings are named only for a reviewer that has some', async () => {
+    const bare = agentOf('agent-bare', { name: 'Bare reviewer', kind: 'reviewer' })
+    await planned({ agents: [agentFixtures.few[0]!, agentFixtures.reviewers[0]!, bare] })
+    const user = userEvent.setup()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Reviewer' }), bare.id)
+    expect(screen.getByRole('note', { name: '' }).textContent).toBe(en['chat.review.transfer'])
+    fireEvent.click(reviewButton())
+    await screen.findByRole('article', { name: en['chat.review.panel'] })
+    expect(screen.getByText(en['chat.review.sent'])).toBeTruthy()
+    expect(screen.queryByText(en['chat.review.sentAgent'])).toBeNull()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Reviewer' }), 'agent-reviewer')
+    expect(screen.getByRole('note', { name: '' }).textContent).toBe(en['chat.review.transferAgent'])
+    fireEvent.click(reviewButton())
+    await waitFor(() => expect(screen.getByText(en['chat.review.sentAgent'])).toBeTruthy())
+    expect(screen.queryByText(en['chat.review.sent'])).toBeNull()
+  })
+
   it('loads the agents again when the engine says the reviewer is gone or is not one', async () => {
     const { world } = await planned({ intercept: (method) => (method === 'reviewPlan' ? Promise.reject(new RillError('AGENT_NOT_FOUND', 'x')) : undefined) })
     const before = world.callsOf('listAgents').length
@@ -538,7 +681,7 @@ describe('the chat with a reviewer', () => {
     await screen.findByRole('button', { name: ko['chat.deploy.button'] })
     fireEvent.click(screen.getByRole('button', { name: ko['chat.review.ask'] }))
     expect(await screen.findByRole('article', { name: ko['chat.review.panel'] })).toBeTruthy()
-    expect(screen.getByText(ko['chat.review.sent'])).toBeTruthy()
+    expect(screen.getByText(ko['chat.review.sentAgent'])).toBeTruthy()
     expect(shown.world.callsOf('reviewPlan')).toHaveLength(1)
   })
 

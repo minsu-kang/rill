@@ -1,6 +1,7 @@
 import { flagKey, type PlanResultBody } from '@rill/protocol'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useState } from 'react'
+import { hasAgentText } from '../engine/agents'
 import { catalog } from '../fixtures'
 import type { MessageKey } from '../i18n'
 import { metas, results } from '../fixtures/plan'
@@ -43,7 +44,7 @@ function Demo({ result, start = [], deploying = false, deployError, deployed, su
         deployError={deployError}
         superseded={superseded}
         planning={planning}
-        {...(reviewers === undefined ? {} : { review: { reviewers: agentFixtures.reviewers.slice(0, reviewers).map((agent) => ({ id: agent.id, name: agent.name })), agents: 'ready' as const, state: review ?? { phase: 'idle' as const }, onAsk: () => undefined, onCancel: () => undefined, onClose: () => undefined } })}
+        {...(reviewers === undefined ? {} : { review: { reviewers: agentFixtures.reviewers.slice(0, reviewers).map((agent) => ({ id: agent.id, name: agent.name, sendsText: hasAgentText(agent) })), agents: 'ready' as const, state: review ?? { phase: 'idle' as const }, onAsk: () => undefined, onCancel: () => undefined, onClose: () => undefined } })}
         onToggleFlag={(key) => setConfirmed((previous) => (previous.includes(key) ? previous.filter((item) => item !== key) : [...previous, key]))}
         onDeploy={() => setDone('wf-demo-1')}
       />
@@ -91,7 +92,7 @@ export const Superseded: Story = { name: 'Replaced by a newer plan', args: unuse
 
 export const WhileAnotherPlanIsMade: Story = { name: 'While another plan is made', args: unused, render: () => <Demo result={results.workflow} planning /> }
 
-const answer: ReviewState = { phase: 'done', agentId: 'agent-reviewer', result: reviewResultOf(reviewCases.mixed) }
+const answer: ReviewState = { phase: 'done', agentId: 'agent-reviewer', result: reviewResultOf(reviewCases.mixed), agentSent: true }
 
 export const ReviewerNoneYet: Story = { name: 'Reviewer part: no reviewer agent', args: unused, render: () => <Demo result={results.flagged} reviewers={0} /> }
 

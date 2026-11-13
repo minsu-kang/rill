@@ -1,5 +1,5 @@
 import { RillError, SKILL_MAX_ITEMS, type Agent, type MethodName, type MethodParams, type MethodResult, type Skill } from '@rill/protocol'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { SkillsScreen } from '../src/app/agents/SkillsScreen'
@@ -339,6 +339,58 @@ describe('saving', () => {
     await user.click(listItem(/Slack message style/))
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Discard changes' }))
     expect(field('Name').value).toBe(slack.name)
+  })
+})
+
+describe('a skill that another client deleted', () => {
+  async function deletedElsewhere() {
+    const world = mount({ skills: skillFixtures.few })
+    await ready()
+    await world.user.click(listItem(/Slack message style/))
+    change('Text', 'MY NEW SLACK TEXT')
+    await act(async () => {
+      await world.inner.request('deleteSkill', { id: slack.id })
+    })
+    await world.user.click(button('Save'))
+    expect((await screen.findByRole('alert')).textContent).toBe(en['skills.error.SKILL_NOT_FOUND'])
+    await waitFor(() => expect(within(screen.getByRole('list', { name: 'Skill list' })).queryByRole('button', { name: /Slack message style/ })).toBeNull())
+    return world
+  }
+
+  it('does not carry the unsaved text of the deleted skill over to the skill that is shown instead', async () => {
+    await deletedElsewhere()
+    expect(screen.getByRole('heading', { level: 3 }).textContent).toBe(receipts.name)
+    expect(field('Name').value).toBe(receipts.name)
+    expect(field('Text').value).toBe(receipts.body)
+    expect(button('Save').disabled).toBe(true)
+    expect(screen.queryByText(en['skills.editor.unsaved'])).toBeNull()
+  })
+
+  it('starts the next edit from the stored skill, and saves nothing of the deleted draft', async () => {
+    const { callsOf, inner, user } = await deletedElsewhere()
+    change('Name', 'Receipts checklist 2')
+    expect(field('Text').value).toBe(receipts.body)
+    await user.click(button('Save'))
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Saved.'))
+    expect(callsOf('saveSkill')).toEqual([
+      { name: slack.name, description: slack.description, body: 'MY NEW SLACK TEXT', id: slack.id },
+      { name: 'Receipts checklist 2', description: receipts.description, body: receipts.body, id: receipts.id },
+    ])
+    expect((await inner.request('listSkills', {})).skills.map((skill) => skill.body)).toContain(receipts.body)
+  })
+
+  it('shows an empty form for a new skill when the deleted one was the last, without its text', async () => {
+    const { inner, user } = mount({ skills: [slack] })
+    await ready()
+    change('Text', 'MY NEW SLACK TEXT')
+    await act(async () => {
+      await inner.request('deleteSkill', { id: slack.id })
+    })
+    await user.click(button('Save'))
+    await screen.findByRole('alert')
+    await waitFor(() => expect(screen.getByRole('heading', { level: 3 }).textContent).toBe('New skill'))
+    expect(field('Text').value).toBe('')
+    expect(field('Name').value).toBe('')
   })
 })
 

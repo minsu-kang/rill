@@ -24,6 +24,7 @@ export type ReviewScript = (params: MethodParams<'reviewPlan'>, context: ReviewC
 
 export interface FakeReviewsEnv {
   plan(planId: string): PlanResultBody | undefined
+  failed(planId: string): boolean
   agents: Pick<FakeAgents, 'resolveReviewer'>
   model: LlmModelInfo | undefined
 }
@@ -61,7 +62,10 @@ export function createFakeReviews(options: FakeReviewsOptions = {}): FakeReviews
     running: () => running,
     run(params, env) {
       const plan = env.plan(params.planId)
-      if (plan === undefined) throw new RillError('NOT_FOUND', `plan not found: ${params.planId}`)
+      if (plan === undefined) {
+        if (env.failed(params.planId)) throw new RillError('PLAN_NOT_REVIEWABLE', 'only a plan that has a workflow can be reviewed')
+        throw new RillError('NOT_FOUND', `plan not found: ${params.planId}`)
+      }
       if (plan.kind !== 'workflow') throw new RillError('PLAN_NOT_REVIEWABLE', 'only a plan that has a workflow can be reviewed')
       const agent = env.agents.resolveReviewer(params.agentId)
       if (env.model === undefined) throw new RillError('LLM_UNAVAILABLE', 'no model provider is configured for reviewing')

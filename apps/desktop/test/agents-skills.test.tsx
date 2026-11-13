@@ -1,5 +1,5 @@
 import { AGENT_MAX_SKILLS, AGENT_SKILLS_MAX_CHARS, RillError, type Agent, type MethodName, type MethodParams, type MethodResult, type Skill } from '@rill/protocol'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { AgentsScreen } from '../src/app/agents/AgentsScreen'
@@ -9,6 +9,7 @@ import type { EngineClient } from '../src/engine/client'
 import { createFakeClient } from '../src/engine/fake-client'
 import { createFakeHost, type FakeHostState } from '../src/engine/fake-host'
 import { withPlanMethods } from '../src/engine/fake-plan'
+import { skillsStoreFor } from '../src/engine/skills'
 import { fakeData } from '../src/fixtures'
 import { agentFixtures, agentOf } from '../src/fixtures/agents'
 import { memoryFixtures, models, outcomeOf, results } from '../src/fixtures/plan'
@@ -122,6 +123,17 @@ describe('the kind of an agent in the editor', () => {
     await open(/Safety reviewer/)
     expect(kindSelect().value).toBe('reviewer')
     expect(screen.getByText(en['agents.kind.hint.reviewer'])).toBeTruthy()
+  })
+
+  it('says on the screen that the settings of a reviewer are sent with each review, not only those of the active agent', async () => {
+    mount({ agents: [terse, reviewer], activeAgentId: terse.id })
+    await ready()
+    await open(/Safety reviewer/)
+    expect(screen.getByText(en['agents.kind.hint.reviewer']).textContent).toMatch(/persona, instructions and skills are sent to the model provider with each review/)
+    expect(screen.getByText(en['agents.screen.transfer']).textContent).toMatch(/every request the agent is used for.*review/)
+    expect(en['agents.screen.transfer']).not.toMatch(/active agent/)
+    expect(ko['agents.kind.hint.reviewer']).toMatch(/AI 제공자/)
+    expect(ko['agents.screen.transfer']).not.toMatch(/활성 에이전트/)
   })
 
   it('makes the agent dirty when the kind changes, sends only the kind, and moves the chip', async () => {
@@ -380,6 +392,89 @@ describe('the skills picker', () => {
   })
 })
 
+describe('a skill that was deleted while an agent is open', () => {
+  const checked = (): number => within(skillsGroup()).getAllByRole('checkbox').filter((item) => (item as HTMLInputElement).checked).length
+
+  it('is dropped from the draft: one box is checked, the counts follow, a note says so, and the other edit can still be saved', async () => {
+    const { callsOf, client, user } = mount({ agents: [skilled], skills: skillFixtures.few })
+    await ready()
+    await open(/Receipts helper/)
+    fireEvent.change(field('Persona'), { target: { value: 'Careful and plain. Edited.' } })
+    await act(async () => {
+      await skillsStoreFor(client).remove(receipts.id)
+    })
+    expect(checked()).toBe(1)
+    expect(box('Slack message style').checked).toBe(true)
+    expect(within(skillsGroup()).getByText('1 of 8 skills')).toBeTruthy()
+    expect(within(skillsGroup()).getByText(`${[...slack.body].length} of 6,000 characters`)).toBeTruthy()
+    expect(within(skillsGroup()).getByText(en['agents.skills.gone'])).toBeTruthy()
+    expect(button('Save').disabled).toBe(false)
+    await user.click(button('Save'))
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Saved.'))
+    expect(callsOf('saveAgent')).toEqual([{ id: skilled.id, name: skilled.name, description: skilled.description, persona: 'Careful and plain. Edited.', instructions: skilled.instructions }])
+  })
+
+  it('is dropped from an agent that was not edited, and does not make it look changed', async () => {
+    const { client } = mount({ agents: [skilled], skills: skillFixtures.few })
+    await ready()
+    await open(/Receipts helper/)
+    await act(async () => {
+      await skillsStoreFor(client).remove(slack.id)
+    })
+    expect(checked()).toBe(1)
+    expect(within(skillsGroup()).getByText('1 of 8 skills')).toBeTruthy()
+    expect(screen.queryByText(en['agents.editor.unsaved'])).toBeNull()
+    expect(button('Save').disabled).toBe(true)
+  })
+
+  it('says nothing when no skill was deleted', async () => {
+    mount({ agents: [skilled], skills: skillFixtures.few })
+    await ready()
+    await open(/Receipts helper/)
+    expect(within(skillsGroup()).queryByText(en['agents.skills.gone'])).toBeNull()
+  })
+
+  it('goes away with the edit when the changes are undone', async () => {
+    const { client, user } = mount({ agents: [skilled], skills: skillFixtures.few })
+    await ready()
+    await open(/Receipts helper/)
+    fireEvent.change(field('Persona'), { target: { value: 'Other' } })
+    await act(async () => {
+      await skillsStoreFor(client).remove(receipts.id)
+    })
+    await user.click(button('Undo changes'))
+    expect(field('Persona').value).toBe(skilled.persona)
+    expect(checked()).toBe(1)
+  })
+
+  it('reloads the skills when the engine says on Save that one is gone, so the picker stops showing it', async () => {
+    const { callsOf, inner, user } = mount({ agents: [terse], skills: skillFixtures.few })
+    await ready()
+    await open(/Terse reviewer/)
+    await user.click(box('Slack message style'))
+    await act(async () => {
+      await inner.request('deleteSkill', { id: slack.id })
+    })
+    const before = callsOf('listSkills').length
+    await user.click(button('Save'))
+    expect((await screen.findByRole('alert')).textContent).toBe(en['skills.error.agentSkillsUnknown'])
+    await waitFor(() => expect(callsOf('listSkills').length).toBe(before + 1))
+    await waitFor(() => expect(within(skillsGroup()).queryByRole('checkbox', { name: 'Slack message style' })).toBeNull())
+    expect(checked()).toBe(0)
+  })
+
+  it('does not reload the skills for another failure of Save', async () => {
+    const { callsOf, user } = mount({ agents: [terse], skills: skillFixtures.few, intercept: (method) => (method === 'saveAgent' ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined) })
+    await ready()
+    await open(/Terse reviewer/)
+    await user.click(box('Slack message style'))
+    const before = callsOf('listSkills').length
+    await user.click(button('Save'))
+    await screen.findByRole('alert')
+    expect(callsOf('listSkills')).toHaveLength(before)
+  })
+})
+
 describe('the file of an agent with a kind', () => {
   const REVIEWER_FILE = ['---', 'name: File reviewer', 'description: From a file', 'kind: reviewer', '---', '', '# Persona', '', 'Strict.', '', '# Instructions', '', 'Say what could go wrong.', ''].join('\n')
 
@@ -406,7 +501,7 @@ describe('the file of an agent with a kind', () => {
   it('shows the kind of the file on the review screen, says that an imported agent has no skills, and saves a reviewer', async () => {
     const { user, callsOf } = mount({ agents: [terse], skills: skillFixtures.few, host: { textPicks: [{ name: 'File reviewer.md', text: REVIEWER_FILE }] } })
     await startImport(user)
-    expect(screen.getByText(`${en['agents.import.kind']}: ${en['agents.kind.reviewer']}`)).toBeTruthy()
+    expect(screen.getByText(en['agents.import.kindLine'].replace('{kind}', en['agents.kind.reviewer']))).toBeTruthy()
     expect(screen.getByText(en['agents.import.noSkills'])).toBeTruthy()
     await user.click(button('Save as a new agent'))
     await waitFor(() => expect(screen.getByRole('status').textContent).toBe(en['agents.status.imported']))
@@ -415,10 +510,16 @@ describe('the file of an agent with a kind', () => {
     expect(listItem(/File reviewer/).textContent).not.toContain('In use')
   })
 
+  it('writes the line about the kind of the file through the translator, with the separator of each language', () => {
+    expect(en['agents.import.kindLine']).toBe('Kind in the file: {kind}')
+    expect(ko['agents.import.kindLine']).toBe('파일의 종류: {kind}')
+    expect(Object.keys(en)).not.toContain('agents.import.kind')
+  })
+
   it('shows an assistant as the kind of a file that has none', async () => {
     const { user } = mount({ agents: [terse], host: { textPicks: [{ name: 'a.md', text: REVIEWER_FILE.replace('kind: reviewer\n', '') }] } })
     await startImport(user)
-    expect(screen.getByText(`${en['agents.import.kind']}: ${en['agents.kind.assistant']}`)).toBeTruthy()
+    expect(screen.getByText(en['agents.import.kindLine'].replace('{kind}', en['agents.kind.assistant']))).toBeTruthy()
   })
 
   it('refuses a kind that is neither, by line, and blocks Save', async () => {

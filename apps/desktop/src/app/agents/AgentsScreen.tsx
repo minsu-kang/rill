@@ -44,7 +44,7 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
   const [asking, setAsking] = useState<Asking | undefined>(undefined)
   const [exportProblem, setExportProblem] = useState(false)
   const root = useRef<HTMLElement>(null)
-  const selection = selectionOf(view, agents.agents, agents.activeId)
+  const selection = selectionOf(view, agents.agents, agents.activeId, skills.status === 'ready' ? skills.skills : undefined)
   const ready = agents.status === 'ready' || agents.agents.length > 0
   const review = view.review
   const outcome = review === undefined ? undefined : reviewOutcome(review, agents.agents)
@@ -92,9 +92,14 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
     const creating = selection.creating
     setStatus(undefined)
     void action.run(async () => {
-      const saved = await store.save(input)
-      viewStore.dispatch({ type: 'saved', id: saved.id })
-      setStatus(creating ? 'agents.status.created' : 'agents.status.saved')
+      try {
+        const saved = await store.save(input)
+        viewStore.dispatch({ type: 'saved', id: saved.id })
+        setStatus(creating ? 'agents.status.created' : 'agents.status.saved')
+      } catch (failure) {
+        if (planErrorKey(failure) === 'skills.error.agentSkillsUnknown') void skillsStore.refresh()
+        throw failure
+      }
     })
   }
 
@@ -219,6 +224,7 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
               error={asking?.kind === 'delete' ? undefined : exportProblem ? 'agents.export.headingInText' : action.error}
               status={status}
               skills={skills}
+              skillsGone={selection.skillsGone}
               headingRef={heading}
               onChange={edit}
               onKind={editKind}

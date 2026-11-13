@@ -133,6 +133,7 @@ export function withPlanMethods(client: EngineClient & { emit?: (event: EngineEv
   const records = new Map<string, PlanRecord>()
   for (const item of data.seed ?? []) records.set(item.planId, { result: structuredClone(item.result), flagKeys: item.result.kind === 'workflow' ? item.result.flags.map(flagKey) : [] })
   const pending = new Map<string, (error: RillError) => void>()
+  const failed = new Set<string>()
   const memory: MemoryItem[] = structuredClone(data.memory)
   const now = data.now ?? Date.now
   const skills = createFakeSkills({ ...(data.skills === undefined ? {} : { skills: data.skills }), now })
@@ -162,6 +163,7 @@ export function withPlanMethods(client: EngineClient & { emit?: (event: EngineEv
       const finish = (): void => {
         if (!pending.delete(params.planId)) return
         if (answer instanceof RillError) {
+          failed.add(params.planId)
           reject(answer)
           return
         }
@@ -178,6 +180,7 @@ export function withPlanMethods(client: EngineClient & { emit?: (event: EngineEv
     const reject = pending.get(planId)
     if (reject === undefined) return { cancelled: false }
     pending.delete(planId)
+    failed.add(planId)
     reject(new RillError('PLAN_CANCELLED', 'planning was cancelled'))
     return { cancelled: true }
   }
@@ -243,7 +246,7 @@ export function withPlanMethods(client: EngineClient & { emit?: (event: EngineEv
       if (answer.deleted) agents.dropSkill(params.id)
       return answer
     },
-    reviewPlan: (params) => reviews.run(params, { plan: (planId) => records.get(planId)?.result, agents, model: activeModelOf(data.models) }),
+    reviewPlan: (params) => reviews.run(params, { plan: (planId) => records.get(planId)?.result, failed: (planId) => failed.has(planId), agents, model: activeModelOf(data.models) }),
     listRules: () => rules.list(),
     saveRule: async (params) => {
       const { nodes } = await client.request('nodeCatalog', {})

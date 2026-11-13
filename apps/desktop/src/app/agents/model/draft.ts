@@ -50,7 +50,13 @@ export interface SkillBudget {
 
 export function skillBudget(skillIds: readonly string[], skills: readonly Skill[]): SkillBudget {
   const known = skillIds.flatMap((id) => skills.filter((skill) => skill.id === id))
-  return { count: skillIds.length, chars: known.reduce((sum, skill) => sum + [...skill.body].length, 0), unknown: skillIds.length - known.length }
+  return { count: known.length, chars: known.reduce((sum, skill) => sum + [...skill.body].length, 0), unknown: skillIds.length - known.length }
+}
+
+export function withKnownSkills(draft: AgentDraft, skills: readonly Skill[] | undefined): AgentDraft {
+  if (skills === undefined) return draft
+  const skillIds = draft.skillIds.filter((id) => skills.some((skill) => skill.id === id))
+  return skillIds.length === draft.skillIds.length ? draft : { ...draft, skillIds }
 }
 
 export function skillsProblem(skillIds: readonly string[], skills: readonly Skill[]): AgentSkillRule | undefined {

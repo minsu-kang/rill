@@ -32,6 +32,7 @@ export interface AgentEditorProps {
   error: MessageKey | undefined
   status: MessageKey | undefined
   skills: SkillsState
+  skillsGone?: boolean
   headingRef?: RefCallback<HTMLElement>
   onChange(field: AgentField, value: string): void
   onKind(kind: AgentKind): void
@@ -139,7 +140,7 @@ function KindField({ kind, locked, disabled, onChange }: { kind: AgentKind; lock
   )
 }
 
-export function AgentEditor({ agent, creating, draft, dirty, inUse, busy, error, status, skills, headingRef, onChange, onKind, onSkills, onRetrySkills, onSave, onRevert, onDelete, onUse, onExport }: AgentEditorProps) {
+export function AgentEditor({ agent, creating, draft, dirty, inUse, busy, error, status, skills, skillsGone = false, headingRef, onChange, onKind, onSkills, onRetrySkills, onSave, onRevert, onDelete, onUse, onExport }: AgentEditorProps) {
   const t = useT()
   const problems = draftProblems(draft)
   const skillsFailed = skills.status === 'ready' && skillsProblem(draft.skillIds, skills.skills) !== undefined
@@ -188,7 +189,7 @@ export function AgentEditor({ agent, creating, draft, dirty, inUse, busy, error,
             {field === 'description' ? <KindField kind={draft.kind} locked={inUse && !creating} disabled={busy} onChange={onKind} /> : null}
           </Fragment>
         ))}
-        <SkillsPicker skills={skills} value={draft.skillIds} disabled={busy} onChange={onSkills} onRetry={onRetrySkills} />
+        <SkillsPicker skills={skills} value={draft.skillIds} gone={skillsGone} disabled={busy} onChange={onSkills} onRetry={onRetrySkills} />
         {dirty ? <p className={controls.note}>{t('agents.editor.unsaved')}</p> : null}
         {error === undefined ? null : (
           <p className={controls.error} role="alert">

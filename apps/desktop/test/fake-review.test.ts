@@ -49,6 +49,32 @@ describe('the fake engine answers reviewPlan with the errors of the engine, in i
     expect((await failure(unsupported.request('reviewPlan', { planId: 'u', agentId: 'agent-reviewer' }))).code).toBe('PLAN_NOT_REVIEWABLE')
   })
 
+  it('refuses a plan that failed before it looks at the agent, as the engine does for a failed record', async () => {
+    const { request } = make({ script: () => new RillError('PLAN_PROVIDER', 'the provider failed') })
+    expect((await failure(request('plan', planParams('f')))).code).toBe('PLAN_PROVIDER')
+    expect((await failure(request('reviewPlan', { planId: 'f', agentId: 'nobody' }))).code).toBe('PLAN_NOT_REVIEWABLE')
+    expect((await failure(request('reviewPlan', { planId: 'f', agentId: 'agent-reviewer' }))).code).toBe('PLAN_NOT_REVIEWABLE')
+  })
+
+  it('refuses a plan that was cancelled the same way, and keeps NOT_FOUND for an id that was never planned', async () => {
+    const { client, request } = make({ script: () => 'hang' })
+    const planning = request('plan', planParams('c'))
+    const rejected = failure(planning)
+    client.request('cancelPlan', { planId: 'c' })
+    expect((await rejected).code).toBe('PLAN_CANCELLED')
+    expect((await failure(request('reviewPlan', { planId: 'c', agentId: 'agent-reviewer' }))).code).toBe('PLAN_NOT_REVIEWABLE')
+    expect((await failure(request('reviewPlan', { planId: 'never', agentId: 'agent-reviewer' }))).code).toBe('NOT_FOUND')
+  })
+
+  it('reviews a plan again when a retry under the same id made a workflow', async () => {
+    let calls = 0
+    const { request } = make({ script: () => (calls++ === 0 ? new RillError('PLAN_PROVIDER', 'x') : outcomeOf(results.workflow)) })
+    await failure(request('plan', planParams('r')))
+    expect((await failure(request('reviewPlan', { planId: 'r', agentId: 'agent-reviewer' }))).code).toBe('PLAN_NOT_REVIEWABLE')
+    await request('plan', planParams('r'))
+    expect((await request('reviewPlan', { planId: 'r', agentId: 'agent-reviewer' })).review.summary).not.toBe('')
+  })
+
   it('refuses an unknown agent, an assistant and the built-in agent, in that order of meaning', async () => {
     const { request } = make()
     await request('plan', planParams('p'))

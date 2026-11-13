@@ -8,11 +8,11 @@ const meta = { title: 'App/Agents/SkillsPicker', component: SkillsPicker } satis
 export default meta
 type Story = StoryObj<typeof meta>
 
-function Demo({ skills, start = [], disabled = false }: { skills: SkillsState; start?: string[]; disabled?: boolean }) {
+function Demo({ skills, start = [], disabled = false, gone = false }: { skills: SkillsState; start?: string[]; disabled?: boolean; gone?: boolean }) {
   const [picked, setPicked] = useState<string[]>(start)
   return (
     <div style={{ width: 520, padding: 'var(--space-4)' }}>
-      <SkillsPicker skills={skills} value={picked} disabled={disabled} onChange={setPicked} onRetry={() => undefined} />
+      <SkillsPicker skills={skills} value={picked} gone={gone} disabled={disabled} onChange={setPicked} onRetry={() => undefined} />
     </div>
   )
 }
@@ -23,6 +23,8 @@ const unused = { skills: ready(), value: [], disabled: false, onChange: () => un
 export const NothingChecked: Story = { name: 'Nothing checked', args: unused, render: () => <Demo skills={ready()} /> }
 
 export const TwoChecked: Story = { name: 'Two checked', args: unused, render: () => <Demo skills={ready()} start={['skill-receipts', 'skill-slack']} /> }
+
+export const OneSkillWasDeleted: Story = { name: 'A checked skill was deleted meanwhile', args: unused, render: () => <Demo skills={ready()} start={['skill-slack']} gone /> }
 
 export const NoSkillsYet: Story = { name: 'No skills yet', args: unused, render: () => <Demo skills={ready([])} /> }
 

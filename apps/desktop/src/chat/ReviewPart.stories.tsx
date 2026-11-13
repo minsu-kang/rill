@@ -10,8 +10,9 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 const [safety, koReviewer] = agentFixtures.reviewers as [(typeof agentFixtures.reviewers)[0], (typeof agentFixtures.reviewers)[1]]
-const one = [{ id: safety.id, name: safety.name }]
-const two = [...one, { id: koReviewer.id, name: koReviewer.name }]
+const one = [{ id: safety.id, name: safety.name, sendsText: true }]
+const two = [...one, { id: koReviewer.id, name: koReviewer.name, sendsText: true }]
+const bare = [{ id: 'agent-bare', name: 'Bare reviewer', sendsText: false }]
 
 const base: ReviewPartProps = {
   reviewers: one,
@@ -32,7 +33,7 @@ const frame = (overrides: Partial<ReviewPartProps>): Story => ({
   ),
 })
 
-const done = (result = reviewResultOf(reviewCases.mixed), agentId = safety.id): ReviewState => ({ phase: 'done', agentId, result })
+const done = (result = reviewResultOf(reviewCases.mixed), agentId = safety.id, agentSent = true): ReviewState => ({ phase: 'done', agentId, result, agentSent })
 const failed = (key: Extract<ReviewState, { phase: 'error' }>['key']): ReviewState => ({ phase: 'error', agentId: safety.id, key })
 
 export const NoReviewerAgent: Story = frame({ reviewers: [] })
@@ -43,6 +44,8 @@ export const AgentsNotLoaded: Story = frame({ reviewers: [], agents: 'error' })
 
 export const OneReviewer: Story = frame({})
 
+export const ReviewerWithoutSettings: Story = frame({ reviewers: bare })
+
 export const SeveralReviewers: Story = frame({ reviewers: two })
 
 export const PlanDeployed: Story = frame({ deployed: true })
@@ -52,6 +55,8 @@ export const Asking: Story = frame({ state: { phase: 'asking', agentId: safety.i
 export const AnswerWithFindings: Story = frame({ state: done() })
 
 export const AnswerNothingFound: Story = frame({ reviewers: two, state: done(reviewResultOf(reviewCases.clean, { agentUsed: { id: koReviewer.id, name: koReviewer.name }, skillsUsed: 0 }), koReviewer.id) })
+
+export const AnswerOfAReviewerWithoutSettings: Story = frame({ reviewers: bare, state: done(reviewResultOf(reviewCases.mixed, { agentUsed: { id: 'agent-bare', name: 'Bare reviewer' }, skillsUsed: 0 }), 'agent-bare', false) })
 
 export const AnswerOnlyNotes: Story = frame({ state: done(reviewResultOf(reviewCases.onlyNotes)) })
 
@@ -71,6 +76,8 @@ export const ErrorProvider: Story = frame({ state: failed('chat.review.error.pro
 export const ErrorProviderMissing: Story = frame({ state: failed('chat.review.error.llmUnavailable') })
 
 export const ErrorInvalidAnswer: Story = frame({ state: failed('chat.review.error.invalid') })
+
+export const ErrorLostConnection: Story = frame({ state: failed('chat.review.error.connection') })
 
 export const ErrorReviewerGone: Story = frame({ reviewers: two, state: failed('chat.review.error.agentNotFound') })
 

@@ -1,4 +1,8 @@
+import { AGENT_MAX_SKILLS, AGENT_SKILLS_MAX_CHARS, SKILL_FIELD_LIMITS, SKILL_MAX_ITEMS } from '@rill/protocol'
+import { SKILL_FILE_MAX_BYTES } from '../app/agents/skill-file'
 import type { skillsKo } from './skills.ko'
+
+const CHARS = AGENT_SKILLS_MAX_CHARS.toLocaleString('en-US')
 
 export const skillsEn: Record<keyof typeof skillsKo, string> = {
   'agents.nav.skills': 'Skills',
@@ -30,9 +34,9 @@ export const skillsEn: Record<keyof typeof skillsKo, string> = {
   'skills.field.name': 'Name',
   'skills.field.description': 'Description',
   'skills.field.body': 'Text',
-  'skills.field.name.hint': 'One line, 1 to 60 characters. Names that differ only in capital letters count as the same name.',
-  'skills.field.description.hint': 'One line, up to 200 characters. Optional.',
-  'skills.field.body.hint': 'The content of the skill: a short guide, a checklist or a few examples. 1 to 4000 characters, line breaks allowed. Nothing in it is ever run.',
+  'skills.field.name.hint': `One line, 1 to ${SKILL_FIELD_LIMITS.name} characters. Names that differ only in capital letters count as the same name.`,
+  'skills.field.description.hint': `One line, up to ${SKILL_FIELD_LIMITS.description} characters. Optional.`,
+  'skills.field.body.hint': `The content of the skill: a short guide, a checklist or a few examples. 1 to ${SKILL_FIELD_LIMITS.body} characters, line breaks allowed. Nothing in it is ever run.`,
   'skills.field.count': '{count}/{max}',
   'skills.rule.empty.name': 'A name is required.',
   'skills.rule.empty.body': 'The text is required.',
@@ -68,7 +72,7 @@ export const skillsEn: Record<keyof typeof skillsKo, string> = {
   'skills.import.body': 'Text in the file',
   'skills.import.empty': '(empty)',
   'skills.file.withLine': 'Line {line}: {message}',
-  'skills.file.problem.too_large': 'The file is larger than 64 KiB.',
+  'skills.file.problem.too_large': `The file is larger than ${SKILL_FILE_MAX_BYTES / 1024} KiB.`,
   'skills.file.problem.not_utf8': 'The file is not valid UTF-8 text.',
   'skills.file.problem.front_matter_missing': 'The file must start with a line of three dashes (---) that opens the front matter.',
   'skills.file.problem.front_matter_unclosed': 'The front matter is not closed by a second line of three dashes (---).',
@@ -82,12 +86,12 @@ export const skillsEn: Record<keyof typeof skillsKo, string> = {
   'skills.file.problem.reserved_text': 'The text holds a reserved word (agent-profile-) that cannot be used.',
   'skills.export.headingInText': 'This skill has a line that starts with “# ”, which the file format keeps for its heading, so it cannot be exported as it is. Change that line before exporting.',
   'skills.error.SKILL_INVALID': 'The skill cannot be saved. Check its text.',
-  'skills.error.tooLargeForAgent': 'This text would push the skills of at least one agent that has this skill past 6,000 characters together, so nothing was saved. Shorten the text, or take the skill off those agents first.',
-  'skills.error.SKILL_FULL': 'At most 24 skills can be saved. Delete one first.',
+  'skills.error.tooLargeForAgent': `This text would push the skills of at least one agent that has this skill past ${CHARS} characters together, so nothing was saved. Shorten the text, or take the skill off those agents first.`,
+  'skills.error.SKILL_FULL': `At most ${SKILL_MAX_ITEMS} skills can be saved. Delete one first.`,
   'skills.error.SKILL_DUPLICATE': 'A skill with that name already exists.',
   'skills.error.SKILL_NOT_FOUND': 'This skill was not found. It may have been deleted, so the list was reloaded.',
   'skills.error.AGENT_NOT_ASSISTANT': 'A reviewer cannot be the agent in use. To turn the agent in use into a reviewer, pick another agent first.',
   'skills.error.agentSkillsUnknown': 'A skill of this agent has been deleted. Pick the skills again.',
-  'skills.error.agentSkillsTooMany': 'An agent can have at most 8 skills.',
-  'skills.error.agentSkillsTooLarge': 'The attached skills are longer than 6,000 characters together. Attach fewer or shorter skills.',
+  'skills.error.agentSkillsTooMany': `An agent can have at most ${AGENT_MAX_SKILLS} skills.`,
+  'skills.error.agentSkillsTooLarge': `The attached skills are longer than ${CHARS} characters together. Attach fewer or shorter skills.`,
 }

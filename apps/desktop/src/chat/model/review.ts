@@ -4,7 +4,7 @@ import type { MessageKey } from '../../i18n'
 export type ReviewState =
   | { phase: 'idle' }
   | { phase: 'asking'; agentId: string; requestId: number }
-  | { phase: 'done'; agentId: string; result: ReviewResult }
+  | { phase: 'done'; agentId: string; result: ReviewResult; agentSent?: boolean }
   | { phase: 'error'; agentId: string; key: MessageKey }
 
 export const IDLE_REVIEW: ReviewState = { phase: 'idle' }
@@ -21,8 +21,10 @@ const KEYS: Readonly<Record<string, MessageKey>> = {
   INVALID_PARAMS: 'chat.review.error.params',
 }
 
+
 export function reviewErrorKey(error: unknown): MessageKey {
   const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined
+  if (code === undefined && error instanceof Error) return 'chat.review.error.connection'
   return typeof code === 'string' && Object.hasOwn(KEYS, code) ? KEYS[code]! : 'chat.review.error.generic'
 }
 

@@ -1,3 +1,6 @@
+import { AGENT_MAX_SKILLS, AGENT_SKILLS_MAX_CHARS, SKILL_FIELD_LIMITS, SKILL_MAX_ITEMS } from '@rill/protocol'
+import { SKILL_FILE_MAX_BYTES } from '../app/agents/skill-file'
+
 export const skillsKo = {
   'agents.nav.skills': '스킬',
   'skills.screen.title': '스킬',
@@ -28,9 +31,9 @@ export const skillsKo = {
   'skills.field.name': '이름',
   'skills.field.description': '설명',
   'skills.field.body': '글',
-  'skills.field.name.hint': '한 줄, 1~60자. 대소문자만 다른 이름은 같은 이름으로 봐요.',
-  'skills.field.description.hint': '한 줄, 200자까지. 비워도 돼요.',
-  'skills.field.body.hint': '스킬의 내용이에요. 짧은 안내, 점검표, 예시를 쓰세요. 1~4000자, 줄바꿈 가능. 안에 적힌 것은 실행되지 않아요.',
+  'skills.field.name.hint': `한 줄, 1~${SKILL_FIELD_LIMITS.name}자. 대소문자만 다른 이름은 같은 이름으로 봐요.`,
+  'skills.field.description.hint': `한 줄, ${SKILL_FIELD_LIMITS.description}자까지. 비워도 돼요.`,
+  'skills.field.body.hint': `스킬의 내용이에요. 짧은 안내, 점검표, 예시를 쓰세요. 1~${SKILL_FIELD_LIMITS.body}자, 줄바꿈 가능. 안에 적힌 것은 실행되지 않아요.`,
   'skills.field.count': '{count}/{max}',
   'skills.rule.empty.name': '이름이 필요해요.',
   'skills.rule.empty.body': '글이 필요해요.',
@@ -66,7 +69,7 @@ export const skillsKo = {
   'skills.import.body': '파일의 글',
   'skills.import.empty': '(비어 있어요)',
   'skills.file.withLine': '{line}번째 줄: {message}',
-  'skills.file.problem.too_large': '파일이 64KiB보다 커요.',
+  'skills.file.problem.too_large': `파일이 ${SKILL_FILE_MAX_BYTES / 1024}KiB보다 커요.`,
   'skills.file.problem.not_utf8': 'UTF-8 텍스트로 읽을 수 없는 파일이에요.',
   'skills.file.problem.front_matter_missing': '파일은 머리말을 여는 하이픈 세 개(---) 한 줄로 시작해야 해요.',
   'skills.file.problem.front_matter_unclosed': '머리말을 닫는 하이픈 세 개(---) 줄이 없어요.',
@@ -80,12 +83,12 @@ export const skillsKo = {
   'skills.file.problem.reserved_text': '글 안에 쓸 수 없는 예약어(agent-profile-)가 들어 있어요.',
   'skills.export.headingInText': '이 스킬에는 “# ”로 시작하는 줄이 있어요. 파일 형식에서 제목으로 쓰는 모양이라 그대로 내보낼 수 없어요. 그 줄을 고친 뒤에 내보내세요.',
   'skills.error.SKILL_INVALID': '스킬을 저장할 수 없어요. 글을 확인해 주세요.',
-  'skills.error.tooLargeForAgent': '이 글로 바꾸면 이 스킬을 붙인 에이전트 중 스킬의 글이 모두 합쳐 6000자를 넘는 곳이 생겨서 저장하지 않았어요. 글을 줄이거나, 먼저 그 에이전트에서 이 스킬을 빼 주세요.',
-  'skills.error.SKILL_FULL': '스킬은 24개까지 저장할 수 있어요. 하나를 지운 뒤에 저장해 주세요.',
+  'skills.error.tooLargeForAgent': `이 글로 바꾸면 이 스킬을 붙인 에이전트 중 스킬의 글이 모두 합쳐 ${AGENT_SKILLS_MAX_CHARS}자를 넘는 곳이 생겨서 저장하지 않았어요. 글을 줄이거나, 먼저 그 에이전트에서 이 스킬을 빼 주세요.`,
+  'skills.error.SKILL_FULL': `스킬은 ${SKILL_MAX_ITEMS}개까지 저장할 수 있어요. 하나를 지운 뒤에 저장해 주세요.`,
   'skills.error.SKILL_DUPLICATE': '같은 이름의 스킬이 이미 있어요.',
   'skills.error.SKILL_NOT_FOUND': '스킬을 찾지 못했어요. 이미 지워졌을 수 있어서 목록을 다시 불러왔어요.',
   'skills.error.AGENT_NOT_ASSISTANT': '검토자는 사용 중인 에이전트가 될 수 없어요. 사용 중인 에이전트를 검토자로 바꾸려면 먼저 다른 에이전트를 골라 주세요.',
   'skills.error.agentSkillsUnknown': '이 에이전트에 붙인 스킬 중 이미 지워진 것이 있어요. 스킬을 다시 골라 주세요.',
-  'skills.error.agentSkillsTooMany': '에이전트에는 스킬을 8개까지 붙일 수 있어요.',
-  'skills.error.agentSkillsTooLarge': '붙인 스킬의 글이 모두 합쳐 6000자를 넘어요. 스킬을 줄여 주세요.',
+  'skills.error.agentSkillsTooMany': `에이전트에는 스킬을 ${AGENT_MAX_SKILLS}개까지 붙일 수 있어요.`,
+  'skills.error.agentSkillsTooLarge': `붙인 스킬의 글이 모두 합쳐 ${AGENT_SKILLS_MAX_CHARS}자를 넘어요. 스킬을 줄여 주세요.`,
 }

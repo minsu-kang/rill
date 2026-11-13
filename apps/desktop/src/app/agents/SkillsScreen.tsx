@@ -77,7 +77,7 @@ export function SkillsScreen({ client, files }: SkillsScreenProps) {
 
   function edit(field: SkillField, value: string): void {
     setStatus(undefined)
-    viewStore.dispatch({ type: 'edit', field, value, base: selection.baseline })
+    viewStore.dispatch({ type: 'edit', field, value, base: selection.baseline, id: skill?.id })
   }
 
   function save(): void {

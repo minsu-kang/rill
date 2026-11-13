@@ -10,6 +10,7 @@ import styles from './ReviewPart.module.css'
 export interface ReviewReviewer {
   id: string
   name: string
+  sendsText?: boolean
 }
 
 export interface ReviewPartProps {
@@ -59,7 +60,7 @@ export function ReviewPart({ reviewers, agents, state, deployed, onAsk, onCancel
               {t(state.key)}
             </p>
           ) : null}
-          {state.phase === 'done' ? <ReviewPanel result={state.result} focusRef={anchor} /> : null}
+          {state.phase === 'done' ? <ReviewPanel result={state.result} agentSent={state.agentSent === true} focusRef={anchor} /> : null}
           <div className={styles.row}>
             {reviewers.length > 1 && selected !== undefined ? (
               <div className={styles.field}>
@@ -96,7 +97,7 @@ export function ReviewPart({ reviewers, agents, state, deployed, onAsk, onCancel
             {allowed ? (
               <p role="note" className={styles.transfer}>
                 <TransferIcon />
-                <span>{t('chat.review.transfer')}</span>
+                <span>{t(selected?.sendsText === true ? 'chat.review.transferAgent' : 'chat.review.transfer')}</span>
               </p>
             ) : null}
           </div>

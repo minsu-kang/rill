@@ -1,6 +1,6 @@
 import type { AttachmentRef, NodeInfo } from '@rill/protocol'
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
-import { agentIdForRequest, errorCodeOf, reviewersOf, sendsAgentText, useAgents } from '../engine/agents'
+import { agentIdForRequest, errorCodeOf, hasAgentText, reviewersOf, sendsAgentText, useAgents } from '../engine/agents'
 import type { EngineClient } from '../engine/client'
 import { useRules } from '../engine/rules'
 import { useT, type MessageKey } from '../i18n'
@@ -225,12 +225,14 @@ export function Conversation(props: ConversationProps) {
     reviewCounter.current += 1
     const requestId = reviewCounter.current
     reviewing.current.set(planId, requestId)
+    const asked = reviewersOf(agentsState.agents).find((agent) => agent.id === agentId)
+    const agentSent = asked !== undefined && hasAgentText(asked)
     setReviews((previous) => ({ ...previous, [planId]: { phase: 'asking', agentId, requestId } }))
     client.request('reviewPlan', { planId, agentId }).then(
       (answer) => {
         if (reviewing.current.get(planId) !== requestId) return
         reviewing.current.delete(planId)
-        if (alive.current) setReviews((previous) => ({ ...previous, [planId]: { phase: 'done', agentId, result: answer } }))
+        if (alive.current) setReviews((previous) => ({ ...previous, [planId]: { phase: 'done', agentId, result: answer, agentSent } }))
       },
       (failure: unknown) => {
         if (reloadsAgents(failure)) void agentsStore.refresh()
@@ -285,7 +287,7 @@ export function Conversation(props: ConversationProps) {
             superseded={superseded}
             planning={planning}
             review={{
-              reviewers: reviewersOf(agentsState.agents).map((agent) => ({ id: agent.id, name: agent.name })),
+              reviewers: reviewersOf(agentsState.agents).map((agent) => ({ id: agent.id, name: agent.name, sendsText: hasAgentText(agent) })),
               agents: agentsState.status,
               state: reviews[entry.planId] ?? IDLE_REVIEW,
               onAsk: (agentId) => askReview(entry.planId, agentId),
