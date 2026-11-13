@@ -1,0 +1,107 @@
+{
+  "easy-21-slack-channel-named": {
+    "schemaVersion": 1,
+    "name": "일일 보고 알림",
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger.cron@1",
+        "config": {
+          "expression": "0 9 * * *"
+        }
+      },
+      {
+        "id": "n1",
+        "type": "notify.slack@1",
+        "config": {
+          "connection": "slack-ops",
+          "channel": "#daily-report",
+          "text": "일일 보고 시간이에요"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      }
+    ]
+  },
+  "easy-22-slack-no-channel-named": {
+    "schemaVersion": 1,
+    "name": "Weekly report reminder",
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger.cron@1",
+        "config": {
+          "expression": "30 8 * * 1"
+        }
+      },
+      {
+        "id": "n1",
+        "type": "notify.slack@1",
+        "config": {
+          "connection": "slack-ops",
+          "text": "The weekly report is due."
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      }
+    ]
+  },
+  "attach-07-slack-channel-in-attachment": {
+    "schemaVersion": 1,
+    "name": "영수증 슬랙 알림",
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger.folderWatch@1",
+        "config": {
+          "folder": "/Users/demo/Receipts",
+          "glob": "*.txt"
+        }
+      },
+      {
+        "id": "n1",
+        "type": "llm.extract@1",
+        "config": {
+          "file": "{{t1.output.file}}",
+          "fields": [
+            {
+              "name": "amount",
+              "type": "number",
+              "description": "총 결제금액"
+            },
+            {
+              "name": "date",
+              "type": "date"
+            }
+          ]
+        }
+      },
+      {
+        "id": "n2",
+        "type": "notify.slack@1",
+        "config": {
+          "connection": "slack-ops",
+          "text": "새 주문 {{n1.output.date}}: {{n1.output.amount}}원"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "n2"
+      }
+    ]
+  }
+}

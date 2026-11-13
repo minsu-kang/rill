@@ -93,7 +93,7 @@ Good places to start:
 - `Explain/ExplainPanel`: the disabled button for runs that are not failed, the notice, loading, an answer and every error. The stories after the first few click through the flow with a Storybook play function, so open them in the browser (the test run renders only the first screen of each).
 - `Recipes/RecipeGallery`, `Recipes/RecipeForm` and `Recipes/FieldInput`: the six recipes, every field kind, problems at fields, general issues, unknown rules and no matching connection.
 - `Recipes/DraftPreview` and `Recipes/RecipePanel`: with and without the external transfer line, deploying, deployed and failed, and the whole flow against a fake service.
-- `App/Settings/ConnectionsSection`: the empty screen, sign-in not available and connected, the Slack webhook part closed and open, one story per auth type of a custom connection, a filled form, a saved one, the errors (missing fields, a bad key name, a duplicate name), no keychain and the 200 connection limit. The form stories click through with a play function, so open them in the browser. The saved key placeholder shows in `App/Settings/KeysSection` (`SomeConfigured`).
+- `App/Settings/ConnectionsSection`: the empty screen, sign-in not available and connected, one story per auth type of a custom connection, a filled form, a saved one, the errors (missing fields, a bad key name, a duplicate name), no keychain and the 200 connection limit. The Slack card has its own group, `App/Settings/SlackCard`: the empty card, the steps open, a filled form, checking, confirmed, saved but not confirmed, refused with "save anyway", saved anyway, the saved list with two bots and an old webhook, no keychain, and the static overviews (every result, light and dark, Korean and English). The Slack stories that submit the form click through with a play function, so open them in the browser. The form stories click through with a play function, so open them in the browser. The saved key placeholder shows in `App/Settings/KeysSection` (`SomeConfigured`).
 - `Chat/ChatPanel`: `Flow` is the one to click through. `Chat/PlanResultCard`, `Chat/QuestionCard` and `Chat/FlagConfirm` show each state of the cards, `Chat/Composer` and `Chat/EffortSlider` the input line, and `Chat/ModelPicker` and `Chat/MemoryPanel` the two screens behind it.
 
 To share a static copy: `pnpm --filter @rill/desktop build-storybook` writes `apps/desktop/storybook-static/`, which git ignores.
@@ -271,17 +271,50 @@ The Keys section shows "checking" while the request runs, then one of: saved and
 
 The addresses, the headers and the 400 wording come from the vendors' documentation. This project has not called them live yet, so the rule above is untested against the real services: treat a wrong verdict as possible. Because only a clear rejection blocks and "save anyway" always exists, a wrong guess costs one extra click, never a key that cannot be saved. `createFakeHost` takes a `keyChecks` option (a function from provider and key to a verdict, `valid` by default) so stories and tests show every state without a network.
 
+### Slack bot connections
+
+Slack does not need sign-in. You create your own Slack app, install it to your workspace and paste its Bot User OAuth Token (`xoxb-...`) into the Slack card of Settings, Connections. Sign-in (OAuth) is not used because Slack treats a `localhost` redirect as a desktop redirect only for apps that opted into PKCE, and a desktop redirect cannot request bot scopes. The normal flow needs an HTTPS redirect, and a local app without a server has none.
+
+The card has a status chip (Not connected until a bot is saved), a collapsible "How to get a bot token", then the form: a name, the bot token (a password field) and an optional default channel. The four steps are: create an app at `api.slack.com/apps`; under OAuth & Permissions add the bot scope `chat:write` (and `chat:write.public` to post in channels the bot has not joined); Install to Workspace; copy the Bot User OAuth Token, which starts with `xoxb-`. A note next to the field says that saving asks Slack whether the token works and sends no message. The saved list shows the name, a "Bot" chip, "`<bot>` in `<workspace>`" when the check was confirmed, the default channel and a Remove button. A webhook connection that was saved earlier shows a "Webhook (old)" chip and keeps working until it is removed; the app no longer creates webhook connections.
+
+When you save, the main process asks Slack whether the token works (`src/main/slack-check.ts`). The window cannot do it because its content security policy allows no outside connection. It is one `POST` with no body to `https://slack.com/api/auth.test`, which posts nothing to any channel. The address is a constant, the token is only in the `Authorization: Bearer` header, no cookies are sent, redirects are refused, the request has the generic `User-Agent: Rill`, and it gives up after 10 seconds. The answer body is read up to 16 KiB. The rule is the same conservative one as the key check: only a clear rejection blocks the token.
+
+| Answer | Verdict | Reason |
+| --- | --- | --- |
+| HTTP 200 and `ok: true` | `valid` | carries the workspace (`team`) and the bot (`user`) when they are strings |
+| HTTP 200 and `ok: false` with `invalid_auth`, `not_authed`, `token_revoked`, `token_expired` or `account_inactive` | `invalid` | `unauthorized` |
+| HTTP 401 | `invalid` | `unauthorized` |
+| HTTP 200 and `ok: false` with `ratelimited` | `unverified` | `rate_limited` |
+| HTTP 200 and any other `ok: false` | `unverified` | `forbidden` |
+| 403 | `unverified` | `forbidden` |
+| 429 | `unverified` | `rate_limited` |
+| 5xx | `unverified` | `server_error` |
+| Network error, refused redirect | `unverified` | `network` |
+| No answer in 10 seconds | `unverified` | `timeout` |
+| A body that is not the expected JSON, or any other status | `unverified` | `unexpected_status` |
+
+The workspace and bot names come from Slack and are untrusted text: control characters, bidirectional overrides and any text that holds the token are removed, they are cut to 80 characters, and the window shows them as text only.
+
+`window.rill.secrets.setSlackBot({ name, token, channel? }, options?)` returns `{ verdict }`. The main process checks the arguments (the token must match `^xoxb-[A-Za-z0-9-]{10,200}$`, the channel is 1 to 80 characters without blanks or control characters), refuses a missing keychain with `NO_KEYCHAIN` and a name that another connection of any kind uses, ignoring case, with `NAME_COLLISION` (a saved Slack connection of the exact same name is replaced), and only then asks Slack. A `valid` or `unverified` token is saved. An `invalid` token is not saved and the call throws the host error `TOKEN_INVALID`, which crosses the process boundary as the code only. With `{ saveAnyway: true }` the token is checked again and saved whatever the verdict. Calls for the same name are ordered like the key check: a newer save or a removal replaces every earlier save of that name that is still waiting, and the replaced call throws `SUPERSEDED`. The engine restarts only when something was saved.
+
+The stored entry keeps the kind `slack` and, as its secret, the JSON text `{"rillSlack":1,"token":"xoxb-...","channel":"#alerts"}` (the channel is optional), which the main process builds from the validated object. `notify.slack` tells a webhook URL, this JSON and a plain `xoxb-` token apart (see "Connections file" in the engine README). The summary that reaches the window has an optional `slack: { mode: 'bot', account?, channel? }` and never the token. A connection without it is a webhook. Files saved before this version load unchanged.
+
+The card shows "checking" while Slack is asked (the form is disabled and a second submit sends nothing more), then one of: connected ("Connected as `<bot>` in `<workspace>`"), saved but not confirmed (with the reason in plain words), or refused with a "save anyway" button. The typed token is held in component state only while the refusal notice is open, and is dropped on save, close, edit or when the card goes away. The result is in a live region and takes the focus.
+
+The endpoint, the headers and the error codes come from Slack's documentation. This project has not called `auth.test` live yet, so the rule above is untested against the real service: treat a wrong verdict as possible. Because only a clear rejection blocks and "save anyway" always exists, a wrong guess costs one extra click, never a token that cannot be saved. `createFakeHost` takes a `slackChecks` option (a function from the token to a verdict, `valid` with a sample workspace and bot by default) so stories and tests show every state without a network.
+
 ### Connections and API keys
 
-The Connections section of the settings has three parts.
+The Connections section of the settings has four parts: Accounts, Slack, Custom connection and Other saved secrets.
 
-- Accounts: a card for Google, Microsoft and Slack, each with a status chip (Not connected, or Connected as the account) and a Connect or Disconnect button. Sign-in is not built yet. The real host reports `oauth.available: false` with no accounts, `oauth.connect` rejects with `OAUTH_UNAVAILABLE`, and the buttons stay disabled with a note. Only the fake host, which Storybook and the tests use, can show a connected account. The Slack card has a collapsed part, "Advanced: use a webhook URL". You create an incoming webhook URL inside Slack and paste it there, because the app cannot create one. It is saved as a connection of kind `slack`, which `notify.slack` posts to.
+- Accounts: a card for Google and Microsoft, each with a status chip (Not connected, or Connected as the account) and a Connect or Disconnect button. Sign-in is not built yet. The real host reports `oauth.available: false` with no accounts, `oauth.connect` rejects with `OAUTH_UNAVAILABLE`, and the buttons stay disabled with a note. Only the fake host, which Storybook and the tests use, can show a connected account. Slack is not a sign-in account any more: see "Slack bot connections" above.
 - Custom connection: a name and an Auth type, as in the Authorization tab of an API client. No Auth sends nothing. API Key adds a key name and a value to a header or to the query string. Bearer Token sends `Authorization: Bearer <token>`. Basic Auth sends `Authorization: Basic` with the base64 of `username:password`. The fields change with the type, and changing the type clears every secret field. A custom connection is chosen in the `auth` setting of an HTTP request node. A name must differ from every other connection of any kind, ignoring case.
+- Slack: the bot token card described below. It sits between Accounts and Custom connection.
 - Other saved secrets: webhook signing secrets that were saved before. The part shows only while one exists, with a Remove button. New ones cannot be created here.
 
 A custom connection is stored as a connection of kind `http`. Its secret is a JSON text with `"rillAuth": 1` and the auth fields, which the main process builds from a validated `CustomAuth` object (`host.secrets.setCustomConnection`), so the window never assembles a secret string. `http.request` recognises that format (see "Connections file" in the engine README), and any other `http` secret keeps its older meaning. The list shows the name and an auth type chip only.
 
-The host API gained `secrets.setCustomConnection`, `oauth.connect`, `oauth.disconnect`, `authType` on each connection summary, `Settings.oauth` (`available` and `accounts`) and the error code `OAUTH_UNAVAILABLE`. In the API keys section, a provider that has a key shows sixteen bullets as the placeholder of its field, next to the Configured chip. The placeholder is the same fixed text for every key and is never derived from a key. Typing replaces it, and no host call returns a key.
+The host API gained `secrets.setCustomConnection`, `secrets.setSlackBot`, `oauth.connect`, `oauth.disconnect`, `authType` and `slack` on each connection summary, `Settings.oauth` (`available` and `accounts`) and the error codes `OAUTH_UNAVAILABLE` and `TOKEN_INVALID`. `OAuthProvider` is `'google' | 'microsoft'`. In the API keys section, a provider that has a key shows sixteen bullets as the placeholder of its field, next to the Configured chip. The placeholder is the same fixed text for every key and is never derived from a key. Typing replaces it, and no host call returns a key.
 
 ### Logo and icons
 

@@ -177,7 +177,7 @@ Not run yet. The suite has 48 approved cases: 20 easy, 10 ambiguous (the right a
 - The delivery guarantee is at least once. A crash between sending a Slack message and recording it can send the message twice. CSV rows are deduplicated by an idempotency key.
 - A dry run still reads the file and calls the model, because reading is not a side effect. It skips the CSV write, the Slack message and HTTP requests.
 - Webhook triggers listen on `localhost` only. There is no tunnel and no cloud sync.
-- No OAuth connectors. Outputs are CSV, Slack incoming webhooks and plain HTTP.
+- No OAuth connectors. Outputs are CSV, Slack and plain HTTP. Slack posts through a bot token that you create in your own Slack app and paste into Settings (older incoming webhook connections keep working).
 - Only the Anthropic adapter has been called live (by the extraction evaluation). The OpenAI, Gemini, Grok and Meta adapters are tested against fake transports built from vendor documentation, and `pnpm eval check-provider` exists to verify them once keys are available. Grok does not read PDFs.
 - No local models (Ollama, hosted Llama).
 - Secrets reach the engine through the environment of its process. On macOS any process of the same user can read that block. [docs/security.md](docs/security.md) lists this and the other gaps.

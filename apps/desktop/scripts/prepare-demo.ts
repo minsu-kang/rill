@@ -164,7 +164,7 @@ export function formatNextSteps(result: PrepareDemoResult): string[] {
     '  1. Start Rill: pnpm --filter @rill/desktop dev (or open the installed app).',
     `  2. Settings, Folders: add ${result.folder}`,
     '  3. Settings, Keys: add a key for your model provider.',
-    '     Settings, Connections: add a Slack connection named demo-slack (kind slack).',
+    '     Settings, Connections: add a Slack connection named demo-slack (a bot token, see docs/demo.md).',
     '  4. In the chat, send the request in docs/demo.md that names the folder, the CSV file and the connection.',
     '     If the planner asks questions anyway, answer with:',
     `       folder      ${result.inboxDir}`,

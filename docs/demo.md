@@ -21,7 +21,7 @@ Do this once, off camera.
 3. Open Settings (설정).
    - Folders: add `~/Rill-Demo` with the folder dialog. The workflow may only read and write inside folders listed here.
    - Provider and model, then Keys: add the key of your model provider. Pick a model that answers quickly, because the planning step must fit in a few seconds of video. The planner evaluation has not been run yet, so try the exact request once before you record.
-   - Connections: add a connection named `demo-slack` of kind `slack`. For the failure scene, use the placeholder address `https://hooks.example.invalid/placeholder`, which cannot be reached, so the Slack step fails. To show a real message instead, use the incoming webhook address of a channel of your own, and read the note after step 11.
+   - Connections, Slack card: add a connection named `demo-slack` with a Slack bot token. To show a real message, create a Slack app of your own (the card lists the steps), paste its `xoxb-` token and give the connection a default channel. For the failure scene, paste any made-up token that starts with `xoxb-` (for example `xoxb-0000000000-demo-placeholder`). Slack rejects it, the card says so, and "save anyway" keeps it, so the Slack step fails. Read the note after step 11.
 4. The first-run card in the workspace lists three items (a folder, a provider key, a Slack connection) with a button for each. It disappears when they are done.
 5. Optional, only for the plainer request that leaves the values out: in the notes tab (메모) of the chat panel, save the note `영수증 PDF는 ~/Rill-Demo/Inbox 폴더에 들어와요`. The planner then has less to ask. Notes are sent to the model provider with every request, and the screen says so.
 6. Arrange two Finder windows, `~/Rill-Demo/Receipts` and `~/Rill-Demo/Inbox`, next to the app. Have `~/Rill-Demo/ledger.csv` ready to open once it exists.
@@ -40,7 +40,7 @@ Do this once, off camera.
 | 1:15 | Press 활성화. | The workflow is live and watches the Inbox. |
 | 1:20 | Copy `receipt-cafe.pdf` from `Receipts` to `Inbox` in Finder (hold Option while you drag). | The watcher waits about two to three seconds until the file stops changing. |
 | 1:28 | Watch the graph. | The nodes light up one after another, a new run appears in the history, and `ledger.csv` gets a row. |
-| 1:36 | The last node (Slack) fails if you used the placeholder address. Pick that run in the history and press 왜 실패했나. | A notice says what is sent to the provider: the step record with secrets masked. Press 보내기 in the notice. |
+| 1:36 | The last node (Slack) fails if you used the made-up token. Pick that run in the history and press 왜 실패했나. | A notice says what is sent to the provider: the step record with secrets masked. Press 보내기 in the notice. |
 | 1:46 | Read the explanation card. | A plain cause and the suggested actions, for example 연결 설정 열기. The model proposes, and only buttons that the app owns can act. |
 | 1:54 | Switch to Storybook (`pnpm --filter @rill/desktop storybook`). | Show `Workspace/Workspace` (the live stories), `Chat/ChatPanel` (the Flow story) and `Explain/ExplainCard`. Every screen has a story with a fake engine, so nobody needs a key to look at it. |
 | 2:00 | End. | |
@@ -90,6 +90,6 @@ What the café receipt contains: vendor 다온커피 연남점, date 2026-11-11,
 - The folder watcher treats a file as new by its path, modification time and size. A copy with the same name, size and modification time as an earlier one is seen as already handled. If a second take does not start a run, copy the file under another name or run `touch` on it.
 - By default the watcher skips files that were already in the folder when the workflow was first activated. That is why the receipts live in `Receipts` and the watched folder is `Inbox`.
 - If the plan watches `*.pdf` (the folder node in the inspector shows the pattern), the PNG and the text receipt do not start a run. You can show that by copying them into `Inbox`.
-- With your own Slack webhook the run succeeds and no step fails. To show the explanation anyway, open Settings, Connections, remove `demo-slack` and add it again with the placeholder address, wait for the engine to restart, and copy a receipt under a new name.
+- With your own Slack bot token the run succeeds and no step fails. To show the explanation anyway, open Settings, Connections, remove `demo-slack` and add it again with the made-up token (use "save anyway"), wait for the engine to restart, and copy a receipt under a new name.
 - If the deploy is refused with a message about a path outside the allowed folders, the folder from step 3 is missing in Settings. If the ledger is refused because it sits in the watched folder, keep `ledger.csv` in `~/Rill-Demo`, one level above `Inbox`.
 - To start over, deactivate the workflow, delete `~/Rill-Demo/ledger.csv` and the copies in `Inbox`, and run `pnpm demo:prepare` again. It only adds what is missing.
