@@ -1,8 +1,9 @@
 import Type from 'typebox'
 import Value from 'typebox/value'
+import { accessTokenOf, renewedTokenOf, type AccountKind } from './account-connection'
 import { maskSecretParts } from './connection-auth'
 import { httpCall } from './http'
-import { RetryableError } from './types'
+import { RetryableError, type ConnectionResolver } from './types'
 
 export const ROW_MAX = 50
 export const CELL_TEXT_MAX = 2000
@@ -30,18 +31,28 @@ export function assertConfig(schema: Type.TSchema, config: unknown): void {
   if (first !== undefined) throw new Error(`invalid config: ${first.instancePath === '' ? '/' : first.instancePath}: ${first.message}`)
 }
 
-function failure(error: unknown, token: string): Error {
+class RefusedError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = 'RefusedError'
+  }
+}
+
+function failure(error: unknown, tokens: readonly string[]): Error {
   if (!(error instanceof Error)) return new Error('the request failed')
-  const message = maskSecretParts(error.message, [token])
+  const message = maskSecretParts(error.message, tokens)
   if (error instanceof RetryableError) return new RetryableError(message)
   const status = HTTP_STATUS.exec(message)
   if (status === null) return new Error(message)
   const code = Number(status[1])
-  if (code >= 400 && code < 500) return new Error(`HTTP ${code}: ${REASONS[code] ?? 'the request was not accepted'}`)
+  if (code >= 400 && code < 500) return new RefusedError(`HTTP ${code}: ${REASONS[code] ?? 'the request was not accepted'}`, code)
   return new Error(message)
 }
 
-export async function postRow(url: string, token: string, row: readonly unknown[]): Promise<unknown> {
+async function postRow(url: string, token: string, row: readonly unknown[], masked: readonly string[]): Promise<unknown> {
   try {
     const result = await httpCall(url, {
       method: 'POST',
@@ -49,15 +60,33 @@ export async function postRow(url: string, token: string, row: readonly unknown[
       body: JSON.stringify({ values: [row] }),
       timeoutMs: REQUEST_TIMEOUT_MS,
       maxBytes: RESPONSE_MAX_BYTES,
-      redact: (text) => maskSecretParts(text, [token]),
+      redact: (text) => maskSecretParts(text, masked),
     })
     return result.body
   } catch (error) {
-    throw failure(error, token)
+    throw failure(error, masked)
   }
 }
 
-export function untrustedText(value: unknown, token: string, max: number): string {
+export interface PostedRow {
+  body: unknown
+  tokens: readonly string[]
+}
+
+export async function postRowRenewing(connections: ConnectionResolver, name: string, kind: AccountKind, url: string, row: readonly unknown[]): Promise<PostedRow> {
+  const first = accessTokenOf(connections, name, kind)
+  try {
+    return { body: await postRow(url, first, row, [first]), tokens: [first] }
+  } catch (error) {
+    if (!(error instanceof RefusedError) || error.status !== 401) throw error
+    const next = await renewedTokenOf(connections, name, first)
+    if (next === undefined) throw error
+    const tokens = [first, next]
+    return { body: await postRow(url, next, row, tokens), tokens }
+  }
+}
+
+export function untrustedText(value: unknown, tokens: readonly string[], max: number): string {
   if (typeof value !== 'string') return ''
-  return maskSecretParts(value, [token]).replace(/\p{C}/gu, ' ').slice(0, max)
+  return maskSecretParts(value, tokens).replace(/\p{C}/gu, ' ').slice(0, max)
 }

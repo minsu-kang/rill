@@ -3,6 +3,7 @@ import type { PlanConnection } from '@rill/planner'
 
 export const CHANNEL_KINDS = ['google', 'microsoft'] as const
 export const MAX_CHANNEL_SECRET = 8192
+export const RENEW_TIMEOUT_MS = 20_000
 
 export type ChannelKind = (typeof CHANNEL_KINDS)[number]
 
@@ -10,21 +11,66 @@ export type ConnectionMessage =
   | { type: 'connection.set'; name: ChannelKind; kind: ChannelKind; secret: string }
   | { type: 'connection.remove'; name: ChannelKind }
 
+export interface RenewRequest {
+  type: 'connection.renew'
+  name: ChannelKind
+}
+
 export interface ParentPortLike {
   on(event: 'message', listener: (event: { data: unknown }) => void): unknown
+  postMessage?(message: RenewRequest): void
 }
 
 export interface ConnectionChannel {
   ignored(): number
 }
 
+interface Renewal {
+  promise: Promise<string | undefined>
+  settle(secret: string | undefined): void
+}
+
 export class ConnectionTable {
   private readonly secrets = new Map<string, string>()
   private readonly kinds = new Map<string, string>()
+  private readonly renewals = new Map<string, Renewal>()
+  private ask: ((request: RenewRequest) => void) | undefined
   readonly planConnections: PlanConnection[] = []
   readonly resolver: ConnectionResolver = {
     get: (id) => this.secrets.get(id),
     kindOf: (id) => this.kinds.get(id),
+    renew: (id) => this.renew(id),
+  }
+
+  onRenewRequest(ask: (request: RenewRequest) => void): void {
+    this.ask = ask
+  }
+
+  answerRenewal(name: string, secret: string | undefined): void {
+    this.renewals.get(name)?.settle(secret)
+  }
+
+  private renew(name: string): Promise<string | undefined> {
+    const pending = this.renewals.get(name)
+    if (pending !== undefined) return pending.promise
+    if (this.ask === undefined || !isChannelKind(name) || this.kinds.get(name) !== name) return Promise.resolve(undefined)
+    let resolve!: (secret: string | undefined) => void
+    const promise = new Promise<string | undefined>((res) => {
+      resolve = res
+    })
+    const settle = (secret: string | undefined): void => {
+      clearTimeout(timer)
+      if (this.renewals.get(name)?.promise === promise) this.renewals.delete(name)
+      resolve(secret)
+    }
+    const timer = setTimeout(() => settle(undefined), RENEW_TIMEOUT_MS)
+    this.renewals.set(name, { promise, settle })
+    try {
+      this.ask({ type: 'connection.renew', name })
+    } catch {
+      settle(undefined)
+    }
+    return promise
   }
 
   setPlain(name: string, secret: string): void {
@@ -100,8 +146,15 @@ export function attachConnectionChannel(port: ParentPortLike | undefined, table:
       ignored += 1
       return
     }
-    if (message.type === 'connection.set') table.setTyped(message.name, message.secret, message.kind)
-    else table.remove(message.name)
+    if (message.type === 'connection.set') {
+      table.setTyped(message.name, message.secret, message.kind)
+      table.answerRenewal(message.name, message.secret)
+    } else {
+      table.remove(message.name)
+      table.answerRenewal(message.name, undefined)
+    }
   })
+  const post = port?.postMessage?.bind(port)
+  if (post !== undefined) table.onRenewRequest(post)
   return { ignored: () => ignored }
 }

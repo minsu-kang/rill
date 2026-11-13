@@ -1,7 +1,6 @@
 import Type from 'typebox'
-import { accessTokenOf } from '../account-connection'
 import { neutralise, type Cell } from '../cells'
-import { RowSchema, assertConfig, encodePathPart, postRow } from '../spreadsheet-api'
+import { RowSchema, assertConfig, encodePathPart, postRowRenewing } from '../spreadsheet-api'
 import { defineAction } from '../types'
 
 const ORIGIN = 'https://graph.microsoft.com/v1.0/me/drive/root:/'
@@ -34,10 +33,9 @@ export const microsoftExcelAppend = defineAction({
   execute: async (config, ctx) => {
     assertConfig(configSchema, config)
     if (ctx.dryRun) return { appended: false }
-    const token = accessTokenOf(ctx.connections, config.connection, 'microsoft')
     const path = config.filePath.split('/').map(encodePathPart).join('/')
     const url = `${ORIGIN}${path}:/workbook/tables/${encodePathPart(config.table)}/rows/add`
-    await postRow(url, token, config.values.map(excelCell))
+    await postRowRenewing(ctx.connections, config.connection, 'microsoft', url, config.values.map(excelCell))
     return { appended: true }
   },
 })

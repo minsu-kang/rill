@@ -16,6 +16,7 @@ export interface Journal {
 export interface ConnectionResolver {
   get(id: string): string | undefined
   kindOf?(id: string): string | undefined
+  renew?(id: string): Promise<string | undefined>
 }
 
 export interface NodeContext {

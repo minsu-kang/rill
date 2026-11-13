@@ -538,6 +538,30 @@ describe('app entry: sign-in to Google and Microsoft', () => {
     await quit(h)
   })
 
+  it('refreshes and answers over the channel when the running engine asks for a new token, and ignores anything else it sends', async () => {
+    storeAccount()
+    let issued = 0
+    const { fetchSpy } = tokenEndpoint(() => new Response(JSON.stringify({ access_token: `ya29.ACCESSMARKER${String(++issued).padStart(10, '0')}`, expires_in: 3599, token_type: 'Bearer' }), { status: 200 }))
+    const h = await load()
+    await up(h)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    const child = h.children[0]!
+    child.postMessage.mockClear()
+    child.emit('message', { type: 'connection.renew', name: 'google', secret: 'x' })
+    child.emit('message', { type: 'connection.renew', name: 'slack' })
+    child.emit('message', 'connection.renew')
+    await settle()
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(child.postMessage).not.toHaveBeenCalled()
+    child.emit('message', { type: 'connection.renew', name: 'google' })
+    await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledWith({ type: 'connection.set', name: 'google', kind: 'google', secret: 'ya29.ACCESSMARKER0000000002' }))
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    child.emit('message', { type: 'connection.renew', name: 'google' })
+    await settle()
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    await quit(h)
+  })
+
   it('opens the browser only with the address of the provider and never at start', async () => {
     const h = await load()
     await up(h)

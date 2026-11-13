@@ -2,6 +2,7 @@ import { HostError, OAUTH_PROVIDERS, type OAuthAccount, type OAuthConnectResult,
 import type { AccountConnection } from './engine-supervisor'
 import { refreshTokens, revokeRefreshToken, startSignIn, type FlowDeps, type OAuthApp, type OAuthClock, type OAuthFetch, type SignIn } from './oauth-flow'
 import { OAUTH_PROVIDER_CONFIGS } from './oauth-providers'
+import { parseRenewRequest } from './renew-request'
 import type { OAuthAppRecord, SecretStore } from './secret-store'
 
 export type OAuthStore = Pick<SecretStore, 'encryptionAvailable' | 'getOAuth' | 'setOAuthApp' | 'clearOAuthApp' | 'setOAuthAccount' | 'clearOAuthAccount'>
@@ -28,6 +29,7 @@ export interface OAuthManager {
   resume(): void
   accountConnections(): AccountConnection[]
   syncEngine(): void
+  renew(request: unknown): Promise<void>
   onChange(listener: (change: OAuthAccount) => void): () => void
   stop(): void
 }
@@ -58,6 +60,7 @@ const MIN_DELAY_MS = 5_000
 const MAX_JITTER_MS = 30_000
 const RESUME_SLACK_MS = 60_000
 const START_WAIT_MS = 10_000
+const RENEW_INTERVAL_MS = 30_000
 const BACKOFF_MS = [30_000, 60_000, 120_000, 300_000] as const
 
 function newSlot(): Slot {
@@ -70,6 +73,7 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
   const slots = new Map<OAuthProvider, Slot>(OAUTH_PROVIDERS.map((provider) => [provider, newSlot()]))
   const apps = new Map<OAuthProvider, OAuthAppRecord>()
   const listeners = new Set<(change: OAuthAccount) => void>()
+  const lastRenewal = new Map<OAuthProvider, number>()
   let loading: Promise<void> | undefined
   let active: Active | undefined
 
@@ -469,6 +473,20 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
         if (hasLiveToken(slotOf(provider))) pushToken(provider)
         else pushRemove(provider)
       }
+    },
+
+    async renew(request) {
+      const parsed = parseRenewRequest(request)
+      if (parsed === undefined) return
+      const provider = parsed.name
+      const slot = slotOf(provider)
+      if (slot.status !== 'connected' || slot.refreshToken === undefined) return
+      const now = clock.now()
+      const last = lastRenewal.get(provider)
+      if (last !== undefined && now - last < RENEW_INTERVAL_MS) return
+      lastRenewal.set(provider, now)
+      note(`oauth ${provider}: the engine asked for a new access token`)
+      await refresh(provider)
     },
 
     onChange(listener) {

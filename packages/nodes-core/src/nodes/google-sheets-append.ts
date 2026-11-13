@@ -1,6 +1,5 @@
 import Type from 'typebox'
-import { accessTokenOf } from '../account-connection'
-import { UPDATED_RANGE_MAX, RowSchema, assertConfig, encodePathPart, postRow, untrustedText } from '../spreadsheet-api'
+import { UPDATED_RANGE_MAX, RowSchema, assertConfig, encodePathPart, postRowRenewing, untrustedText } from '../spreadsheet-api'
 import { defineAction } from '../types'
 
 const ORIGIN = 'https://sheets.googleapis.com/v4/spreadsheets/'
@@ -42,9 +41,8 @@ export const googleSheetsAppend = defineAction({
   execute: async (config, ctx) => {
     assertConfig(configSchema, config)
     if (ctx.dryRun) return { appended: false, updatedRange: '' }
-    const token = accessTokenOf(ctx.connections, config.connection, 'google')
     const url = `${ORIGIN}${encodePathPart(config.spreadsheetId)}/values/${encodePathPart(config.range ?? DEFAULT_RANGE)}:append?${QUERY}`
-    const body = await postRow(url, token, config.values)
-    return { appended: true, updatedRange: untrustedText(answeredRange(body), token, UPDATED_RANGE_MAX) }
+    const posted = await postRowRenewing(ctx.connections, config.connection, 'google', url, config.values)
+    return { appended: true, updatedRange: untrustedText(answeredRange(posted.body), posted.tokens, UPDATED_RANGE_MAX) }
   },
 })

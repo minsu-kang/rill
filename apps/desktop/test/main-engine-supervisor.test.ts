@@ -115,6 +115,7 @@ interface Setup {
   processEnv?: Record<string, string | undefined>
   oauthConnections?: Array<{ name: 'google' | 'microsoft'; kind: 'google' | 'microsoft'; secret: string }>
   oauthReady?: () => Promise<unknown>
+  onRenew?: (request: { type: 'connection.renew'; name: 'google' | 'microsoft' }) => void
 }
 
 function setup(options: Setup = {}) {
@@ -152,6 +153,7 @@ function setup(options: Setup = {}) {
     forceKill: (child) => forceKills.push(child),
     ...(options.oauthConnections === undefined ? {} : { oauthConnections: () => options.oauthConnections! }),
     ...(options.oauthReady === undefined ? {} : { oauthReady: options.oauthReady }),
+    ...(options.onRenew === undefined ? {} : { onRenew: options.onRenew }),
     env: options.processEnv ?? { PATH: '/usr/bin', HOME: '/Users/test', LANG: 'en_US.UTF-8', ANTHROPIC_API_KEY: 'LEAK', OPENAI_API_KEY: 'LEAK', AWS_SECRET_ACCESS_KEY: 'LEAK', RILL_TOKEN: 'LEAK', RILL_CONNECTIONS: 'LEAK', USER: 'LEAK', SHELL: 'LEAK', TMPDIR: 'LEAK', NODE_OPTIONS: 'LEAK' },
     log: (message) => logs.push(message),
   })
@@ -802,6 +804,104 @@ describe('engine supervisor: messages to the running engine', () => {
     await harness.start
     expect(results).toEqual([true])
     expect(harness.forks[0]!.child.posted).toEqual([GOOGLE])
+  })
+})
+
+describe('engine supervisor: renew requests from the engine', () => {
+  type Request = { type: 'connection.renew'; name: 'google' | 'microsoft' }
+
+  function listening(onRenew: (request: Request) => void = () => undefined) {
+    return running({ onRenew })
+  }
+
+  it('hands a connection.renew message of the running engine to the listener, once, as the exact request', async () => {
+    const seen: Request[] = []
+    const { forks } = await listening((request) => seen.push(request))
+    forks[0]!.child.emit('message', { type: 'connection.renew', name: 'google' })
+    forks[0]!.child.emit('message', { type: 'connection.renew', name: 'microsoft' })
+    expect(seen).toEqual([
+      { type: 'connection.renew', name: 'google' },
+      { type: 'connection.renew', name: 'microsoft' },
+    ])
+    expect(Object.keys(seen[0]!)).toEqual(['type', 'name'])
+  })
+
+  it('forwards nothing that is not exactly that shape, and logs nothing about it', async () => {
+    const seen: Request[] = []
+    const { forks, logs } = await listening((request) => seen.push(request))
+    const bad: unknown[] = [
+      undefined,
+      null,
+      'connection.renew',
+      7,
+      [],
+      {},
+      { type: 'connection.renew' },
+      { name: 'google' },
+      { type: 'connection.renew', name: 'slack' },
+      { type: 'connection.renew', name: 'Google' },
+      { type: 'connection.renew', name: ['google'] },
+      { type: 'connection.renew', name: 'google', secret: `ya29.${MARKER}0123456789` },
+      { type: 'connection.renew', name: 'google', kind: 'google' },
+      { type: 'connection.set', name: 'google', kind: 'google', secret: `ya29.${MARKER}0123456789` },
+      { type: 'connection.remove', name: 'google' },
+      { type: 'listening', host: '127.0.0.1', port: 41000 },
+      Object.create({ type: 'connection.renew', name: 'google' }),
+    ]
+    for (const message of bad) forks[0]!.child.emit('message', message)
+    expect(seen).toEqual([])
+    expect(logs.join('\n')).not.toContain(MARKER)
+    expect(logs).toEqual(['engine starting', 'engine running'])
+  })
+
+  it('does not fail without a listener', async () => {
+    const { forks } = await running()
+    expect(() => forks[0]!.child.emit('message', { type: 'connection.renew', name: 'google' })).not.toThrow()
+  })
+
+  it('survives a listener that throws and keeps the message text out of the log', async () => {
+    const { forks, logs, supervisor } = await listening(() => {
+      throw new Error(`broken ${MARKER}`)
+    })
+    expect(() => forks[0]!.child.emit('message', { type: 'connection.renew', name: 'google' })).not.toThrow()
+    expect(logs.join('\n')).not.toContain(MARKER)
+    expect(supervisor.status().state).toBe('running')
+  })
+
+  it('hears only the engine of the current start, not one that was replaced, stopped or has exited', async () => {
+    const seen: Request[] = []
+    const { supervisor, forks } = await listening((request) => seen.push(request))
+    const restart = supervisor.restart()
+    await settle()
+    forks[1]!.child.listen(41001)
+    await restart
+    forks[0]!.child.emit('message', { type: 'connection.renew', name: 'google' })
+    expect(seen).toEqual([])
+    forks[1]!.child.emit('message', { type: 'connection.renew', name: 'google' })
+    expect(seen).toHaveLength(1)
+    forks[1]!.child.exit(1)
+    forks[1]!.child.emit('message', { type: 'connection.renew', name: 'microsoft' })
+    expect(seen).toHaveLength(1)
+  })
+
+  it('hears nothing while the engine is being stopped and has not exited yet', async () => {
+    const seen: Request[] = []
+    const { supervisor, forks } = await listening((request) => seen.push(request))
+    forks[0]!.child.exitOnKill = false
+    const stopping = supervisor.stop()
+    await settle()
+    forks[0]!.child.emit('message', { type: 'connection.renew', name: 'google' })
+    expect(seen).toEqual([])
+    forks[0]!.child.exit(0)
+    await stopping
+  })
+
+  it('hears nothing after stop', async () => {
+    const seen: Request[] = []
+    const { supervisor, forks } = await listening((request) => seen.push(request))
+    await supervisor.stop()
+    forks[0]!.child.emit('message', { type: 'connection.renew', name: 'google' })
+    expect(seen).toEqual([])
   })
 })
 

@@ -69,7 +69,7 @@ To append a row without the app, put a token into the connections file and run t
 
     rill-engine run append-row.json --connections connections.json
 
-An access token lives about an hour and the engine does not refresh it, so a headless run needs a fresh token each time. Signing in and refreshing tokens is the job of the desktop app, which gives the running engine each new token over the parent channel below. The two APIs were read from the vendors' documentation and have not been called live by this project, and the Graph workbook API is documented for OneDrive files, so a personal account may behave differently from a work account.
+An access token lives about an hour and the engine does not refresh it, so a headless run needs a fresh token each time. Signing in and refreshing tokens is the job of the desktop app, which gives the running engine each new token over the parent channel below. When a call is refused with a 401 (and only a 401), the node asks the engine to renew the token once and repeats the same call with the new one; see the parent channel below. The two APIs were read from the vendors' documentation and have not been called live by this project, and the Graph workbook API is documented for OneDrive files, so a personal account may behave differently from a work account.
 
 #### The parent channel
 
@@ -79,6 +79,12 @@ When `serve` runs as an Electron utility process, it listens on `process.parentP
     { "type": "connection.remove", "name": "google" }
 
 `name` and `kind` are both `google` or both `microsoft`, `secret` is a string of 1 to 8192 characters, and a message has no other key. Anything else is ignored and counted, and nothing is stored or printed for it. A `connection.set` replaces the secret of that name, so the next node call reads the new token; a node that is running keeps the token it already read. A `connection.remove` makes the next call fail with `unknown connection: <name>`. The connection also appears to the planner by name and kind, and the failure explanation hides its token like the token of any other connection. A name that the connections file or `RILL_CONNECTIONS` gave to an entry of another kind is left alone, and the message is counted as ignored. `RILL_CONNECTIONS` stays the way to give the engine its first tokens at start. Without a parent port (the command line, tests) nothing listens and nothing changes.
+
+The engine writes one message of its own to the parent, and only for the two account names:
+
+    { "type": "connection.renew", "name": "google" }
+
+A spreadsheet node sends it by calling `renew(name)` on its connection resolver after the service answered its call with HTTP 401 (not 403, 429, a server error or a network error), at most once per node execution. The call is repeated only when the renewal gives a different token. The request names no token and carries no other key. It is posted only when the table holds that name as a connection of the account kind; for a plain connection, an entry of another kind, a name that was removed, or without a parent port, `renew` answers `undefined` at once and posts nothing. Callers for the same name share one request. The answer is the next `connection.set` of that name, whose secret `renew` returns, and the table already holds it when `renew` returns. A `connection.remove` of that name, 20 seconds without an answer, or a port that cannot post answers `undefined`. A `connection.set` or `connection.remove` of another name, and a message that was ignored, do not answer. When `renew` gives `undefined`, the same token or a secret that is not shaped like an access token, the node fails with the same text as before (`HTTP 401: the sign-in is no longer valid, reconnect the account`). A 401 means that the service refused the call before it did anything, so repeating an append cannot add a row twice. The dry run never renews. `http.request` does not renew.
 
 ### Model provider
 

@@ -80,6 +80,7 @@ async function start(): Promise<void> {
     config,
     oauthConnections: () => accounts.manager?.accountConnections() ?? [],
     oauthReady: () => accounts.ready,
+    onRenew: (request) => void accounts.manager?.renew(request).catch(() => undefined),
     log,
   })
   const oauth = createOAuthManager({

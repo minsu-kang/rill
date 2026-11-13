@@ -16,6 +16,21 @@ export function accountLabel(kind: AccountKind): string {
   return LABELS[kind]
 }
 
+function isAccessToken(secret: unknown): secret is string {
+  return typeof secret === 'string' && !isSlackBotSecret(secret) && ACCESS_TOKEN.test(secret)
+}
+
+export async function renewedTokenOf(connections: ConnectionResolver, name: string, previous: string): Promise<string | undefined> {
+  if (connections.renew === undefined) return undefined
+  let next: unknown
+  try {
+    next = await connections.renew(name)
+  } catch {
+    return undefined
+  }
+  return isAccessToken(next) && next !== previous ? next : undefined
+}
+
 export function accessTokenOf(connections: ConnectionResolver, name: string, kind: AccountKind): string {
   const secret = connections.get(name)
   if (secret === undefined) throw new Error(`unknown connection: ${name}`)

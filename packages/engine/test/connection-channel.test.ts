@@ -279,3 +279,293 @@ describe('the failure explanation after the channel set a token', () => {
     expect(connectionSecrets(workflow, [], createCoreRegistry(), loaded.resolver)).toEqual([])
   })
 })
+
+class RenewPort extends FakeParentPort {
+  readonly sent: unknown[] = []
+  failPost = false
+  reply: (() => unknown) | undefined
+
+  postMessage(message: unknown): void {
+    if (this.failPost) throw new Error(`port closed ${GOOGLE_TOKEN}`)
+    this.sent.push(message)
+    const reply = this.reply
+    if (reply !== undefined) queueMicrotask(() => this.post(reply()))
+  }
+}
+
+function renewSetup(table = '{}') {
+  const loaded = parseConnections(table)
+  const port = new RenewPort()
+  const channel = attachConnectionChannel(port, loaded.table)
+  return { loaded, port, channel, renew: (name: string) => loaded.resolver.renew!(name) }
+}
+
+const SIGNED_IN = JSON.stringify({ google: { secret: GOOGLE_TOKEN, kind: 'google' }, microsoft: { secret: MICROSOFT_TOKEN, kind: 'microsoft' } })
+
+async function flush(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+}
+
+describe('renewing an account token over the channel', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('posts exactly one message with the type and the name, and nothing else', async () => {
+    const { port, renew } = renewSetup(SIGNED_IN)
+    const pending = renew('google')
+    expect(port.sent).toEqual([{ type: 'connection.renew', name: 'google' }])
+    expect(Object.keys(port.sent[0] as object)).toEqual(['type', 'name'])
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2 })
+    expect(await pending).toBe(GOOGLE_TOKEN_2)
+    const second = renew('microsoft')
+    expect(port.sent[1]).toEqual({ type: 'connection.renew', name: 'microsoft' })
+    port.post({ type: 'connection.set', name: 'microsoft', kind: 'microsoft', secret: 'eyJNEWMARKER0123456789.payload.sig' })
+    expect(await second).toBe('eyJNEWMARKER0123456789.payload.sig')
+  })
+
+  it('answers with the secret of the next connection.set of that name, and the table already holds it', async () => {
+    const { loaded, port, renew } = renewSetup(SIGNED_IN)
+    const pending = renew('google')
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2 })
+    expect(loaded.resolver.get('google')).toBe(GOOGLE_TOKEN_2)
+    expect(await pending).toBe(GOOGLE_TOKEN_2)
+  })
+
+  it('is single flight per name: two callers, one message, the same answer', async () => {
+    const { port, renew } = renewSetup(SIGNED_IN)
+    const first = renew('google')
+    const second = renew('google')
+    expect(port.sent).toEqual([{ type: 'connection.renew', name: 'google' }])
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2 })
+    expect(await Promise.all([first, second])).toEqual([GOOGLE_TOKEN_2, GOOGLE_TOKEN_2])
+    const third = renew('google')
+    expect(port.sent).toHaveLength(2)
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN })
+    expect(await third).toBe(GOOGLE_TOKEN)
+  })
+
+  it('keeps one flight per name, so google and microsoft do not wait for each other', async () => {
+    const { port, renew } = renewSetup(SIGNED_IN)
+    const google = renew('google')
+    const microsoft = renew('microsoft')
+    expect(port.sent).toEqual([
+      { type: 'connection.renew', name: 'google' },
+      { type: 'connection.renew', name: 'microsoft' },
+    ])
+    port.post({ type: 'connection.set', name: 'microsoft', kind: 'microsoft', secret: 'eyJNEWMARKER0123456789.payload.sig' })
+    expect(await microsoft).toBe('eyJNEWMARKER0123456789.payload.sig')
+    port.post({ type: 'connection.remove', name: 'google' })
+    expect(await google).toBeUndefined()
+  })
+
+  it('does not answer for a connection.set of another name', async () => {
+    vi.useFakeTimers()
+    const { port, renew } = renewSetup(SIGNED_IN)
+    let answer: string | undefined | 'pending' = 'pending'
+    void renew('google').then((value) => {
+      answer = value
+    })
+    port.post({ type: 'connection.set', name: 'microsoft', kind: 'microsoft', secret: 'eyJNEWMARKER0123456789.payload.sig' })
+    port.post({ type: 'connection.remove', name: 'microsoft' })
+    await flush()
+    expect(answer).toBe('pending')
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2 })
+    await flush()
+    expect(answer).toBe(GOOGLE_TOKEN_2)
+  })
+
+  it('answers undefined on a connection.remove of that name', async () => {
+    const { loaded, port, renew } = renewSetup(SIGNED_IN)
+    const pending = renew('google')
+    port.post({ type: 'connection.remove', name: 'google' })
+    expect(await pending).toBeUndefined()
+    expect(loaded.resolver.get('google')).toBeUndefined()
+  })
+
+  it('does not answer for a message that was ignored', async () => {
+    vi.useFakeTimers()
+    const { port, channel, renew } = renewSetup(SIGNED_IN)
+    let answer: string | undefined | 'pending' = 'pending'
+    void renew('google').then((value) => {
+      answer = value
+    })
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2, extra: 1 })
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: '' })
+    port.post({ type: 'connection.renew', name: 'google' })
+    await flush()
+    expect(answer).toBe('pending')
+    expect(channel.ignored()).toBe(3)
+  })
+
+  it('gives up after 20 seconds with undefined, and asks again on the next call', async () => {
+    vi.useFakeTimers()
+    const { port, renew } = renewSetup(SIGNED_IN)
+    let answer: string | undefined | 'pending' = 'pending'
+    void renew('google').then((value) => {
+      answer = value
+    })
+    await vi.advanceTimersByTimeAsync(19_999)
+    expect(answer).toBe('pending')
+    await vi.advanceTimersByTimeAsync(1)
+    expect(answer).toBeUndefined()
+    expect(port.sent).toHaveLength(1)
+    const again = renew('google')
+    expect(port.sent).toHaveLength(2)
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2 })
+    expect(await again).toBe(GOOGLE_TOKEN_2)
+  })
+
+  it('leaves no timer behind once it was answered', async () => {
+    vi.useFakeTimers()
+    const { port, renew } = renewSetup(SIGNED_IN)
+    const answered = renew('google')
+    expect(vi.getTimerCount()).toBe(1)
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2 })
+    await answered
+    expect(vi.getTimerCount()).toBe(0)
+    const removed = renew('microsoft')
+    port.post({ type: 'connection.remove', name: 'microsoft' })
+    await removed
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('answers undefined at once without a parent port, or when the port cannot post', async () => {
+    const loaded = parseConnections(SIGNED_IN)
+    attachConnectionChannel(undefined, loaded.table)
+    expect(await loaded.resolver.renew!('google')).toBeUndefined()
+    const bare = parseConnections(SIGNED_IN)
+    attachConnectionChannel(new FakeParentPort(), bare.table)
+    expect(await bare.resolver.renew!('google')).toBeUndefined()
+    const detached = parseConnections(SIGNED_IN)
+    expect(await detached.resolver.renew!('google')).toBeUndefined()
+  })
+
+  it('answers undefined when the port throws on posting, without keeping the throw or a waiter', async () => {
+    vi.useFakeTimers()
+    const { port, renew } = renewSetup(SIGNED_IN)
+    port.failPost = true
+    expect(await renew('google')).toBeUndefined()
+    expect(vi.getTimerCount()).toBe(0)
+    port.failPost = false
+    const again = renew('google')
+    expect(port.sent).toEqual([{ type: 'connection.renew', name: 'google' }])
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2 })
+    expect(await again).toBe(GOOGLE_TOKEN_2)
+  })
+
+  it('posts nothing for a name that is not an account, a name that has no connection, or an entry of another kind', async () => {
+    const { port, renew } = renewSetup(JSON.stringify({ team: { secret: 'https://hooks.example.test/x', kind: 'slack' }, bare: 'plain-secret', microsoft: { secret: 'plain-api-key', kind: 'http' } }))
+    for (const name of ['team', 'bare', 'other', 'microsoft', 'google', '']) expect(await renew(name), name).toBeUndefined()
+    expect(port.sent).toEqual([])
+  })
+
+  it('posts nothing for an account that the channel removed before the call', async () => {
+    const { port, renew } = renewSetup(SIGNED_IN)
+    port.post({ type: 'connection.remove', name: 'google' })
+    expect(await renew('google')).toBeUndefined()
+    expect(port.sent).toEqual([])
+  })
+
+  it('works for an account that the channel itself set', async () => {
+    const { port, renew } = renewSetup()
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN })
+    const pending = renew('google')
+    expect(port.sent).toEqual([{ type: 'connection.renew', name: 'google' }])
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2 })
+    expect(await pending).toBe(GOOGLE_TOKEN_2)
+  })
+
+  it('keeps get, kindOf and every earlier behaviour as they were', () => {
+    const { loaded, port } = renewSetup(SIGNED_IN)
+    expect(loaded.resolver.get('google')).toBe(GOOGLE_TOKEN)
+    expect(loaded.resolver.kindOf?.('google')).toBe('google')
+    expect(port.sent).toEqual([])
+    expect(loaded.planConnections).toEqual([
+      { name: 'google', kind: 'google' },
+      { name: 'microsoft', kind: 'microsoft' },
+    ])
+  })
+
+  it('keeps the token out of anything the call posts', async () => {
+    const { port, renew } = renewSetup(SIGNED_IN)
+    const pending = renew('google')
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2 })
+    await pending
+    expect(JSON.stringify(port.sent)).not.toContain('TOKENMARKER')
+    expect(JSON.stringify(port.sent)).not.toContain('MARKER')
+  })
+})
+
+describe('a run that is refused with a 401 while the desktop app renews the token', () => {
+  const workflow = linearWorkflow([trigger, { id: 'n1', type: 'google.sheets.append@1', config: { connection: 'google', spreadsheetId: SHEET, values: ['a'] } }])
+
+  function engineFor(loaded: ReturnType<typeof parseConnections>) {
+    return new Engine({ db: Db.open(':memory:'), registry: createCoreRegistry(), sleep: async () => {}, random: () => 1, connections: loaded.resolver, planConnections: loaded.planConnections })
+  }
+
+  function answerWith(port: RenewPort, reply: () => unknown) {
+    port.reply = reply
+  }
+
+  function stubSheets(statuses: number[]) {
+    const seen: Array<string | null> = []
+    vi.stubGlobal('fetch', async (_input: URL | string, init?: RequestInit) => {
+      seen.push(new Headers(init?.headers).get('authorization'))
+      const status = statuses[Math.min(seen.length, statuses.length) - 1]!
+      return status === 200 ? new Response(JSON.stringify({ updates: { updatedRange: 'Sheet1!A1' } }), { status, headers: { 'content-type': 'application/json' } }) : new Response('expired', { status })
+    })
+    return seen
+  }
+
+  it('retries once with the token the app sent and succeeds', async () => {
+    const seen = stubSheets([401, 200])
+    const { loaded, port } = renewSetup(SIGNED_IN)
+    answerWith(port, () => ({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2 }))
+    const engine = engineFor(loaded)
+    engines.push(engine)
+    const result = await engine.startRun(engine.deploy(workflow))
+    expect(result.status).toBe('succeeded')
+    expect(seen).toEqual([`Bearer ${GOOGLE_TOKEN}`, `Bearer ${GOOGLE_TOKEN_2}`])
+    expect(port.sent).toEqual([{ type: 'connection.renew', name: 'google' }])
+    expect(loaded.resolver.get('google')).toBe(GOOGLE_TOKEN_2)
+  })
+
+  it('fails with the usual 401 text when the app removes the connection', async () => {
+    const seen = stubSheets([401])
+    const { loaded, port } = renewSetup(SIGNED_IN)
+    answerWith(port, () => ({ type: 'connection.remove', name: 'google' }))
+    const engine = engineFor(loaded)
+    engines.push(engine)
+    const result = await engine.startRun(engine.deploy(workflow))
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('node n1 failed: HTTP 401: the sign-in is no longer valid, reconnect the account')
+    expect(seen).toHaveLength(1)
+    expect(JSON.stringify(result)).not.toContain('TOKENMARKER')
+  })
+
+  it('fails with the usual 401 text when the new token is refused too, after exactly one message', async () => {
+    const seen = stubSheets([401])
+    const { loaded, port } = renewSetup(SIGNED_IN)
+    answerWith(port, () => ({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2 }))
+    const engine = engineFor(loaded)
+    engines.push(engine)
+    const result = await engine.startRun(engine.deploy(workflow))
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('node n1 failed: HTTP 401: the sign-in is no longer valid, reconnect the account')
+    expect(seen).toHaveLength(2)
+    expect(port.sent).toHaveLength(1)
+    expect(JSON.stringify(result)).not.toContain('TOKENMARKER')
+  })
+
+  it('fails the same way, without renewing, when no parent port exists', async () => {
+    const seen = stubSheets([401])
+    const loaded = parseConnections(SIGNED_IN)
+    const engine = engineFor(loaded)
+    engines.push(engine)
+    const result = await engine.startRun(engine.deploy(workflow))
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('node n1 failed: HTTP 401: the sign-in is no longer valid, reconnect the account')
+    expect(seen).toHaveLength(1)
+  })
+})

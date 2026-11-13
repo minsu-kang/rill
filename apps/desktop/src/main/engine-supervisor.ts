@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { HostError, PROVIDER_KEY_ENV, type EngineInfo, type EngineStatus } from '../shared/host-api'
 import type { ConfigStore } from './config-store'
+import { parseRenewRequest, type RenewRequest } from './renew-request'
 import type { SecretStore } from './secret-store'
 
 export interface StreamLike {
@@ -16,6 +17,7 @@ export interface ChildLike {
   kill(): boolean
   postMessage(message: unknown): void
   on(event: 'exit', listener: (code: number | null) => void): unknown
+  on(event: 'message', listener: (message: unknown) => void): unknown
 }
 
 export interface ForkOptions {
@@ -57,6 +59,7 @@ export interface EngineSupervisorDeps {
   config: ConfigStore
   oauthConnections?: () => readonly AccountConnection[]
   oauthReady?: () => Promise<unknown>
+  onRenew?: (request: RenewRequest) => void
   clock?: ClockLike
   randomToken?: () => string
   forceKill?: (child: ChildLike) => void
@@ -300,6 +303,16 @@ export function createEngineSupervisor(deps: EngineSupervisorDeps): EngineSuperv
       })
       child.stderr?.on('data', () => undefined)
       child.on('exit', (code) => onExit(entry, code))
+      child.on('message', (message) => {
+        if (current !== entry || entry.stopping) return
+        const request = parseRenewRequest(message)
+        if (request === undefined) return
+        try {
+          deps.onRenew?.(request)
+        } catch {
+          return
+        }
+      })
       entry.timer = clock.setTimeout(() => {
         if (entry.exited || entry.listening) return
         entry.timedOut = true

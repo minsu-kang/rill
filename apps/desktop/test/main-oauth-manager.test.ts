@@ -852,6 +852,243 @@ describe('the engine', () => {
   })
 })
 
+const RENEW_ASKED = 'oauth google: the engine asked for a new access token'
+
+function renewRequest(name: unknown = 'google'): unknown {
+  return { type: 'connection.renew', name }
+}
+
+describe('renew requests from the engine', () => {
+  it('refreshes once and answers with the usual connection.set, then schedules the next refresh from the new token', async () => {
+    const harness = await connected()
+    harness.queue.push(() => tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: undefined }))
+    await harness.manager.renew(renewRequest())
+    expect(harness.refreshCalls()).toHaveLength(1)
+    expect(harness.refreshCalls()[0]!.form.get('refresh_token')).toBe(GOOGLE_REFRESH)
+    expect(harness.messages).toEqual([{ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_ACCESS_2 }])
+    expect(harness.manager.accountConnections()).toEqual([{ name: 'google', kind: 'google', secret: GOOGLE_ACCESS_2 }])
+    expect(harness.clock.nextDelay()).toBe(GOOGLE_EXPIRY_DELAY)
+    expect(harness.changes).toEqual([])
+    expect(harness.logs).toEqual([RENEW_ASKED])
+  })
+
+  it('writes a rotated Microsoft refresh token to the store before it sends the new access token', async () => {
+    const harness = await connected({}, 'microsoft')
+    harness.queue.push(() => microsoftTokenAnswer({ access_token: MICROSOFT_ACCESS_2, refresh_token: MICROSOFT_REFRESH_2 }))
+    await harness.manager.renew(renewRequest('microsoft'))
+    expect(harness.events.map(([kind]) => kind)).toEqual(['store.account', 'engine'])
+    expect((harness.events[0]![1] as { refreshToken: string }).refreshToken).toBe(MICROSOFT_REFRESH_2)
+    expect(harness.messages).toEqual([{ type: 'connection.set', name: 'microsoft', kind: 'microsoft', secret: MICROSOFT_ACCESS_2 }])
+    expect(harness.logs).toEqual(['oauth microsoft: the engine asked for a new access token'])
+  })
+
+  it('shares the refresh that a timer already started instead of making a second one', async () => {
+    const harness = await connected()
+    const gate = deferred<Response>()
+    harness.queue.push(() => gate.promise)
+    harness.clock.jump(GOOGLE_EXPIRY_DELAY)
+    harness.manager.resume()
+    await settle()
+    expect(harness.refreshCalls()).toHaveLength(1)
+    const request = harness.manager.renew(renewRequest())
+    await settle()
+    expect(harness.refreshCalls()).toHaveLength(1)
+    gate.resolve(tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: undefined }))
+    await request
+    await settle()
+    expect(harness.refreshCalls()).toHaveLength(1)
+    expect(harness.messages).toEqual([{ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_ACCESS_2 }])
+  })
+
+  it('shares the refresh of an earlier request that is still waiting for the provider', async () => {
+    const harness = await connected()
+    const gate = deferred<Response>()
+    harness.queue.push(() => gate.promise)
+    const first = harness.manager.renew(renewRequest())
+    await settle()
+    const second = harness.manager.renew(renewRequest())
+    await settle()
+    expect(harness.refreshCalls()).toHaveLength(1)
+    gate.resolve(tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: undefined }))
+    await Promise.all([first, second])
+    expect(harness.refreshCalls()).toHaveLength(1)
+    expect(harness.messages).toHaveLength(1)
+  })
+
+  it('refuses a second request of the same provider within 30 seconds of the last one, and allows it at 30 seconds', async () => {
+    const harness = await connected()
+    await harness.manager.renew(renewRequest())
+    expect(harness.refreshCalls()).toHaveLength(1)
+    await harness.clock.advance(29_999)
+    await harness.manager.renew(renewRequest())
+    expect(harness.refreshCalls()).toHaveLength(1)
+    expect(harness.messages).toHaveLength(1)
+    await harness.clock.advance(1)
+    await harness.manager.renew(renewRequest())
+    expect(harness.refreshCalls()).toHaveLength(2)
+    expect(harness.messages).toHaveLength(2)
+  })
+
+  it('counts the 30 seconds from the request that was answered, not from one that was refused', async () => {
+    const harness = await connected()
+    await harness.manager.renew(renewRequest())
+    await harness.clock.advance(20_000)
+    await harness.manager.renew(renewRequest())
+    await harness.clock.advance(10_000)
+    await harness.manager.renew(renewRequest())
+    expect(harness.refreshCalls()).toHaveLength(2)
+  })
+
+  it('keeps the 30 seconds apart for each provider', async () => {
+    const harness = build()
+    await withApp(harness, 'google')
+    await withApp(harness, 'microsoft')
+    await harness.manager.connect('google')
+    await harness.manager.connect('microsoft')
+    harness.calls.length = 0
+    harness.messages.length = 0
+    await harness.manager.renew(renewRequest('google'))
+    await harness.clock.advance(1)
+    await harness.manager.renew(renewRequest('microsoft'))
+    expect(harness.refreshCalls().map((call) => call.url)).toEqual(['https://oauth2.googleapis.com/token', 'https://login.microsoftonline.com/common/oauth2/v2.0/token'])
+    await harness.manager.renew(renewRequest('microsoft'))
+    await harness.manager.renew(renewRequest('google'))
+    expect(harness.refreshCalls()).toHaveLength(2)
+    expect(harness.messages.map((message) => (message as { name: string }).name)).toEqual(['google', 'microsoft'])
+  })
+
+  it('ignores every message that is not exactly the request, and logs and sends nothing for it', async () => {
+    const harness = await connected()
+    const bad: unknown[] = [
+      undefined,
+      null,
+      'connection.renew',
+      5,
+      [],
+      {},
+      { type: 'connection.renew' },
+      { name: 'google' },
+      { type: 'connection.renew', name: 'slack' },
+      { type: 'connection.renew', name: 'Google' },
+      { type: 'connection.renew', name: 'sheets' },
+      { type: 'connection.renew', name: ['google'] },
+      { type: 'connection.renew', name: 'google', kind: 'google' },
+      { type: 'connection.renew', name: 'google', secret: GOOGLE_ACCESS },
+      { type: 'connection.set', name: 'google' },
+      { type: 'connection.remove', name: 'google' },
+      { type: 'connection.renew ', name: 'google' },
+      Object.create({ type: 'connection.renew', name: 'google' }),
+    ]
+    for (const request of bad) await harness.manager.renew(request)
+    expect(harness.calls).toEqual([])
+    expect(harness.messages).toEqual([])
+    expect(harness.logs).toEqual([])
+    harness.queue.push(() => tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: undefined }))
+    await harness.manager.renew(renewRequest())
+    expect(harness.refreshCalls()).toHaveLength(1)
+  })
+
+  it('does nothing for an account that is not set up, not signed in, or needs to be connected again', async () => {
+    const fresh = build()
+    await fresh.manager.renew(renewRequest())
+    const configured = build()
+    await withApp(configured)
+    await configured.manager.renew(renewRequest())
+    const withdrawn = await connected()
+    withdrawn.queue.push(() => json({ error: 'invalid_grant' }, 400))
+    await withdrawn.clock.advance(GOOGLE_EXPIRY_DELAY)
+    withdrawn.calls.length = 0
+    withdrawn.messages.length = 0
+    withdrawn.logs.length = 0
+    await withdrawn.clock.advance(60_000)
+    await withdrawn.manager.renew(renewRequest())
+    for (const harness of [fresh, configured, withdrawn]) {
+      expect(harness.calls).toEqual([])
+      expect(harness.messages).toEqual([])
+      expect(harness.logs).toEqual([])
+    }
+  })
+
+  it('does nothing while a new sign-in of a connected account is open in the browser', async () => {
+    const harness = await connected()
+    harness.setMode('none')
+    const signIn = codeOf(harness.manager.connect('google'))
+    await settle()
+    expect(await statusOf(harness.manager)).toEqual({ provider: 'google', status: 'connecting' })
+    await harness.manager.renew(renewRequest())
+    expect(harness.refreshCalls()).toEqual([])
+    expect(harness.messages).toEqual([])
+    expect(harness.logs).toEqual([])
+    harness.manager.cancel('google')
+    expect(await signIn).toBe('OAUTH_CANCELLED')
+    await harness.manager.renew(renewRequest())
+    expect(harness.refreshCalls()).toHaveLength(1)
+  })
+
+  it('does not take the 30 seconds for a request that was ignored', async () => {
+    const harness = build()
+    await withApp(harness)
+    await harness.manager.renew(renewRequest())
+    await harness.manager.connect('google')
+    harness.calls.length = 0
+    harness.messages.length = 0
+    await harness.manager.renew(renewRequest())
+    expect(harness.refreshCalls()).toHaveLength(1)
+    expect(harness.messages).toHaveLength(1)
+  })
+
+  it('marks the account as needing to be connected again on invalid_grant and tells the engine to drop it', async () => {
+    const harness = await connected()
+    harness.queue.push(() => json({ error: 'invalid_grant', error_description: 'PROVIDERTEXTMARKER' }, 400))
+    await harness.manager.renew(renewRequest())
+    expect(harness.changes).toEqual([{ provider: 'google', status: 'needs_reconnect', account: 'someone@example.com' }])
+    expect(harness.messages).toEqual([{ type: 'connection.remove', name: 'google' }])
+    expect(harness.manager.accountConnections()).toEqual([])
+    const stored = (await harness.realStore.getOAuth()).accounts.google!
+    expect(stored.refreshToken).toBeUndefined()
+    expect(stored.needsReconnect).toBe(true)
+    expect(harness.clock.pending()).toBe(0)
+    expect(harness.logs).toEqual([RENEW_ASKED, 'oauth google: the sign-in was withdrawn, reconnect needed'])
+  })
+
+  it('answers nothing when the refresh fails for a temporary reason, and plans the retry of the back-off', async () => {
+    const harness = await connected()
+    harness.queue.push(() => Promise.reject(new Error('offline PROVIDERTEXTMARKER')))
+    await harness.manager.renew(renewRequest())
+    expect(harness.messages).toEqual([])
+    expect(await statusOf(harness.manager)).toEqual({ provider: 'google', status: 'connected', account: 'someone@example.com' })
+    expect(harness.clock.nextDelay()).toBe(30_000)
+    expect(harness.logs).toEqual([RENEW_ASKED, 'oauth google: refresh failed, will retry'])
+  })
+
+  it('answers nothing when a rotated refresh token cannot be saved', async () => {
+    const harness = await connected({}, 'microsoft')
+    harness.failAccountWrites(true)
+    harness.queue.push(() => microsoftTokenAnswer({ access_token: MICROSOFT_ACCESS_2, refresh_token: MICROSOFT_REFRESH_2 }))
+    await harness.manager.renew(renewRequest('microsoft'))
+    expect(harness.messages).toEqual([])
+    expect(harness.manager.accountConnections()).toEqual([{ name: 'microsoft', kind: 'microsoft', secret: MICROSOFT_ACCESS }])
+  })
+
+  it('does not fail when the engine cannot be reached for the answer', async () => {
+    const harness = await connected()
+    harness.failSends(true)
+    harness.queue.push(() => tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: undefined }))
+    await expect(harness.manager.renew(renewRequest())).resolves.toBeUndefined()
+    expect(harness.manager.accountConnections()[0]!.secret).toBe(GOOGLE_ACCESS_2)
+  })
+
+  it('logs only a fixed sentence with the provider name and sends the engine nothing but the access token', async () => {
+    const harness = await connected()
+    harness.queue.push(() => tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: GOOGLE_REFRESH_2 }))
+    await harness.manager.renew({ type: 'connection.renew', name: 'google' })
+    await harness.manager.renew({ type: 'connection.renew', name: 'google', secret: GOOGLE_REFRESH })
+    expect(scanFor(JSON.stringify([harness.logs, harness.changes, await harness.manager.state()]))).toEqual([])
+    expect(harness.logs).toEqual([RENEW_ASKED])
+    expect(harness.messages).toEqual([{ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_ACCESS_2 }])
+  })
+})
+
 describe('disconnect', () => {
   it('revokes the Google refresh token, removes the connection from the engine, clears the account and the timer', async () => {
     const harness = await connected()
