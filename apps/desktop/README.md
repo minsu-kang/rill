@@ -209,6 +209,10 @@ From the repository root, in your own terminal (this starts a server and a windo
 
 This builds the engine bundle and the app, then runs electron-builder. The result is in `apps/desktop/release/` (git ignores it): a `dmg` and a `zip` for the architecture of the machine that built them, for example `Rill-0.0.0-arm64.dmg`. The app id `app.rill.desktop` is a reverse-DNS placeholder until there is a real domain, and the default Electron icon is used.
 
+If the repository sits in a folder that iCloud Drive syncs (on a default Mac setup `~/Documents` does), the build fails at the signing step with "resource fork, Finder information, or similar detritus not allowed", because the sync adds extended attributes to the packed app. Build into a folder that is not synced instead:
+
+    pnpm --filter @rill/desktop dist -c.directories.output=/private/tmp/rill-release
+
 The build is signed ad hoc (identity `-`), not with a developer certificate, and is not notarized, because there is no signing identity yet. The ad hoc signature verifies (`codesign --verify --deep --strict`), but Gatekeeper does not trust it. On another Mac a downloaded copy is blocked. Remove the quarantine flag once with `xattr -dr com.apple.quarantine /Applications/Rill.app`, or try to open the app once and then use System Settings, Privacy & Security, Open Anyway. Right click, then Open, no longer works on current macOS.
 
 electron-builder also flips the Electron fuses of the packed binary (`electronFuses` in `electron-builder.yml`): `runAsNode`, `enableNodeOptionsEnvironmentVariable`, `enableNodeCliInspectArguments` and `grantFileProtocolExtraPrivileges` are off, `enableEmbeddedAsarIntegrityValidation` and `onlyLoadAppFromAsar` are on. So `ELECTRON_RUN_AS_NODE`, `--inspect` and `NODE_OPTIONS` do nothing in the packed app. `test/main-packed-app.test.ts` reads the fuses and the signature of the packed app when `release/` holds one, and skips otherwise.
