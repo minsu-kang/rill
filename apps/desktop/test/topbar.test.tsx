@@ -144,3 +144,18 @@ describe('top bar structure', () => {
     }
   })
 })
+
+describe('TopBar brand', () => {
+  it('shows the logo before the name, hidden from assistive technology, and keeps the name as its text', () => {
+    bar()
+    const header = screen.getByRole('banner')
+    const brand = within(header).getByText(t('app.name')).closest('strong')
+    expect(brand).not.toBeNull()
+    const logo = brand!.querySelector('svg')
+    expect(logo).not.toBeNull()
+    expect(logo!.getAttribute('aria-hidden')).toBe('true')
+    expect(logo!.getAttribute('data-rill-logo')).toBe('small')
+    expect(brand!.firstElementChild).toBe(logo)
+    expect(brand!.textContent).toBe(t('app.name'))
+  })
+})

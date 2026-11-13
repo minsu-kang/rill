@@ -3,6 +3,7 @@ import { useT } from '../i18n'
 import type { ConnectionState } from './connection'
 import controls from './controls.module.css'
 import type { PingState } from './glue/usePing'
+import { Logo } from './Logo'
 import styles from './TopBar.module.css'
 import { WorkflowSwitcher } from './workflows/WorkflowSwitcher'
 import type { WorkflowListState } from './workflows/useWorkflowList'
@@ -42,7 +43,10 @@ export function TopBar({ tab, onTab, list, selectedId, onSelectWorkflow, connect
   const label = t(key)
   return (
     <header className={styles.bar} data-rill-region="topbar" aria-label={t('app.region.top')}>
-      <strong className={styles.brand}>{t('app.name')}</strong>
+      <strong className={styles.brand}>
+        <Logo size={24} />
+        <span>{t('app.name')}</span>
+      </strong>
       <div className={styles.switcher}>
         <WorkflowSwitcher list={list} selectedId={selectedId} onSelect={onSelectWorkflow} />
       </div>
