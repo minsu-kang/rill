@@ -45,3 +45,5 @@ Run everything from the repository root, with Node 24 and pnpm 11 (`.nvmrc` and 
 ## Contributing
 
 Pull requests are open to collaborators only and need the code owner's review (@minsu-kang). See CONTRIBUTING.md.
+
+Write pull request titles in the Conventional Commits form (`feat:`, `fix:`, and so on), because release-please builds the version and the changelog from them.

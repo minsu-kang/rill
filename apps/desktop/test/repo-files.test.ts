@@ -146,3 +146,43 @@ describe('the workflows', () => {
     expect(CI).toContain('pnpm install --frozen-lockfile')
   })
 })
+
+describe('the release setup', () => {
+  const config = JSON.parse(read('release-please-config.json')) as {
+    'include-component-in-tag': boolean
+    packages: Record<string, { 'release-type': string; 'extra-files': { type: string; path: string; jsonpath: string }[] }>
+  }
+  const version = (path: string): string => (JSON.parse(read(path)) as { version: string }).version
+
+  it('releases the root package under a plain v tag and writes the version to the desktop app too', () => {
+    expect(Object.keys(config.packages)).toEqual(['.'])
+    expect(config.packages['.']?.['release-type']).toBe('node')
+    expect(config['include-component-in-tag']).toBe(false)
+    expect(config.packages['.']?.['extra-files']).toEqual([{ type: 'json', path: 'apps/desktop/package.json', jsonpath: '$.version' }])
+  })
+
+  it('keeps the manifest, the root package and the desktop app at the same version', () => {
+    const manifest = JSON.parse(read('.release-please-manifest.json')) as Record<string, string>
+    expect(Object.keys(manifest)).toEqual(['.'])
+    expect(version('package.json')).toBe(manifest['.'])
+    expect(version('apps/desktop/package.json')).toBe(manifest['.'])
+  })
+
+  it('builds the app from the release tag with a script and an output folder that exist', () => {
+    const release = read('.github/workflows/release-please.yml')
+    expect(release).toMatch(/push:\n {4}branches: \[main\]/)
+    expect(release).toContain('googleapis/release-please-action@')
+    expect(release).toContain('pnpm --filter @rill/desktop dist')
+    expect(release).toContain('apps/desktop/release/*.dmg')
+    const scripts = (JSON.parse(read('apps/desktop/package.json')) as { scripts: Record<string, string> }).scripts
+    expect(scripts['dist']).toContain('electron-builder')
+    expect(read('apps/desktop/electron-builder.yml')).toMatch(/output: release/)
+  })
+
+  it('checks the title of a pull request against the types that release-please reads', () => {
+    const validate = read('.github/workflows/pr-validate.yml')
+    expect(validate).toContain('amannn/action-semantic-pull-request@')
+    expect(validate).toMatch(/branches: \[main\]/)
+    for (const type of ['feat', 'fix']) expect(validate).toMatch(new RegExp(`\\n {12}${type}\\n`))
+  })
+})
