@@ -17,11 +17,12 @@ import { useHostConfigured } from './glue/host-models'
 import { useConfirm } from './glue/useConfirm'
 import { useEditContext } from './glue/editContext'
 import { useEngineData } from './glue/useEngineData'
+import { useReconnectNotice } from './glue/useReconnectNotice'
 import { usePing } from './glue/usePing'
 import { useSelection } from './glue/useSelection'
 import { useConnect, useHost } from './host'
 import { Layout } from './Layout'
-import { NoticeBar, type NoticeData } from './NoticeBar'
+import { NoticeBar, type NoticeAction, type NoticeData } from './NoticeBar'
 import { Page } from './Page'
 import { SettingsScreen } from './settings/SettingsScreen'
 import type { SettingsSectionId } from './settings/types'
@@ -119,9 +120,9 @@ export function App({ initial = {} }: AppProps) {
     if (held !== null && (document.activeElement === null || document.activeElement === document.body)) held.focus()
   }, [connected])
 
-  const notify = useCallback((key: MessageKey, vars?: Record<string, string | number>) => {
+  const notify = useCallback((key: MessageKey, vars?: Record<string, string | number>, action?: NoticeAction) => {
     noticeId.current += 1
-    setNotice({ id: noticeId.current, key, ...(vars === undefined ? {} : { vars }) })
+    setNotice({ id: noticeId.current, key, ...(vars === undefined ? {} : { vars }), ...(action === undefined ? {} : { action }) })
   }, [])
 
   const goTab = (next: AppTab): void => {
@@ -133,6 +134,12 @@ export function App({ initial = {} }: AppProps) {
     setSettingsSection(section)
     setTab('settings')
   }, [])
+
+  useReconnectNotice(settings.settings?.oauth.accounts, (providers) => {
+    const action: NoticeAction = { key: 'app.notice.reconnect.action', run: () => openSettings('connections') }
+    if (providers.length > 1) notify('app.notice.reconnectBoth', undefined, action)
+    else notify('app.notice.reconnect', { provider: t(`app.connections.provider.${providers[0]!}`) }, action)
+  })
 
   const workflowDeleted = (id: string): void => {
     list.forget(id)

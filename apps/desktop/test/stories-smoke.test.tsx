@@ -78,6 +78,11 @@ const SHOWN: Readonly<Record<string, (t: Translate) => string[]>> = {
   [`${APP_SCREEN} NarrowRecipes`]: (t) => [t('recipes.heading'), t('recipes.search')],
   [`${APP_SCREEN} OneWorkflow`]: (t) => [t('app.top.engine.connected'), '영수증 정리', t('app.wf.trigger.folderWatch'), t('app.wf.actions.dryRun')],
   [`${APP_SCREEN} TwoWorkflows`]: (t) => [t('app.top.engine.connected'), '웹훅을 슬랙으로 전달', t('app.wf.trigger.webhook'), t('app.wf.actions.activate')],
+  [`${APP_SCREEN} ReconnectNoticeGoogle`]: (t) => [t('app.top.engine.connected'), t('app.notice.reconnect', { provider: 'Google' }), t('app.notice.reconnect.action'), t('app.wf.actions.dryRun')],
+  [`${APP_SCREEN} ReconnectNoticeMicrosoft`]: (t) => [t('app.top.engine.connected'), t('app.notice.reconnect', { provider: 'Microsoft' }), t('app.notice.reconnect.action'), t('app.wf.actions.dryRun')],
+  [`${APP_SCREEN} ReconnectNoticeBoth`]: (t) => [t('app.top.engine.connected'), t('app.notice.reconnectBoth'), t('app.notice.reconnect.action'), t('app.wf.actions.dryRun')],
+  [`${APP_SCREEN} ReconnectNoticeNarrow`]: (t) => [t('app.top.engine.connected'), t('app.notice.reconnectBoth'), t('app.notice.reconnect.action'), t('app.wf.actions.dryRun')],
+  [`${APP_SCREEN} ReconnectActionOpensConnections`]: (t) => [t('app.top.engine.connected'), t('app.settings.section.connections'), t('app.connections.intro'), t('app.oauth.status.needs_reconnect')],
   [`${APP_SCREEN} LongWorkflowName`]: (t) => [t('app.top.engine.connected'), '매일 아침 받은 편지함의 영수증을 모아서', t('app.wf.actions.dryRun')],
 }
 

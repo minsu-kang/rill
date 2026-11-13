@@ -25,6 +25,18 @@ async function press(canvasElement: HTMLElement, text: string, inside: string): 
   throw new Error(`no button ${text}`)
 }
 
+const withAccounts = (accounts: Array<{ provider: 'google' | 'microsoft'; status: 'connected' | 'needs_reconnect' | 'not_connected' }>) =>
+  fakeSettings({
+    allowedFolders: ['/Users/demo/Receipts'],
+    configuredProviders: ['anthropic', 'openai'],
+    connections: [{ name: 'slack-ops', kind: 'slack' }],
+    oauth: {
+      available: true,
+      accounts: accounts.map((entry) => ({ ...entry, ...(entry.status === 'not_connected' ? {} : { account: entry.provider === 'google' ? 'someone@example.com' : 'Alex Doe' }) })),
+      apps: accounts.map((entry) => ({ provider: entry.provider, clientId: entry.provider === 'google' ? '123456789012-abcdefghijklmnop.apps.googleusercontent.com' : '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d', hasSecret: entry.provider === 'google' })),
+    },
+  })
+
 const LONG_NAME = '매일 아침 받은 편지함의 영수증을 모아서 월별 장부에 정리하고 팀 채널에 요약을 보내는 아주 긴 이름의 워크플로우 '.repeat(3).trim()
 
 export const FirstRun: Story = { name: 'First run', args: { world: { workflows: [] } } }
@@ -123,5 +135,34 @@ export const LongWorkflowName: Story = {
       workflows: [{ ...fakeData.workflows[0]!, workflow: { ...receiptWorkflow, name: LONG_NAME } }, fakeData.workflows[1]!],
     },
     initial: { workflowId: ids.workflows.receipt },
+  },
+}
+
+export const ReconnectNoticeGoogle: Story = {
+  name: 'Reconnect notice, Google',
+  args: { world: { hostInit: { settings: withAccounts([{ provider: 'google', status: 'needs_reconnect' }, { provider: 'microsoft', status: 'connected' }]) } }, initial: { workflowId: ids.workflows.receipt } },
+}
+
+export const ReconnectNoticeMicrosoft: Story = {
+  name: 'Reconnect notice, Microsoft',
+  args: { world: { hostInit: { settings: withAccounts([{ provider: 'google', status: 'connected' }, { provider: 'microsoft', status: 'needs_reconnect' }]) } }, initial: { workflowId: ids.workflows.receipt } },
+}
+
+export const ReconnectNoticeBoth: Story = {
+  name: 'Reconnect notice, both accounts',
+  args: { world: { hostInit: { settings: withAccounts([{ provider: 'google', status: 'needs_reconnect' }, { provider: 'microsoft', status: 'needs_reconnect' }]) } }, initial: { workflowId: ids.workflows.receipt } },
+}
+
+export const ReconnectNoticeNarrow: Story = {
+  name: 'Reconnect notice, narrow window',
+  args: { width: 700, world: { hostInit: { settings: withAccounts([{ provider: 'google', status: 'needs_reconnect' }, { provider: 'microsoft', status: 'needs_reconnect' }]) } }, initial: { workflowId: ids.workflows.receipt } },
+}
+
+export const ReconnectActionOpensConnections: Story = {
+  name: 'Reconnect notice, action pressed',
+  args: { world: { hostInit: { settings: withAccounts([{ provider: 'google', status: 'needs_reconnect' }, { provider: 'microsoft', status: 'not_connected' }]) } }, initial: { workflowId: ids.workflows.receipt } },
+  play: async ({ canvasElement, userEvent, globals }) => {
+    const t = createTranslator((globals['locale'] as Locale | undefined) === 'en' ? 'en' : 'ko')
+    await userEvent.click(await press(canvasElement, t('app.notice.reconnect.action'), '[data-rill-region="notice"]'))
   },
 }
