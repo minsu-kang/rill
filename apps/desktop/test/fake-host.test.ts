@@ -17,7 +17,7 @@ async function codeOf(work: Promise<unknown>): Promise<string> {
 describe('createFakeHost settings', () => {
   it('starts with the defaults and keeps what a patch changes', async () => {
     const host = createFakeHost()
-    expect(await host.settings.get()).toEqual({ allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [], encryptionAvailable: true })
+    expect(await host.settings.get()).toEqual({ allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [], encryptionAvailable: true, oauth: { available: false, accounts: [] } })
     const next = await host.settings.update({ openAtLogin: true })
     expect(next.openAtLogin).toBe(true)
     expect((await host.settings.get()).openAtLogin).toBe(true)
@@ -81,7 +81,7 @@ describe('createFakeHost secrets', () => {
     const everything = JSON.stringify([settings, host.state(), Object.keys(host), Object.keys(host.secrets), String(host.secrets.setProviderKey)])
     expect(everything).not.toContain(MARKER)
     expect(everything).not.toContain('MARKER')
-    expect(Object.keys(host.secrets).sort()).toEqual(['clearProviderKey', 'removeConnection', 'setConnection', 'setProviderKey'])
+    expect(Object.keys(host.secrets).sort()).toEqual(['clearProviderKey', 'removeConnection', 'setConnection', 'setCustomConnection', 'setProviderKey'])
   })
 
   it('clears a provider key and removes a connection, and refuses when there is no keychain', async () => {

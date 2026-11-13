@@ -212,6 +212,13 @@ describe('engine supervisor: arguments and environment', () => {
     expect(forks[0]!.args.join(' ')).not.toContain('token-')
   })
 
+  it('hands a custom connection to the engine as an http connection with its structured secret, and nothing in the arguments', async () => {
+    const secret = JSON.stringify({ rillAuth: 1, type: 'bearer', token: `custom-${MARKER}` })
+    const { forks } = await started({ connections: [{ name: 'My API', kind: 'http', secret, authType: 'bearer' }] })
+    expect(JSON.parse(forks[0]!.options.env.RILL_CONNECTIONS!)).toEqual({ 'My API': { secret, kind: 'http' } })
+    expect(forks[0]!.args.join(' ')).not.toContain(MARKER)
+  })
+
   it('uses the variable of the chosen provider, and no key variable when the provider has no key', async () => {
     const openai = await started({ config: { provider: 'openai', model: 'gpt-6.1-sol' }, providerKeys: { anthropic: KEY, openai: OTHER_KEY } })
     expect(openai.forks[0]!.options.env.OPENAI_API_KEY).toBe(OTHER_KEY)

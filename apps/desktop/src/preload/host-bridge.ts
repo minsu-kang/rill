@@ -59,7 +59,12 @@ export function createHostApi(ipc: IpcLike): HostApi {
         call(CHANNELS.secretsSetProviderKey, options === undefined ? { provider, value } : { provider, value, options }),
       clearProviderKey: (provider) => call(CHANNELS.secretsClearProviderKey, { provider }),
       setConnection: (connection) => call(CHANNELS.secretsSetConnection, { name: connection.name, kind: connection.kind, secret: connection.secret }),
+      setCustomConnection: (connection) => call(CHANNELS.secretsSetCustomConnection, { name: connection.name, auth: connection.auth }),
       removeConnection: (name) => call(CHANNELS.secretsRemoveConnection, { name }),
+    },
+    oauth: {
+      connect: (provider) => call(CHANNELS.oauthConnect, { provider }),
+      disconnect: (provider) => call(CHANNELS.oauthDisconnect, { provider }),
     },
     dialogs: {
       pickFolder: () => call(CHANNELS.dialogsPickFolder),

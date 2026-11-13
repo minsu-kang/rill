@@ -85,6 +85,10 @@ describe('ipc handlers: shape', () => {
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', saveAnyway: true }],
       [CHANNELS.secretsClearProviderKey, undefined],
       [CHANNELS.secretsSetConnection, { name: 'a', kind: 'ftp', secret: 's' }],
+      [CHANNELS.secretsSetCustomConnection, { name: 'a', auth: { type: 'digest' } }],
+      [CHANNELS.secretsSetCustomConnection, { name: 'a', kind: 'http', secret: 's' }],
+      [CHANNELS.oauthConnect, { provider: 'github' }],
+      [CHANNELS.oauthDisconnect, undefined],
       [CHANNELS.secretsRemoveConnection, { name: '' }],
       [CHANNELS.dialogsPickFile, { kind: 'other' }],
       [CHANNELS.attachmentsAddFromPath, { path: 5 }],
@@ -115,7 +119,9 @@ describe('ipc handlers: shape', () => {
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: KEY }],
       [CHANNELS.secretsClearProviderKey, { provider: 'anthropic' }],
       [CHANNELS.secretsSetConnection, { name: 'team', kind: 'slack', secret: HOOK }],
+      [CHANNELS.secretsSetCustomConnection, { name: 'api', auth: { type: 'basic', username: 'u', password: 'p' } }],
       [CHANNELS.secretsRemoveConnection, { name: 'team' }],
+      [CHANNELS.oauthDisconnect, { provider: 'google' }],
       [CHANNELS.dialogsPickFile, { kind: 'attachment' }],
       [CHANNELS.attachmentsAddFromPath, { path: join(userFiles, 'a.txt') }],
       [CHANNELS.attachmentsAddFromBytes, { name: 'b.txt', bytes: new Uint8Array([1, 2]) }],
@@ -145,6 +151,7 @@ describe('ipc handlers: settings', () => {
       configuredProviders: ['openai'],
       connections: [{ name: 'team', kind: 'slack' }],
       encryptionAvailable: true,
+      oauth: { available: false, accounts: [] },
     })
     expect(JSON.stringify(settings)).not.toContain(MARKER)
   })

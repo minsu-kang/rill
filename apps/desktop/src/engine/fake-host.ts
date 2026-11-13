@@ -7,11 +7,13 @@ import {
   MAX_FILE_NAME_LENGTH,
   MAX_FOLDERS,
   ModelSchema,
+  OAUTH_PROVIDERS,
   PROVIDER_IDS,
   SecretValueSchema,
   SetProviderKeyOptionsSchema,
   findNameCollision,
   isByteInput,
+  isValidCustomAuth,
   type AttachmentRef,
   type EngineInfo,
   type EngineStatus,
@@ -64,6 +66,12 @@ const TYPES: Readonly<Record<string, { mediaType: AttachmentRef['mediaType']; li
   markdown: { mediaType: 'text/markdown', limit: MIB },
 }
 
+const FAKE_ACCOUNTS: Readonly<Record<(typeof OAUTH_PROVIDERS)[number], string>> = {
+  google: 'minsu@example.com',
+  microsoft: 'minsu@contoso.example',
+  slack: 'Rill Team workspace',
+}
+
 const SAMPLE_FOLDERS = ['/Users/demo/Receipts', '/Users/demo/Documents', '/Users/demo/Downloads', '/Users/demo/Projects']
 const SAMPLE_FILES = ['/Users/demo/Receipts/receipt-001.pdf', '/Users/demo/Receipts/receipt-002.png', '/Users/demo/Receipts/notes.txt']
 
@@ -77,6 +85,7 @@ export function fakeSettings(overrides: Partial<Settings> = {}): Settings {
     configuredProviders: [],
     connections: [],
     encryptionAvailable: true,
+    oauth: { available: false, accounts: [] },
     ...overrides,
   }
 }
@@ -246,11 +255,35 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
         settings.connections = [...settings.connections.filter((entry) => entry.name !== connection.name), { name: connection.name, kind: connection.kind }]
         engineChanged()
       },
+      async setCustomConnection(connection) {
+        requireKeychain()
+        const keys = Object.keys(connection as object).sort()
+        if (keys.length !== 2 || keys[0] !== 'auth' || keys[1] !== 'name') throw new HostError('INVALID_ARGUMENTS')
+        if (!Value.Check(ConnectionNameSchema, connection.name) || !isValidCustomAuth(connection.auth)) throw new HostError('INVALID_ARGUMENTS')
+        const existing = settings.connections.find((entry) => entry.name === connection.name)
+        if (existing !== undefined && existing.kind !== 'http') throw new HostError('NAME_COLLISION')
+        if (findNameCollision([...settings.connections.map((entry) => entry.name), connection.name]) !== undefined) throw new HostError('NAME_COLLISION')
+        if (existing === undefined && settings.connections.length >= MAX_CONNECTIONS) throw new HostError('INVALID_ARGUMENTS')
+        settings.connections = [...settings.connections.filter((entry) => entry.name !== connection.name), { name: connection.name, kind: 'http', authType: connection.auth.type }]
+        engineChanged()
+      },
       async removeConnection(name) {
         requireKeychain()
         if (!settings.connections.some((entry) => entry.name === name)) return
         settings.connections = settings.connections.filter((entry) => entry.name !== name)
         engineChanged()
+      },
+    },
+    oauth: {
+      async connect(provider) {
+        if (!OAUTH_PROVIDERS.includes(provider)) throw new HostError('INVALID_ARGUMENTS')
+        if (!settings.oauth.available) throw new HostError('OAUTH_UNAVAILABLE')
+        if (settings.oauth.accounts.some((entry) => entry.provider === provider)) return
+        settings.oauth = { ...settings.oauth, accounts: [...settings.oauth.accounts, { provider, account: FAKE_ACCOUNTS[provider] }] }
+      },
+      async disconnect(provider) {
+        if (!OAUTH_PROVIDERS.includes(provider)) throw new HostError('INVALID_ARGUMENTS')
+        settings.oauth = { ...settings.oauth, accounts: settings.oauth.accounts.filter((entry) => entry.provider !== provider) }
       },
     },
     dialogs: {

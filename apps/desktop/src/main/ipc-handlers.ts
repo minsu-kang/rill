@@ -7,9 +7,11 @@ import {
   CHANNELS,
   HostError,
   isKeyVerdict,
+  encodeCustomAuth,
   validateArgs,
   validateResult,
   type Channel,
+  type CustomAuth,
   type ProviderId,
   type SetProviderKeyOptions,
   type Settings,
@@ -102,6 +104,7 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
       configuredProviders: await deps.secrets.configuredProviders(),
       connections: await deps.secrets.listConnections(),
       encryptionAvailable: deps.secrets.encryptionAvailable(),
+      oauth: { available: false, accounts: [] },
     }
   }
 
@@ -157,6 +160,15 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
     [CHANNELS.secretsSetConnection]: async (connection: { name: string; kind: 'slack' | 'http' | 'webhookSecret'; secret: string }) => {
       if (await deps.secrets.setConnection(connection)) restartEngine()
     },
+    [CHANNELS.secretsSetCustomConnection]: async ({ name, auth }: { name: string; auth: CustomAuth }) => {
+      const existing = (await deps.secrets.listConnections()).find((entry) => entry.name === name)
+      if (existing !== undefined && existing.kind !== 'http') throw new HostError('NAME_COLLISION')
+      if (await deps.secrets.setConnection({ name, kind: 'http', secret: encodeCustomAuth(auth), authType: auth.type })) restartEngine()
+    },
+    [CHANNELS.oauthConnect]: async () => {
+      throw new HostError('OAUTH_UNAVAILABLE')
+    },
+    [CHANNELS.oauthDisconnect]: async () => undefined,
     [CHANNELS.secretsRemoveConnection]: async ({ name }: { name: string }) => {
       if (await deps.secrets.removeConnection(name)) restartEngine()
     },

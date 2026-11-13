@@ -15,6 +15,7 @@ export const appEn: Record<keyof typeof appKo, string> = {
   'app.error.host.KEY_INVALID': 'This key does not look usable: the provider did not accept it, or it is not in the form of an API key. Check the key again. If you want to use it anyway, you can save it as it is.',
   'app.error.host.KEY_MALFORMED': 'This key has spaces, line breaks or characters that are not plain letters, digits or symbols, so it cannot be an API key. It was not saved. Copy the key again.',
   'app.error.host.SUPERSEDED': 'A newer change to this key replaced this one, so this one was not saved.',
+  'app.error.host.OAUTH_UNAVAILABLE': 'Sign-in is not available in this version yet.',
   'app.error.host.INTERNAL': 'An unknown error happened. Try again.',
   'app.engine.state.starting': 'Engine starting',
   'app.engine.state.running': 'Engine running',

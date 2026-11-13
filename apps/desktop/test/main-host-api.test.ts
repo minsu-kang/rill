@@ -35,6 +35,7 @@ const SETTINGS: Settings = {
   configuredProviders: ['anthropic'],
   connections: [{ name: 'team', kind: 'slack' }],
   encryptionAvailable: true,
+  oauth: { available: false, accounts: [] },
 }
 
 const REF = { id: 'abcdefgh1234', mediaType: 'text/plain', name: 'a.txt', bytes: 3 }
@@ -188,7 +189,7 @@ describe('no secret can appear in a result type', () => {
 
   it('has no secret-like field in Settings or its connection summary, at runtime', () => {
     expect(Object.keys(SettingsSchema.properties).filter((name) => SECRETISH.test(name) && name !== 'encryptionAvailable')).toEqual([])
-    expect(Object.keys(ConnectionSummarySchema.properties)).toEqual(['name', 'kind'])
+    expect(Object.keys(ConnectionSummarySchema.properties)).toEqual(['name', 'kind', 'authType'])
     expect(Object.keys(SettingsPatchSchema.properties).filter((name) => SECRETISH.test(name))).toEqual([])
     expect(Object.keys(EngineStatusSchema.properties)).toEqual(['state', 'error', 'restarts'])
     expect(Object.keys(EngineInfoSchema.properties)).toEqual(['url', 'token', 'protocol'])

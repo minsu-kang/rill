@@ -5,7 +5,7 @@ import { CHANNELS, ENGINE_STATUS_EVENT, HOST_API_METHODS, hostErrorCode, type At
 
 const REF: AttachmentRef = { id: 'abcdefgh1234', mediaType: 'text/plain', name: 'a.txt', bytes: 3 }
 const VERDICT = { verdict: { status: 'valid' } }
-const SETTINGS = { allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [], encryptionAvailable: true }
+const SETTINGS = { allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [], encryptionAvailable: true, oauth: { available: false, accounts: [] } }
 
 type Handler = (event: unknown, payload: unknown) => void
 
@@ -80,7 +80,10 @@ describe('preload bridge: calls', () => {
     await api.secrets.setProviderKey('openai', 'k2', { saveAnyway: true })
     await api.secrets.clearProviderKey('anthropic')
     await api.secrets.setConnection({ name: 'team', kind: 'slack', secret: 's' })
+    await api.secrets.setCustomConnection({ name: 'My API', auth: { type: 'bearer', token: 'k' } })
     await api.secrets.removeConnection('team')
+    await api.oauth.connect('google')
+    await api.oauth.disconnect('slack')
     await api.dialogs.pickFolder()
     await api.dialogs.pickFile('attachment')
     await api.attachments.addFromPath('/a/b.txt')
@@ -96,7 +99,10 @@ describe('preload bridge: calls', () => {
       [CHANNELS.secretsSetProviderKey, { provider: 'openai', value: 'k2', options: { saveAnyway: true } }],
       [CHANNELS.secretsClearProviderKey, { provider: 'anthropic' }],
       [CHANNELS.secretsSetConnection, { name: 'team', kind: 'slack', secret: 's' }],
+      [CHANNELS.secretsSetCustomConnection, { name: 'My API', auth: { type: 'bearer', token: 'k' } }],
       [CHANNELS.secretsRemoveConnection, { name: 'team' }],
+      [CHANNELS.oauthConnect, { provider: 'google' }],
+      [CHANNELS.oauthDisconnect, { provider: 'slack' }],
       [CHANNELS.dialogsPickFolder],
       [CHANNELS.dialogsPickFile, { kind: 'attachment' }],
       [CHANNELS.attachmentsAddFromPath, { path: '/a/b.txt' }],
@@ -116,6 +122,10 @@ describe('preload bridge: calls', () => {
       api.secrets.setProviderKey('anthropic', 'k', { saveAnyway: 'yes' } as never),
       api.secrets.setProviderKey('anthropic', 'k', 'saveAnyway' as never),
       api.secrets.setConnection({ name: 'a', kind: 'ftp' as never, secret: 's' }),
+      api.secrets.setCustomConnection({ name: 'a', auth: { type: 'apiKey', in: 'header', name: 'Host', value: 'v' } }),
+      api.secrets.setCustomConnection({ name: 'a', auth: { type: 'basic', username: 'a:b', password: 'p' } }),
+      api.oauth.connect('github' as never),
+      api.oauth.disconnect(5 as never),
       api.settings.update({ extra: 1 } as never),
       api.attachments.addFromPath(5 as never),
       api.attachments.addFromBytes({ name: 'a.txt', bytes: [1, 2] as never }),

@@ -20,21 +20,77 @@ export const CONNECTION_KINDS = ['slack', 'http', 'webhookSecret'] as const
 export const ConnectionKindSchema = Type.Union([Type.Literal('slack'), Type.Literal('http'), Type.Literal('webhookSecret')])
 export type ConnectionKind = Type.Static<typeof ConnectionKindSchema>
 
+export const AUTH_TYPES = ['none', 'apiKey', 'bearer', 'basic'] as const
+export const AuthTypeSchema = Type.Union([Type.Literal('none'), Type.Literal('apiKey'), Type.Literal('bearer'), Type.Literal('basic')])
+export type AuthType = Type.Static<typeof AuthTypeSchema>
+
+export const OAUTH_PROVIDERS = ['google', 'microsoft', 'slack'] as const
+export const OAuthProviderSchema = Type.Union([Type.Literal('google'), Type.Literal('microsoft'), Type.Literal('slack')])
+export type OAuthProvider = Type.Static<typeof OAuthProviderSchema>
+
 export const MAX_FOLDERS = 50
 export const MAX_NAME_LENGTH = 64
 export const MAX_SECRET_LENGTH = 2000
 export const MAX_PATH_LENGTH = 1024
 export const MAX_FILE_NAME_LENGTH = 255
 export const MAX_BYTES_INPUT = 21 * 1024 * 1024
+export const MAX_AUTH_NAME_LENGTH = 128
+export const MAX_AUTH_VALUE_LENGTH = 2000
+export const MAX_AUTH_USERNAME_LENGTH = 256
+export const MAX_ACCOUNT_LENGTH = 200
 
 const MODEL_PATTERN = '^[a-z0-9][a-z0-9._-]{1,63}$'
 const NO_CONTROL = '^[^\\u0000-\\u001f\\u007f]+$'
+const NO_CONTROL_AT_ALL = '^[^\\u0000-\\u001f\\u007f-\\u009f]+$'
+const NO_CONTROL_OR_COLON = '^[^:\\u0000-\\u001f\\u007f-\\u009f]+$'
+const NO_CONTROL_OR_NOTHING = '^[^\\u0000-\\u001f\\u007f-\\u009f]*$'
+const HEADER_NAME = "^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$"
+const FORBIDDEN_AUTH_NAMES: ReadonlySet<string> = new Set(['host', 'content-length', 'transfer-encoding', 'connection', 'cookie', 'set-cookie'])
 
 export const ConnectionNameSchema = Type.String({ minLength: 1, maxLength: MAX_NAME_LENGTH, pattern: NO_CONTROL })
 export const SecretValueSchema = Type.String({ minLength: 1, maxLength: MAX_SECRET_LENGTH, pattern: '^[^\\u0000]+$' })
 export const PathSchema = Type.String({ minLength: 1, maxLength: MAX_PATH_LENGTH })
 export const ModelSchema = Type.String({ pattern: MODEL_PATTERN })
 const FileNameSchema = Type.String({ minLength: 1, maxLength: MAX_FILE_NAME_LENGTH })
+const AuthNameSchema = Type.String({ minLength: 1, maxLength: MAX_AUTH_NAME_LENGTH, pattern: HEADER_NAME })
+const AuthValueSchema = Type.String({ minLength: 1, maxLength: MAX_AUTH_VALUE_LENGTH, pattern: NO_CONTROL_AT_ALL })
+
+export const CustomAuthSchema = Type.Union([
+  Type.Object({ type: Type.Literal('none') }, closed),
+  Type.Object({ type: Type.Literal('apiKey'), in: Type.Union([Type.Literal('header'), Type.Literal('query')]), name: AuthNameSchema, value: AuthValueSchema }, closed),
+  Type.Object({ type: Type.Literal('bearer'), token: AuthValueSchema }, closed),
+  Type.Object(
+    {
+      type: Type.Literal('basic'),
+      username: Type.String({ minLength: 1, maxLength: MAX_AUTH_USERNAME_LENGTH, pattern: NO_CONTROL_OR_COLON }),
+      password: Type.String({ maxLength: MAX_AUTH_VALUE_LENGTH, pattern: NO_CONTROL_OR_NOTHING }),
+    },
+    closed,
+  ),
+])
+export type CustomAuth = Type.Static<typeof CustomAuthSchema>
+
+function withinUnits(value: string, min: number, max: number): boolean {
+  return value.length >= min && value.length <= max
+}
+
+export function isValidCustomAuth(value: unknown): value is CustomAuth {
+  if (!Value.Check(CustomAuthSchema, value)) return false
+  switch (value.type) {
+    case 'none':
+      return true
+    case 'apiKey':
+      return withinUnits(value.name, 1, MAX_AUTH_NAME_LENGTH) && !FORBIDDEN_AUTH_NAMES.has(value.name.toLowerCase()) && withinUnits(value.value, 1, MAX_AUTH_VALUE_LENGTH)
+    case 'bearer':
+      return withinUnits(value.token, 1, MAX_AUTH_VALUE_LENGTH)
+    case 'basic':
+      return withinUnits(value.username, 1, MAX_AUTH_USERNAME_LENGTH) && withinUnits(value.password, 0, MAX_AUTH_VALUE_LENGTH)
+  }
+}
+
+export function encodeCustomAuth(auth: CustomAuth): string {
+  return JSON.stringify({ rillAuth: 1, ...auth })
+}
 
 export const EngineStateSchema = Type.Union([
   Type.Literal('starting'),
@@ -53,7 +109,16 @@ export const EngineStatusSchema = Type.Object(
   closed,
 )
 
-export const ConnectionSummarySchema = Type.Object({ name: ConnectionNameSchema, kind: ConnectionKindSchema }, closed)
+export const ConnectionSummarySchema = Type.Object({ name: ConnectionNameSchema, kind: ConnectionKindSchema, authType: Type.Optional(AuthTypeSchema) }, closed)
+
+export const OAuthAccountSchema = Type.Object(
+  { provider: OAuthProviderSchema, account: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_ACCOUNT_LENGTH, pattern: NO_CONTROL })) },
+  closed,
+)
+export const OAuthStateSchema = Type.Object(
+  { available: Type.Boolean(), accounts: Type.Array(OAuthAccountSchema, { maxItems: OAUTH_PROVIDERS.length }) },
+  closed,
+)
 
 export const SettingsSchema = Type.Object(
   {
@@ -64,6 +129,7 @@ export const SettingsSchema = Type.Object(
     configuredProviders: Type.Array(ProviderIdSchema, { maxItems: PROVIDER_IDS.length }),
     connections: Type.Array(ConnectionSummarySchema, { maxItems: 200 }),
     encryptionAvailable: Type.Boolean(),
+    oauth: OAuthStateSchema,
   },
   closed,
 )
@@ -107,6 +173,8 @@ export const SetConnectionArgsSchema = Type.Object(
   { name: ConnectionNameSchema, kind: ConnectionKindSchema, secret: SecretValueSchema },
   closed,
 )
+export const SetCustomConnectionArgsSchema = Type.Object({ name: ConnectionNameSchema, auth: CustomAuthSchema }, closed)
+export const OAuthArgsSchema = Type.Object({ provider: OAuthProviderSchema }, closed)
 export const RemoveConnectionArgsSchema = Type.Object({ name: ConnectionNameSchema }, closed)
 export const PickFileArgsSchema = Type.Object({ kind: Type.Union([Type.Literal('any'), Type.Literal('attachment')]) }, closed)
 export const AddFromPathArgsSchema = Type.Object({ path: PathSchema }, closed)
@@ -121,6 +189,8 @@ export type EngineStatus = Type.Static<typeof EngineStatusSchema>
 export type Settings = Type.Static<typeof SettingsSchema>
 export type SettingsPatch = Type.Static<typeof SettingsPatchSchema>
 export type ConnectionSummary = Type.Static<typeof ConnectionSummarySchema>
+export type OAuthAccount = Type.Static<typeof OAuthAccountSchema>
+export type OAuthState = Type.Static<typeof OAuthStateSchema>
 export type EngineState = EngineStatus['state']
 export type KeyVerdict = Type.Static<typeof KeyVerdictSchema>
 export type KeyInvalidReason = Type.Static<typeof InvalidReasonSchema>
@@ -143,7 +213,12 @@ export interface HostApi {
     setProviderKey(provider: ProviderId, value: string, options?: SetProviderKeyOptions): Promise<SetProviderKeyResult>
     clearProviderKey(provider: ProviderId): Promise<void>
     setConnection(connection: { name: string; kind: ConnectionKind; secret: string }): Promise<void>
+    setCustomConnection(connection: { name: string; auth: CustomAuth }): Promise<void>
     removeConnection(name: string): Promise<void>
+  }
+  oauth: {
+    connect(provider: OAuthProvider): Promise<void>
+    disconnect(provider: OAuthProvider): Promise<void>
   }
   dialogs: {
     pickFolder(): Promise<string | undefined>
@@ -159,7 +234,8 @@ export interface HostApi {
 export const HOST_API_METHODS = {
   engine: { info: true, status: true, restart: true, onStatus: true },
   settings: { get: true, update: true },
-  secrets: { setProviderKey: true, clearProviderKey: true, setConnection: true, removeConnection: true },
+  secrets: { setProviderKey: true, clearProviderKey: true, setConnection: true, setCustomConnection: true, removeConnection: true },
+  oauth: { connect: true, disconnect: true },
   dialogs: { pickFolder: true, pickFile: true },
   attachments: { addFromPath: true, addFromBytes: true },
   app: { quit: true },
@@ -174,7 +250,10 @@ export const CHANNELS = {
   secretsSetProviderKey: 'rill:secrets:set-provider-key',
   secretsClearProviderKey: 'rill:secrets:clear-provider-key',
   secretsSetConnection: 'rill:secrets:set-connection',
+  secretsSetCustomConnection: 'rill:secrets:set-custom-connection',
   secretsRemoveConnection: 'rill:secrets:remove-connection',
+  oauthConnect: 'rill:oauth:connect',
+  oauthDisconnect: 'rill:oauth:disconnect',
   dialogsPickFolder: 'rill:dialogs:pick-folder',
   dialogsPickFile: 'rill:dialogs:pick-file',
   attachmentsAddFromPath: 'rill:attachments:add-from-path',
@@ -197,7 +276,10 @@ export const CONTRACTS: Record<Channel, { args: Type.TSchema; result: Type.TSche
   [CHANNELS.secretsSetProviderKey]: { args: SetProviderKeyArgsSchema, result: SetProviderKeyResultSchema },
   [CHANNELS.secretsClearProviderKey]: { args: ClearProviderKeyArgsSchema, result: Type.Undefined() },
   [CHANNELS.secretsSetConnection]: { args: SetConnectionArgsSchema, result: Type.Undefined() },
+  [CHANNELS.secretsSetCustomConnection]: { args: SetCustomConnectionArgsSchema, result: Type.Undefined() },
   [CHANNELS.secretsRemoveConnection]: { args: RemoveConnectionArgsSchema, result: Type.Undefined() },
+  [CHANNELS.oauthConnect]: { args: OAuthArgsSchema, result: Type.Undefined() },
+  [CHANNELS.oauthDisconnect]: { args: OAuthArgsSchema, result: Type.Undefined() },
   [CHANNELS.dialogsPickFolder]: { args: Type.Undefined(), result: OptionalPath },
   [CHANNELS.dialogsPickFile]: { args: PickFileArgsSchema, result: OptionalPath },
   [CHANNELS.attachmentsAddFromPath]: { args: AddFromPathArgsSchema, result: AttachmentRefSchema },
@@ -208,6 +290,7 @@ export const CONTRACTS: Record<Channel, { args: Type.TSchema; result: Type.TSche
 export function validateArgs(channel: Channel, args: unknown): boolean {
   if (!Value.Check(CONTRACTS[channel].args, args)) return false
   if (channel === CHANNELS.attachmentsAddFromBytes) return isByteInput((args as { bytes: unknown }).bytes)
+  if (channel === CHANNELS.secretsSetCustomConnection) return isValidCustomAuth((args as { auth: unknown }).auth)
   return true
 }
 
@@ -249,6 +332,7 @@ export const HOST_ERROR_CODES = [
   'KEY_INVALID',
   'KEY_MALFORMED',
   'SUPERSEDED',
+  'OAUTH_UNAVAILABLE',
   'INTERNAL',
 ] as const
 export type HostErrorCode = (typeof HOST_ERROR_CODES)[number]

@@ -3,11 +3,13 @@ import { join } from 'node:path'
 import Value from 'typebox/value'
 import { ensurePrivateDir, writeFileAtomic, type FsLike } from './config-store'
 import {
+  AUTH_TYPES,
   CONNECTION_KINDS,
   ConnectionNameSchema,
   MAX_SECRET_LENGTH,
   PROVIDER_IDS,
   findNameCollision,
+  type AuthType,
   type ConnectionKind,
   type ConnectionSummary,
   type ProviderId,
@@ -23,6 +25,7 @@ export interface StoredConnection {
   name: string
   kind: ConnectionKind
   secret: string
+  authType?: AuthType
 }
 
 export interface SecretStore {
@@ -62,13 +65,32 @@ interface Loaded {
 
 const UNREADABLE_LOG = 'the secrets file could not be read'
 const MAX_BACKUPS = 10
+const MAX_HTTP_SECRET_LENGTH = 8192
 
 function emptyState(): State {
   return { providerKeys: new Map(), connections: [] }
 }
 
-function validSecret(value: unknown): value is string {
-  return typeof value === 'string' && value.length >= 1 && value.length <= MAX_SECRET_LENGTH && !value.includes('\u0000')
+function validSecret(value: unknown, limit = MAX_SECRET_LENGTH): value is string {
+  return typeof value === 'string' && value.length >= 1 && value.length <= limit && !value.includes('\u0000')
+}
+
+function secretLimit(kind: ConnectionKind): number {
+  return kind === 'http' ? MAX_HTTP_SECRET_LENGTH : MAX_SECRET_LENGTH
+}
+
+function isAuthType(value: unknown): value is AuthType {
+  return typeof value === 'string' && (AUTH_TYPES as readonly string[]).includes(value)
+}
+
+function validConnection(connection: { name?: unknown; kind?: unknown; secret?: unknown; authType?: unknown }): boolean {
+  if (typeof connection.name !== 'string' || !Value.Check(ConnectionNameSchema, connection.name) || !isKind(connection.kind)) return false
+  if (!validSecret(connection.secret, secretLimit(connection.kind))) return false
+  return connection.authType === undefined || (connection.kind === 'http' && isAuthType(connection.authType))
+}
+
+function summary({ name, kind, authType }: StoredConnection): ConnectionSummary {
+  return authType === undefined ? { name, kind } : { name, kind, authType }
 }
 
 function isProvider(value: unknown): value is ProviderId {
@@ -89,9 +111,9 @@ function parseState(text: string): State {
     if (!isProvider(entry?.provider) || !validSecret(entry.value)) throw new Error('shape')
     state.providerKeys.set(entry.provider, entry.value)
   }
-  for (const entry of connections as Array<{ name?: unknown; kind?: unknown; secret?: unknown }>) {
-    if (typeof entry?.name !== 'string' || !Value.Check(ConnectionNameSchema, entry.name) || !isKind(entry.kind) || !validSecret(entry.secret)) throw new Error('shape')
-    state.connections.push({ name: entry.name, kind: entry.kind, secret: entry.secret })
+  for (const entry of connections as Array<{ name?: unknown; kind?: unknown; secret?: unknown; authType?: unknown }>) {
+    if (!validConnection(entry ?? {})) throw new Error('shape')
+    state.connections.push({ name: entry.name as string, kind: entry.kind as ConnectionKind, secret: entry.secret as string, ...(entry.authType === undefined ? {} : { authType: entry.authType as AuthType }) })
   }
   return state
 }
@@ -182,12 +204,10 @@ export function createSecretStore(deps: { dir: string; safeStorage: SafeStorageL
       })
     },
     clearProviderKey: (provider) => mutate((state) => state.providerKeys.delete(provider)),
-    listConnections: () => serial(async () => (await read()).state.connections.map(({ name, kind }) => ({ name, kind }))),
+    listConnections: () => serial(async () => (await read()).state.connections.map(summary)),
     getConnections: () => serial(async () => (await read()).state.connections.map((connection) => ({ ...connection }))),
     setConnection: (connection) => {
-      if (!Value.Check(ConnectionNameSchema, connection.name) || !isKind(connection.kind) || !validSecret(connection.secret)) {
-        return Promise.reject(new SecretStoreError('invalid_value'))
-      }
+      if (!validConnection(connection)) return Promise.reject(new SecretStoreError('invalid_value'))
       return mutate((state) => {
         const existing = state.connections.findIndex((entry) => entry.name === connection.name)
         if (existing === -1) {
@@ -196,7 +216,7 @@ export function createSecretStore(deps: { dir: string; safeStorage: SafeStorageL
           return true
         }
         const current = state.connections[existing]!
-        if (current.kind === connection.kind && current.secret === connection.secret) return false
+        if (current.kind === connection.kind && current.secret === connection.secret && current.authType === connection.authType) return false
         state.connections[existing] = { ...connection }
         return true
       })

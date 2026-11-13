@@ -12,6 +12,7 @@ const KEYS: Readonly<Record<(typeof HOST_ERROR_CODES)[number], MessageKey>> = {
   KEY_INVALID: 'app.error.host.KEY_INVALID',
   KEY_MALFORMED: 'app.error.host.KEY_MALFORMED',
   SUPERSEDED: 'app.error.host.SUPERSEDED',
+  OAUTH_UNAVAILABLE: 'app.error.host.OAUTH_UNAVAILABLE',
   INTERNAL: 'app.error.host.INTERNAL',
 }
 
