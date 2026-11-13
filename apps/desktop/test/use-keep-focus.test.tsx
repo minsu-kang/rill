@@ -142,6 +142,28 @@ describe('useKeepFocus', () => {
     expect(document.activeElement).toBe(document.body)
   })
 
+  it('has nothing to give back when nothing had the focus, also after a focusin on the page itself', async () => {
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus')
+    const view = render(<Form busy={false} />)
+    view.rerender(<Form busy />)
+    await frames()
+    view.rerender(<Form busy={false} />)
+    document.body.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    view.rerender(<Form busy />)
+    await frames()
+    view.rerender(<Form busy={false} />)
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('keeps the remembered element when another element reports that it lost the focus', async () => {
+    const view = render(<Form busy={false} />)
+    save().focus()
+    other().dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    await lose(view)
+    view.rerender(<Form busy={false} />)
+    expect(document.activeElement).toBe(save())
+  })
+
   it('moves the focus without scrolling', async () => {
     const view = render(<Form busy={false} />)
     const button = save()
@@ -374,7 +396,12 @@ describe('canRestoreFocus', () => {
     wrapper.style.display = ''
     button.style.visibility = 'hidden'
     expect(canRestoreFocus(button, nowhere())).toBe(false)
+    button.style.visibility = 'collapse'
+    expect(canRestoreFocus(button, nowhere())).toBe(false)
     button.style.visibility = ''
+    button.style.display = 'none'
+    expect(canRestoreFocus(button, nowhere())).toBe(false)
+    button.style.display = ''
     wrapper.setAttribute('inert', '')
     expect(canRestoreFocus(button, nowhere())).toBe(false)
   })

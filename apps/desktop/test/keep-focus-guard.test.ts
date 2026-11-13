@@ -103,6 +103,17 @@ const EXCEPTIONS: Readonly<Record<string, { holders: readonly string[]; reason: 
   },
 }
 
+function staleExceptions(table: Readonly<Record<string, { holders: readonly string[]; reason: string }>>, busy: readonly string[], source: (name: string) => string): string[] {
+  const stale: string[] = []
+  for (const [name, { holders, reason }] of Object.entries(table)) {
+    if (reason.trim() === '' || holders.length === 0) stale.push(`${name}: no reason or no holder`)
+    if (!busy.includes(name)) stale.push(`${name}: no busy control any more`)
+    else if (usesFocusHook(source(name))) stale.push(`${name}: uses the hook itself`)
+    for (const holder of holders) if (!usesFocusHook(source(holder))) stale.push(`${name}: holder ${holder} does not use the hook`)
+  }
+  return stale
+}
+
 function sourceFiles(dir: string = SRC): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name)
@@ -128,14 +139,23 @@ describe('the focus rule for controls that are disabled while an action runs', (
   })
 
   it('keeps each exception honest: the file still disables a control with a busy flag, still lacks the hook, and every holder uses it', () => {
-    const stale: string[] = []
-    for (const [name, { holders, reason }] of Object.entries(EXCEPTIONS)) {
-      if (reason.trim() === '' || holders.length === 0) stale.push(`${name}: no reason or no holder`)
-      if (!busyFiles.includes(name)) stale.push(`${name}: no busy control any more`)
-      else if (usesFocusHook(read(name))) stale.push(`${name}: uses the hook itself`)
-      for (const holder of holders) if (!usesFocusHook(read(holder))) stale.push(`${name}: holder ${holder} does not use the hook`)
+    expect(staleExceptions(EXCEPTIONS, busyFiles, read)).toEqual([])
+  })
+
+  it('names the exceptions that are no longer true', () => {
+    const files: Record<string, string> = {
+      'Child.tsx': '<button disabled={busy} />',
+      'Holder.tsx': "import { useAction } from './useAction'\nconst action = useAction()\n",
+      'Plain.tsx': '<p />',
+      'Own.tsx': "import { useKeepFocus } from './useKeepFocus'\nuseKeepFocus(busy)\n<button disabled={busy} />",
     }
-    expect(stale).toEqual([])
+    const find = (table: Record<string, { holders: readonly string[]; reason: string }>): string[] => staleExceptions(table, ['Child.tsx', 'Own.tsx'], (name) => files[name]!)
+    expect(find({ 'Child.tsx': { holders: ['Holder.tsx'], reason: 'passes busy on' } })).toEqual([])
+    expect(find({ 'Child.tsx': { holders: ['Holder.tsx'], reason: '  ' } })).toEqual(['Child.tsx: no reason or no holder'])
+    expect(find({ 'Child.tsx': { holders: [], reason: 'passes busy on' } })).toEqual(['Child.tsx: no reason or no holder'])
+    expect(find({ 'Plain.tsx': { holders: ['Holder.tsx'], reason: 'passes busy on' } })).toEqual(['Plain.tsx: no busy control any more'])
+    expect(find({ 'Own.tsx': { holders: ['Holder.tsx'], reason: 'passes busy on' } })).toEqual(['Own.tsx: uses the hook itself'])
+    expect(find({ 'Child.tsx': { holders: ['Plain.tsx'], reason: 'passes busy on' } })).toEqual(['Child.tsx: holder Plain.tsx does not use the hook'])
   })
 
   it('has a file whose busy-named state flag reaches a disabled or busy prop pass that flag to useKeepFocus', () => {
@@ -154,6 +174,8 @@ describe('the focus rule for controls that are disabled while an action runs', (
     expect(usesFocusHook(`${hook}useKeepFocus(saving)\n${control}`)).toBe(true)
     expect(usesFocusHook(`${hook}${control}`)).toBe(false)
     expect(usesFocusHook("import { useAction } from './useAction'\nconst action = useAction()\n")).toBe(true)
+    expect(usesFocusHook('const action = useAction()\n')).toBe(false)
+    expect(usesFocusHook("import { useAction } from './useAction'\n")).toBe(false)
   })
 
   it('sees the controls that the first version of the scan missed', () => {
