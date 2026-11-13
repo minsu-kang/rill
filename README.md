@@ -109,7 +109,7 @@ pnpm check
 | Run the engine without the app | `pnpm --filter @rill/engine cli serve`, see [packages/engine](packages/engine/README.md) |
 | Check the evaluation harness without a key or a network | `pnpm eval extract --baselines` and `pnpm eval planner --dry` |
 
-Add a model key in the app under Settings, Keys. It is stored encrypted with `safeStorage`, whose key is in the macOS keychain. The command line reads `ANTHROPIC_API_KEY` and the other provider variables from the environment instead.
+Add a model key in the app under Settings, Keys. Saving first asks the provider whether it accepts the key (one model-list request, no cost, from the main process; the addresses are from vendor documentation and not yet verified live), refuses a key that is clearly rejected unless you choose "save anyway", and then stores it encrypted with `safeStorage`, whose key is in the macOS keychain. The command line reads `ANTHROPIC_API_KEY` and the other provider variables from the environment instead.
 
 The installer is signed ad hoc and not notarized, so macOS blocks a downloaded copy. [apps/desktop](apps/desktop/README.md) explains the one-time unblock step.
 

@@ -189,7 +189,7 @@ The host contract:
 | Part | Files | What it does |
 | --- | --- | --- |
 | Host API | `src/shared/host-api.ts` | The typed API between the window and the main process, defined once with TypeBox schemas. Main, preload and renderer all check against it. |
-| Main process | `src/main/` | Plain modules that take Electron and file system objects as arguments, so Vitest runs them without Electron: `config-store`, `secret-store`, `engine-supervisor`, `attachments`, `ipc-handlers`. Only `index.ts`, `window.ts`, `tray.ts` and `login-item.ts` touch real Electron objects. |
+| Main process | `src/main/` | Plain modules that take Electron and file system objects as arguments, so Vitest runs them without Electron: `config-store`, `secret-store`, `key-check`, `engine-supervisor`, `attachments`, `ipc-handlers`. Only `index.ts`, `window.ts`, `tray.ts` and `login-item.ts` touch real Electron objects. |
 | Preload | `src/preload/` | Exposes `window.rill`, the host API, and nothing else. It never exposes `ipcRenderer`. |
 | Status page | `src/renderer-shell/` | Shows the engine state and the ping time through `window.rill` and `RillClient`. Outside the app it says to run it inside the app. |
 | Engine bundle | `scripts/bundle-engine.ts` | Bundles `packages/engine` into one `.mjs` file with esbuild. The app starts it with `utilityProcess.fork`. |
@@ -232,6 +232,43 @@ When `safeStorage` is not available (no keychain), saving a key or a connection 
 
 To reset the app, quit it, delete `~/Library/Application Support/Rill`, and delete the keychain item that `safeStorage` made for the app (open Keychain Access and search for "Safe Storage"; the item is named after the app, and "Electron Safe Storage" when started from `dev`).
 
+### The key check
+
+When you save a provider key in Settings, the main process first asks the provider whether it accepts the key (`src/main/key-check.ts`). The request is made by the main process because the window's content security policy allows no outside connection. It is one `GET` of the provider's model list, which is read only and costs nothing:
+
+| Provider | Address | Header that carries the key |
+| --- | --- | --- |
+| Anthropic | `https://api.anthropic.com/v1/models` | `x-api-key` (and `anthropic-version: 2023-06-01`) |
+| OpenAI | `https://api.openai.com/v1/models` | `Authorization: Bearer` |
+| Gemini | `https://generativelanguage.googleapis.com/v1beta/models` | `x-goog-api-key` |
+| Grok | `https://api.x.ai/v1/models` | `Authorization: Bearer` |
+| Meta | `https://api.meta.ai/v1/models` | `Authorization: Bearer` |
+
+The addresses are a constant keyed by provider, so nothing the user types reaches an address or a header name. The key is never put in a URL or a query string. No cookies are sent, redirects are refused, the request has the generic `User-Agent: Rill`, and it gives up after 10 seconds. The response body is not returned or stored. For a status 400 it is read, up to 4 KiB, only to look for the provider's known wording.
+
+The answer becomes one of three verdicts. The rule is conservative: only a clear rejection blocks a key.
+
+| Answer | Verdict | Reason |
+| --- | --- | --- |
+| 2xx | `valid` | |
+| 401 | `invalid` | `unauthorized` |
+| 400 whose body has Gemini's `API_KEY_INVALID` or Grok's "incorrect api key" or "invalid api key" wording | `invalid` | `rejected` |
+| Any other 400 | `unverified` | `unexpected_status` |
+| 403 | `unverified` | `forbidden` (some providers answer 403 for a valid key in a region they do not support) |
+| 429 | `unverified` | `rate_limited` |
+| 5xx | `unverified` | `server_error` |
+| Network error, refused redirect | `unverified` | `network` |
+| No answer in 10 seconds | `unverified` | `timeout` |
+| Any other status | `unverified` | `unexpected_status` |
+
+A key that has a space, a control character or a non-ASCII character cannot be sent in a header, so it is `invalid` with the reason `malformed` and nothing is sent. Nothing is sent either when there is no keychain.
+
+`window.rill.secrets.setProviderKey(provider, value, options?)` returns `{ verdict }`. A `valid` or `unverified` key is saved, as before, and the verdict is returned. An `invalid` key is not saved and the call throws the host error `KEY_INVALID`, which crosses the process boundary as the code only. With `{ saveAnyway: true }` the key is checked again and saved whatever the verdict. The engine restarts only when something was saved and the key of the chosen provider changed, as before.
+
+The Keys section shows "checking" while the request runs, then one of: saved and accepted, saved but not confirmed (with the reason in plain words), or refused with a "save anyway" button. The typed key is held in component state only while the refusal notice is open, and is dropped on save, close, edit or when the row goes away. The result is in a live region and takes the focus.
+
+The addresses, the headers and the 400 wording come from the vendors' documentation. This project has not called them live yet, so the rule above is untested against the real services: treat a wrong verdict as possible. Because only a clear rejection blocks and "save anyway" always exists, a wrong guess costs one extra click, never a key that cannot be saved. `createFakeHost` takes a `keyChecks` option (a function from provider and key to a verdict, `valid` by default) so stories and tests show every state without a network.
+
 ### The engine process
 
 The main process gives the engine a random token and port 0, reads `{"type":"listening","port":...}` from its output, and tells the window the address through `window.rill.engine.info()` and the current state through `window.rill.engine.status()` (the status events only report changes, so a page that loads late asks once). It restarts the engine, gracefully (10 seconds, then kill), when the provider, model, key, allowed folders or connections change. After a crash it restarts with a back-off of 1, 2, 4, 4 and 4 seconds. On the sixth failure within a minute, or the sixth failed start in a row, it shows the stopped state and waits for the user (the restart button of the window, or a settings change, starts it again). An engine that exits with the usage error code 2 is not retried. Allowed folders are the app's own attachment folder (always the first `--allow`) plus the folders the user chose; with none chosen the engine can only touch attachments. If a change of settings arrives while a restart has already read the old settings, one more restart runs after it, so a removed folder or key never stays in force.
@@ -251,7 +288,7 @@ A folder can only be added when the folder dialog returned it in this run; `sett
 
 ### Known limits
 
-The build is signed ad hoc only. The smoke run is macOS only and was not tried on Windows or Linux. `safeStorage` on a Mac with a locked keychain can show a prompt the first time it is used. A corrupt secrets file means the user must enter the keys again, and the settings page does not tell the user that the file was unreadable yet (the contract has the code `SECRETS_UNREADABLE`, nothing sends it). A single huge `addFromBytes` call is deserialized by Electron before the main process can check its size, so the 21 MiB limit protects the disk, not the memory of that one call. The real `safeStorage` is not used by any automated check, so the first save of a key in a real run is the first time it runs.
+The build is signed ad hoc only. The smoke run is macOS only and was not tried on Windows or Linux. `safeStorage` on a Mac with a locked keychain can show a prompt the first time it is used. A corrupt secrets file means the user must enter the keys again, and the settings page does not tell the user that the file was unreadable yet (the contract has the code `SECRETS_UNREADABLE`, nothing sends it). A single huge `addFromBytes` call is deserialized by Electron before the main process can check its size, so the 21 MiB limit protects the disk, not the memory of that one call. The real `safeStorage` is not used by any automated check, so the first save of a key in a real run is the first time it runs. The same holds for the key check: its addresses and wording rules are from documentation and were never called live.
 
 ## Tests
 
