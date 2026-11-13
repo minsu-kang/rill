@@ -748,5 +748,146 @@
         }
       }
     }
+  },
+  {
+    "type": "google.sheets.append@1",
+    "kind": "action",
+    "title": "Append row to Google Sheets",
+    "description": "Appends one row to a Google Sheets spreadsheet in the user's own Google account, through a google connection. A crash right after sending can make a resumed run add the row twice. A retry after a server error can do the same. Needs the spreadsheetId (the long id in the spreadsheet address, never its title): ask the user for it when it was not given and never invent one. The range is a sheet name or an A1 range such as Sheet1 or Receipts!A:D and defaults to Sheet1. The values are one row of 1 to 50 cells, stored as typed: a text that starts with = is kept as text and not evaluated as a formula.",
+    "sideEffect": "external",
+    "configSchema": {
+      "type": "object",
+      "required": [
+        "connection",
+        "spreadsheetId",
+        "values"
+      ],
+      "properties": {
+        "connection": {
+          "type": "string",
+          "minLength": 1
+        },
+        "spreadsheetId": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 100,
+          "pattern": "^[A-Za-z0-9_-]{20,100}$"
+        },
+        "range": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[\\p{L}\\p{N}_ .'!:$-]{1,120}$",
+          "default": "Sheet1"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 50
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "appended",
+        "updatedRange"
+      ],
+      "properties": {
+        "appended": {
+          "type": "boolean"
+        },
+        "updatedRange": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    }
+  },
+  {
+    "type": "microsoft.excel.append@1",
+    "kind": "action",
+    "title": "Append row to Excel",
+    "description": "Appends one row to an Excel table in a .xlsx workbook in the user's own OneDrive, through a microsoft connection. A crash right after sending can make a resumed run add the row twice. A retry after a server error can do the same. Needs the OneDrive path of the workbook, for example Receipts/ledger.xlsx, and the name of a table that already exists in it: ask the user for both when they were not given and never invent them. The values are one row of 1 to 50 cells. A text that starts with =, +, -, @, a tab or a carriage return gets a leading single quote so Excel shows it as text; plain numbers stay as they are.",
+    "sideEffect": "external",
+    "configSchema": {
+      "type": "object",
+      "required": [
+        "connection",
+        "filePath",
+        "table",
+        "values"
+      ],
+      "properties": {
+        "connection": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?=.*[^/]\\.[xX][lL][sS][xX]$)[^\\p{C}\\\\:*?\"<>|#%]{1,400}$"
+        },
+        "table": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^[\\p{L}_][\\p{L}\\p{N}_. -]{0,254}$"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 50
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "appended"
+      ],
+      "properties": {
+        "appended": {
+          "type": "boolean"
+        }
+      }
+    }
   }
 ]

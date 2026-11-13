@@ -83,8 +83,8 @@ export function gapLanguage(text: string): GapLanguage {
 }
 
 const KIND_LABELS: Record<GapLanguage, Record<ConnectionKind, string>> = {
-  en: { slack: 'Slack', http: 'HTTP', webhookSecret: 'webhook secret' },
-  ko: { slack: 'Slack', http: 'HTTP', webhookSecret: '웹훅 시크릿' },
+  en: { slack: 'Slack', http: 'HTTP', webhookSecret: 'webhook secret', google: 'Google', microsoft: 'Microsoft' },
+  ko: { slack: 'Slack', http: 'HTTP', webhookSecret: '웹훅 시크릿', google: 'Google', microsoft: 'Microsoft' },
 }
 
 interface GapText {

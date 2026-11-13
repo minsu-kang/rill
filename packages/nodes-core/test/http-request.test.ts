@@ -242,6 +242,65 @@ describe('http.request@1 with a Slack bot connection', () => {
   })
 })
 
+describe('http.request@1 with a Google or Microsoft account connection', () => {
+  const kinds: Record<string, { kind: string; label: string; token: string }> = {
+    google: { kind: 'google', label: 'Google', token: 'ya29.TOKENMARKER0123456789' },
+    microsoft: { kind: 'microsoft', label: 'Microsoft', token: 'eyJTOKENMARKER0123456789.payload.sig' },
+  }
+  const ctxKind = (secret: string, kind: string | undefined) => makeCtx({ connections: { get: (id) => (id === 'api' ? secret : undefined), kindOf: (id) => (id === 'api' ? kind : undefined) } })
+
+  for (const [label, { kind, label: shown, token }] of Object.entries(kinds)) {
+    it(`refuses a ${label} connection by its kind before any request`, async () => {
+      const error = await httpRequest
+        .execute({ url: `${server.base}/echo-request`, method: 'POST', body: {}, auth: { connection: 'api' } }, ctxKind(token, kind))
+        .catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(Error)
+      expect(error).not.toBeInstanceOf(RetryableError)
+      expect((error as Error).message).toBe(`connection api is a ${shown} connection`)
+      expect((error as Error).message).not.toContain('TOKENMARKER')
+      expect(server.seen).toHaveLength(0)
+    })
+
+    it(`refuses a ${label} connection whatever the header, scheme and method of the step`, async () => {
+      for (const auth of [{ connection: 'api', scheme: 'None' as const, header: 'X-Token' }, { connection: 'api', scheme: 'Basic' as const }, { connection: 'api', header: 'Authorization' }]) {
+        await expect(httpRequest.execute({ url: `${server.base}/json`, auth }, ctxKind(token, kind))).rejects.toThrow(`connection api is a ${shown} connection`)
+      }
+      expect(server.seen).toHaveLength(0)
+    })
+  }
+
+  it('refuses whatever the secret looks like, because only the kind counts', async () => {
+    for (const secret of ['plain', 'not a token at all', JSON.stringify({ rillAuth: 1, type: 'bearer', token: 'abcdefgh' })]) {
+      await expect(httpRequest.execute({ url: `${server.base}/json`, auth: { connection: 'api' } }, ctxKind(secret, 'google'))).rejects.toThrow('connection api is a Google connection')
+    }
+    expect(server.seen).toHaveLength(0)
+  })
+
+  it('still sends with a connection of kind http, webhookSecret or slack, or of a resolver that has no kinds', async () => {
+    for (const kind of ['http', 'webhookSecret', undefined]) {
+      await httpRequest.execute({ url: `${server.base}/json`, auth: { connection: 'api' } }, ctxKind('plain-secret-value', kind))
+    }
+    await httpRequest.execute({ url: `${server.base}/json`, auth: { connection: 'api' } }, makeCtx({ connections: { get: () => 'plain-secret-value' } }))
+    expect(server.seen).toHaveLength(4)
+  })
+
+  it('sends a step without a connection even when the resolver knows account kinds', async () => {
+    await httpRequest.execute({ url: `${server.base}/json` }, ctxKind('ya29.TOKENMARKER0123456789', 'google'))
+    expect(server.seen).toHaveLength(1)
+    expect(server.seen[0]!.headers['authorization']).toBeUndefined()
+  })
+
+  it('reports an unknown connection before it looks at kinds', async () => {
+    await expect(httpRequest.execute({ url: `${server.base}/json`, auth: { connection: 'nobody' } }, ctxKind('x', 'google'))).rejects.toThrow('unknown connection: nobody')
+  })
+
+  it('does nothing in a dry run', async () => {
+    const output = await httpRequest.execute({ url: `${server.base}/json`, auth: { connection: 'api' } }, { ...ctxKind('ya29.TOKENMARKER0123456789', 'google'), dryRun: true })
+    expect(output).toMatchObject({ status: 0, dryRun: true })
+    expect(server.seen).toHaveLength(0)
+  })
+})
+
 describe('http.request@1 with a structured secret', () => {
   it('sends an API key in a header and replaces the node header of that name', async () => {
     const ctx = structured({ type: 'apiKey', in: 'header', name: 'X-Api-Key', value: MARKER })

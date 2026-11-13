@@ -46,6 +46,8 @@ describe('connection kinds', () => {
     expect(neededConnectionKind('notify.slack@1', '/connection')).toBe('slack')
     expect(neededConnectionKind('http.request@2', '/auth/connection')).toBe('http')
     expect(neededConnectionKind('trigger.webhook@1', '/secretConnection')).toBe('webhookSecret')
+    expect(neededConnectionKind('google.sheets.append@1', '/connection')).toBe('google')
+    expect(neededConnectionKind('microsoft.excel.append@1', '/connection')).toBe('microsoft')
     expect(neededConnectionKind('notify.slack@1', '/text')).toBeUndefined()
     expect(neededConnectionKind('made.up@1', '/connection')).toBeUndefined()
   })

@@ -259,7 +259,7 @@ describe('createPlannerSuite: run', () => {
     const deps = vi.mocked(createPlanner).mock.calls.at(-1)?.[0]
     expect(deps?.maxRepairRounds).toBe(3)
     expect(deps?.attachmentStore).toBeDefined()
-    expect(deps?.registry.list()).toHaveLength(12)
+    expect(deps?.registry.list()).toHaveLength(14)
   })
 })
 

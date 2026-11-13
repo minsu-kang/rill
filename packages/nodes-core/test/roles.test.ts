@@ -91,6 +91,8 @@ describe('node roles', () => {
       'llm.extract@1': { '/file': 'path' },
       'http.request@1': { '/url': 'url', '/auth/connection': 'connection' },
       'notify.slack@1': { '/connection': 'connection', '/channel': 'recipient', '/text': 'message' },
+      'google.sheets.append@1': { '/connection': 'connection', '/spreadsheetId': 'recipient' },
+      'microsoft.excel.append@1': { '/connection': 'connection', '/filePath': 'recipient' },
     })
   })
 
@@ -119,6 +121,12 @@ describe('role helpers', () => {
     expect(isEgressField(get('notify.slack@1'), '/channel')).toBe(true)
     expect(isEgressField(get('notify.slack@1'), '/text')).toBe(false)
     expect(isEgressField(get('csv.append@1'), '/file')).toBe(true)
+    for (const [type, target] of [['google.sheets.append@1', '/spreadsheetId'], ['microsoft.excel.append@1', '/filePath']] as const) {
+      expect(isEgressField(get(type), '/connection')).toBe(true)
+      expect(isEgressField(get(type), target)).toBe(true)
+      expect(isEgressField(get(type), '/values')).toBe(false)
+      expect(isWriteField(get(type), target)).toBe(false)
+    }
     expect(isEgressField(get('trigger.webhook@1'), '/secretConnection')).toBe(false)
     expect(isEgressField(get('file.read@1'), '/path')).toBe(false)
     expect(isEgressField(get('http.request@1'), '/method')).toBe(false)

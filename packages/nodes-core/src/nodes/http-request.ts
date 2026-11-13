@@ -1,4 +1,5 @@
 import Type from 'typebox'
+import { accountLabel, isAccountKind } from '../account-connection'
 import { applyConnectionAuth, maskSecretParts, parseConnectionSecret, secretParts } from '../connection-auth'
 import { httpCall, type HttpResult } from '../http'
 import { isSlackBotSecret } from '../slack-connection'
@@ -73,6 +74,8 @@ export const httpRequest = defineAction({
     if (config.auth) {
       const secret = ctx.connections.get(config.auth.connection)
       if (secret === undefined) throw new Error(`unknown connection: ${config.auth.connection}`)
+      const kind = ctx.connections.kindOf?.(config.auth.connection)
+      if (isAccountKind(kind)) throw new Error(`connection ${config.auth.connection} is a ${accountLabel(kind)} connection`)
       if (isSlackBotSecret(secret)) throw new Error(`connection ${config.auth.connection} is a Slack connection`)
       const parsed = parseConnectionSecret(secret)
       if (parsed.kind === 'malformed') throw new Error(`connection ${config.auth.connection} has a malformed auth value`)

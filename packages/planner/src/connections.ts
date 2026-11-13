@@ -12,6 +12,8 @@ export const CONNECTION_KINDS: Readonly<Record<string, Readonly<Record<string, C
   'notify.slack': { '/connection': 'slack' },
   'http.request': { '/auth/connection': 'http' },
   'trigger.webhook': { '/secretConnection': 'webhookSecret' },
+  'google.sheets.append': { '/connection': 'google' },
+  'microsoft.excel.append': { '/connection': 'microsoft' },
 }
 
 function baseType(type: string): string {

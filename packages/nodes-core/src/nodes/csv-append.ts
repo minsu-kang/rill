@@ -11,19 +11,9 @@ import {
 } from 'node:fs'
 import { dirname } from 'node:path'
 import Type from 'typebox'
+import { CellSchema, neutralise, type Cell } from '../cells'
 import { assertPathAllowed } from '../guard'
 import { defineAction } from '../types'
-
-type Cell = string | number | boolean | null
-
-const FORMULA_START = /^[=+\-@\t\r]/
-const PLAIN_NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/
-
-function neutralise(cell: Cell): string {
-  if (cell === null) return ''
-  const text = String(cell)
-  return typeof cell === 'string' && FORMULA_START.test(text) && !PLAIN_NUMBER.test(text) ? `'${text}` : text
-}
 
 function encodeCell(cell: Cell): string {
   const text = neutralise(cell)
@@ -73,8 +63,6 @@ function appendDurably(file: string, bytes: Buffer): void {
     closeSync(fd)
   }
 }
-
-const CellSchema = Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()])
 
 export const csvAppend = defineAction({
   type: 'csv.append@1',

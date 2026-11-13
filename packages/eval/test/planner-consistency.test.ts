@@ -228,7 +228,7 @@ const MUTATIONS: [string, string, (d: Draft) => void][] = [
 ]
 
 describe('shipped planner data', () => {
-  it('is consistent: no problems, the documented shape and every catalog node but transform used', () => {
+  it('is consistent: no problems, the documented shape and every catalog node but transform and the two spreadsheet nodes used', () => {
     const result = checkConsistency(shipped())
     expect(result.problems).toEqual([])
     expect(result.summary).toMatchObject({
@@ -239,7 +239,7 @@ describe('shipped planner data', () => {
       outcome: { workflow: 30, questions: 10, unsupported: 8 },
       hard: 11,
       references: 30,
-      unusedTypes: ['transform@1'],
+      unusedTypes: ['transform@1', 'google.sheets.append@1', 'microsoft.excel.append@1'],
     })
     expect(result.summary?.coveredTypes).toHaveLength(11)
   })

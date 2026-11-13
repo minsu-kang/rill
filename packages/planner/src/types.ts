@@ -49,7 +49,7 @@ export interface PlanTurn {
 
 export interface PlanConnection {
   name: string
-  kind: 'slack' | 'http' | 'webhookSecret'
+  kind: 'slack' | 'http' | 'webhookSecret' | 'google' | 'microsoft'
   slack?: 'webhook' | 'bot'
 }
 

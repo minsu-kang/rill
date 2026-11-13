@@ -16,6 +16,8 @@ export const CATALOG_TYPES = [
   'llm.extract@1',
   'http.request@1',
   'notify.slack@1',
+  'google.sheets.append@1',
+  'microsoft.excel.append@1',
 ] as const
 
 type Json = Record<string, unknown>

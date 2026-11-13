@@ -42,7 +42,7 @@ describe('assertion names', () => {
       ['extractsFields', 'hasEdge', 'hasNode', 'hasNodeCount', 'hasRetry', 'hasTrigger', 'noNodeOutsideCatalog', 'noSecretLiteral', 'orderedBefore', 'pathInsideAllowedFolders', 'referencesOutputOf', 'usesConnection'],
     )
     expect(Object.keys(data.vocabulary.assertions).sort()).toEqual([...ASSERTION_NAMES].sort())
-    expect(CATALOG_TYPES).toHaveLength(12)
+    expect(CATALOG_TYPES).toHaveLength(14)
   })
 })
 

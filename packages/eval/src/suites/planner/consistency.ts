@@ -438,7 +438,7 @@ function checkVocabulary(input: ConsistencyInput, cases: readonly CaseSpec[], re
   for (const name of Object.keys(documented)) if (!(ASSERTION_NAMES as readonly string[]).includes(name)) report('vocabulary.json', `documents unknown assertion ${name}`)
   const catalog = input.registry.list().map((def) => def.type)
   if (JSON.stringify([...CATALOG_TYPES].sort()) !== JSON.stringify([...catalog].sort())) report('assertions', 'CATALOG_TYPES differs from the real registry')
-  if (catalog.length !== 12) report('catalog', `expected 12 catalog nodes, the real registry has ${catalog.length}`)
+  if (catalog.length !== 14) report('catalog', `expected 14 catalog nodes, the real registry has ${catalog.length}`)
   const used = new Set(
     cases.flatMap((testCase) =>
       blocksOf(testCase.expect).flatMap((block) => (block.outcome === 'workflow' ? block.assertions.map((assertion) => assertion.check) : [])),
