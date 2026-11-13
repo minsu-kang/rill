@@ -719,6 +719,39 @@ describe('a hook never disturbs a run, an event or another hook', () => {
   })
 })
 
+describe('a failure inside the runner', () => {
+  it('does not stop the next event when the hooks cannot be read for a job', async () => {
+    const { runner, store, db } = standalone()
+    const workflowId = workflowIn(store, 'w')
+    const runId = finishedRun(store, workflowId, 'failed')
+    store.saveHook({ event: 'run.failed', scope: { type: 'all' }, action: { type: 'record' }, enabled: true })
+    runner.handle(finished(runId, 'failed', START))
+    store.saveHook({ event: 'run.failed', scope: { type: 'workflow', workflowId }, action: { type: 'record' }, enabled: true })
+    vi.spyOn(store, 'listHooks').mockImplementationOnce(() => {
+      throw new Error('the database is gone')
+    })
+    await expect(runner.idle()).resolves.toBeUndefined()
+    expect(logRows(db)).toEqual([])
+    runner.handle(finished(runId, 'failed', START + 1))
+    await runner.idle()
+    expect(outcomes(db)).toEqual(['ok', 'ok'])
+  })
+
+  it('goes on with the hooks behind a hook whose log row cannot be written', async () => {
+    const { runner, store, db } = standalone()
+    const workflowId = workflowIn(store, 'w')
+    const runId = finishedRun(store, workflowId, 'failed')
+    store.saveHook({ event: 'run.failed', scope: { type: 'all' }, action: { type: 'record' }, enabled: true })
+    store.saveHook({ event: 'run.failed', scope: { type: 'workflow', workflowId }, action: { type: 'record' }, enabled: true })
+    vi.spyOn(store, 'appendHookLog').mockImplementationOnce(() => {
+      throw new Error('disk full')
+    })
+    runner.handle(finished(runId, 'failed', START))
+    await expect(runner.idle()).resolves.toBeUndefined()
+    expect(logRows(db).map((row) => row.outcome)).toEqual(['ok'])
+  })
+})
+
 describe('with no hook at all', () => {
   it('does no work for an event: no query, no timer, no row', async () => {
     const calls = stubSlack()

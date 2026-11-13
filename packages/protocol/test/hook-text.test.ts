@@ -165,6 +165,12 @@ describe('hookWorkflowLabel', () => {
     expect(hookWorkflowLabel(`${'\u200b'.repeat(500)}${'x'.repeat(70)}`)).toBe('x'.repeat(60))
   })
 
+  it('reads at most 10000 characters of a name, hidden ones included', () => {
+    expect(hookWorkflowLabel(`${'\u200b'.repeat(9_999)}ab`)).toBe('a')
+    expect(hookWorkflowLabel(`${'\u200b'.repeat(9_998)}ab`)).toBe('ab')
+    expect(hookWorkflowLabel(`${'\u200b'.repeat(10_000)}ab`)).toBe('unnamed')
+  })
+
   it('stays fast and bounded for a huge name', () => {
     const started = Date.now()
     expect(hookWorkflowLabel('\u200b'.repeat(2_000_000))).toBe('unnamed')

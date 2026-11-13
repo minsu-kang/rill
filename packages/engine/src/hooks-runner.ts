@@ -93,9 +93,10 @@ export class HookRunner {
   }
 
   private enabled(): Hook[] {
-    if (this.revision !== this.deps.store.hooksRevision) {
-      this.revision = this.deps.store.hooksRevision
+    const { hooksRevision } = this.deps.store
+    if (this.revision !== hooksRevision) {
       this.hooks = this.deps.store.listHooks().filter((hook) => hook.enabled)
+      this.revision = hooksRevision
     }
     return this.hooks
   }

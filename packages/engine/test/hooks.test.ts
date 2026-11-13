@@ -3,7 +3,7 @@ import { HOOK_CHANNEL_MAX_CHARS, HOOK_MAX_ITEMS, HookLogEntrySchema, HookSchema,
 import Value from 'typebox/value'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Engine } from '../src/engine'
-import { HookFullError, HookInvalidError, HookNotFoundError } from '../src/hooks'
+import { HookFullError, HookInvalidError, HookNotFoundError, notifyForbidden } from '../src/hooks'
 import { echoWorkflow, hookInput, notify, openEngine } from './hook-helpers'
 
 const engines: Engine[] = []
@@ -212,6 +212,15 @@ describe('the checks of a hook at save time', () => {
       return
     }
     throw new Error('expected the hook to be refused')
+  })
+})
+
+describe('notifyForbidden', () => {
+  it('is true for a forbidden notify.slack in any case and with a version, and false for any other node', () => {
+    for (const type of ['notify.slack', 'notify.slack@1', 'Notify.Slack', 'NOTIFY.SLACK@2']) expect(notifyForbidden([type]), type).toBe(true)
+    expect(notifyForbidden(['http.request@1', 'notify.slack'])).toBe(true)
+    for (const type of ['notify.slack.x', 'notify', 'http.request@1', 'xnotify.slack']) expect(notifyForbidden([type]), type).toBe(false)
+    expect(notifyForbidden([])).toBe(false)
   })
 })
 
