@@ -3,7 +3,7 @@ import { FAILURE_SIGNALS, LIKELY_CAUSES, SUGGESTED_ACTIONS } from '@rill/planner
 import Type from 'typebox'
 import { schemaProblems } from '../planner/schema'
 
-export const EXPLAIN_DRAFT_SIZE = 6
+export const EXPLAIN_CASE_COUNT = 6
 export const EXPLAIN_EFFORTS = ['low', 'medium', 'high'] as const
 
 const strict = { additionalProperties: false } as const
@@ -62,21 +62,14 @@ export const explainCaseSchema = Type.Object(
   strict,
 )
 
-export const explainDraftSchema = Type.Object(
-  {
-    status: Type.Literal('DRAFT'),
-    notice: Type.String({ pattern: '^DRAFT: not approved\\.' }),
-    cases: Type.Array(explainCaseSchema),
-  },
-  strict,
-)
+export const explainDataSchema = Type.Object({ cases: Type.Array(explainCaseSchema) }, strict)
 
 export type ExplainCaseSpec = Type.Static<typeof explainCaseSchema>
-export type ExplainDraftFile = Type.Static<typeof explainDraftSchema>
+export type ExplainData = Type.Static<typeof explainDataSchema>
 export type ExplainWorkflow = Workflow
 
-export function parseExplainDraft(input: unknown): ExplainDraftFile {
-  const problems = schemaProblems(explainDraftSchema, input)
-  if (problems.length > 0) throw new Error(`invalid explain draft:\n${problems.join('\n')}`)
-  return input as ExplainDraftFile
+export function parseExplainData(input: unknown): ExplainData {
+  const problems = schemaProblems(explainDataSchema, input)
+  if (problems.length > 0) throw new Error(`invalid explain data:\n${problems.join('\n')}`)
+  return input as ExplainData
 }

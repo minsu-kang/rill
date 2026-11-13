@@ -5,15 +5,15 @@ import { createRecorder, type EvalProvider } from '../src/record'
 import { runEval, type RunResult, type TaskResult } from '../src/runner'
 import { isPassingOutcome } from '../src/score'
 import type { CaseScore } from '../src/suite'
-import { loadExplainDraft, type ExplainCase } from '../src/suites/explain/cases'
+import { loadExplainData, type ExplainCase } from '../src/suites/explain/cases'
 import { EXPLAIN_FIELDS, scoreExplainCase, type ExplainOutput } from '../src/suites/explain/scoring'
 import { goldAnswer, leakingExplainer, nullExplainer, oracleExplainer, perturbedExplainer, wrongCause } from '../src/suites/explain/fakes'
 import { explainMetrics } from '../src/suites/explain/metrics'
 import { createExplainSuite, type ExplainFactory } from '../src/suites/explain/suite'
 
 const MODEL = 'claude-sonnet-5-5'
-const draft = loadExplainDraft()
-const IDS = draft.cases.map((entry) => entry.id)
+const approved = loadExplainData()
+const IDS = approved.cases.map((entry) => entry.id)
 const INJECTION_ID = 'explain-06-injected-web-response'
 
 function offline(): EvalProvider {
@@ -22,7 +22,7 @@ function offline(): EvalProvider {
 }
 
 async function runWith(factory: ExplainFactory | undefined, provider?: (model: string) => EvalProvider, reps = 1) {
-  const suite = createExplainSuite({ data: draft, ...(factory === undefined ? {} : { makeExplainer: factory }) })
+  const suite = createExplainSuite({ data: approved, ...(factory === undefined ? {} : { makeExplainer: factory }) })
   const run: RunResult<ExplainOutput> = await runEval({
     suite,
     models: [MODEL],
@@ -49,7 +49,7 @@ function modelFor(reply: (text: string, caseId: string) => unknown): EvalProvide
     generate: async (request: LlmRequest) => {
       const content = request.messages[0]!.content
       const text = typeof content === 'string' ? content : content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')
-      const found = draft.cases.find((entry) => text.includes(entry.workflow.name))
+      const found = approved.cases.find((entry) => text.includes(entry.workflow.name))
       if (found === undefined) throw new Error('no case in the request')
       const data = reply(text, found.id)
       return { data, usage: { inputTokens: 2000, outputTokens: 300, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }, model: MODEL, requestedModel: MODEL, stopReason: 'end_turn', durationMs: 5, fallbackUsed: false }
@@ -59,8 +59,8 @@ function modelFor(reply: (text: string, caseId: string) => unknown): EvalProvide
 }
 
 describe('the suite', () => {
-  it('is named explain, holds the six draft cases and has four fields', () => {
-    const suite = createExplainSuite({ data: draft })
+  it('is named explain, holds the six approved cases and has four fields', () => {
+    const suite = createExplainSuite({ data: approved })
     expect(suite.name).toBe('explain')
     expect(suite.cases().map((entry) => entry.id)).toEqual(IDS)
     expect(suite.fields).toEqual(['cause', 'action', 'mention', 'isolation'])
@@ -68,17 +68,18 @@ describe('the suite', () => {
   })
 
   it('has a version that follows the data', () => {
-    const changed = { ...draft, cases: draft.cases.map((entry, index) => (index === 0 ? { ...entry, expect: { ...entry.expect, mention: ['n1'] } } : entry)) }
-    expect(createExplainSuite({ data: changed }).version).not.toBe(createExplainSuite({ data: draft }).version)
-    expect(createExplainSuite({ data: draft }).version).toBe(createExplainSuite({ data: draft }).version)
+    const changed = { ...approved, cases: approved.cases.map((entry, index) => (index === 0 ? { ...entry, expect: { ...entry.expect, mention: ['n1'] } } : entry)) }
+    expect(createExplainSuite({ data: changed }).version).not.toBe(createExplainSuite({ data: approved }).version)
+    expect(createExplainSuite({ data: approved }).version).toBe(createExplainSuite({ data: approved }).version)
   })
 
-  it('does not run anything without the data being handed over', () => {
-    expect(() => createExplainSuite({} as never)).toThrow('needs the draft data handed over')
+  it('loads the approved cases when no data is handed over', () => {
+    expect(createExplainSuite().cases().map((entry) => entry.id)).toEqual(IDS)
+    expect(createExplainSuite({}).version).toBe(createExplainSuite({ data: approved }).version)
   })
 
   it('estimates the input and the worst cost of a case', () => {
-    const suite = createExplainSuite({ data: draft })
+    const suite = createExplainSuite({ data: approved })
     const testCase = suite.cases()[2]!
     expect(suite.estimateInputTokens!(testCase)).toBeGreaterThan(1000)
     const small = suite.worstCaseUsd!(testCase, MODEL, 500)!
@@ -157,7 +158,7 @@ describe('the oracle, the null answer and the perturbed answers', () => {
   })
 
   it('accepts any of the accepted causes and any one of the accepted actions', async () => {
-    const accepted = draft.cases.find((entry) => entry.id === 'explain-02-http-401')!
+    const accepted = approved.cases.find((entry) => entry.id === 'explain-02-http-401')!
     expect(accepted.expect.actions.length).toBeGreaterThan(1)
     const last: ExplainFactory = (input) => ({
       explain: async (request) => {
@@ -170,7 +171,7 @@ describe('the oracle, the null answer and the perturbed answers', () => {
   })
 
   it('gold answers use a cause and an action that the case accepts and a cause that is wrong for the perturbation', () => {
-    for (const entry of draft.cases) {
+    for (const entry of approved.cases) {
       const gold = goldAnswer(entry)
       expect(entry.expect.likelyCause).toContain(gold.likelyCause)
       expect(entry.expect.likelyCause).not.toContain(wrongCause(entry))
@@ -179,10 +180,10 @@ describe('the oracle, the null answer and the perturbed answers', () => {
 })
 
 function withNeedles(needles: string[]) {
-  return { ...draft, cases: draft.cases.map((entry) => (entry.expect.injection === undefined ? entry : { ...entry, expect: { ...entry.expect, injection: { needles } } })) }
+  return { ...approved, cases: approved.cases.map((entry) => (entry.expect.injection === undefined ? entry : { ...entry, expect: { ...entry.expect, injection: { needles } } })) }
 }
 
-async function runOn(data: typeof draft, factory: ExplainFactory) {
+async function runOn(data: typeof approved, factory: ExplainFactory) {
   const suite = createExplainSuite({ data, makeExplainer: factory })
   return runEval({ suite, models: [MODEL], reps: 1, concurrency: 4, maxAttempts: 1, seed: 1, sleep: () => Promise.resolve(), createProvider: () => offline() })
 }
@@ -269,9 +270,9 @@ describe('a task that did not finish and the effort of a case', () => {
 
   it('asks for the effort that the case names', async () => {
     const seen: number[] = []
-    const data = { ...draft, cases: draft.cases.map((entry, index) => (index === 0 ? { ...entry, effort: 'high' as const } : entry)) }
+    const data = { ...approved, cases: approved.cases.map((entry, index) => (index === 0 ? { ...entry, effort: 'high' as const } : entry)) }
     const suite = createExplainSuite({ data })
-    const provider = modelFor((_text, id) => goldAnswer(draft.cases.find((entry) => entry.id === id)!))
+    const provider = modelFor((_text, id) => goldAnswer(approved.cases.find((entry) => entry.id === id)!))
     const original = provider.provider.generate.bind(provider.provider)
     provider.provider.generate = (request, options) => {
       seen.push(request.maxTokens ?? 0)
@@ -284,7 +285,7 @@ describe('a task that did not finish and the effort of a case', () => {
 
 describe('an error is no answer', () => {
   it('scores an invalid answer as a schema failure on every field', () => {
-    const testCase = createExplainSuite({ data: draft }).cases()[0]! as ExplainCase
+    const testCase = createExplainSuite({ data: approved }).cases()[0]! as ExplainCase
     const score = scoreExplainCase(testCase, new ExplainError('invalid', 'the model did not return a usable explanation'))
     expect(score.status).toBe('schema_failed')
     expect(Object.values(score.outcomes)).toEqual(['NO_ANSWER', 'NO_ANSWER', 'NO_ANSWER', 'NO_ANSWER'])
@@ -292,7 +293,7 @@ describe('an error is no answer', () => {
 })
 
 describe('the real explainer behind a scripted model', () => {
-  const gold = (id: string) => goldAnswer(draft.cases.find((entry) => entry.id === id)!)
+  const gold = (id: string) => goldAnswer(approved.cases.find((entry) => entry.id === id)!)
 
   it('passes all six cases when the model answers with the gold answer', async () => {
     const { tasks } = await runWith(undefined, () => modelFor((_text, id) => gold(id)))

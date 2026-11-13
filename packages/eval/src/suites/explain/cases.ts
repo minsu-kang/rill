@@ -3,18 +3,18 @@ import { fileURLToPath } from 'node:url'
 import type { NodeRegistry } from '@rill/nodes-core'
 import { buildRunDigest, type ExplainRunInput, type ExplainStep, type RunDigest } from '@rill/planner'
 import type { EvalCase } from '../../suite'
-import { parseExplainDraft, type ExplainCaseSpec, type ExplainDraftFile } from './schema'
+import { parseExplainData, type ExplainCaseSpec, type ExplainData } from './schema'
 
 export const EXPLAIN_DATA_DIR = fileURLToPath(new URL('./data/', import.meta.url))
-export const EXPLAIN_DRAFT_PATH = `${EXPLAIN_DATA_DIR}cases.draft.json`
+export const EXPLAIN_CASES_PATH = `${EXPLAIN_DATA_DIR}cases.json`
 export const EXPLAIN_GROUP = 'explain'
 
 export interface ExplainCase extends EvalCase {
   spec: ExplainCaseSpec
 }
 
-export function loadExplainDraft(): ExplainDraftFile {
-  return parseExplainDraft(JSON.parse(readFileSync(EXPLAIN_DRAFT_PATH, 'utf8')))
+export function loadExplainData(): ExplainData {
+  return parseExplainData(JSON.parse(readFileSync(EXPLAIN_CASES_PATH, 'utf8')))
 }
 
 export function toExplainCase(spec: ExplainCaseSpec): ExplainCase {

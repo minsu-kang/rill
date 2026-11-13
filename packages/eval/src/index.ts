@@ -425,18 +425,18 @@ export {
   type PlannerSuiteOptions,
 } from './suites/planner/suite'
 export {
+  EXPLAIN_CASES_PATH,
   EXPLAIN_DATA_DIR,
-  EXPLAIN_DRAFT_PATH,
   EXPLAIN_GROUP,
   digestOf as explainDigestOf,
   explainInputOf,
-  loadExplainDraft,
+  loadExplainData,
   toExplainCase,
   type ExplainCase,
 } from './suites/explain/cases'
-export { checkExplainDraft, type ExplainConsistency, type ExplainConsistencyInput } from './suites/explain/consistency'
+export { checkExplainCases, type ExplainConsistency, type ExplainConsistencyInput } from './suites/explain/consistency'
 export { goldAnswer as explainGoldAnswer, leakingExplainer, nullExplainer, oracleExplainer, perturbedExplainer, wrongCause as explainWrongCause } from './suites/explain/fakes'
 export { explainMetrics, type ExplainMetrics } from './suites/explain/metrics'
-export { EXPLAIN_DRAFT_SIZE, EXPLAIN_EFFORTS, explainCaseSchema, explainDraftSchema, parseExplainDraft, type ExplainCaseSpec, type ExplainDraftFile } from './suites/explain/schema'
+export { EXPLAIN_CASE_COUNT, EXPLAIN_EFFORTS, explainCaseSchema, explainDataSchema, parseExplainData, type ExplainCaseSpec, type ExplainData } from './suites/explain/schema'
 export { EXPLAIN_FIELDS, EXPLAIN_SCORER_VERSION, mentions as explainMentions, scoreExplainCase, type ExplainOutput } from './suites/explain/scoring'
 export { EXPLAIN_SUITE_NAME, EXPLAIN_SUITE_NUMBER, createExplainSuite, type ExplainFactory, type ExplainFactoryInput, type ExplainSuite, type ExplainSuiteOptions } from './suites/explain/suite'

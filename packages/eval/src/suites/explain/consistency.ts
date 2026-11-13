@@ -2,15 +2,15 @@ import { isWarningIssue } from '@rill/dsl'
 import { validateWorkflow, type NodeRegistry } from '@rill/nodes-core'
 import { MAX_DIGEST_CHARS, failureSignals } from '@rill/planner'
 import { digestOf, explainInputOf } from './cases'
-import { EXPLAIN_DRAFT_SIZE, parseExplainDraft, type ExplainCaseSpec } from './schema'
+import { EXPLAIN_CASE_COUNT, parseExplainData, type ExplainCaseSpec } from './schema'
 
 const ALLOWED_ROOTS = ['/Users/demo']
 const MIN_SECRET = 4
 
 export interface ExplainConsistencyInput {
-  draft: unknown
+  data: unknown
   registry: NodeRegistry
-  approvedCaseIds: readonly string[]
+  plannerCaseIds: readonly string[]
 }
 
 export interface ExplainConsistency {
@@ -30,7 +30,7 @@ function checkCase(spec: ExplainCaseSpec, index: number, input: ExplainConsisten
   const { registry } = input
   const prefix = `explain-${String(index + 1).padStart(2, '0')}-`
   if (!spec.id.startsWith(prefix)) add(`${spec.id}: id must start with ${prefix}`)
-  if (input.approvedCaseIds.includes(spec.id)) add(`${spec.id}: is an id of the approved suite`)
+  if (input.plannerCaseIds.includes(spec.id)) add(`${spec.id}: is an id of a planner case`)
 
   const issues = validateWorkflow(spec.workflow, { registry, allowedRoots: ALLOWED_ROOTS }).filter((issue) => !isWarningIssue(issue))
   if (issues.length > 0) add(`${spec.id}: workflow is not valid: ${issues.map((issue) => `${issue.code} at ${issue.pointer}`).join(', ')}`)
@@ -78,25 +78,25 @@ function checkCase(spec: ExplainCaseSpec, index: number, input: ExplainConsisten
   for (const secret of spec.secrets) if (secret.length >= MIN_SECRET && digest.text.includes(secret)) add(`${spec.id}: the digest holds a secret`)
 }
 
-export function checkExplainDraft(input: ExplainConsistencyInput): ExplainConsistency {
-  let draft
+export function checkExplainCases(input: ExplainConsistencyInput): ExplainConsistency {
+  let data
   try {
-    draft = parseExplainDraft(input.draft)
+    data = parseExplainData(input.data)
   } catch (error) {
-    return { problems: [`explain draft: ${error instanceof Error ? error.message : String(error)}`] }
+    return { problems: [`explain data: ${error instanceof Error ? error.message : String(error)}`] }
   }
   const problems: string[] = []
   const add = (text: string): void => void problems.push(text)
-  if (draft.cases.length !== EXPLAIN_DRAFT_SIZE) add(`explain draft: expected exactly ${EXPLAIN_DRAFT_SIZE} cases, found ${draft.cases.length}`)
+  if (data.cases.length !== EXPLAIN_CASE_COUNT) add(`explain data: expected exactly ${EXPLAIN_CASE_COUNT} cases, found ${data.cases.length}`)
   const seen = new Set<string>()
-  for (const spec of draft.cases) {
+  for (const spec of data.cases) {
     if (seen.has(spec.id)) add(`${spec.id}: duplicate id`)
     seen.add(spec.id)
   }
-  draft.cases.forEach((spec, index) => checkCase(spec, index, input, add))
-  const injection = draft.cases.filter((spec) => spec.expect.injection !== undefined).length
-  if (injection !== 1) add(`explain draft: expected exactly 1 injection case, found ${injection}`)
+  data.cases.forEach((spec, index) => checkCase(spec, index, input, add))
+  const injection = data.cases.filter((spec) => spec.expect.injection !== undefined).length
+  if (injection !== 1) add(`explain data: expected exactly 1 injection case, found ${injection}`)
   const signals: Record<string, number> = {}
-  for (const spec of draft.cases) for (const entry of spec.expect.signals) signals[entry.signal] = (signals[entry.signal] ?? 0) + 1
-  return { problems, summary: { cases: draft.cases.length, injection, signals } }
+  for (const spec of data.cases) for (const entry of spec.expect.signals) signals[entry.signal] = (signals[entry.signal] ?? 0) + 1
+  return { problems, summary: { cases: data.cases.length, injection, signals } }
 }

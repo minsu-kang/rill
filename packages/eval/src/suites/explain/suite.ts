@@ -6,9 +6,9 @@ import { PRICE_TABLE_AS_OF } from '../../pricing'
 import { softCapFactor } from '../../spec'
 import type { Suite } from '../../suite'
 import { TEXT_CHARS_PER_TOKEN } from '../extract/suite'
-import { digestOf, explainInputOf, toExplainCase, type ExplainCase } from './cases'
+import { digestOf, explainInputOf, loadExplainData, toExplainCase, type ExplainCase } from './cases'
 import type { ExplainFactory } from './fakes'
-import type { ExplainDraftFile } from './schema'
+import type { ExplainData } from './schema'
 import { EXPLAIN_FIELDS, EXPLAIN_SCORER_VERSION, scoreExplainCase, type ExplainOutput } from './scoring'
 
 export type { ExplainFactory, ExplainFactoryInput } from './fakes'
@@ -22,7 +22,7 @@ const CALLS = 2
 const VERSION_HASH_LENGTH = 12
 
 export interface ExplainSuiteOptions {
-  data: ExplainDraftFile
+  data?: ExplainData
   makeExplainer?: ExplainFactory
   registry?: NodeRegistry
 }
@@ -38,17 +38,17 @@ function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex').slice(0, VERSION_HASH_LENGTH)
 }
 
-export function createExplainSuite(options: ExplainSuiteOptions): ExplainSuite {
-  if (options?.data === undefined) throw new TypeError('createExplainSuite needs the draft data handed over')
+export function createExplainSuite(options: ExplainSuiteOptions = {}): ExplainSuite {
+  const data = options.data ?? loadExplainData()
   const registry = options.registry ?? createCoreRegistry()
   const makeExplainer: ExplainFactory = options.makeExplainer ?? (({ ctx }) => createExplainer({ provider: ctx.provider, registry }))
-  const cases = options.data.cases.map(toExplainCase)
+  const cases = data.cases.map(toExplainCase)
   const baseChars = EXPLAIN_RULES.length + JSON.stringify(explainSchema()).length
   const inputTokens = (testCase: ExplainCase): number =>
     Math.ceil(((baseChars + digestOf(testCase.spec, registry).chars) / TEXT_CHARS_PER_TOKEN) * INPUT_MARGIN)
   return {
     name: EXPLAIN_SUITE_NAME,
-    version: [`${EXPLAIN_SUITE_NUMBER}.${EXPLAIN_SCORER_VERSION}`, `p${PRICE_TABLE_AS_OF.replace(/-/gu, '')}`, sha256(JSON.stringify(options.data.cases))].join('-'),
+    version: [`${EXPLAIN_SUITE_NUMBER}.${EXPLAIN_SCORER_VERSION}`, `p${PRICE_TABLE_AS_OF.replace(/-/gu, '')}`, sha256(JSON.stringify(data.cases))].join('-'),
     fields: EXPLAIN_FIELDS,
     cases: () => cases,
     run: async (testCase, ctx) => {

@@ -1,14 +1,12 @@
-import { readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { createCoreRegistry } from '@rill/nodes-core'
 import { MAX_DIGEST_CHARS, failureSignals } from '@rill/planner'
 import { describe, expect, it } from 'vitest'
-import { PACKAGE_ROOT } from '../src/results'
-import { CASES_PATH, loadPlannerData } from '../src/suites/planner/cases'
-import { createPlannerSuite } from '../src/suites/planner/suite'
-import { EXPLAIN_DRAFT_PATH, digestOf, explainInputOf, loadExplainDraft, toExplainCase } from '../src/suites/explain/cases'
-import { checkExplainDraft } from '../src/suites/explain/consistency'
-import { EXPLAIN_DRAFT_SIZE, parseExplainDraft } from '../src/suites/explain/schema'
+import { EXPLAIN_CASES_PATH, digestOf, explainInputOf, loadExplainData, toExplainCase } from '../src/suites/explain/cases'
+import { checkExplainCases } from '../src/suites/explain/consistency'
+import { EXPLAIN_CASE_COUNT, parseExplainData } from '../src/suites/explain/schema'
+import { loadPlannerData } from '../src/suites/planner/cases'
+import { createExplainSuite } from '../src/suites/explain/suite'
 
 type Json = Record<string, unknown>
 
@@ -23,94 +21,93 @@ const IDS = [
 
 const read = (path: string): unknown => JSON.parse(readFileSync(path, 'utf8'))
 const registry = createCoreRegistry()
-const draft = loadExplainDraft()
+const approved = loadExplainData()
 const spec = (id: string) => {
-  const found = draft.cases.find((entry) => entry.id === id)
-  if (found === undefined) throw new Error(`no draft case ${id}`)
+  const found = approved.cases.find((entry) => entry.id === id)
+  if (found === undefined) throw new Error(`no explain case ${id}`)
   return found
 }
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
 function shipped() {
-  return { draft: read(EXPLAIN_DRAFT_PATH), registry, approvedCaseIds: loadPlannerData().cases.map((entry) => entry.id) }
+  return { data: read(EXPLAIN_CASES_PATH), registry, plannerCaseIds: loadPlannerData().cases.map((entry) => entry.id) }
 }
 
-describe('the draft file', () => {
-  it('is named and marked as a draft, and says that it is not approved', () => {
-    expect(EXPLAIN_DRAFT_PATH.endsWith('/explain/data/cases.draft.json')).toBe(true)
-    const raw = read(EXPLAIN_DRAFT_PATH) as Json
-    expect(raw['status']).toBe('DRAFT')
-    expect(raw['notice']).toMatch(/^DRAFT: not approved\./)
-    expect(raw['notice']).toMatch(/48-case/)
+describe('the explain data file', () => {
+  it('is the approved file: it holds only the cases and carries no draft marker', () => {
+    expect(EXPLAIN_CASES_PATH.endsWith('/explain/data/cases.json')).toBe(true)
+    const raw = read(EXPLAIN_CASES_PATH) as Json
+    expect(Object.keys(raw)).toEqual(['cases'])
+    expect(readFileSync(EXPLAIN_CASES_PATH, 'utf8')).not.toMatch(/draft|not approved/iu)
   })
 
   it('holds the six cases in order, each with a workflow, a recorded run and its steps', () => {
-    expect(EXPLAIN_DRAFT_SIZE).toBe(6)
-    expect(draft.cases.map((entry) => entry.id)).toEqual(IDS)
-    for (const entry of draft.cases) {
+    expect(EXPLAIN_CASE_COUNT).toBe(6)
+    expect(approved.cases.map((entry) => entry.id)).toEqual(IDS)
+    for (const entry of approved.cases) {
       expect(entry.workflow.nodes.length, entry.id).toBeGreaterThanOrEqual(2)
       expect(entry.steps.length, entry.id).toBeGreaterThanOrEqual(1)
       expect(entry.run.status, entry.id).toBe('failed')
     }
   })
 
-  it('rejects a container that is not marked DRAFT, has no notice or has an unknown key', () => {
-    const raw = read(EXPLAIN_DRAFT_PATH) as Json
-    expect(() => parseExplainDraft({ ...raw, status: 'APPROVED' })).toThrow('invalid explain draft')
-    expect(() => parseExplainDraft({ ...raw, notice: undefined })).toThrow('invalid explain draft')
-    expect(() => parseExplainDraft({ ...raw, extra: 1 })).toThrow('invalid explain draft')
-    expect(parseExplainDraft(raw).cases).toHaveLength(6)
-  })
-
-  it('refuses a notice that does not say that the draft is not approved', () => {
-    const raw = read(EXPLAIN_DRAFT_PATH) as Json
-    expect(() => parseExplainDraft({ ...raw, notice: 'Approved by the user.' })).toThrow('invalid explain draft')
-    expect(() => parseExplainDraft({ ...raw, notice: 'Note. DRAFT: not approved.' })).toThrow('invalid explain draft')
+  it('rejects a container with a status marker, a notice or any unknown key, and accepts the shipped one', () => {
+    const raw = read(EXPLAIN_CASES_PATH) as Json
+    expect(() => parseExplainData({ ...raw, status: 'DRAFT' })).toThrow('invalid explain data')
+    expect(() => parseExplainData({ ...raw, notice: 'DRAFT: not approved.' })).toThrow('invalid explain data')
+    expect(() => parseExplainData({ ...raw, extra: 1 })).toThrow('invalid explain data')
+    expect(() => parseExplainData([])).toThrow('invalid explain data')
+    expect(parseExplainData(raw).cases).toHaveLength(6)
   })
 
   it('refuses a case with an unknown key, and an injection block without a needle', () => {
-    const raw = clone(read(EXPLAIN_DRAFT_PATH)) as { cases: Json[] }
+    const raw = clone(read(EXPLAIN_CASES_PATH)) as { cases: Json[] }
     raw.cases[0]!['extra'] = 1
-    expect(() => parseExplainDraft(raw)).toThrow('invalid explain draft')
-    const none = clone(read(EXPLAIN_DRAFT_PATH)) as { cases: { expect: { injection?: { needles: string[] } } }[] }
+    expect(() => parseExplainData(raw)).toThrow('invalid explain data')
+    const none = clone(read(EXPLAIN_CASES_PATH)) as { cases: { expect: { injection?: { needles: string[] } } }[] }
     none.cases[5]!.expect.injection = { needles: [] }
-    expect(() => parseExplainDraft(none)).toThrow('invalid explain draft')
+    expect(() => parseExplainData(none)).toThrow('invalid explain data')
   })
 })
 
-describe('the approved suites do not see the draft', () => {
-  it('still has exactly 61 planner cases and no explain case among them', () => {
-    expect(loadPlannerData().cases).toHaveLength(61)
-    expect(createPlannerSuite().cases()).toHaveLength(61)
-    expect(loadPlannerData().cases.some((entry) => entry.id.startsWith('explain-'))).toBe(false)
+describe('the default explain suite', () => {
+  it('loads the six approved cases without being handed any data, in the group explain', () => {
+    const suite = createExplainSuite()
+    expect(suite.cases().map((entry) => entry.id)).toEqual(IDS)
+    expect(new Set(suite.cases().map((entry) => entry.group))).toEqual(new Set(['explain']))
+    expect(suite.cases().filter((entry) => entry.category === 'injection').map((entry) => entry.id)).toEqual([IDS[5]])
   })
 
-  it('leaves the approved data files and the default commands without a trace of the draft', () => {
-    const files = [CASES_PATH, CASES_PATH.replace('cases.json', 'references.json'), CASES_PATH.replace('cases.json', 'vocabulary.json'), join(PACKAGE_ROOT, 'src/cli.ts'), join(PACKAGE_ROOT, 'src/suites/planner/cli.ts')]
-    for (const path of files) expect(readFileSync(path, 'utf8'), path).not.toMatch(/explain-0\d|suites\/explain/)
-    const plannerData = readdirSync(join(PACKAGE_ROOT, 'src/suites/planner/data'))
-    expect(plannerData.some((name) => name.includes('explain'))).toBe(false)
+  it('is the same suite as the one handed the approved data, and changes its version when a case changes', () => {
+    expect(createExplainSuite().version).toBe(createExplainSuite({ data: approved }).version)
+    const changed = { ...approved, cases: approved.cases.map((entry, index) => (index === 0 ? { ...entry, title: `${entry.title}!` } : entry)) }
+    expect(createExplainSuite({ data: changed }).version).not.toBe(createExplainSuite().version)
+  })
+
+  it('keeps its ids apart from the ids of the planner cases', () => {
+    const planner = new Set(loadPlannerData().cases.map((entry) => entry.id))
+    for (const id of IDS) expect(planner.has(id), id).toBe(false)
   })
 })
 
-describe('consistency of the draft', () => {
+describe('consistency of the explain cases', () => {
   it('has no problem and counts six cases and one injection case', () => {
-    const result = checkExplainDraft(shipped())
+    const result = checkExplainCases(shipped())
     expect(result.problems).toEqual([])
     expect(result.summary).toMatchObject({ cases: 6, injection: 1 })
     expect(Object.keys(result.summary?.signals ?? {}).sort()).toEqual(['file_missing', 'file_unreadable', 'http_status_401_403', 'http_status_404', 'http_status_429', 'unknown_connection'])
   })
 
-  const cases = (input: ReturnType<typeof shipped>): Json[] => (input.draft as { cases: Json[] }).cases
+  const cases = (input: ReturnType<typeof shipped>): Json[] => (input.data as { cases: Json[] }).cases
   const caseOf = (input: ReturnType<typeof shipped>, index: number): Json => cases(input)[index] as Json
   const stepsOf = (input: ReturnType<typeof shipped>, index: number): Json[] => caseOf(input, index)['steps'] as Json[]
   const expectOf = (input: ReturnType<typeof shipped>, index: number): Json => caseOf(input, index)['expect'] as Json
 
   const MUTATIONS: [string, string, (input: ReturnType<typeof shipped>) => void][] = [
-    ['a status that is not DRAFT', 'explain draft: ', (input) => void ((input.draft as Json)['status'] = 'APPROVED')],
+    ['a status marker', 'explain data: ', (input) => void ((input.data as Json)['status'] = 'DRAFT')],
     ['five cases', 'expected exactly 6 cases', (input) => void cases(input).pop()],
     ['a duplicate id', 'duplicate id', (input) => void (caseOf(input, 2)['id'] = IDS[0])],
-    ['an id that is an approved id', 'is an id of the approved suite', (input) => void (caseOf(input, 0)['id'] = 'easy-01-receipt-folder-to-csv')],
+    ['an id that is the id of a planner case', 'is an id of a planner case', (input) => void (caseOf(input, 0)['id'] = 'easy-01-receipt-folder-to-csv')],
     ['an id with the wrong number', 'id must start with explain-01-', (input) => void (caseOf(input, 0)['id'] = 'explain-02-other')],
     ['a workflow that is not valid', 'workflow is not valid', (input) => void (((caseOf(input, 0)['workflow'] as { nodes: { config: Json }[] }).nodes[1] as { config: Json }).config['url'] = 'ftp://nope')],
     ['a step of a node that the workflow does not have', 'step of a node that is not in the workflow', (input) => void (stepsOf(input, 0)[0]!['nodeId'] = 'zz9')],
@@ -141,16 +138,16 @@ describe('consistency of the draft', () => {
 
   it.each(MUTATIONS)('reports %s', (_name, expected, mutate) => {
     const input = shipped()
-    input.draft = clone(input.draft)
+    input.data = clone(input.data)
     mutate(input)
-    const problems = checkExplainDraft(input).problems
+    const problems = checkExplainCases(input).problems
     expect(problems.some((problem) => problem.includes(expected)), problems.join('\n')).toBe(true)
   })
 })
 
-describe('what each draft case claims', () => {
+describe('what each explain case claims', () => {
   it('records failures that failureSignals reads as the case says', () => {
-    for (const entry of draft.cases) {
+    for (const entry of approved.cases) {
       const input = explainInputOf(entry, registry)
       expect(failureSignals(input.steps, registry, input.workflow), entry.id).toEqual(entry.expect.signals)
     }
@@ -199,7 +196,7 @@ describe('what each draft case claims', () => {
   })
 
   it('every case fits the digest and puts the failed node first', () => {
-    for (const entry of draft.cases) {
+    for (const entry of approved.cases) {
       const digest = digestOf(entry, registry)
       expect(digest.chars, entry.id).toBeLessThanOrEqual(MAX_DIGEST_CHARS)
       expect(digest.truncated, entry.id).toBe(false)
@@ -209,7 +206,7 @@ describe('what each draft case claims', () => {
   })
 
   it('every accepted answer is a word of the lists and every case has its own workflow name', () => {
-    expect(new Set(draft.cases.map((entry) => entry.workflow.name)).size).toBe(6)
-    for (const entry of draft.cases) expect(toExplainCase(entry).id).toBe(entry.id)
+    expect(new Set(approved.cases.map((entry) => entry.workflow.name)).size).toBe(6)
+    for (const entry of approved.cases) expect(toExplainCase(entry).id).toBe(entry.id)
   })
 })

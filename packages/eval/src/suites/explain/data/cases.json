@@ -1,6 +1,4 @@
 {
-  "status": "DRAFT",
-  "notice": "DRAFT: not approved. Six synthetic recorded runs for the explainRun suite. They are not part of the approved 48-case planner suite and no default run reads them; the user approves them first.",
   "cases": [
     {
       "id": "explain-01-connection-not-configured",
