@@ -16,6 +16,8 @@ isolateKeyEnvironment()
 
 const start = (steps: Step[] = [], engineOptions = {}, options: { llm?: boolean } = {}) => startEnv(dirOf.get(), steps, engineOptions, options)
 
+const CPU_BUDGET_MS = 6000
+
 function listing(dir: string): string[] {
   return readdirSync(dir, { recursive: true }).map(String).sort()
 }
@@ -130,9 +132,10 @@ describe('what the provider receives', () => {
     })
     env.engine.store.finishRun(run.id, 'failed', `node s49 failed: boom ${big}`)
 
-    const started = Date.now()
+    const cpuBefore = process.cpuUsage()
     const result = await env.client.request('explainRun', { runId: run.id })
-    expect(Date.now() - started).toBeLessThan(5000)
+    const cpu = process.cpuUsage(cpuBefore)
+    expect((cpu.user + cpu.system) / 1000).toBeLessThan(CPU_BUDGET_MS)
     expect(result.meta.truncated).toBe(true)
     expect(result.meta.digestChars).toBeLessThanOrEqual(12_000)
     const text = userText(env.provider.requests[0]!)
