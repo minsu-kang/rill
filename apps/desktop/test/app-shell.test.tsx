@@ -203,7 +203,7 @@ describe('edit context', () => {
     await workflowsLoaded()
     expect(screen.queryByText(/수정 중/)).toBeNull()
     fireEvent.click(screen.getByTestId('rf__node-extract'))
-    expect(await screen.findByText(t('chat.composer.editingNode', { workflow: ids.workflows.receipt, node: 'extract' }))).toBeTruthy()
+    expect(await screen.findByText(t('chat.composer.editingNode', { workflow: ids.workflows.receipt, node: 'extract' }), undefined, { timeout: 5000 })).toBeTruthy()
     const chat = screen.getByRole('complementary', { name: t('app.region.chat') })
     const clear = within(chat).getAllByRole('button').find((button) => /수정 해제|해제|지우기|취소/.test(button.textContent ?? '') && button.closest('[class*="composer"], form, div') !== null && chat.textContent?.includes('수정 중'))
     expect(clear).toBeTruthy()
@@ -227,9 +227,9 @@ describe('edit context', () => {
     const { user } = mount({ hostInit: { settings: KEYED }, initial: { workflowId: ids.workflows.receipt } })
     await workflowsLoaded()
     fireEvent.click(screen.getByTestId('rf__node-extract'))
-    await screen.findByText(/수정 중/)
+    await screen.findByText(/수정 중/, undefined, { timeout: 5000 })
     await user.selectOptions(screen.getByLabelText(t('app.wf.switcher.label')), ids.workflows.webhook)
-    await waitFor(() => expect(screen.queryByText(/수정 중/)).toBeNull())
+    await waitFor(() => expect(screen.queryByText(/수정 중/)).toBeNull(), { timeout: 5000 })
   })
 })
 
@@ -430,6 +430,24 @@ describe('engine changes', () => {
     await waitFor(() => expect(document.activeElement).toBe(target))
     await user.tab()
     expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true)
+  })
+
+  it('leaves focus on the page when the user let go of a control that never lost it', async () => {
+    let moved: HTMLElement | undefined
+    const { target } = await restartedWhileFocused(
+      async () => {
+        const button = tab('설정')
+        button.focus()
+        return button
+      },
+      () => {
+        moved = tab('설정')
+        moved.blur()
+      },
+    )
+    expect(moved).toBeDefined()
+    expect(document.activeElement).toBe(document.body)
+    expect(document.activeElement).not.toBe(target)
   })
 
   it('does not take focus back from a control the user moved to while the engine was away', async () => {

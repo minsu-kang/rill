@@ -183,6 +183,12 @@ describe('fillChatDraft', () => {
     expect(field.value).toBe('first line\n\nsecond')
   })
 
+  it('replaces a draft that holds only white space', () => {
+    const { root, field } = chat('  \n ')
+    fillChatDraft(root, 'second')
+    expect(field.value).toBe('second')
+  })
+
   it('writes into the composer even when an answer field comes before it, and leaves that field alone', () => {
     const { root, field, heard } = chat()
     const answer = document.createElement('textarea')

@@ -12,6 +12,7 @@ import { FirstRunCard, firstRunDone, type FirstRunTarget } from './FirstRunCard'
 import { ActionConfirm } from './ActionConfirm'
 import { COMPOSER, fillChatDraft, handleExplainAction, nodeExists, type ConfirmText, type ExplainActionDeps } from './glue/actions'
 import { createAttachmentPort } from './glue/attachments'
+import { useConfirm } from './glue/useConfirm'
 import { useEditContext } from './glue/editContext'
 import { useEngineData } from './glue/useEngineData'
 import { usePing } from './glue/usePing'
@@ -42,12 +43,6 @@ const CONFIRM_COPY: Record<ConfirmText, { title: MessageKey; confirm: MessageKey
   'app.confirm.deactivate': { title: 'app.deactivate.title', confirm: 'app.deactivate.confirm' },
 }
 
-interface PendingConfirm {
-  text: ConfirmText
-  workflowId: string | undefined
-  settle(ok: boolean): void
-}
-
 export function App({ initial = {} }: AppProps) {
   const t = useT()
   const host = useHost()
@@ -70,8 +65,7 @@ export function App({ initial = {} }: AppProps) {
   const chatRoot = useRef<HTMLElement>(null)
   const chatToggle = useRef<HTMLButtonElement>(null)
   const noticeId = useRef(0)
-  const [pending, setPending] = useState<PendingConfirm | undefined>(undefined)
-  const pendingRef = useRef<PendingConfirm | undefined>(undefined)
+  const { pending, confirm } = useConfirm<ConfirmText>()
   const lastFocus = useRef<HTMLElement | null>(null)
   const heldFocus = useRef<HTMLElement | null>(null)
   const workflowId = selection.workflowId ?? list.workflows[0]?.id
@@ -82,13 +76,6 @@ export function App({ initial = {} }: AppProps) {
   useEffect(() => {
     if (chatFocus > 0) chatRoot.current?.querySelector<HTMLElement>(COMPOSER)?.focus()
   }, [chatFocus])
-
-  useEffect(
-    () => () => {
-      pendingRef.current?.settle(false)
-    },
-    [],
-  )
 
   useEffect(() => {
     const remember = (event: FocusEvent): void => {
@@ -106,29 +93,8 @@ export function App({ initial = {} }: AppProps) {
     }
     const held = heldFocus.current
     heldFocus.current = null
-    if (held !== null && held.isConnected && !held.matches(':disabled') && (document.activeElement === null || document.activeElement === document.body)) held.focus()
+    if (held !== null && (document.activeElement === null || document.activeElement === document.body)) held.focus()
   }, [connected])
-
-  const confirm = useCallback(
-    (text: ConfirmText, effects?: { workflowId: string }): Promise<boolean> =>
-      new Promise<boolean>((resolve) => {
-        pendingRef.current?.settle(false)
-        const next: PendingConfirm = {
-          text,
-          workflowId: effects?.workflowId,
-          settle: (ok) => {
-            if (pendingRef.current === next) {
-              pendingRef.current = undefined
-              setPending(undefined)
-            }
-            resolve(ok)
-          },
-        }
-        pendingRef.current = next
-        setPending(next)
-      }),
-    [],
-  )
 
   const notify = useCallback((key: MessageKey, vars?: Record<string, string | number>) => {
     noticeId.current += 1

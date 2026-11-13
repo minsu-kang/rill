@@ -308,6 +308,14 @@ describe('KeysSection', () => {
     expect(host.state().settings.configuredProviders).toEqual(['anthropic'])
   })
 
+  it('sends the key without the white space around it', async () => {
+    const { host, t, user } = await openKeys()
+    const save = vi.spyOn(host.secrets, 'setProviderKey')
+    await user.type(screen.getByLabelText(t('app.keys.input', { provider: 'Anthropic' })), `  ${MARKER}  {Enter}`)
+    await screen.findByText(t('app.keys.saved'))
+    expect(save).toHaveBeenCalledWith('anthropic', MARKER)
+  })
+
   it('saves with Enter, and the save button stays off while the field is empty', async () => {
     const { host, t, user } = await openKeys()
     const row = screen.getByLabelText(t('app.keys.input', { provider: 'OpenAI' })).closest('form')!

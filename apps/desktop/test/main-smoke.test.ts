@@ -279,6 +279,8 @@ describe('watchCspConsole', () => {
     emit({}, 1, 'Download the React DevTools')
     emit(undefined)
     emit({ message: 42 })
+    emit({ message: 'Electron Security Warning: something else' })
+    emit({ message: 'a policy about content' })
     emit()
     expect(count()).toBe(0)
   })

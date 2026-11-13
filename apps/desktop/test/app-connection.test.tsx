@@ -137,6 +137,53 @@ describe('useEngineConnection', () => {
     expect(view.result.current.client).not.toBe(first)
   })
 
+  it('starts the back-off over after a connection succeeded', async () => {
+    const { view, clients, timers, setFailures } = setup()
+    await settle()
+    act(() => clients[0]!.drop())
+    setFailures(1)
+    expect(await timers.fire()).toBe(1000)
+    await settle()
+    expect(view.result.current).toMatchObject({ state: 'reconnecting', attempt: 2 })
+    expect(await timers.fire()).toBe(2000)
+    await settle()
+    expect(view.result.current).toMatchObject({ state: 'connected', attempt: 0 })
+    act(() => clients[1]!.drop())
+    expect(view.result.current).toMatchObject({ state: 'reconnecting', attempt: 1 })
+    expect(await timers.fire()).toBe(1000)
+  })
+
+  it('schedules one reconnect even when a closed client reports its close again', async () => {
+    const { view, clients, timers } = setup()
+    await settle()
+    act(() => clients[0]!.drop())
+    act(() => clients[0]!.drop())
+    expect(timers.pending()).toHaveLength(1)
+    expect(view.result.current.attempt).toBe(1)
+  })
+
+  it('connects again when a running status with a higher restart count arrives without a restarting one in between', async () => {
+    const { host, clients, connect } = setup()
+    await settle()
+    act(() => host.setEngine({ state: 'running', restarts: 1 }))
+    await settle()
+    expect(clients[0]!.closed).toBe(true)
+    expect(connect).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not let a late status read overwrite a status that was announced in the meantime', async () => {
+    const host = createFakeHost({}, { restartDelayMs: 0 })
+    let release: (status: Awaited<ReturnType<typeof host.engine.status>>) => void = () => undefined
+    vi.spyOn(host.engine, 'status').mockImplementation(() => new Promise((resolve) => (release = resolve)))
+    const connect = vi.fn(async () => fakeClient())
+    const view = renderHook(() => useEngineConnection(host, { connect }))
+    act(() => host.setEngine({ state: 'stopped', error: 'crashed', restarts: 6 }))
+    await act(async () => release({ state: 'running', restarts: 0 }))
+    await settle()
+    expect(view.result.current.state).toBe('engine_stopped')
+    expect(connect).not.toHaveBeenCalled()
+  })
+
   it('goes to reconnecting when the engine restarts, closes the client and connects again when it runs again', async () => {
     const { view, host, clients, connect } = setup()
     await settle()

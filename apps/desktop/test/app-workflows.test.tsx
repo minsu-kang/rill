@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { createFakeWorld, type FakeWorld } from '../src/app/fake-world'
 import { ActionConfirm } from '../src/app/ActionConfirm'
-import { PayloadDialog } from '../src/app/workflows/PayloadDialog'
+import { MAX_PAYLOAD_CHARS, PayloadDialog } from '../src/app/workflows/PayloadDialog'
 import { payloadSample, needsPayload, triggerKind } from '../src/app/workflows/samples'
 import { useWorkflowList } from '../src/app/workflows/useWorkflowList'
 import { WorkflowActions } from '../src/app/workflows/WorkflowActions'
@@ -214,6 +214,21 @@ describe('PayloadDialog', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: t('app.payload.submitLive') }))
     expect((await screen.findByRole('alert')).textContent).toBe(t('app.payload.tooLarge'))
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('accepts a payload of exactly the size limit and refuses one character more', async () => {
+    const onSubmit = vi.fn()
+    renderThemed(<PayloadDialog triggerType="trigger.manual@1" mode="live" onSubmit={onSubmit} onCancel={() => undefined} />)
+    const field = screen.getByLabelText(t('app.payload.label'))
+    const user = userEvent.setup()
+    const text = (size: number) => `{"a":"${'x'.repeat(size - 8)}"}`
+    fireEvent.change(field, { target: { value: text(MAX_PAYLOAD_CHARS) } })
+    await user.click(screen.getByRole('button', { name: t('app.payload.submitLive') }))
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    fireEvent.change(field, { target: { value: text(MAX_PAYLOAD_CHARS + 1) } })
+    await user.click(screen.getByRole('button', { name: t('app.payload.submitLive') }))
+    expect((await screen.findByRole('alert')).textContent).toBe(t('app.payload.tooLarge'))
+    expect(onSubmit).toHaveBeenCalledTimes(1)
   })
 
   it('says the dry run still sends file content to the provider, with the badge', () => {
