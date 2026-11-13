@@ -109,6 +109,16 @@ export const MIGRATIONS: string[] = [
   );
   ALTER TABLE plans ADD COLUMN memory_ids TEXT NOT NULL DEFAULT '[]';
   `,
+  `
+  CREATE TABLE rules (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    value TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (kind, value)
+  );
+  CREATE UNIQUE INDEX rules_one_effort_cap ON rules(kind) WHERE kind = 'maxPlanEffort';
+  `,
 ]
 
 export function migrate(db: Db): void {

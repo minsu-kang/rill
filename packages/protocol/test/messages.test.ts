@@ -138,6 +138,7 @@ describe('METHODS', () => {
         'cancelPlan',
         'deactivate',
         'deleteMemory',
+        'deleteRule',
         'deleteWorkflow',
         'deploy',
         'deployPlan',
@@ -149,6 +150,7 @@ describe('METHODS', () => {
         'listMemory',
         'listPlans',
         'listRecipes',
+        'listRules',
         'listRuns',
         'listWorkflows',
         'llmModels',
@@ -156,6 +158,7 @@ describe('METHODS', () => {
         'ping',
         'plan',
         'saveMemory',
+        'saveRule',
         'startRun',
       ].sort(),
     )

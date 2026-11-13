@@ -1,6 +1,7 @@
 export * from './events'
 export * from './plan'
 export * from './memory'
+export * from './rules'
 export * from './explain'
 export * from './recipes'
 export * from './llm'

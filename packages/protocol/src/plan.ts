@@ -6,6 +6,8 @@ export const IdSchema = Type.String({ minLength: 1, maxLength: 128 })
 const closed = { additionalProperties: false } as const
 const nullable = <T extends Type.TSchema>(schema: T) => Type.Union([schema, Type.Null()])
 
+export const PLAN_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+
 export const PlanEffortSchema = Type.Union([
   Type.Literal('low'),
   Type.Literal('medium'),

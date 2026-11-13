@@ -133,7 +133,7 @@ describe('migration 3', () => {
 
     const db = Db.open(path)
     const versions = db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version')
-    expect(versions.map((r) => r.version)).toEqual([1, 2, 3, 4, 5])
+    expect(versions.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6])
     const upgraded = new Store(db)
     expect(upgraded.listActiveWorkflowIds()).toEqual(['w'])
     upgraded.saveTriggerState('w', { nextFireAt: 5, lastFireAt: null })

@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { Workflow } from '@rill/dsl'
 import type { Journal, JournalEntry } from '@rill/nodes-core'
-import { MEMORY_MAX_ITEMS, type AttachmentRef, type MemoryItem, type PlanMeta, type PlanResultBody, type PlanSummary } from '@rill/protocol'
+import { MEMORY_MAX_ITEMS, RULE_MAX_ITEMS, type AttachmentRef, type MemoryItem, type PlanMeta, type PlanResultBody, type PlanSummary, type Rule, type RuleKind } from '@rill/protocol'
 import type { Db } from './db'
 import { MemoryDuplicateError, MemoryFullError, memoryKey, normaliseMemoryText } from './memory'
 import { PlanDeployedError, PlanExistsError, PlanNotFoundError, type StoredPlan } from './plans'
+import { RuleDuplicateError, RuleFullError } from './rules'
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 export type AttemptStatus = 'running' | 'succeeded' | 'failed' | 'abandoned' | 'skipped' | 'continued'
@@ -150,6 +151,13 @@ function toRun(raw: RawRun): RunRow {
 
 function parseJson(text: string | null): unknown {
   return text === null ? null : JSON.parse(text)
+}
+
+interface RawRule {
+  id: string
+  kind: RuleKind
+  value: string
+  created_at: number
 }
 
 interface RawMemory {
@@ -640,6 +648,35 @@ export class Store {
 
   deleteMemory(id: string): boolean {
     return this.db.run('DELETE FROM memory_items WHERE id = ?', id) > 0
+  }
+
+  listRules(): Rule[] {
+    return this.db
+      .all<RawRule>('SELECT id, kind, value, created_at FROM rules ORDER BY created_at, rowid')
+      .map((row) => ({ id: row.id, kind: row.kind, value: row.value, createdAt: row.created_at }))
+  }
+
+  saveRule(input: { kind: RuleKind; value: string }): Rule {
+    return this.db.transaction(() => {
+      if (input.kind === 'maxPlanEffort') {
+        const existing = this.db.get<RawRule>("SELECT id, kind, value, created_at FROM rules WHERE kind = 'maxPlanEffort'")
+        if (existing !== undefined) {
+          this.db.run('UPDATE rules SET value = ? WHERE id = ?', input.value, existing.id)
+          return { id: existing.id, kind: input.kind, value: input.value, createdAt: existing.created_at }
+        }
+      }
+      if (this.db.get('SELECT 1 AS found FROM rules WHERE kind = ? AND value = ?', input.kind, input.value) !== undefined) throw new RuleDuplicateError()
+      const count = this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM rules')?.n ?? 0
+      if (count >= RULE_MAX_ITEMS) throw new RuleFullError()
+      const id = randomUUID()
+      const at = this.now()
+      this.db.run('INSERT INTO rules (id, kind, value, created_at) VALUES (?, ?, ?, ?)', id, input.kind, input.value, at)
+      return { id, kind: input.kind, value: input.value, createdAt: at }
+    })
+  }
+
+  deleteRule(id: string): boolean {
+    return this.db.run('DELETE FROM rules WHERE id = ?', id) > 0
   }
 
   journal(): Journal {

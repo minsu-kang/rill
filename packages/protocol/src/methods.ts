@@ -14,6 +14,7 @@ import {
   PlanTurnSchema,
 } from './plan'
 import { RecipeDraftSchema, RecipeInfoSchema, RecipeValuesSchema } from './recipes'
+import { RULE_MAX_INPUT_CHARS, RULE_MAX_ITEMS, RuleKindSchema, RuleSchema } from './rules'
 
 const id = IdSchema
 const closed = { additionalProperties: false } as const
@@ -161,6 +162,18 @@ export const METHODS = {
     params: Type.Object({ id }, closed),
     result: Type.Object({ deleted: Type.Boolean() }),
   },
+  listRules: {
+    params: noParams,
+    result: Type.Object({ rules: Type.Array(RuleSchema, { maxItems: RULE_MAX_ITEMS }) }),
+  },
+  saveRule: {
+    params: Type.Object({ kind: RuleKindSchema, value: Type.String({ maxLength: RULE_MAX_INPUT_CHARS }) }, closed),
+    result: Type.Object({ rule: RuleSchema }),
+  },
+  deleteRule: {
+    params: Type.Object({ id }, closed),
+    result: Type.Object({ deleted: Type.Boolean() }),
+  },
   explainRun: {
     params: Type.Object({ runId: id, effort: Type.Optional(ExplainEffortSchema) }, closed),
     result: ExplainResultSchema,
@@ -200,6 +213,11 @@ export const ERROR_CODES = [
   'MEMORY_INVALID',
   'MEMORY_FULL',
   'MEMORY_DUPLICATE',
+  'RULE_INVALID',
+  'RULE_FULL',
+  'RULE_DUPLICATE',
+  'RULE_NOT_FOUND',
+  'RULE_VIOLATION',
   'RUN_NOT_EXPLAINABLE',
   'EXPLAIN_BUSY',
   'EXPLAIN_PROVIDER',

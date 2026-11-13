@@ -33,13 +33,14 @@ import {
   PlanNotFoundError,
 } from '../plans'
 import { RecipeInvalidError, RecipeNotFoundError } from '../recipes'
+import { RuleDuplicateError, RuleFullError, RuleInvalidError, RuleNotFoundError } from '../rules'
 import { NotFoundError } from '../store'
 
 const OPEN = 1
 const CLOSED = 3
 const TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]{16,}$/
 const MAX_PROBLEMS = 20
-const NAME_ONLY_ERROR_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan', 'saveMemory', 'explainRun', 'instantiateRecipe'])
+const NAME_ONLY_ERROR_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan', 'saveMemory', 'saveRule', 'deleteRule', 'explainRun', 'instantiateRecipe'])
 
 export interface RillServerOptions {
   engine: Engine
@@ -136,6 +137,10 @@ function toErrorBody(method: string, error: unknown): ErrorBody {
   if (error instanceof MemoryInvalidError) return { code: 'MEMORY_INVALID', message: 'the note is not valid', problems: error.problems }
   if (error instanceof MemoryFullError) return { code: 'MEMORY_FULL', message: error.message }
   if (error instanceof MemoryDuplicateError) return { code: 'MEMORY_DUPLICATE', message: error.message }
+  if (error instanceof RuleInvalidError) return { code: 'RULE_INVALID', message: 'the rule is not valid', problems: error.problems }
+  if (error instanceof RuleFullError) return { code: 'RULE_FULL', message: error.message }
+  if (error instanceof RuleDuplicateError) return { code: 'RULE_DUPLICATE', message: error.message }
+  if (error instanceof RuleNotFoundError) return { code: 'RULE_NOT_FOUND', message: error.message }
   if (error instanceof LlmError && error.kind === 'auth') return authBody(error)
   if (error instanceof AttachmentError) return { code: 'ATTACHMENT_REJECTED', message: error.message }
   if (error instanceof LlmUnavailableError) return { code: 'LLM_UNAVAILABLE', message: error.message }
@@ -426,6 +431,9 @@ export class RillServer {
       listMemory: () => ({ items: engine.listMemory() }),
       saveMemory: (params) => ({ item: engine.saveMemory({ text: params.text, ...(params.id === undefined ? {} : { id: params.id }) }) }),
       deleteMemory: (params) => ({ deleted: engine.deleteMemory(params.id) }),
+      listRules: () => ({ rules: engine.listRules() }),
+      saveRule: (params) => ({ rule: engine.saveRule(params) }),
+      deleteRule: (params) => ({ deleted: engine.deleteRule(params.id) }),
       llmModels: () => engine.llmModels(),
       listRecipes: () => ({ recipes: engine.listRecipes() }),
       instantiateRecipe: (params) => engine.instantiateRecipe(params),

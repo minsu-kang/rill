@@ -25,6 +25,8 @@ import type {
   RecipeDraft,
   RecipeInfo,
   RecipeValues,
+  Rule,
+  RuleKind,
   RunSummary,
   StepDetail,
   WorkflowSummary,
@@ -51,6 +53,7 @@ import {
 } from './plans'
 import { RunQueue } from './queue'
 import { draftFromRecipe, listRecipeInfos } from './recipes'
+import { RuleNotFoundError, normaliseRule } from './rules'
 import { NotFoundError, Store, type RunRow } from './store'
 import { TriggerManager } from './triggers/manager'
 import type { FireOptions } from './triggers/types'
@@ -434,6 +437,20 @@ export class Engine {
 
   deleteMemory(id: string): boolean {
     return this.store.deleteMemory(id)
+  }
+
+  listRules(): Rule[] {
+    return this.store.listRules()
+  }
+
+  saveRule(input: { kind: RuleKind; value: string }): Rule {
+    const nodeTypes = new Set(this.registry.list().map((def) => def.type.replace(/@\d+$/, '')))
+    return this.store.saveRule(normaliseRule(input, nodeTypes))
+  }
+
+  deleteRule(id: string): boolean {
+    if (!this.store.deleteRule(id)) throw new RuleNotFoundError()
+    return true
   }
 
   llmModels(): LlmModelsResult {

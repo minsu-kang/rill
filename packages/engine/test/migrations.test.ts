@@ -31,7 +31,7 @@ describe('migration 4', () => {
     raw.close()
 
     const db = Db.open(path)
-    expect(db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version').map((r) => r.version)).toEqual([1, 2, 3, 4, 5])
+    expect(db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version').map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6])
     expect(db.get('SELECT id, name, dsl, active, created_at FROM workflows')).toEqual({ id: 'w', name: 'wf', dsl: '{}', active: 1, created_at: 5 })
     expect(db.get<{ trigger_payload: string }>('SELECT trigger_payload FROM runs')?.trigger_payload).toBe('{"a":1}')
     expect(db.all('SELECT * FROM seen_files')).toHaveLength(1)
@@ -85,7 +85,7 @@ describe('migration 2', () => {
 
     const db = Db.open(path)
     const versions = db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version')
-    expect(versions.map((r) => r.version)).toEqual([1, 2, 3, 4, 5])
+    expect(versions.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6])
     const rows = db.all<{ id: number; node_id: string; status: string; output: string }>(
       'SELECT id, node_id, status, output FROM step_attempts',
     )
