@@ -9,6 +9,15 @@ import {
   AgentSchema,
 } from './agents'
 import { ExplainEffortSchema, ExplainResultSchema } from './explain'
+import {
+  HOOK_LOG_MAX_LIMIT,
+  HOOK_MAX_ITEMS,
+  HookActionInputSchema,
+  HookEventSchema,
+  HookLogEntrySchema,
+  HookSchema,
+  HookScopeSchema,
+} from './hooks'
 import { LlmModelsResultSchema } from './llm'
 import { MEMORY_MAX_INPUT_CHARS, MEMORY_MAX_ITEMS, MemoryItemSchema } from './memory'
 import {
@@ -218,6 +227,22 @@ export const METHODS = {
     params: Type.Object({ id }, closed),
     result: noResult,
   },
+  listHooks: {
+    params: noParams,
+    result: Type.Object({ hooks: Type.Array(HookSchema, { maxItems: HOOK_MAX_ITEMS }) }, closed),
+  },
+  saveHook: {
+    params: Type.Object({ id: Type.Optional(id), event: HookEventSchema, scope: HookScopeSchema, action: HookActionInputSchema, enabled: Type.Boolean() }, closed),
+    result: Type.Object({ hook: HookSchema }, closed),
+  },
+  deleteHook: {
+    params: Type.Object({ id }, closed),
+    result: Type.Object({ deleted: Type.Boolean() }),
+  },
+  listHookLog: {
+    params: Type.Object({ limit: Type.Optional(Type.Integer({ minimum: 1, maximum: HOOK_LOG_MAX_LIMIT })), hookId: Type.Optional(id) }, closed),
+    result: Type.Object({ entries: Type.Array(HookLogEntrySchema, { maxItems: HOOK_LOG_MAX_LIMIT }) }, closed),
+  },
   explainRun: {
     params: Type.Object({ runId: id, effort: Type.Optional(ExplainEffortSchema), agentId: Type.Optional(id) }, closed),
     result: ExplainResultSchema,
@@ -273,4 +298,7 @@ export const ERROR_CODES = [
   'EXPLAIN_INVALID',
   'RECIPE_INVALID',
   'WORKFLOW_BUSY',
+  'HOOK_INVALID',
+  'HOOK_FULL',
+  'HOOK_NOT_FOUND',
 ] as const

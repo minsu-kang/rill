@@ -16,11 +16,16 @@ import {
 } from '@rill/planner'
 import {
   AGENT_DEFAULT_ID,
+  HOOK_LOG_DEFAULT_LIMIT,
+  HOOK_LOG_MAX_LIMIT,
   RULE_CHECK_MAX_ISSUES,
   RULE_CHECK_MAX_WORKFLOWS,
   type Agent,
   type AgentFields,
   type AttachmentRef,
+  type Hook,
+  type HookInput,
+  type HookLogEntry,
   type LlmModelsResult,
   type MemoryItem,
   type NodeInfo,
@@ -42,6 +47,7 @@ import { createFsAttachmentStore, recordReads } from './attachments'
 import { systemClock, type Clock } from './clock'
 import type { Db } from './db'
 import { EventBus, type EngineListener } from './events'
+import { checkHook } from './hooks'
 import { ExplainBusyError, MAX_CONCURRENT_EXPLAINS, RunNotExplainableError, connectionSecrets, isExplainable } from './explain'
 import { RunExecutor, type RunResult } from './executor'
 import { llmModelsResult, type EngineLlmInfo } from './llm-models'
@@ -387,11 +393,13 @@ export class Engine {
     const problem = confirmationProblem(plan.flagKeys, confirmed)
     if (problem !== undefined) throw new PlanNotConfirmedError(problem)
     const workflow = this.validated(plan.result.workflow)
-    return this.db.transaction(() => {
-      const workflowId = this.store.saveWorkflow(workflow)
-      this.store.markPlanDeployed(planId, workflowId, [...new Set(confirmed)])
-      return workflowId
+    const workflowId = this.db.transaction(() => {
+      const stored = this.store.saveWorkflow(workflow)
+      this.store.markPlanDeployed(planId, stored, [...new Set(confirmed)])
+      return stored
     })
+    this.bus.emit({ type: 'plan.deployed', workflowId, planId })
+    return workflowId
   }
 
   enqueueRun(
@@ -547,6 +555,29 @@ export class Engine {
   deleteRule(id: string): boolean {
     if (!this.store.deleteRule(id)) throw new RuleNotFoundError()
     return true
+  }
+
+  listHooks(): Hook[] {
+    return this.store.listHooks()
+  }
+
+  saveHook(input: HookInput & { id?: string }): Hook {
+    const checked = checkHook(input, {
+      hasWorkflow: (id) => this.store.hasWorkflow(id),
+      connections: this.connections,
+      forbiddenNodes: this.policy().forbiddenNodes,
+    })
+    return this.store.saveHook({ ...checked, ...(input.id === undefined ? {} : { id: input.id }) })
+  }
+
+  deleteHook(id: string): boolean {
+    return this.store.deleteHook(id)
+  }
+
+  listHookLog(options: { limit?: number; hookId?: string } = {}): HookLogEntry[] {
+    const requested = Number.isFinite(options.limit) ? Math.trunc(options.limit as number) : HOOK_LOG_DEFAULT_LIMIT
+    const limit = Math.min(Math.max(requested, 1), HOOK_LOG_MAX_LIMIT)
+    return this.store.listHookLog({ limit, ...(options.hookId === undefined ? {} : { hookId: options.hookId }) })
   }
 
   llmModels(): LlmModelsResult {

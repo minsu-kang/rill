@@ -136,6 +136,33 @@ export const MIGRATIONS: string[] = [
   );
   ALTER TABLE plans ADD COLUMN agent_id TEXT;
   `,
+  `
+  CREATE TABLE hooks (
+    id TEXT PRIMARY KEY,
+    event TEXT NOT NULL CHECK (event IN ('run.failed','run.succeeded','plan.deployed')),
+    scope_workflow_id TEXT REFERENCES workflows(id),
+    action_type TEXT NOT NULL CHECK (action_type IN ('notify','deactivateAfterFailures','record')),
+    connection TEXT,
+    channel TEXT,
+    failure_count INTEGER,
+    enabled INTEGER NOT NULL CHECK (enabled IN (0,1)),
+    dedupe_key TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    CHECK (action_type != 'notify' OR connection IS NOT NULL),
+    CHECK (action_type != 'deactivateAfterFailures' OR (event = 'run.failed' AND failure_count BETWEEN 2 AND 20))
+  );
+  CREATE INDEX hooks_workflow ON hooks(scope_workflow_id);
+  CREATE TABLE hook_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hook_id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    event TEXT NOT NULL CHECK (event IN ('run.failed','run.succeeded','plan.deployed')),
+    workflow_id TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('ok','failed','skipped_cooldown','rate_limited','blocked_by_rule','skipped_inactive')),
+    code TEXT CHECK (code IS NULL OR code IN ('connection','timeout','http_status','slack_error','unknown'))
+  );
+  `,
 ]
 
 export function migrate(db: Db): void {

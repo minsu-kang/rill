@@ -19,6 +19,7 @@ const valid = [
   { type: 'workflow.deleted', at: 1, workflowId: 'w' },
   { type: 'run.blocked', at: 1, workflowId: 'w', codes: ['rule_violation'] },
   { type: 'run.blocked', at: 1, workflowId: 'w', codes: [] },
+  { type: 'plan.deployed', at: 1, workflowId: 'w', planId: 'p' },
 ]
 
 describe('EngineEventSchema', () => {

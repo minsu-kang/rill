@@ -429,7 +429,7 @@ describe('the agents migration', () => {
     const path = join(dir, 'before-agents.db')
     previous(path)
     const db = Db.open(path)
-    expect(db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version').map((row) => row.version)).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version').map((row) => row.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
     expect(db.get('SELECT id, name, active FROM workflows')).toEqual({ id: 'w', name: 'wf', active: 1 })
     expect(db.get('SELECT id, text FROM memory_items')).toEqual({ id: 'm1', text: 'A note' })
     expect(db.get('SELECT id, request_text, memory_ids, agent_id FROM plans')).toEqual({ id: 'old-plan', request_text: 'old text', memory_ids: '["m1"]', agent_id: null })

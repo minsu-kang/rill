@@ -386,7 +386,7 @@ describe('migration 5', () => {
     raw.close()
 
     const db = Db.open(path)
-    expect(db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version').map((row) => row.version)).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version').map((row) => row.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
     expect(db.get('SELECT id, name FROM workflows')).toEqual({ id: 'w', name: 'wf' })
     expect(db.get('SELECT id, request_text, memory_ids FROM plans')).toEqual({ id: 'p1', request_text: 'text', memory_ids: '[]' })
     expect(db.all('SELECT * FROM memory_items')).toEqual([])
@@ -405,7 +405,7 @@ describe('migration 5', () => {
     Db.open(path).close()
     const db = Db.open(path)
     expect(db.all('SELECT version FROM schema_migrations')).toHaveLength(MIGRATIONS.length)
-    expect(MIGRATIONS).toHaveLength(7)
+    expect(MIGRATIONS).toHaveLength(8)
     db.close()
   })
 })

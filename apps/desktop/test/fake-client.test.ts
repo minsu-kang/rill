@@ -184,6 +184,19 @@ describe('createFakeClient events', () => {
     expect(late.map((event) => (event as { nodeId: string }).nodeId)).toEqual(['y'])
   })
 
+  it('delivers a plan.deployed event, which the protocol allows, and changes no run or workflow', async () => {
+    const client = createFakeClient(fakeData)
+    const event: EngineEvent = { type: 'plan.deployed', at: 1, workflowId: fakeData.workflows[0]!.id, planId: 'plan-1' }
+    expect(Value.Check(EngineEventSchema, event)).toBe(true)
+    const seen: EngineEvent[] = []
+    client.onEvent((received) => seen.push(received))
+    const before = await client.request('listRuns', {})
+    expect(() => client.emit(event)).not.toThrow()
+    expect(seen).toEqual([event])
+    expect(await client.request('listRuns', {})).toEqual(before)
+    expect((await client.request('listWorkflows', {})).workflows).toHaveLength(fakeData.workflows.length)
+  })
+
   it('keeps delivering when one listener throws', () => {
     const client = createFakeClient(fakeData)
     const seen: EngineEvent[] = []

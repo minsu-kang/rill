@@ -5,6 +5,8 @@ import {
   RillError,
   validateParams,
   type Agent,
+  type Hook,
+  type HookLogEntry,
   type LlmModelInfo,
   type LlmModelsResult,
   type MemoryItem,
@@ -18,6 +20,7 @@ import {
 import { baseNodeType } from '../model/rules'
 import type { EngineClient } from './client'
 import { createFakeAgents, type FakeAgents } from './fake-agents'
+import { createFakeHooks, type FakeHooks } from './fake-hooks'
 import { createFakeRules, metaUnderCap, type FakeRules, type RuleViolationScript } from './fake-rules'
 
 export type PlanOutcome = { result: PlanResultBody; meta: PlanMeta }
@@ -30,6 +33,9 @@ export interface FakePlanData {
   activeAgentId?: string
   rules?: readonly Rule[]
   violations?: RuleViolationScript
+  hooks?: readonly Hook[]
+  hookLog?: readonly HookLogEntry[]
+  connections?: ReadonlyArray<{ name: string; kind: string }>
   deployId?: string
   delayMs?: number
   now?: () => number
@@ -52,6 +58,10 @@ const HANDLED = [
   'saveRule',
   'deleteRule',
   'checkRules',
+  'listHooks',
+  'saveHook',
+  'deleteHook',
+  'listHookLog',
 ] as const satisfies readonly MethodName[]
 type Handled = (typeof HANDLED)[number]
 
@@ -105,7 +115,7 @@ function activeModelOf(result: LlmModelsResult): LlmModelInfo | undefined {
   return active === null ? undefined : result.models.find((model) => model.provider === active.provider && model.id === active.model)
 }
 
-export type FakePlanClient = EngineClient & { pendingPlans(): string[]; planAgentIds(): Array<string | undefined>; agents: FakeAgents; rules: FakeRules }
+export type FakePlanClient = EngineClient & { pendingPlans(): string[]; planAgentIds(): Array<string | undefined>; agents: FakeAgents; rules: FakeRules; hooks: FakeHooks }
 
 export function withPlanMethods(client: EngineClient, data: FakePlanData): FakePlanClient {
   const records = new Map<string, PlanRecord>()
@@ -115,6 +125,7 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): FakeP
   const now = data.now ?? Date.now
   const agents = createFakeAgents({ ...(data.agents === undefined ? {} : { agents: data.agents }), ...(data.activeAgentId === undefined ? {} : { activeId: data.activeAgentId }), now })
   const rules = createFakeRules({ ...(data.rules === undefined ? {} : { rules: data.rules }), ...(data.violations === undefined ? {} : { violations: data.violations }), now })
+  const hooks = createFakeHooks({ ...(data.hooks === undefined ? {} : { hooks: data.hooks }), ...(data.hookLog === undefined ? {} : { log: data.hookLog }), now })
   const planAgents: Array<string | undefined> = []
   let memorySerial = 0
   let deploySerial = 0
@@ -122,6 +133,7 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): FakeP
   client.onEvent((event) => {
     if (event.type !== 'workflow.deleted') return
     for (const record of records.values()) if (record.workflowId === event.workflowId) delete record.workflowId
+    hooks.removeWorkflow(event.workflowId)
   })
 
   function plan(params: MethodParams<'plan'>): Promise<MethodResult<'plan'>> {
@@ -216,6 +228,17 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): FakeP
     },
     deleteRule: (params) => rules.remove(params),
     checkRules: () => rules.check(),
+    listHooks: () => hooks.list(),
+    saveHook: async (params) => {
+      const { workflows } = await client.request('listWorkflows', {})
+      return hooks.save(params, {
+        workflowIds: new Set(workflows.map((workflow) => workflow.id)),
+        connections: new Map((data.connections ?? []).map((connection) => [connection.name, connection.kind])),
+        notifyForbidden: rules.list().rules.some((rule) => rule.kind === 'forbidNode' && baseNodeType(rule.value).toLowerCase() === 'notify.slack'),
+      })
+    },
+    deleteHook: (params) => hooks.remove(params),
+    listHookLog: (params) => hooks.log(params),
   }
 
   return {
@@ -231,5 +254,6 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): FakeP
     planAgentIds: () => [...planAgents],
     agents,
     rules,
+    hooks,
   }
 }

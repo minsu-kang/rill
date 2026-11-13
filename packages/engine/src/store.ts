@@ -4,13 +4,23 @@ import type { Journal, JournalEntry } from '@rill/nodes-core'
 import {
   AGENT_DEFAULT_ID,
   AGENT_MAX_ITEMS,
+  HOOK_LOG_MAX_ROWS,
+  HOOK_MAX_ITEMS,
   MEMORY_MAX_ITEMS,
   RULE_MAX_ITEMS,
   agentNameKey,
+  hookKey,
   isReservedAgentName,
   type Agent,
   type AgentFields,
   type AttachmentRef,
+  type Hook,
+  type HookAction,
+  type HookEvent,
+  type HookFailureCode,
+  type HookInput,
+  type HookLogEntry,
+  type HookOutcome,
   type MemoryItem,
   type PlanMeta,
   type PlanResultBody,
@@ -20,6 +30,7 @@ import {
 } from '@rill/protocol'
 import { AgentBuiltinError, AgentDuplicateError, AgentFullError, AgentNotFoundError, builtinAgent, normaliseAgent } from './agents'
 import type { Db } from './db'
+import { HookFullError, HookInvalidError, HookNotFoundError } from './hooks'
 import { MemoryDuplicateError, MemoryFullError, memoryKey, normaliseMemoryText } from './memory'
 import { PlanDeployedError, PlanExistsError, PlanNotFoundError, type StoredPlan } from './plans'
 import { RuleDuplicateError, RuleFullError } from './rules'
@@ -210,6 +221,56 @@ function toAgent(row: RawAgent): Agent {
   }
 }
 
+interface RawHook {
+  id: string
+  event: HookEvent
+  scope_workflow_id: string | null
+  action_type: HookAction['type']
+  connection: string | null
+  channel: string | null
+  failure_count: number | null
+  enabled: number
+  created_at: number
+  updated_at: number
+}
+
+const HOOK_COLUMNS = 'id, event, scope_workflow_id, action_type, connection, channel, failure_count, enabled, created_at, updated_at'
+
+function toHookAction(row: RawHook): HookAction {
+  switch (row.action_type) {
+    case 'notify':
+      return { type: 'notify', connection: row.connection ?? '', ...(row.channel === null ? {} : { channel: row.channel }) }
+    case 'deactivateAfterFailures':
+      return { type: 'deactivateAfterFailures', count: row.failure_count ?? 0 }
+    case 'record':
+      return { type: 'record' }
+  }
+}
+
+function toHook(row: RawHook): Hook {
+  return {
+    id: row.id,
+    event: row.event,
+    scope: row.scope_workflow_id === null ? { type: 'all' } : { type: 'workflow', workflowId: row.scope_workflow_id },
+    action: toHookAction(row),
+    enabled: row.enabled === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+interface RawHookLog {
+  id: number
+  hook_id: string
+  at: number
+  event: HookEvent
+  workflow_id: string
+  outcome: HookOutcome
+  code: HookFailureCode | null
+}
+
+export type HookLogInput = Omit<HookLogEntry, 'id'>
+
 interface RawPlan {
   id: string
   created_at: number
@@ -269,10 +330,15 @@ function toAttempt(raw: RawAttempt): AttemptRow {
 export class Store {
   private readonly db: Db
   private readonly now: () => number
+  private hookChanges = 0
 
   constructor(db: Db, now: () => number = Date.now) {
     this.db = db
     this.now = now
+  }
+
+  get hooksRevision(): number {
+    return this.hookChanges
   }
 
   saveWorkflow(workflow: Workflow): string {
@@ -298,9 +364,10 @@ export class Store {
   }
 
   deleteWorkflow(id: string): void {
-    this.db.transaction(() => {
+    const hooksDeleted = this.db.transaction(() => {
       const ownRuns = 'SELECT id FROM runs WHERE workflow_id = ?'
       this.db.run('UPDATE plans SET workflow_id = NULL WHERE workflow_id = ?', id)
+      const ownHooks = this.db.run('DELETE FROM hooks WHERE scope_workflow_id = ?', id)
       this.db.run(
         `DELETE FROM idempotency_journal WHERE key IN (SELECT idempotency_key FROM step_attempts WHERE run_id IN (${ownRuns}))`,
         id,
@@ -310,7 +377,9 @@ export class Store {
       this.db.run('DELETE FROM trigger_state WHERE workflow_id = ?', id)
       this.db.run('DELETE FROM seen_files WHERE workflow_id = ?', id)
       if (this.db.run('DELETE FROM workflows WHERE id = ?', id) === 0) throw new NotFoundError(`workflow not found: ${id}`)
+      return ownHooks
     })
+    if (hooksDeleted > 0) this.hookChanges += 1
   }
 
   getWorkflow(id: string): Workflow {
@@ -806,6 +875,83 @@ export class Store {
     const stored = this.storedActiveAgentId()
     if (stored === undefined || this.db.get('SELECT 1 AS found FROM agents WHERE id = ?', stored) === undefined) return AGENT_DEFAULT_ID
     return stored
+  }
+
+  listHooks(): Hook[] {
+    return this.db.all<RawHook>(`SELECT ${HOOK_COLUMNS} FROM hooks ORDER BY created_at, rowid`).map(toHook)
+  }
+
+  saveHook(input: HookInput & { id?: string }): Hook {
+    const key = hookKey(input)
+    const { action } = input
+    const columns = [
+      input.event,
+      input.scope.type === 'all' ? null : input.scope.workflowId,
+      action.type,
+      action.type === 'notify' ? action.connection : null,
+      action.type === 'notify' ? (action.channel ?? null) : null,
+      action.type === 'deactivateAfterFailures' ? action.count : null,
+      input.enabled ? 1 : 0,
+      key,
+    ]
+    const saved = this.db.transaction(() => {
+      const at = this.now()
+      if (input.id !== undefined) {
+        const row = this.db.get<RawHook>(`SELECT ${HOOK_COLUMNS} FROM hooks WHERE id = ?`, input.id)
+        if (!row) throw new HookNotFoundError()
+        if (this.db.get('SELECT 1 AS found FROM hooks WHERE dedupe_key = ? AND id != ?', key, input.id) !== undefined) {
+          throw new HookInvalidError([{ field: 'hook', rule: 'duplicate' }])
+        }
+        this.db.run(
+          'UPDATE hooks SET event = ?, scope_workflow_id = ?, action_type = ?, connection = ?, channel = ?, failure_count = ?, enabled = ?, dedupe_key = ?, updated_at = ? WHERE id = ?',
+          ...columns,
+          at,
+          input.id,
+        )
+        return this.db.get<RawHook>(`SELECT ${HOOK_COLUMNS} FROM hooks WHERE id = ?`, input.id)!
+      }
+      if (this.db.get('SELECT 1 AS found FROM hooks WHERE dedupe_key = ?', key) !== undefined) throw new HookInvalidError([{ field: 'hook', rule: 'duplicate' }])
+      const count = this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM hooks')?.n ?? 0
+      if (count >= HOOK_MAX_ITEMS) throw new HookFullError()
+      const id = randomUUID()
+      this.db.run(
+        'INSERT INTO hooks (id, event, scope_workflow_id, action_type, connection, channel, failure_count, enabled, dedupe_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        id,
+        ...columns,
+        at,
+        at,
+      )
+      return this.db.get<RawHook>(`SELECT ${HOOK_COLUMNS} FROM hooks WHERE id = ?`, id)!
+    })
+    this.hookChanges += 1
+    return toHook(saved)
+  }
+
+  deleteHook(id: string): boolean {
+    const deleted = this.db.run('DELETE FROM hooks WHERE id = ?', id) > 0
+    if (deleted) this.hookChanges += 1
+    return deleted
+  }
+
+  appendHookLog(entry: HookLogInput): void {
+    this.db.run(
+      'INSERT INTO hook_log (hook_id, at, event, workflow_id, outcome, code) VALUES (?, ?, ?, ?, ?, ?)',
+      entry.hookId,
+      entry.at,
+      entry.event,
+      entry.workflowId,
+      entry.outcome,
+      entry.code,
+    )
+    this.db.run('DELETE FROM hook_log WHERE id NOT IN (SELECT id FROM hook_log ORDER BY id DESC LIMIT ?)', HOOK_LOG_MAX_ROWS)
+  }
+
+  listHookLog(options: { limit: number; hookId?: string }): HookLogEntry[] {
+    const where = options.hookId === undefined ? '' : 'WHERE hook_id = ?'
+    const params = options.hookId === undefined ? [options.limit] : [options.hookId, options.limit]
+    return this.db
+      .all<RawHookLog>(`SELECT id, hook_id, at, event, workflow_id, outcome, code FROM hook_log ${where} ORDER BY id DESC LIMIT ?`, ...params)
+      .map((row) => ({ id: row.id, hookId: row.hook_id, at: row.at, event: row.event, workflowId: row.workflow_id, outcome: row.outcome, code: row.code }))
   }
 
   journal(): Journal {
