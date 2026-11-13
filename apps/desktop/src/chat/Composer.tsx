@@ -1,5 +1,5 @@
 import { type AttachmentRef, type LlmModelInfo, type LlmModelsResult } from '@rill/protocol'
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { useT } from '../i18n'
 import { AttachmentChips } from './AttachmentChips'
 import { EffortSlider } from './EffortSlider'
@@ -35,6 +35,22 @@ export interface ComposerProps {
   onClearEditContext(): void
 }
 
+function PaperclipIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M13.5 7.5 8.1 12.9a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.1a1 1 0 0 1-1.5-1.5L10.4 4.5" />
+    </svg>
+  )
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" data-open={open ? 'true' : 'false'}>
+      <path d="M4 2.5 7.5 6 4 9.5" />
+    </svg>
+  )
+}
+
 export const MAX_TEXT = 8000
 const SHOW_COUNTER_FROM = 6400
 const ACCEPT = 'application/pdf,image/png,image/jpeg,image/gif,image/webp,text/plain,text/csv,text/markdown,.pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.md,.markdown'
@@ -61,6 +77,9 @@ export function Composer(props: ComposerProps) {
   const [pending, setPending] = useState<Array<{ key: number; name: string }>>([])
   const [failures, setFailures] = useState<Failure[]>([])
   const [dragging, setDragging] = useState(false)
+  const [optionsOpen, setOptionsOpen] = useState(false)
+  const [advanced, setAdvanced] = useState(false)
+  const optionsId = useId()
   const fileInput = useRef<HTMLInputElement>(null)
   const text = useRef<HTMLTextAreaElement>(null)
   const wasBusy = useRef(false)
@@ -213,53 +232,67 @@ export function Composer(props: ComposerProps) {
           {t('chat.composer.tooLong', { max: MAX_TEXT })}
         </p>
       ) : null}
-      <EffortSlider value={state.effort} onChange={(effort) => props.onChange({ effort })} model={model} hints={hints} disabled={busy} />
-      <div className={styles.row}>
-        <button type="button" className={styles.secondary} disabled={busy || disabled} onClick={() => fileInput.current?.click()}>
-          {t('chat.composer.attachLabel')}
+      {model === undefined && models !== undefined ? <p className={styles.warn}>{t('chat.composer.noModel')}</p> : null}
+      <div className={styles.toolbar} data-rill-toolbar="">
+        <div className={styles.attachGroup}>
+          <button type="button" className={styles.attach} disabled={busy || disabled} onClick={() => fileInput.current?.click()}>
+            <PaperclipIcon />
+            {t('chat.composer.attachLabel')}
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            accept={ACCEPT}
+            onChange={(event) => {
+              addFiles(Array.from(event.target.files ?? []))
+              event.target.value = ''
+            }}
+          />
+          {attachCount > 0 ? <span className={styles.meta}>{t('chat.attach.counter', { count: attachCount, max: ATTACHMENT_LIMITS.perMessage })}</span> : null}
+          {state.draft.length >= SHOW_COUNTER_FROM ? <span className={styles.meta}>{t('chat.composer.counter', { count: state.draft.length, max: MAX_TEXT })}</span> : null}
+        </div>
+        <div className={styles.effort}>
+          <EffortSlider value={state.effort} onChange={(effort) => props.onChange({ effort })} model={model} hints={hints} disabled={busy} expanded={advanced} toggleHidden />
+        </div>
+        <div className={styles.send}>
+          {busy ? (
+            <>
+              <span className={styles.meta} role="status">
+                {t('chat.composer.sending')}
+              </span>
+              <button type="button" className={styles.secondary} onClick={props.onCancel}>
+                {t('chat.composer.cancel')}
+              </button>
+            </>
+          ) : (
+            <button type="button" className={styles.primary} disabled={!canSend} title={pending.length > 0 ? t('chat.composer.uploading') : undefined} onClick={props.onSend}>
+              {t('chat.composer.send')}
+            </button>
+          )}
+        </div>
+      </div>
+      <div className={styles.optionsBar}>
+        <button type="button" className={styles.optionsToggle} aria-expanded={optionsOpen} aria-controls={optionsId} onClick={() => setOptionsOpen(!optionsOpen)}>
+          <ChevronIcon open={optionsOpen} />
+          {t('chat.composer.options')}
         </button>
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          hidden
-          accept={ACCEPT}
-          onChange={(event) => {
-            addFiles(Array.from(event.target.files ?? []))
-            event.target.value = ''
-          }}
-        />
-        {attachCount > 0 ? <span className={styles.meta}>{t('chat.attach.counter', { count: attachCount, max: ATTACHMENT_LIMITS.perMessage })}</span> : null}
+      </div>
+      <div id={optionsId} className={styles.options} hidden={!optionsOpen}>
         <label className={styles.memory}>
           <input type="checkbox" checked={memoryOn} disabled={busy || memoryCount === undefined || memoryCount === 0} onChange={(event) => props.onChange({ useMemory: event.target.checked })} />
           <span>{memoryCount === undefined ? t('chat.composer.memoryUnknown') : memoryCount === 0 ? t('chat.composer.memoryNone') : t('chat.composer.memory', { count: memoryCount })}</span>
         </label>
-        {state.draft.length >= SHOW_COUNTER_FROM ? <span className={styles.meta}>{t('chat.composer.counter', { count: state.draft.length, max: MAX_TEXT })}</span> : null}
+        {state.effort === 'max' ? null : (
+          <button type="button" className={styles.link} aria-expanded={advanced} disabled={busy} onClick={() => setAdvanced(!advanced)}>
+            {t(advanced ? 'chat.effort.hideAdvanced' : 'chat.effort.showAdvanced')}
+          </button>
+        )}
       </div>
-      <ExternalTransferNotice items={transfer} />
-      <div className={styles.row}>
-        {model !== undefined ? (
-          <span className={styles.meta}>{t('chat.composer.model', { model: markHidden(model.label) })}</span>
-        ) : models === undefined ? null : (
-          <span className={styles.meta}>{t('chat.composer.noModel')}</span>
-        )}
-        {busy ? (
-          <>
-            <span className={styles.meta} role="status">
-              {t('chat.composer.sending')}
-            </span>
-            <button type="button" className={styles.secondary} onClick={props.onCancel}>
-              {t('chat.composer.cancel')}
-            </button>
-          </>
-        ) : (
-          <>
-            <span className={styles.meta}>{t('chat.composer.shortcut')}</span>
-            <button type="button" className={styles.primary} disabled={!canSend} title={pending.length > 0 ? t('chat.composer.uploading') : undefined} onClick={props.onSend}>
-              {t('chat.composer.send')}
-            </button>
-          </>
-        )}
+      <div className={styles.footer} data-rill-footer="">
+        <ExternalTransferNotice items={transfer} />
+        {busy ? null : <span className={styles.meta}>{t('chat.composer.shortcut')}</span>}
       </div>
     </div>
   )

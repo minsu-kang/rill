@@ -24,6 +24,7 @@ import {
 } from './model/conversation'
 import type { EffortHint } from './model/effort'
 import { planErrorKey } from './model/errors'
+import { markHidden } from './model/clamp'
 import { activeModelOf } from './model/models'
 import styles from './ChatPanel.module.css'
 
@@ -46,6 +47,10 @@ type ModelsState = { status: 'loading' } | { status: 'ready'; models: LlmModelsR
 type DeployState = { status: 'deploying' } | { status: 'error'; key: MessageKey }
 
 const EXAMPLES = ['chat.panel.example1', 'chat.panel.example2', 'chat.panel.example3'] as const
+
+function providerLabel(models: LlmModelsResult, id: string): string {
+  return models.providers.find((provider) => provider.id === id)?.label ?? id
+}
 
 let counter = 0
 function defaultId(): string {
@@ -141,6 +146,7 @@ export function ChatPanel(props: ChatPanelProps) {
   const models = modelsState.status === 'ready' ? modelsState.models : undefined
   const model = models === undefined ? undefined : activeModelOf(models)
   const noModel = models !== undefined && models.active === null
+  const modelText = model === undefined || models === undefined ? '' : t('chat.panel.model', { provider: markHidden(providerLabel(models, model.provider)), model: markHidden(model.label) })
   const planning = state.status === 'planning'
   const limited = !canSubmit(state.entries, 'message')
   const latestWorkflow = state.entries.findLastIndex((entry) => entry.role === 'assistant' && entry.result.kind === 'workflow')
@@ -278,6 +284,13 @@ export function ChatPanel(props: ChatPanelProps) {
             {t('chat.panel.newChat')}
           </button>
         </div>
+        {model === undefined ? null : view === 'model' ? (
+          <span className={styles.modelText}>{modelText}</span>
+        ) : (
+          <button type="button" className={styles.modelText} title={t('chat.panel.modelOpen')} onClick={() => setView('model')}>
+            {modelText}
+          </button>
+        )}
       </header>
       <div className={styles.view} hidden={view !== 'chat'}>
         <div ref={log} className={styles.log} role="log" aria-label={t('chat.panel.log')}>

@@ -7,6 +7,7 @@ import { useEngineConnection, type ConnectFn } from '../connection'
 import { withHostModels } from '../fake-world'
 import { useHostConfigured } from '../glue/host-models'
 import { HostProvider } from '../host'
+import { Page } from '../Page'
 import { SettingsScreen } from './SettingsScreen'
 import type { SettingsSectionId } from './types'
 import { useSettings } from './useSettings'
@@ -36,10 +37,12 @@ function Inner({ host, section }: { host: HostApi; section: SettingsSectionId })
 export function SettingsStage(props: SettingsStageProps) {
   const [host] = useState(() => makeHost(props))
   return (
-    <div style={{ height: 640 }}>
-      <HostProvider host={host}>
-        <Inner host={host} section={props.section ?? 'folders'} />
-      </HostProvider>
+    <div style={{ height: 640, overflow: 'auto' }}>
+      <Page>
+        <HostProvider host={host}>
+          <Inner host={host} section={props.section ?? 'folders'} />
+        </HostProvider>
+      </Page>
     </div>
   )
 }

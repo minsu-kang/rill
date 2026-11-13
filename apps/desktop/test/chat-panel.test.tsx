@@ -5,7 +5,7 @@ import { ChatPanel, type ChatPanelProps } from '../src/chat/ChatPanel'
 import type { AttachmentPort } from '../src/chat/Composer'
 import type { ConversationEntry } from '../src/chat/model/conversation'
 import { catalog } from '../src/fixtures'
-import { metas, modelsNothingConfigured, outcomeOf, results } from '../src/fixtures/plan'
+import { metas, models, modelsNothingConfigured, outcomeOf, results } from '../src/fixtures/plan'
 import { en } from '../src/i18n/en'
 import { makeWorld, scripted, type WorldOptions } from './chat-world'
 import { renderThemed } from './render'
@@ -27,7 +27,12 @@ const box = (): HTMLTextAreaElement => screen.getByRole('textbox', { name: 'Your
 const sendButton = (): HTMLButtonElement => screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement
 
 async function ready(): Promise<void> {
-  await screen.findByText('Model: Claude Opus 5.5')
+  await screen.findByText('Anthropic · Claude Opus 5.5')
+}
+
+function openOptions(): void {
+  const toggle = screen.getByRole('button', { name: 'Options' })
+  if (toggle.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle)
 }
 
 function type(text: string): void {
@@ -338,6 +343,8 @@ describe('ChatPanel: effort, memory, edit context, attachments', () => {
 
   it('sends useMemory false when the memory switch is off', async () => {
     const { world } = show()
+    await ready()
+    openOptions()
     await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Use notes (3)' })).toBeTruthy())
     fireEvent.click(screen.getByRole('checkbox', { name: 'Use notes (3)' }))
     ask('x')
@@ -348,6 +355,7 @@ describe('ChatPanel: effort, memory, edit context, attachments', () => {
   it('sends useMemory false and says the notes are not loaded when listMemory fails', async () => {
     const { world } = show({ intercept: (method) => (method === 'listMemory' ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined) })
     await ready()
+    openOptions()
     expect((screen.getByRole('checkbox', { name: 'Notes not loaded' }) as HTMLInputElement).checked).toBe(false)
     expect(screen.getByRole('note').textContent).not.toContain('notes')
     ask('x')
@@ -365,12 +373,16 @@ describe('ChatPanel: effort, memory, edit context, attachments', () => {
 
   it('sends useMemory true when notes exist, and false when there are none', async () => {
     const first = show()
+    await ready()
+    openOptions()
     await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Use notes (3)' })).toBeTruthy())
     ask('x')
     await screen.findByText(workflowSummary)
     expect(first.world.planCalls()[0]!.useMemory).toBe(true)
     first.unmount()
     const second = show({ memory: [] })
+    await ready()
+    openOptions()
     await waitFor(() => expect(screen.getByRole('checkbox', { name: 'No saved notes' })).toBeTruthy())
     ask('y')
     await screen.findByText(workflowSummary)
@@ -597,6 +609,8 @@ describe('ChatPanel: models and views', () => {
 
   it('counts the notes again when the person comes back from the notes tab', async () => {
     const { world } = show()
+    await ready()
+    openOptions()
     await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Use notes (3)' })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Notes' }))
     const field = await screen.findByRole('textbox', { name: 'New note' })
@@ -673,3 +687,54 @@ describe('ChatPanel: lifecycle', () => {
   })
 })
 
+
+describe('ChatPanel: header', () => {
+  const header = (container: HTMLElement): HTMLElement => container.querySelector('header')!
+  const modelText = 'Anthropic · Claude Opus 5.5'
+
+  it('shows the active model once, in the header, and not in the composer', async () => {
+    const { container } = show()
+    await ready()
+    expect(within(header(container)).getByText(modelText)).toBeTruthy()
+    expect(screen.getAllByText(/Claude Opus 5\.5/)).toHaveLength(1)
+    expect(container.querySelector('[data-composer]')!.textContent).not.toContain('Claude Opus 5.5')
+  })
+
+  it('opens the model view when the model text is pressed, and shows it as plain text there', async () => {
+    const { container } = show()
+    await ready()
+    fireEvent.click(within(header(container)).getByRole('button', { name: modelText }))
+    expect(await screen.findByRole('button', { name: /GPT-6\.1 Sol/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Model' }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(header(container)).queryByRole('button', { name: modelText })).toBeNull()
+    expect(within(header(container)).getByText(modelText)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Chat' }))
+    expect(within(header(container)).getByRole('button', { name: modelText })).toBeTruthy()
+  })
+
+  it('keeps the Chat, Model and Notes switch in the header', async () => {
+    const { container } = show()
+    await ready()
+    const group = within(header(container)).getByRole('group', { name: 'Switch view' })
+    expect(within(group).getAllByRole('button').map((button) => button.textContent)).toEqual(expect.arrayContaining(['Chat', 'Model', 'Notes']))
+  })
+
+  it('shows no model text before the models arrive, nor when no model is ready', async () => {
+    const loading = show({ intercept: (method) => (method === 'llmModels' ? new Promise(() => undefined) : undefined) })
+    expect(header(loading.container).textContent).not.toContain('·')
+    loading.unmount()
+    const none = show({ models: modelsNothingConfigured })
+    await screen.findByText('No model is ready')
+    expect(header(none.container).textContent).not.toContain('·')
+  })
+
+  it('renders the model name as text, whatever it contains', async () => {
+    const hostile = structuredClone(models)
+    const active = hostile.models.find((model) => model.id === hostile.active?.model)!
+    active.label = '<img src=x onerror=alert(1)>'
+    const { container } = show({ models: hostile })
+    await screen.findByText(/<img src=x onerror=alert\(1\)>/)
+    expect(container.querySelector('img')).toBeNull()
+    expect(header(container).textContent).toContain('<img src=x onerror=alert(1)>')
+  })
+})

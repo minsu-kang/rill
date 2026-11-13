@@ -78,7 +78,7 @@ const meta = {
   args: { client, workflowId: ids.workflows.receipt, ...COMMON },
   decorators: [
     (Story) => (
-      <div style={{ height: '100vh' }}>
+      <div style={{ height: '100vh', boxSizing: 'border-box', padding: 'var(--space-5)' }}>
         <Story />
       </div>
     ),

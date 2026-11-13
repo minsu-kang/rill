@@ -1,4 +1,5 @@
 .root {
+  container: composer / inline-size;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -42,15 +43,42 @@
   color: var(--text-muted);
 }
 
-.row {
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'attach send'
+    'effort effort';
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.attachGroup {
+  grid-area: attach;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2) var(--space-3);
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.row > :last-child {
-  margin-left: auto;
+.effort {
+  grid-area: effort;
+  min-width: 0;
+}
+
+.send {
+  grid-area: send;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+@container composer (min-width: 470px) {
+  .toolbar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'attach effort send';
+  }
 }
 
 .meta {
@@ -58,11 +86,70 @@
   font-size: var(--font-size-xs);
 }
 
-.memory {
+.warn {
+  margin: 0;
+  color: var(--status-abandoned-text);
+  font-size: var(--font-size-sm);
+}
+
+.optionsBar {
+  display: flex;
+}
+
+.optionsToggle {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.optionsToggle:hover {
+  color: var(--text-primary);
+}
+
+.optionsToggle svg {
+  transition: transform var(--transition-fast);
+}
+
+.optionsToggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.options[hidden] {
+  display: none;
+}
+
+.memory {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: var(--font-size-sm);
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .drop {
@@ -82,19 +169,40 @@
   padding: 0;
   border: 0;
   background: none;
-  color: inherit;
+  color: var(--text-accent);
   font: inherit;
+  font-size: var(--font-size-sm);
   text-decoration: underline;
+  cursor: pointer;
+}
+
+.link:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.edit .link {
+  color: inherit;
+}
+
+.primary,
+.secondary,
+.attach {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--font-size-sm);
   cursor: pointer;
 }
 
 .primary,
 .secondary {
-  padding: var(--space-1) var(--space-4);
-  border-radius: var(--radius-md);
-  font: inherit;
+  padding: 0 var(--space-4);
   font-weight: 600;
-  cursor: pointer;
 }
 
 .primary {
@@ -107,14 +215,21 @@
   background: var(--accent-hover);
 }
 
-.secondary {
+.secondary,
+.attach {
   border: 1px solid var(--border-default);
   background: var(--surface-base);
   color: var(--text-primary);
 }
 
+.attach:hover:not(:disabled),
+.secondary:hover:not(:disabled) {
+  background: var(--surface-sunken);
+}
+
 .primary:disabled,
-.secondary:disabled {
+.secondary:disabled,
+.attach:disabled {
   border-color: var(--border-default);
   background: var(--surface-sunken);
   color: var(--text-muted);

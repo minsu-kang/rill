@@ -2,20 +2,23 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--border-default);
+  gap: var(--space-2) var(--space-4);
+  min-height: 48px;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-raised);
   color: var(--text-primary);
 }
 
 .brand {
   font-size: var(--font-size-lg);
+  letter-spacing: 0.01em;
 }
 
 .switcher {
-  flex: 1 1 260px;
-  min-width: 0;
+  flex: 1 1 200px;
+  max-width: 340px;
+  min-width: 160px;
 }
 
 .tabs {
@@ -24,11 +27,12 @@
 }
 
 .tab {
-  padding: var(--space-1) var(--space-3);
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
   background: transparent;
-  color: var(--text-primary);
+  color: var(--text-secondary);
   font: inherit;
   font-size: var(--font-size-sm);
   cursor: pointer;
@@ -36,10 +40,10 @@
 
 .tab:hover {
   background: var(--surface-sunken);
+  color: var(--text-primary);
 }
 
 .tab[aria-current='page'] {
-  border-color: var(--accent);
   background: var(--accent-subtle);
   color: var(--text-accent);
   font-weight: 600;
@@ -50,24 +54,48 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+  margin-left: auto;
+}
+
+.indicator {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-5);
+  height: var(--space-5);
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--status-succeeded-text);
+  box-shadow: 0 0 0 3px var(--status-succeeded-bg);
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
-  padding: 0 var(--space-2);
+  min-height: var(--space-5);
+  padding: 0 var(--space-3);
   border: 1px solid var(--status-idle-border);
   border-radius: var(--radius-pill);
   background: var(--status-idle-bg);
   color: var(--status-idle-text);
   font-size: var(--font-size-xs);
   white-space: nowrap;
-}
-
-.chip[data-state='connected'] {
-  border-color: var(--status-succeeded-border);
-  background: var(--status-succeeded-bg);
-  color: var(--status-succeeded-text);
 }
 
 .chip[data-state='engine_stopped'] {
@@ -82,22 +110,11 @@
   color: var(--status-continued-text);
 }
 
-.transfer {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
-}
-
-.model {
-  overflow-wrap: anywhere;
-}
-
 .chatToggle {
   display: none;
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--border-strong);
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--surface-raised);
   color: var(--text-primary);
@@ -106,8 +123,19 @@
   cursor: pointer;
 }
 
+.chatToggle:hover {
+  background: var(--surface-sunken);
+}
+
+.chatToggle[aria-expanded='true'] {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+  color: var(--text-accent);
+}
+
 @container app (max-width: 1099px) {
   .chatToggle {
     display: inline-flex;
+    align-items: center;
   }
 }

@@ -1,0 +1,18 @@
+.page {
+  --page-padding: var(--space-5);
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: calc(1200px + 2 * var(--page-padding));
+  min-width: 0;
+  margin: 0 auto;
+  padding: var(--page-padding);
+}
+
+@container app (max-width: 699px) {
+  .page {
+    --page-padding: var(--space-4);
+  }
+}

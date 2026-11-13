@@ -1,14 +1,11 @@
 import type { Ref } from 'react'
 import { useT } from '../i18n'
-import { escapeInvisible, truncate } from '../model/text'
 import type { ConnectionState } from './connection'
 import controls from './controls.module.css'
 import type { PingState } from './glue/usePing'
-import { PROVIDER_LABELS } from './settings/providers'
 import styles from './TopBar.module.css'
 import { WorkflowSwitcher } from './workflows/WorkflowSwitcher'
 import type { WorkflowListState } from './workflows/useWorkflowList'
-import type { ProviderId } from '../shared/host-api'
 
 export type AppTab = 'workflows' | 'recipes' | 'settings'
 export const APP_TABS: readonly AppTab[] = ['workflows', 'recipes', 'settings']
@@ -21,7 +18,6 @@ export interface TopBarProps {
   onSelectWorkflow(workflowId: string): void
   connection: Pick<ConnectionState, 'state' | 'status'>
   ping?: PingState
-  model: { provider: string; model: string } | undefined
   onRestart(): void
   restarting?: boolean
   chatOpen: boolean
@@ -37,14 +33,13 @@ function engineKey(connection: Pick<ConnectionState, 'state' | 'status'>) {
   return connection.state === 'reconnecting' ? ('app.top.engine.reconnecting' as const) : ('app.top.engine.connecting' as const)
 }
 
-function providerName(id: string): string {
-  return Object.hasOwn(PROVIDER_LABELS, id) ? PROVIDER_LABELS[id as ProviderId] : truncate(escapeInvisible(id), 32)
-}
-
-export function TopBar({ tab, onTab, list, selectedId, onSelectWorkflow, connection, ping, model, onRestart, restarting = false, chatOpen, onToggleChat, chatToggleRef }: TopBarProps) {
+export function TopBar({ tab, onTab, list, selectedId, onSelectWorkflow, connection, ping, onRestart, restarting = false, chatOpen, onToggleChat, chatToggleRef }: TopBarProps) {
   const t = useT()
   const stopped = connection.state === 'engine_stopped'
   const reason = connection.status?.error
+  const key = engineKey(connection)
+  const connected = key === 'app.top.engine.connected'
+  const label = t(key)
   return (
     <header className={styles.bar} data-rill-region="topbar" aria-label={t('app.region.top')}>
       <strong className={styles.brand}>{t('app.name')}</strong>
@@ -60,14 +55,22 @@ export function TopBar({ tab, onTab, list, selectedId, onSelectWorkflow, connect
       </nav>
       <div className={styles.status}>
         <span
-          className={styles.chip}
+          className={connected ? styles.indicator : styles.chip}
           role="status"
           aria-live="polite"
           data-state={connection.state}
+          {...(connected ? { title: label } : { 'data-rill-chip': '' })}
           {...(ping === undefined ? {} : { 'data-rill-ping': ping.state })}
           {...(ping?.ms === undefined ? {} : { 'data-rill-ping-ms': ping.ms })}
         >
-          {t(engineKey(connection))}
+          {connected ? (
+            <>
+              <span className={styles.dot} data-rill-dot="" aria-hidden="true" />
+              <span className={styles.visuallyHidden}>{label}</span>
+            </>
+          ) : (
+            label
+          )}
         </span>
         {stopped ? (
           <>
@@ -77,14 +80,10 @@ export function TopBar({ tab, onTab, list, selectedId, onSelectWorkflow, connect
             </button>
           </>
         ) : null}
-        <span className={styles.transfer} title={model === undefined ? t('app.top.transfer.titleNone') : t('app.top.transfer.title', { provider: providerName(model.provider) })}>
-          <span className={controls.badge}>{t('badge.externalTransfer')}</span>
-          <span className={styles.model}>{model === undefined ? t('app.top.transfer.none') : t('app.top.transfer.model', { provider: providerName(model.provider), model: truncate(escapeInvisible(model.model), 40) })}</span>
-        </span>
+        <button type="button" ref={chatToggleRef} className={styles.chatToggle} aria-expanded={chatOpen} onClick={onToggleChat}>
+          {t(chatOpen ? 'app.top.chat.close' : 'app.top.chat.open')}
+        </button>
       </div>
-      <button type="button" ref={chatToggleRef} className={styles.chatToggle} aria-expanded={chatOpen} onClick={onToggleChat}>
-        {t(chatOpen ? 'app.top.chat.close' : 'app.top.chat.open')}
-      </button>
     </header>
   )
 }

@@ -1,9 +1,11 @@
 import { RillError, type AttachmentRef } from '@rill/protocol'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { Composer, type AttachmentPort, type ComposerProps } from '../src/chat/Composer'
 import { activeModelOf } from '../src/chat/model/models'
 import { attachmentRefs, models, modelsNothingConfigured } from '../src/fixtures/plan'
+import { violations } from './axe'
 import { renderThemed } from './render'
 
 const opus = activeModelOf(models)!
@@ -43,6 +45,11 @@ function show(overrides: Partial<ComposerProps> = {}) {
 const textFile = (name = 'a.txt', content = 'hello'): File => new File([content], name, { type: 'text/plain' })
 const input = (container: HTMLElement): HTMLInputElement => container.querySelector('input[type="file"]')!
 const box = (): HTMLTextAreaElement => screen.getByRole('textbox', { name: 'Your request' })
+
+function openOptions(): void {
+  const toggle = screen.getByRole('button', { name: 'Options' })
+  if (toggle.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle)
+}
 
 function sized(file: File, size: number): File {
   Object.defineProperty(file, 'size', { value: size })
@@ -125,9 +132,10 @@ describe('Composer: text and sending', () => {
     expect(props.onSend).not.toHaveBeenCalled()
   })
 
-  it('shows the active model', () => {
-    show()
-    expect(screen.getByText('Model: Claude Opus 5.5')).toBeTruthy()
+  it('does not repeat the model, which the chat header shows', () => {
+    const { container } = show()
+    expect(container.textContent).not.toContain('Claude Opus 5.5')
+    expect(container.textContent).not.toContain('Model:')
   })
 
   it('can be disabled from outside', () => {
@@ -147,6 +155,7 @@ describe('Composer: effort and memory', () => {
 
   it('shows the note count and reports the toggle', () => {
     const { props } = show()
+    openOptions()
     const toggle = screen.getByRole('checkbox', { name: 'Use notes (3)' }) as HTMLInputElement
     expect(toggle.checked).toBe(true)
     fireEvent.click(toggle)
@@ -155,6 +164,7 @@ describe('Composer: effort and memory', () => {
 
   it('shows the toggle off, and disabled when there are no notes', () => {
     show({ memoryCount: 0 })
+    openOptions()
     const toggle = screen.getByRole('checkbox', { name: 'No saved notes' }) as HTMLInputElement
     expect(toggle.disabled).toBe(true)
     expect(toggle.checked).toBe(false)
@@ -162,6 +172,7 @@ describe('Composer: effort and memory', () => {
 
   it('shows the toggle off and disabled while the notes are not known, and leaves notes out of the transfer notice', () => {
     show({ memoryCount: undefined })
+    openOptions()
     const toggle = screen.getByRole('checkbox', { name: 'Notes not loaded' }) as HTMLInputElement
     expect(toggle.disabled).toBe(true)
     expect(toggle.checked).toBe(false)
@@ -466,5 +477,123 @@ describe('Composer: edit context', () => {
   it('shows hidden characters of an id', () => {
     show({ editContext: { workflowId: 'wf\u202E1' } })
     expect(screen.getByText('Editing: wf‹U+202E›1')).toBeTruthy()
+  })
+})
+
+describe('Composer: layout', () => {
+  const toolbar = (container: HTMLElement): HTMLElement => container.querySelector<HTMLElement>('[data-rill-toolbar]')!
+  const footer = (container: HTMLElement): HTMLElement => container.querySelector<HTMLElement>('[data-rill-footer]')!
+
+  it('puts attach and the effort control on the left of one toolbar row and Send on the right', () => {
+    const { container } = show()
+    const bar = toolbar(container)
+    const attach = within(bar).getByRole('button', { name: 'Attach files' })
+    const effort = within(bar).getByRole('radiogroup', { name: 'Planning care' })
+    const send = within(bar).getByRole('button', { name: 'Send' })
+    expect(attach.compareDocumentPosition(effort) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(effort.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(bar.lastElementChild?.contains(send)).toBe(true)
+    expect(bar.compareDocumentPosition(box()) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+  })
+
+  it('shows Cancel on the right of the toolbar while busy', () => {
+    const { container } = show({ busy: true })
+    expect(toolbar(container).lastElementChild?.contains(within(toolbar(container)).getByRole('button', { name: 'Cancel' }))).toBe(true)
+  })
+
+  it('puts the transfer notice and the shortcut hint in one footer row below the toolbar, with the options closed', () => {
+    const { container } = show()
+    const row = footer(container)
+    expect(within(row).getByRole('note').textContent).toContain('External transfer')
+    expect(within(row).getByRole('note').textContent).toContain('your request, notes')
+    expect(within(row).getByText('Press Ctrl or Cmd + Enter to send')).toBeTruthy()
+    expect(toolbar(container).compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Options' }).getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('keeps the notice visible for attachments and notes without opening anything', () => {
+    show({ state: { draft: 'x', attachments: [attachmentRefs.pdf], effort: 'medium', useMemory: true } })
+    expect(screen.getByRole('note').textContent).toContain('your request, attached files, notes')
+    expect(screen.getByRole('button', { name: 'Options' }).getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('keeps the options closed by default and out of reach: no notes switch and no advanced step', () => {
+    show()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Show advanced step' })).toBeNull()
+    expect(screen.queryByRole('radio', { name: 'Maximum' })).toBeNull()
+  })
+
+  it('opens and closes the options with the button, which controls the region it opens', () => {
+    const { container } = show()
+    const toggle = screen.getByRole('button', { name: 'Options' })
+    const region = container.querySelector<HTMLElement>(`#${CSS.escape(toggle.getAttribute('aria-controls')!)}`)!
+    expect(region.hidden).toBe(true)
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(region.hidden).toBe(false)
+    expect(within(region).getByRole('checkbox', { name: 'Use notes (3)' })).toBeTruthy()
+    expect(within(region).getByRole('button', { name: 'Show advanced step' })).toBeTruthy()
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(region.hidden).toBe(true)
+  })
+
+  it('can be opened, used and closed from the keyboard alone', async () => {
+    const { props } = show()
+    const user = userEvent.setup()
+    const toggle = screen.getByRole('button', { name: 'Options' })
+    toggle.focus()
+    await user.keyboard('{Enter}')
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    await user.tab()
+    expect(document.activeElement).toBe(screen.getByRole('checkbox', { name: 'Use notes (3)' }))
+    await user.keyboard(' ')
+    expect(props.onChange).toHaveBeenLastCalledWith({ useMemory: false })
+    await user.tab()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show advanced step' }))
+    toggle.focus()
+    await user.keyboard(' ')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('shows the advanced effort step from the options and hides it again', () => {
+    show()
+    openOptions()
+    fireEvent.click(screen.getByRole('button', { name: 'Show advanced step' }))
+    expect(screen.getByRole('radio', { name: 'Maximum' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Hide advanced step' }).getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Hide advanced step' }))
+    expect(screen.queryByRole('radio', { name: 'Maximum' })).toBeNull()
+  })
+
+  it('offers no advanced toggle while the effort is the advanced step, which then stays shown', () => {
+    show({ state: { draft: 'x', attachments: [], effort: 'max', useMemory: true } })
+    expect(screen.getByRole('radio', { name: 'Maximum' })).toBeTruthy()
+    openOptions()
+    expect(screen.queryByRole('button', { name: /advanced step/ })).toBeNull()
+  })
+
+  it('keeps every effort step reachable in the toolbar, with no toggle inside the effort control', () => {
+    const { container } = show()
+    const group = within(toolbar(container)).getByRole('radiogroup', { name: 'Planning care' })
+    expect(within(group).getAllByRole('radio').map((radio) => radio.textContent)).toEqual(['Fast', 'Normal', 'Careful', 'Very careful'])
+    expect(within(toolbar(container)).queryByRole('button', { name: /advanced step/ })).toBeNull()
+  })
+
+  it('disables the notes switch while busy, and keeps the options usable', () => {
+    show({ busy: true })
+    openOptions()
+    expect((screen.getByRole('checkbox', { name: 'Use notes (3)' }) as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('has no axe violations with the options closed and open, and while busy', async () => {
+    const closed = show()
+    expect(await violations(closed.container)).toEqual([])
+    openOptions()
+    expect(await violations(closed.container)).toEqual([])
+    closed.unmount()
+    const busy = show({ busy: true })
+    expect(await violations(busy.container)).toEqual([])
   })
 })

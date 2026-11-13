@@ -96,6 +96,17 @@ export const Empty: Story = { args: unused, render: () => <Demo /> }
 
 export const WithText: Story = { name: 'With text', args: unused, render: () => <Demo initial={{ draft: '폴더에 영수증 PDF가 들어오면 금액과 날짜를 CSV에 정리해 줘' }} /> }
 
+async function openOptions(canvasElement: HTMLElement): Promise<void> {
+  canvasElement.querySelector<HTMLButtonElement>('button[aria-expanded][aria-controls]')?.click()
+}
+
+export const OptionsOpen: Story = {
+  name: 'Options open',
+  args: unused,
+  render: () => <Demo initial={{ draft: '폴더에 영수증 PDF가 들어오면 금액과 날짜를 CSV에 정리해 줘' }} />,
+  play: ({ canvasElement }) => openOptions(canvasElement),
+}
+
 export const Busy: Story = { args: unused, render: () => <Demo busy initial={{ effort: 'high' }} /> }
 
 export const WithAttachments: Story = {

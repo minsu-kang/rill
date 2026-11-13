@@ -21,6 +21,7 @@ import { useSelection } from './glue/useSelection'
 import { useConnect, useHost } from './host'
 import { Layout } from './Layout'
 import { NoticeBar, type NoticeData } from './NoticeBar'
+import { Page } from './Page'
 import { SettingsScreen } from './settings/SettingsScreen'
 import type { SettingsSectionId } from './settings/types'
 import { useSettings } from './settings/useSettings'
@@ -284,7 +285,6 @@ export function App({ initial = {} }: AppProps) {
             }}
             connection={connection}
             ping={ping}
-            model={data.model}
             onRestart={restartEngine}
             restarting={restarting}
             chatOpen={chatOpen}
@@ -293,7 +293,7 @@ export function App({ initial = {} }: AppProps) {
           />
         }
         chat={chat}
-        main={main}
+        main={<Page>{main}</Page>}
         notice={<NoticeBar notice={notice} onDismiss={() => setNotice(undefined)} />}
       />
       {pending === undefined || client === undefined ? null : (

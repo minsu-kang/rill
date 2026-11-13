@@ -19,7 +19,6 @@ const meta: Meta<typeof TopBar> = {
     onSelectWorkflow: () => undefined,
     connection: { state: 'connected', status: { state: 'running', restarts: 0 } },
     ping: { state: 'ok', ms: 3 },
-    model: { provider: 'anthropic', model: 'claude-opus-5-5' },
     onRestart: () => undefined,
     chatOpen: false,
     onToggleChat: () => undefined,
@@ -36,6 +35,5 @@ export const Reconnecting: Story = { args: { connection: { state: 'reconnecting'
 export const EngineRestarting: Story = { args: { connection: { state: 'reconnecting', status: { state: 'restarting', restarts: 2 } } } }
 export const EngineStopped: Story = { args: { connection: { state: 'engine_stopped', status: { state: 'stopped', error: 'crashed', restarts: 6 } } } }
 export const RestartInProgress: Story = { args: { connection: { state: 'engine_stopped', status: { state: 'stopped', error: 'start_timeout', restarts: 1 } }, restarting: true } }
-export const NoModel: Story = { args: { model: undefined } }
 export const NoWorkflows: Story = { args: { list: { status: 'ready', workflows: [], refresh }, selectedId: undefined } }
 export const DrawerOpen: Story = { args: { chatOpen: true } }

@@ -12,6 +12,8 @@ export interface EffortSliderProps {
   model: LlmModelInfo | undefined
   hints?: readonly EffortHint[]
   disabled?: boolean
+  expanded?: boolean
+  toggleHidden?: boolean
 }
 
 interface Entry {
@@ -20,11 +22,12 @@ interface Entry {
   reason?: 'model_unsupported' | 'no_model'
 }
 
-export function EffortSlider({ value, onChange, model, hints, disabled = false }: EffortSliderProps) {
+export function EffortSlider({ value, onChange, model, hints, disabled = false, expanded: controlled, toggleHidden = false }: EffortSliderProps) {
   const t = useT()
   const locale = useLocale()
   const base = useId()
-  const [expanded, setExpanded] = useState(false)
+  const [own, setOwn] = useState(false)
+  const expanded = controlled ?? own
   const refs = useRef(new Map<PlanEffort, HTMLButtonElement>())
   const showAdvanced = expanded || value === 'max'
   const entries: Entry[] = EFFORT_STEPS.filter((step) => !step.advanced || showAdvanced).map((step) => ({ step, ...stepAvailability(step, model) }))
@@ -110,8 +113,8 @@ export function EffortSlider({ value, onChange, model, hints, disabled = false }
             )
           })}
         </div>
-        {value === 'max' ? null : (
-          <button type="button" className={styles.toggle} aria-expanded={showAdvanced} disabled={disabled} onClick={() => setExpanded(!expanded)}>
+        {value === 'max' || toggleHidden ? null : (
+          <button type="button" className={styles.toggle} aria-expanded={showAdvanced} disabled={disabled} onClick={() => setOwn(!expanded)}>
             {showAdvanced ? t('chat.effort.hideAdvanced') : t('chat.effort.showAdvanced')}
           </button>
         )}
