@@ -69,7 +69,16 @@ To append a row without the app, put a token into the connections file and run t
 
     rill-engine run append-row.json --connections connections.json
 
-An access token lives about an hour and the engine does not refresh it, so a headless run needs a fresh token each time. Getting and refreshing tokens is the job of the sign-in, which is not built yet. The two APIs were read from the vendors' documentation and have not been called live by this project, and the Graph workbook API is documented for OneDrive files, so a personal account may behave differently from a work account.
+An access token lives about an hour and the engine does not refresh it, so a headless run needs a fresh token each time. Signing in and refreshing tokens is the job of the desktop app, which gives the running engine each new token over the parent channel below. The two APIs were read from the vendors' documentation and have not been called live by this project, and the Graph workbook API is documented for OneDrive files, so a personal account may behave differently from a work account.
+
+#### The parent channel
+
+When `serve` runs as an Electron utility process, it listens on `process.parentPort`, which only the process that started it can write to, and accepts exactly two message shapes:
+
+    { "type": "connection.set", "name": "google", "kind": "google", "secret": "<access token>" }
+    { "type": "connection.remove", "name": "google" }
+
+`name` and `kind` are both `google` or both `microsoft`, `secret` is a string of 1 to 8192 characters, and a message has no other key. Anything else is ignored and counted, and nothing is stored or printed for it. A `connection.set` replaces the secret of that name, so the next node call reads the new token; a node that is running keeps the token it already read. A `connection.remove` makes the next call fail with `unknown connection: <name>`. The connection also appears to the planner by name and kind, and the failure explanation hides its token like the token of any other connection. A name that the connections file or `RILL_CONNECTIONS` gave to an entry of another kind is left alone, and the message is counted as ignored. `RILL_CONNECTIONS` stays the way to give the engine its first tokens at start. Without a parent port (the command line, tests) nothing listens and nothing changes.
 
 ### Model provider
 

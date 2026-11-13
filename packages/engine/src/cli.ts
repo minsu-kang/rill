@@ -5,6 +5,7 @@ import { PROVIDER_IDS, providerDescriptor } from '@rill/llm'
 import { createCoreRegistry } from '@rill/nodes-core'
 import { PROTOCOL_VERSION } from '@rill/protocol'
 import { UsageError, chooseLlm, prepareAttachmentsDir, resolveConnections } from './cli-config'
+import { attachConnectionChannel, type ParentPortLike } from './connection-channel'
 import { Db } from './db'
 import { Engine, WorkflowValidationError } from './engine'
 import { RillServer } from './server/server'
@@ -149,6 +150,7 @@ async function main(argv: string[]): Promise<number> {
       return 0
     }
     if (command === 'serve') {
+      attachConnectionChannel((process as { parentPort?: ParentPortLike }).parentPort, connections.table)
       const given = process.env.RILL_TOKEN
       delete process.env.RILL_TOKEN
       const generated = given === undefined || given === ''

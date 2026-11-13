@@ -14,6 +14,7 @@ export interface ChildLike {
   readonly stdout: StreamLike | null
   readonly stderr: StreamLike | null
   kill(): boolean
+  postMessage(message: unknown): void
   on(event: 'exit', listener: (code: number | null) => void): unknown
 }
 
@@ -39,6 +40,13 @@ export interface EngineSupervisor {
   status(): EngineStatus
   onStatus(listener: (status: EngineStatus) => void): () => void
   info(): Promise<EngineInfo>
+  send(message: unknown): boolean
+}
+
+export interface AccountConnection {
+  name: 'google' | 'microsoft'
+  kind: 'google' | 'microsoft'
+  secret: string
 }
 
 export interface EngineSupervisorDeps {
@@ -47,6 +55,7 @@ export interface EngineSupervisorDeps {
   userData: string
   secrets: SecretStore
   config: ConfigStore
+  oauthConnections?: () => readonly AccountConnection[]
   clock?: ClockLike
   randomToken?: () => string
   forceKill?: (child: ChildLike) => void
@@ -165,6 +174,10 @@ export function createEngineSupervisor(deps: EngineSupervisorDeps): EngineSuperv
     const config = await deps.config.get()
     const key = await deps.secrets.getProviderKey(config.provider)
     const connections = await deps.secrets.getConnections()
+    const table: Record<string, { secret: string; kind: string }> = Object.fromEntries(connections.map((c) => [c.name, { secret: c.secret, kind: c.kind }]))
+    for (const account of deps.oauthConnections?.() ?? []) {
+      if (!Object.hasOwn(table, account.name)) table[account.name] = { secret: account.secret, kind: account.kind }
+    }
     const token = randomToken()
     const args = [
       'serve', '--db', join(deps.userData, 'rill.db'), '--port', '0', '--attachments-dir', attachmentsDir,
@@ -179,9 +192,7 @@ export function createEngineSupervisor(deps: EngineSupervisorDeps): EngineSuperv
     }
     env.RILL_TOKEN = token
     if (key !== undefined) env[PROVIDER_KEY_ENV[config.provider]] = key
-    if (connections.length > 0) {
-      env.RILL_CONNECTIONS = JSON.stringify(Object.fromEntries(connections.map((c) => [c.name, { secret: c.secret, kind: c.kind }])))
-    }
+    if (Object.keys(table).length > 0) env.RILL_CONNECTIONS = JSON.stringify(table)
     return { args, env, token }
   }
 
@@ -371,6 +382,16 @@ export function createEngineSupervisor(deps: EngineSupervisorDeps): EngineSuperv
       return stopPromise
     },
     status: () => ({ ...status }),
+    send(message) {
+      const entry = current
+      if (entry === undefined || !entry.listening || entry.exited || entry.stopping) return false
+      try {
+        entry.child.postMessage(message)
+        return true
+      } catch {
+        return false
+      }
+    },
     onStatus(listener) {
       listeners.add(listener)
       return () => {

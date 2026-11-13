@@ -26,10 +26,17 @@ class FakeChild extends EventEmitter implements ChildLike {
   killCalls = 0
   exited = false
   exitOnKill = true
+  readonly posted: unknown[] = []
+  postFails = false
 
   constructor(pid: number) {
     super()
     this.pid = pid
+  }
+
+  postMessage(message: unknown): void {
+    if (this.postFails) throw new Error(`post failed with ${KEY}`)
+    this.posted.push(message)
   }
 
   kill(): boolean {
@@ -106,6 +113,7 @@ interface Setup {
   available?: boolean
   forkFails?: number
   processEnv?: Record<string, string | undefined>
+  oauthConnections?: Array<{ name: 'google' | 'microsoft'; kind: 'google' | 'microsoft'; secret: string }>
 }
 
 function setup(options: Setup = {}) {
@@ -141,6 +149,7 @@ function setup(options: Setup = {}) {
     clock,
     randomToken: () => `token-${String(++tokenCounter).padStart(16, '0')}`,
     forceKill: (child) => forceKills.push(child),
+    ...(options.oauthConnections === undefined ? {} : { oauthConnections: () => options.oauthConnections! }),
     env: options.processEnv ?? { PATH: '/usr/bin', HOME: '/Users/test', LANG: 'en_US.UTF-8', ANTHROPIC_API_KEY: 'LEAK', OPENAI_API_KEY: 'LEAK', AWS_SECRET_ACCESS_KEY: 'LEAK', RILL_TOKEN: 'LEAK', RILL_CONNECTIONS: 'LEAK', USER: 'LEAK', SHELL: 'LEAK', TMPDIR: 'LEAK', NODE_OPTIONS: 'LEAK' },
     log: (message) => logs.push(message),
   })
@@ -715,5 +724,129 @@ describe('engine supervisor: secrets stay out of everything it reports', () => {
     harness.forks[0]!.child.listen(41000)
     await start
     expect(seen).toEqual(['starting'])
+  })
+})
+
+describe('engine supervisor: messages to the running engine', () => {
+  const GOOGLE = { type: 'connection.set', name: 'google', kind: 'google', secret: `ya29.${MARKER}0123456789` }
+
+  it('posts a message to the child once the engine listens and says it did', async () => {
+    const { supervisor, forks } = await running()
+    expect(supervisor.send(GOOGLE)).toBe(true)
+    expect(forks[0]!.child.posted).toEqual([GOOGLE])
+  })
+
+  it('posts nothing and says so before the listening line', async () => {
+    const { supervisor, forks } = await started()
+    expect(supervisor.send(GOOGLE)).toBe(false)
+    forks[0]!.child.listen(41000)
+    await settle()
+    expect(forks[0]!.child.posted).toEqual([])
+  })
+
+  it('posts nothing when nothing was started, after stop, and after the engine exited', async () => {
+    const idle = setup()
+    expect(idle.supervisor.send(GOOGLE)).toBe(false)
+    const { supervisor, forks } = await running()
+    forks[0]!.child.exit(1)
+    expect(supervisor.send(GOOGLE)).toBe(false)
+    expect(forks[0]!.child.posted).toEqual([])
+    const second = await running()
+    await second.supervisor.stop()
+    expect(second.supervisor.send(GOOGLE)).toBe(false)
+    expect(second.forks[0]!.child.posted).toEqual([])
+  })
+
+  it('queues nothing: a message sent while the engine restarts is never delivered later', async () => {
+    const { supervisor, forks } = await running()
+    const restart = supervisor.restart()
+    await settle()
+    expect(supervisor.send(GOOGLE)).toBe(false)
+    forks[1]!.child.listen(41001)
+    await restart
+    await settle()
+    expect(forks[0]!.child.posted).toEqual([])
+    expect(forks[1]!.child.posted).toEqual([])
+    expect(supervisor.send(GOOGLE)).toBe(true)
+    expect(forks[1]!.child.posted).toEqual([GOOGLE])
+  })
+
+  it('posts to the engine of the current start, not to an earlier one', async () => {
+    const { supervisor, forks } = await running()
+    const restart = supervisor.restart()
+    await settle()
+    forks[1]!.child.listen(41001)
+    await restart
+    supervisor.send(GOOGLE)
+    expect(forks[0]!.child.posted).toEqual([])
+    expect(forks[1]!.child.posted).toEqual([GOOGLE])
+  })
+
+  it('reports a failed post as false and keeps the message text out of the log', async () => {
+    const { supervisor, forks, logs } = await running()
+    forks[0]!.child.postFails = true
+    expect(supervisor.send(GOOGLE)).toBe(false)
+    expect(logs.join('\n')).not.toContain(MARKER)
+    expect(logs.join('\n')).not.toContain('ya29')
+  })
+
+  it('lets a status listener send to the engine at the moment it reports running', async () => {
+    const harness = await started()
+    const results: boolean[] = []
+    harness.supervisor.onStatus((status) => {
+      if (status.state === 'running') results.push(harness.supervisor.send(GOOGLE))
+    })
+    harness.forks[0]!.child.listen(41000)
+    await harness.start
+    expect(results).toEqual([true])
+    expect(harness.forks[0]!.child.posted).toEqual([GOOGLE])
+  })
+})
+
+describe('engine supervisor: connections of signed-in accounts', () => {
+  const GOOGLE_TOKEN = `ya29.${MARKER}0123456789`
+  const MICROSOFT_TOKEN = `eyJ${MARKER}0123456789.payload.sig`
+
+  it('seeds them into RILL_CONNECTIONS with their kind next to the saved connections, and never into the arguments', async () => {
+    const { forks } = await started({
+      connections: [{ name: 'team', kind: 'slack', secret: HOOK }],
+      oauthConnections: [
+        { name: 'google', kind: 'google', secret: GOOGLE_TOKEN },
+        { name: 'microsoft', kind: 'microsoft', secret: MICROSOFT_TOKEN },
+      ],
+    })
+    expect(JSON.parse(forks[0]!.options.env.RILL_CONNECTIONS!)).toEqual({
+      team: { secret: HOOK, kind: 'slack' },
+      google: { secret: GOOGLE_TOKEN, kind: 'google' },
+      microsoft: { secret: MICROSOFT_TOKEN, kind: 'microsoft' },
+    })
+    expect(forks[0]!.args.join(' ')).not.toContain(MARKER)
+  })
+
+  it('sets RILL_CONNECTIONS when only an account is signed in, and leaves it out when there is nothing', async () => {
+    const only = await started({ oauthConnections: [{ name: 'google', kind: 'google', secret: GOOGLE_TOKEN }] })
+    expect(JSON.parse(only.forks[0]!.options.env.RILL_CONNECTIONS!)).toEqual({ google: { secret: GOOGLE_TOKEN, kind: 'google' } })
+    const none = await started({ oauthConnections: [] })
+    expect('RILL_CONNECTIONS' in none.forks[0]!.options.env).toBe(false)
+  })
+
+  it('reads the tokens again at every start', async () => {
+    const tokens = [{ name: 'google' as const, kind: 'google' as const, secret: GOOGLE_TOKEN }]
+    const { supervisor, forks } = await running({ oauthConnections: tokens })
+    tokens[0]!.secret = `ya29.${MARKER}NEWER000000`
+    const restart = supervisor.restart()
+    await settle()
+    forks[1]!.child.listen(41001)
+    await restart
+    expect(JSON.parse(forks[0]!.options.env.RILL_CONNECTIONS!).google.secret).toBe(GOOGLE_TOKEN)
+    expect(JSON.parse(forks[1]!.options.env.RILL_CONNECTIONS!).google.secret).toBe(`ya29.${MARKER}NEWER000000`)
+  })
+
+  it('keeps a saved connection that has the same name instead of an account entry', async () => {
+    const { forks } = await started({
+      connections: [{ name: 'google', kind: 'http', secret: 'plain-api-key' }],
+      oauthConnections: [{ name: 'google', kind: 'google', secret: GOOGLE_TOKEN }],
+    })
+    expect(JSON.parse(forks[0]!.options.env.RILL_CONNECTIONS!)).toEqual({ google: { secret: 'plain-api-key', kind: 'http' } })
   })
 })

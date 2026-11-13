@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { AnthropicProvider, DEFAULT_MODEL, LlmError, PROVIDER_IDS, createProvider, providerDescriptor, type LlmProvider, type ProviderId } from '@rill/llm'
 import { assertPathAllowed, expandHome, parseSlackSecret, type ConnectionResolver } from '@rill/nodes-core'
 import type { PlanConnection } from '@rill/planner'
+import { ConnectionTable } from './connection-channel'
 import { configuredProviders, type EngineLlmInfo } from './llm-models'
 
 export class UsageError extends Error {}
@@ -10,6 +11,7 @@ export class UsageError extends Error {}
 export interface LoadedConnections {
   resolver: ConnectionResolver
   planConnections: PlanConnection[]
+  table: ConnectionTable
 }
 
 const KINDS: readonly string[] = ['slack', 'http', 'webhookSecret', 'google', 'microsoft']
@@ -30,12 +32,10 @@ function slackMode(kind: string, secret: string): Pick<PlanConnection, 'slack'> 
 
 function connectionsFromTable(table: unknown, source: string): LoadedConnections {
   if (!isObject(table)) throw new UsageError(`${source} must be a JSON object that maps names to secrets`)
-  const secrets = new Map<string, string>()
-  const kinds = new Map<string, string>()
-  const planConnections: PlanConnection[] = []
+  const connections = new ConnectionTable()
   for (const [name, entry] of Object.entries(table)) {
     if (typeof entry === 'string') {
-      secrets.set(name, entry)
+      connections.setPlain(name, entry)
       continue
     }
     if (!isObject(entry)) throw badEntry(name, 'must be a secret string or an object with "secret" and "kind"')
@@ -45,11 +45,9 @@ function connectionsFromTable(table: unknown, source: string): LoadedConnections
     if (typeof entry.kind !== 'string' || !KINDS.includes(entry.kind)) {
       throw badEntry(name, `needs a "kind" of ${KINDS.join(', ')}`)
     }
-    secrets.set(name, entry.secret)
-    kinds.set(name, entry.kind)
-    planConnections.push({ name, kind: entry.kind as PlanConnection['kind'], ...slackMode(entry.kind, entry.secret) })
+    connections.setTyped(name, entry.secret, entry.kind as PlanConnection['kind'], slackMode(entry.kind, entry.secret))
   }
-  return { resolver: { get: (id) => secrets.get(id), kindOf: (id) => kinds.get(id) }, planConnections }
+  return { resolver: connections.resolver, planConnections: connections.planConnections, table: connections }
 }
 
 export function parseConnections(text: string): LoadedConnections {
