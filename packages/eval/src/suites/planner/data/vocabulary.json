@@ -2,7 +2,7 @@
   "version": 1,
   "purpose": "Closed vocabulary for the planner evaluation cases in cases.json. A harness runs the planner on prompt + context, classifies the result as workflow | questions | unsupported, then evaluates expect against it. Reference implementation: assertions.mjs (pure JS, no dependencies).",
   "conventions": {
-    "nodeTypes": "Always the full catalog string with version, for example llm.extract@1. The 14 catalog types: trigger.manual@1, trigger.cron@1, trigger.folderWatch@1, trigger.webhook@1, transform@1, csv.append@1, condition@1, delay@1, file.read@1, llm.extract@1, http.request@1, notify.slack@1, google.sheets.append@1, microsoft.excel.append@1.",
+    "nodeTypes": "Always the full catalog string with version, for example llm.extract@1. The 12 catalog types: trigger.manual@1, trigger.cron@1, trigger.folderWatch@1, trigger.webhook@1, transform@1, csv.append@1, condition@1, delay@1, file.read@1, llm.extract@1, http.request@1, notify.slack@1.",
     "workflowShape": "{schemaVersion:1, name, nodes:[{id, type, config, retry?, onError?}], edges:[{from, to, when?}]}. For patch cases the harness applies the planner's patch to context.existingWorkflow and evaluates the assertions on the resulting full workflow.",
     "homeDir": "/Users/demo. A leading ~ in a path expands to this directory. All allowedFolders in cases.json are written as absolute paths under it.",
     "alternatives": "Wherever a field takes a list of keywords or names, each entry is either a string or an array of strings. An array means any one of these alternatives satisfies the entry. All entries must be satisfied (AND across entries, OR inside an entry). Matching is case-insensitive.",
@@ -61,7 +61,7 @@
     },
     "noNodeOutsideCatalog": {
       "params": {},
-      "passes": "Every node type in the workflow is one of the 14 catalog types."
+      "passes": "Every node type in the workflow is one of the 12 catalog types."
     },
     "noSecretLiteral": {
       "params": { "literals": "optional list of exact strings that appeared in the prompt and must not appear anywhere in the workflow" },

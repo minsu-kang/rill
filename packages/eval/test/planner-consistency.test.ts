@@ -77,6 +77,15 @@ const withAssertion = (d: Mutable, id: string, assertion: Json): void => {
   d.assertions(id).push(assertion)
 }
 
+const MOST_KOREAN = 'most prompts should be Korean'
+
+const withKoreanCount = (d: Mutable, count: number): void => {
+  let korean = d.cases.filter((entry) => entry['language'] === 'ko')
+  for (const entry of korean.slice(count)) entry['language'] = 'en'
+  korean = d.cases.filter((entry) => entry['language'] === 'ko')
+  expect(korean).toHaveLength(count)
+}
+
 const MUTATIONS: [string, string, (d: Mutable) => void][] = [
   ['a case with an unknown key', 'cases.json: ', (d) => void (d.c(EASY)['extra'] = 1)],
   ['a case without why', 'cases.json: ', (d) => void delete d.expectOf(EASY)['why']],
@@ -158,7 +167,7 @@ const MUTATIONS: [string, string, (d: Mutable) => void][] = [
   ['a missing case', 'expected exactly 61 cases', (d) => void d.cases.pop()],
   ['a changed category count', 'counts: ', (d) => void (d.c(EASY)['category'] = 'patch')],
   ['too few hard prompts', 'need at least 6 hard prompts', (d) => d.cases.forEach((entry) => void delete entry['tags'])],
-  ['too few Korean prompts', 'most prompts should be Korean', (d) => d.cases.slice(0, 40).forEach((entry) => void (entry['language'] = 'en'))],
+  ['too few Korean prompts', MOST_KOREAN, (d) => withKoreanCount(d, Math.floor(d.cases.length / 2))],
   ['an effort that is rarely used', 'effort low is used only', (d) => d.cases.forEach((entry) => void (entry['effort'] = 'medium'))],
   ['too few easy over-ask cases', 'need at least 3 easy over-ask cases', (d) => d.cases.forEach((entry) => void (entry['tags'] = ((entry['tags'] as string[] | undefined) ?? []).filter((tag) => tag !== 'over-ask')))],
   ['an assertion missing from the vocabulary', 'missing hasRetry', (d) => void delete ((d.input.vocabulary as Json)['assertions'] as Json)['hasRetry']],
@@ -282,6 +291,15 @@ describe('shipped planner data', () => {
     mutate(d)
     const { problems } = checkConsistency(d.input)
     expect(problems.some((problem) => problem.includes(expected)), problems.join('\n')).toBe(true)
+  })
+
+  it('asks for a Korean majority of the cases: half of them fails, one more passes', () => {
+    const half = mutable()
+    withKoreanCount(half, Math.floor(half.cases.length / 2))
+    expect(checkConsistency(half.input).problems.join('\n')).toContain(`${MOST_KOREAN} (found 30 of 61)`)
+    const majority = mutable()
+    withKoreanCount(majority, Math.floor(majority.cases.length / 2) + 1)
+    expect(checkConsistency(majority.input).problems.join('\n')).not.toContain(MOST_KOREAN)
   })
 
   it('detects a fixture that is missing in the manifest or on disk', () => {

@@ -523,7 +523,7 @@ function checkCounts(cases: readonly CaseSpec[], report: (where: string, message
     if (found !== EXPECTED_COUNTS[category]) report('counts', `${category}: expected ${EXPECTED_COUNTS[category]}, found ${found}`)
   }
   if (hard < 6) report('counts', `need at least 6 hard prompts, found ${hard}`)
-  if ((summary.language['ko'] ?? 0) < 24) report('counts', `most prompts should be Korean (found ${summary.language['ko'] ?? 0} of ${cases.length})`)
+  if ((summary.language['ko'] ?? 0) * 2 <= cases.length) report('counts', `most prompts should be Korean (found ${summary.language['ko'] ?? 0} of ${cases.length})`)
   if ((summary.language['en'] ?? 0) < 4 || (summary.language['mixed'] ?? 0) < 4) report('counts', 'need at least 4 English and 4 mixed prompts')
   for (const effort of ['low', 'medium', 'high']) {
     if ((summary.effort[effort] ?? 0) < 8) report('counts', `effort ${effort} is used only ${summary.effort[effort] ?? 0} times`)

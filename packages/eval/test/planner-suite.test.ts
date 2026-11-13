@@ -73,7 +73,7 @@ describe('createPlannerSuite: selection', () => {
     expect(new Set(suite.cases().map((entry) => entry.group))).toEqual(new Set(['easy', 'ambiguous', 'unsupported', 'attachment', 'patch', 'memory']))
     expect(suite.cases().map((entry) => entry.id)).toEqual(data.cases.map((entry) => entry.id))
     expect(createPlannerSuite().version).toBe(suite.version)
-    expect(suite.version).toMatch(/^1\.1-p\d{8}-[0-9a-f]{12}-[0-9a-f]{12}-[0-9a-f]{12}$/)
+    expect(suite.version).toMatch(/^1\.1-p\d{8}-[0-9a-f]{12}-[0-9a-f]{12}-[0-9a-f]{12}-[0-9a-f]{12}$/)
   })
   it('loads the memory cases, the cases of the new nodes and the Slack cases by default, and no longer the refusal of Google Sheets', () => {
     const ids = createPlannerSuite().cases().map((entry) => entry.id)
@@ -108,6 +108,14 @@ describe('createPlannerSuite: selection', () => {
   it('changes the version when the case data changes', () => {
     const changed = { ...data, cases: data.cases.map((entry, index) => (index === 0 ? { ...entry, prompt: `${entry.prompt}!` } : entry)) }
     expect(createPlannerSuite({ data: changed }).version).not.toBe(createPlannerSuite().version)
+  })
+  it('changes the version when a memory pair changes or is dropped', () => {
+    const base = createPlannerSuite().version
+    const [pair] = data.pairs
+    if (pair === undefined) throw new Error('no memory pair')
+    expect(createPlannerSuite({ data: { ...data, pairs: [{ ...pair, reuses: 'ambig-02-server-check-no-url' }] } }).version).not.toBe(base)
+    expect(createPlannerSuite({ data: { ...data, pairs: [] } }).version).not.toBe(base)
+    expect(createPlannerSuite({ group: 'memory' }).version).toBe(base)
   })
   it('filters by group, by exact id, by id substring and by list', () => {
     expect(createPlannerSuite({ group: 'patch' }).cases()).toHaveLength(4)

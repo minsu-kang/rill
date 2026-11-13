@@ -135,6 +135,7 @@ export function createPlannerSuite(options: PlannerSuiteOptions = {}): PlannerSu
     `p${PRICE_TABLE_AS_OF.replace(/-/gu, '')}`,
     sha256(JSON.stringify(data.cases)),
     sha256(JSON.stringify(data.references)),
+    sha256(JSON.stringify(data.pairs)),
     sha256(readOptional(join(options.files?.plannerDir ?? ATTACHMENTS_DIR, ATTACHMENTS_MANIFEST_FILE))),
   ].join('-')
 
