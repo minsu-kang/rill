@@ -42,15 +42,6 @@
   max-width: 720px;
 }
 
-.heading {
-  margin: 0;
-  font-size: var(--font-size-lg);
-}
-
-.heading:focus {
-  outline: none;
-}
-
 .sub {
   margin: 0;
   font-size: var(--font-size-md);

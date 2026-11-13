@@ -5,6 +5,7 @@ import { SafeText } from '../ui/SafeText'
 import { allTags, filterRecipes, nodeTypeBase, sendsToModelProvider } from './model/filter'
 import styles from './RecipeGallery.module.css'
 import { TransferMark } from '../ui/TransferMark'
+import hidden from '../ui/TransferMark.module.css'
 
 export interface RecipeGalleryProps {
   recipes: readonly RecipeInfo[]
@@ -57,7 +58,7 @@ export function RecipeGallery({ recipes, status = 'ready', catalog = [], onChoos
 
   return (
     <section className={styles.root} aria-labelledby={headingId}>
-      <h2 id={headingId} ref={headingRef} tabIndex={headingRef === undefined ? undefined : -1} className={styles.heading}>
+      <h2 id={headingId} ref={headingRef} tabIndex={headingRef === undefined ? undefined : -1} className={hidden.hidden}>
         {t('recipes.heading')}
       </h2>
       {status === 'loading' && (

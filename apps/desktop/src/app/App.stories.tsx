@@ -75,6 +75,26 @@ export const RecipesScreen: Story = {
   args: { world: { hostInit: { settings: ready } }, initial: { tab: 'recipes' } },
 }
 
+export const SettingsFolders: Story = {
+  name: 'Settings, folders',
+  args: { world: { hostInit: { settings: ready } }, initial: { tab: 'settings', settingsSection: 'folders' } },
+}
+
+export const SettingsModel: Story = {
+  name: 'Settings, model',
+  args: { world: { hostInit: { settings: ready } }, initial: { tab: 'settings', settingsSection: 'model' } },
+}
+
+export const SettingsKeys: Story = {
+  name: 'Settings, API keys',
+  args: { world: { hostInit: { settings: ready } }, initial: { tab: 'settings', settingsSection: 'keys' } },
+}
+
+export const SettingsConnections: Story = {
+  name: 'Settings, connections',
+  args: { world: { hostInit: { settings: ready } }, initial: { tab: 'settings', settingsSection: 'connections' } },
+}
+
 export const GeneralSettings: Story = {
   name: 'General settings',
   args: { world: { hostInit: { settings: ready } }, initial: { tab: 'settings', settingsSection: 'general' } },

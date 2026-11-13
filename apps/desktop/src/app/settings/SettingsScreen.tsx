@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { EngineClient } from '../../engine/client'
 import { useT } from '../../i18n'
+import hidden from '../../ui/TransferMark.module.css'
 import { useStepFocus } from '../../ui/useStepFocus'
 import type { ConnectionState } from '../connection'
 import controls from '../controls.module.css'
@@ -72,7 +73,7 @@ export function SettingsScreen({ state, client, connection, section, onSectionCh
         ))}
       </nav>
       <div className={styles.panel}>
-        <h2 ref={heading} tabIndex={-1} className={styles.heading}>
+        <h2 ref={heading} tabIndex={-1} className={hidden.hidden}>
           {t(`app.settings.section.${current}`)}
         </h2>
         {locked ? (
