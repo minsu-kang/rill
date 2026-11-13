@@ -16,6 +16,7 @@ export * from './mask'
 export * from './memory'
 export * from './agent'
 export * from './explain'
+export * from './review'
 export {
   attachmentModule,
   createAttachmentModule,

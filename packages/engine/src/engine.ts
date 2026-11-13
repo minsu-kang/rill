@@ -4,6 +4,7 @@ import type { LlmProvider } from '@rill/llm'
 import {
   createExplainer,
   createPlanner,
+  createReviewer,
   scrubResultText,
   trustedTexts,
   type AttachmentStore,
@@ -13,6 +14,8 @@ import {
   type PlanConnection,
   type PlanRequest,
   type PlanResult,
+  type ReviewEffort,
+  type ReviewResult,
 } from '@rill/planner'
 import {
   AGENT_DEFAULT_ID,
@@ -43,7 +46,7 @@ import {
   type StepDetail,
   type WorkflowSummary,
 } from '@rill/protocol'
-import { AgentNotAssistantError, AgentNotFoundError } from './agents'
+import { AgentNotAssistantError, AgentNotFoundError, AgentNotReviewerError } from './agents'
 import { createFsAttachmentStore, recordReads } from './attachments'
 import { systemClock, type Clock } from './clock'
 import type { Db } from './db'
@@ -68,6 +71,7 @@ import {
 } from './plans'
 import { RunQueue } from './queue'
 import { draftFromRecipe, listRecipeInfos } from './recipes'
+import { MAX_CONCURRENT_REVIEWS, PlanNotReviewableError, ReviewBusyError } from './review'
 import { RuleNotFoundError, RuleViolationError, normaliseRule } from './rules'
 import { NotFoundError, Store, type AgentSaveInput, type RunRow } from './store'
 import { TriggerManager } from './triggers/manager'
@@ -92,6 +96,7 @@ export interface EngineOptions {
   planConnections?: PlanConnection[]
   maxConcurrentPlans?: number
   maxConcurrentExplains?: number
+  maxConcurrentReviews?: number
   maxRepairRounds?: number
 }
 
@@ -125,6 +130,13 @@ export interface EngineExplainInput {
   runId: string
   effort?: ExplainEffort
   agentId?: string
+  signal?: AbortSignal
+}
+
+export interface EngineReviewInput {
+  planId: string
+  agentId: string
+  effort?: ReviewEffort
   signal?: AbortSignal
 }
 
@@ -176,10 +188,12 @@ export class Engine {
   private readonly planConnections: PlanConnection[]
   private readonly maxConcurrentPlans: number
   private readonly maxConcurrentExplains: number
+  private readonly maxConcurrentReviews: number
   private readonly connections: ConnectionResolver
   private readonly maxRepairRounds: number | undefined
   private readonly pendingPlans = new Map<string, PendingPlan>()
   private readonly pendingExplains = new Set<PendingPlan>()
+  private readonly pendingReviews = new Set<PendingPlan>()
 
   constructor(options: EngineOptions) {
     if (options.attachmentsRoot !== undefined && options.allowedRoots !== undefined) {
@@ -207,6 +221,7 @@ export class Engine {
     this.planConnections = options.planConnections ?? []
     this.maxConcurrentPlans = options.maxConcurrentPlans ?? 2
     this.maxConcurrentExplains = options.maxConcurrentExplains ?? MAX_CONCURRENT_EXPLAINS
+    this.maxConcurrentReviews = options.maxConcurrentReviews ?? MAX_CONCURRENT_REVIEWS
     this.connections = connections
     this.maxRepairRounds = options.maxRepairRounds
     this.bus = new EventBus(now)
@@ -524,6 +539,48 @@ export class Engine {
     }
   }
 
+  async reviewPlan(input: EngineReviewInput): Promise<ReviewResult> {
+    const stored = this.store.getPlan(input.planId)
+    if (stored.status !== 'planned' || stored.result?.kind !== 'workflow') throw new PlanNotReviewableError()
+    const agent = this.resolveReviewer(input.agentId)
+    const llm = this.llm
+    if (llm === undefined) throw new LlmUnavailableError('reviewing')
+    if (this.pendingReviews.size >= this.maxConcurrentReviews) throw new ReviewBusyError()
+    const policy = this.policy()
+    const controller = new AbortController()
+    const pending: PendingPlan = { controller, done: Promise.resolve() }
+    this.pendingReviews.add(pending)
+    const forward = () => controller.abort(input.signal?.reason)
+    if (input.signal?.aborted === true) forward()
+    else input.signal?.addEventListener('abort', forward, { once: true })
+    const result = createReviewer({ provider: llm, registry: this.registry }).review({
+      workflow: stored.result.workflow,
+      requestText: stored.requestText,
+      flags: stored.result.flags,
+      ...(isEmptyPolicy(policy) ? {} : { rules: policy }),
+      agent: planAgent(agent, this.store.skillsOf(agent.skillIds ?? [])),
+      ...(input.effort === undefined ? {} : { effort: input.effort }),
+      signal: controller.signal,
+    })
+    pending.done = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    try {
+      return await result
+    } finally {
+      input.signal?.removeEventListener('abort', forward)
+      this.pendingReviews.delete(pending)
+    }
+  }
+
+  private resolveReviewer(agentId: string): Agent {
+    const agent = this.store.getAgent(agentId)
+    if (agent === undefined) throw new AgentNotFoundError()
+    if (agent.kind !== 'reviewer') throw new AgentNotReviewerError()
+    return agent
+  }
+
   private resolveAgent(agentId: string | undefined): Agent | undefined {
     if (agentId === undefined || agentId === AGENT_DEFAULT_ID) return undefined
     const agent = this.store.getAgent(agentId)
@@ -682,7 +739,7 @@ export class Engine {
 
   async shutdown(): Promise<void> {
     await this.hooks.stop()
-    const pending = [...this.pendingPlans.values(), ...this.pendingExplains]
+    const pending = [...this.pendingPlans.values(), ...this.pendingExplains, ...this.pendingReviews]
     for (const plan of pending) plan.controller.abort()
     await Promise.all(pending.map((plan) => plan.done))
     await this.triggers.shutdown()

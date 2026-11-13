@@ -59,6 +59,13 @@ export class AgentNotAssistantError extends Error {
   }
 }
 
+export class AgentNotReviewerError extends Error {
+  constructor() {
+    super('only a reviewer agent can review a plan')
+    this.name = 'AgentNotReviewerError'
+  }
+}
+
 export function builtinAgent(): Agent {
   return {
     id: AGENT_DEFAULT_ID,

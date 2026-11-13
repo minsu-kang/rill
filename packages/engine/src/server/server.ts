@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
 import type { PlanIssue } from '@rill/dsl'
 import { LlmError } from '@rill/llm'
-import { AttachmentError, ExplainError, PlanError } from '@rill/planner'
+import { AttachmentError, ExplainError, PlanError, ReviewError } from '@rill/planner'
 import {
   PROTOCOL_VERSION,
   SUBPROTOCOL,
@@ -28,6 +28,7 @@ import {
   AgentInvalidError,
   AgentNotAssistantError,
   AgentNotFoundError,
+  AgentNotReviewerError,
 } from '../agents'
 import { WorkflowBusyError, WorkflowValidationError, type Engine } from '../engine'
 import { ExplainBusyError, RunNotExplainableError } from '../explain'
@@ -42,6 +43,7 @@ import {
   PlanNotFoundError,
 } from '../plans'
 import { RecipeInvalidError, RecipeNotFoundError } from '../recipes'
+import { PlanNotReviewableError, ReviewBusyError } from '../review'
 import { RuleDuplicateError, RuleFullError, RuleInvalidError, RuleNotFoundError, RuleViolationError } from '../rules'
 import { SkillDuplicateError, SkillFullError, SkillInvalidError, SkillNotFoundError } from '../skills'
 import { NotFoundError } from '../store'
@@ -50,7 +52,7 @@ const OPEN = 1
 const CLOSED = 3
 const TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]{16,}$/
 const MAX_PROBLEMS = 20
-const NAME_ONLY_ERROR_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan', 'saveMemory', 'saveRule', 'deleteRule', 'saveAgent', 'saveSkill', 'saveHook', 'deleteHook', 'listHooks', 'listHookLog', 'explainRun', 'instantiateRecipe'])
+const NAME_ONLY_ERROR_METHODS: ReadonlySet<string> = new Set(['plan', 'deployPlan', 'saveMemory', 'saveRule', 'deleteRule', 'saveAgent', 'saveSkill', 'saveHook', 'deleteHook', 'listHooks', 'listHookLog', 'explainRun', 'reviewPlan', 'instantiateRecipe'])
 
 export interface RillServerOptions {
   engine: Engine
@@ -132,6 +134,17 @@ function explainErrorBody(error: ExplainError): ErrorBody {
   }
 }
 
+function reviewErrorBody(error: ReviewError): ErrorBody {
+  switch (error.kind) {
+    case 'provider':
+      return error.cause instanceof LlmError && error.cause.kind === 'auth' ? authBody(error.cause) : { code: 'REVIEW_PROVIDER', message: 'the model provider failed' }
+    case 'invalid':
+      return { code: 'REVIEW_INVALID', message: 'the model did not return a usable review' }
+    case 'aborted':
+      return { code: 'REVIEW_PROVIDER', message: 'the review was cancelled' }
+  }
+}
+
 function toErrorBody(method: string, error: unknown): ErrorBody {
   if (error instanceof WorkflowValidationError) {
     const problems = method === 'deployPlan' ? issueProblems(error.problemIssues) : error.problems
@@ -140,6 +153,10 @@ function toErrorBody(method: string, error: unknown): ErrorBody {
   if (error instanceof WorkflowBusyError) return { code: 'WORKFLOW_BUSY', message: error.message }
   if (error instanceof PlanError) return planErrorBody(error)
   if (error instanceof ExplainError) return explainErrorBody(error)
+  if (error instanceof ReviewError) return reviewErrorBody(error)
+  if (error instanceof PlanNotReviewableError) return { code: 'PLAN_NOT_REVIEWABLE', message: error.message }
+  if (error instanceof ReviewBusyError) return { code: 'REVIEW_BUSY', message: error.message }
+  if (error instanceof AgentNotReviewerError) return { code: 'AGENT_NOT_REVIEWER', message: error.message }
   if (error instanceof RunNotExplainableError) return { code: 'RUN_NOT_EXPLAINABLE', message: error.message }
   if (error instanceof ExplainBusyError) return { code: 'EXPLAIN_BUSY', message: error.message }
   if (error instanceof RecipeInvalidError) return { code: 'RECIPE_INVALID', message: error.message, problems: error.problems }
@@ -497,6 +514,8 @@ export class RillServer {
           meta: result.meta,
         }
       },
+      reviewPlan: (params, signal) =>
+        engine.reviewPlan({ planId: params.planId, agentId: params.agentId, ...(params.effort === undefined ? {} : { effort: params.effort }), signal }),
       plan: (params) => engine.plan(params),
       cancelPlan: (params) => ({ cancelled: engine.cancelPlan(params.planId) }),
       getPlan: (params) => ({ plan: engine.getPlan(params.planId) }),

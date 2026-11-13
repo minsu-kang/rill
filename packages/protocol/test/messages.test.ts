@@ -165,6 +165,7 @@ describe('METHODS', () => {
         'nodeCatalog',
         'ping',
         'plan',
+        'reviewPlan',
         'saveAgent',
         'saveHook',
         'saveMemory',

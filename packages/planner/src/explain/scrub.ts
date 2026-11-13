@@ -42,6 +42,7 @@ export interface ScrubContext {
   workflow: Workflow
   registry: NodeRegistry
   digestText: string
+  extraText?: readonly string[]
 }
 
 export interface AnswerScrubber {
@@ -67,7 +68,7 @@ export function createAnswerScrubber(context: ScrubContext): AnswerScrubber {
   const { workflow, registry } = context
   const ids = new Set(workflow.nodes.map((node) => node.id))
   const titles = workflow.nodes.map((node) => registry.get(node.type)?.title ?? '')
-  const corpus = fold([JSON.stringify(workflow), ...ids, ...titles].join('\n'))
+  const corpus = fold([JSON.stringify(workflow), ...ids, ...titles, ...(context.extraText ?? [])].join('\n'))
   const digest = fold(context.digestText)
   const nodeTypes = new Set(registry.list().flatMap((def) => [fold(def.type), fold(def.type.replace(/@\d+$/, ''))]))
 

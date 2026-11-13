@@ -34,6 +34,7 @@ import {
   PlanTurnSchema,
 } from './plan'
 import { RecipeDraftSchema, RecipeInfoSchema, RecipeValuesSchema } from './recipes'
+import { ReviewResultSchema } from './review'
 import { RULE_CHECK_MAX_ISSUES, RULE_CHECK_MAX_WORKFLOWS, RULE_MAX_INPUT_CHARS, RULE_MAX_ITEMS, RuleKindSchema, RuleSchema } from './rules'
 import {
   SKILL_BODY_MAX_INPUT_CHARS,
@@ -278,6 +279,10 @@ export const METHODS = {
     params: Type.Object({ runId: id, effort: Type.Optional(ExplainEffortSchema), agentId: Type.Optional(id) }, closed),
     result: ExplainResultSchema,
   },
+  reviewPlan: {
+    params: Type.Object({ planId: id, agentId: id, effort: Type.Optional(ExplainEffortSchema) }, closed),
+    result: ReviewResultSchema,
+  },
   listRecipes: {
     params: noParams,
     result: Type.Object({ recipes: Type.Array(RecipeInfoSchema) }, closed),
@@ -324,6 +329,7 @@ export const ERROR_CODES = [
   'AGENT_NOT_FOUND',
   'AGENT_BUILTIN',
   'AGENT_NOT_ASSISTANT',
+  'AGENT_NOT_REVIEWER',
   'SKILL_INVALID',
   'SKILL_FULL',
   'SKILL_DUPLICATE',
@@ -332,6 +338,10 @@ export const ERROR_CODES = [
   'EXPLAIN_BUSY',
   'EXPLAIN_PROVIDER',
   'EXPLAIN_INVALID',
+  'PLAN_NOT_REVIEWABLE',
+  'REVIEW_BUSY',
+  'REVIEW_PROVIDER',
+  'REVIEW_INVALID',
   'RECIPE_INVALID',
   'WORKFLOW_BUSY',
   'HOOK_INVALID',
