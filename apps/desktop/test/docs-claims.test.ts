@@ -177,10 +177,12 @@ describe('the sign-in documentation', () => {
   const desktop = read('apps/desktop/README.md')
   const guide = desktop.slice(desktop.indexOf('### Google and Microsoft sign-in'), desktop.indexOf('### Connections and API keys'))
 
-  it('has the section and says the flow was never run against the real providers', () => {
+  it('has the section and says the flow was run against the real providers only once, with what that run did not cover', () => {
     expect(guide.length).toBeGreaterThan(1000)
-    expect(guide).toMatch(/has not been run against the real services/)
-    expect(security).toMatch(/The sign-in was never run against the real providers/)
+    expect(guide).toMatch(/ran it by hand against the real services \*\*once\*\*/)
+    expect(guide).toMatch(/It did not cover the Cancel, deny and timeout paths/)
+    expect(security).toMatch(/The sign-in was run against the real providers only once/)
+    expect(security).toMatch(/Still untested live:/)
   })
 
   it('shows Microsoft the registered redirect address and Google none, as the code does', () => {

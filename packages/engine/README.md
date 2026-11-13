@@ -69,7 +69,7 @@ To append a row without the app, put a token into the connections file and run t
 
     rill-engine run append-row.json --connections connections.json
 
-An access token lives about an hour and the engine does not refresh it, so a headless run needs a fresh token each time. Signing in and refreshing tokens is the job of the desktop app, which gives the running engine each new token over the parent channel below. When a call is refused with a 401 (and only a 401), the node asks the engine to renew the token once and repeats the same call with the new one; see the parent channel below. The two APIs were read from the vendors' documentation and have not been called live by this project, and the Graph workbook API is documented for OneDrive files, so a personal account may behave differently from a work account.
+An access token lives about an hour and the engine does not refresh it, so a headless run needs a fresh token each time. Signing in and refreshing tokens is the job of the desktop app, which gives the running engine each new token over the parent channel below. When a call is refused with a 401 (and only a 401), the node asks the engine to renew the token once and repeats the same call with the new one; see the parent channel below. The two APIs were read from the vendors' documentation. On 2026-11-13 the maintainer appended one row with each through the desktop app; error answers and other account types are untested live, and the Graph workbook API is documented for OneDrive files, so a personal account may behave differently from a work account.
 
 #### The parent channel
 

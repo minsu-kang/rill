@@ -112,7 +112,7 @@ Anything in a vendor report that is inferred or unknown, and that the adapter re
 
 Each adapter exports `LIVE_CHECKS: { id: string; what: string }[]`. An entry is something the adapter depends on but the vendor documentation does not settle, for example whether `completion_tokens` includes reasoning tokens. At the time of writing the counts are OpenAI 11, Gemini 19, Grok 15 and Meta 12; Anthropic declares none.
 
-**All of these checks are UNVERIFIED. No live call has ever been made in this repository.** The adapters were built and tested against fake transports and the vendors' documented examples. Until someone runs `check-provider` with a real key, treat every adapter as untested against the real service.
+**All of these checks are UNVERIFIED. None of the four adapters that declare them has been called live.** The adapters were built and tested against fake transports and the vendors' documented examples. Until someone runs `check-provider` with a real key, treat these four adapters as untested against the real service.
 
 `pnpm eval check-provider --provider <id> --model <id> --yes` sends at most four small calls and prints each entry with the measured value and PASS, FAIL or UNKNOWN:
 
