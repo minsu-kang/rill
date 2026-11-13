@@ -5,6 +5,8 @@ export const RULE_KINDS = ['forbidNode', 'allowHost', 'maxPlanEffort'] as const
 export const RULE_MAX_ITEMS = 30
 export const RULE_MAX_VALUE_CHARS = 255
 export const RULE_MAX_INPUT_CHARS = 500
+export const RULE_CHECK_MAX_WORKFLOWS = 200
+export const RULE_CHECK_MAX_ISSUES = 20
 
 export const RuleKindSchema = Type.Union([Type.Literal('forbidNode'), Type.Literal('allowHost'), Type.Literal('maxPlanEffort')])
 

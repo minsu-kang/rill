@@ -139,6 +139,21 @@ export function effortRank(effort: PlanEffort): number {
   return PLAN_EFFORTS.indexOf(effort)
 }
 
+export function cappedEffort(requested: PlanEffort, cap: PlanEffort | undefined): PlanEffort {
+  return cap !== undefined && effortRank(requested) > effortRank(cap) ? cap : requested
+}
+
+export function closestLevel(levels: readonly PlanEffort[], wanted: PlanEffort): PlanEffort {
+  const own = PLAN_EFFORTS.filter((level) => levels.includes(level))
+  if (own.length === 0) return wanted
+  return own.filter((level) => effortRank(level) <= effortRank(wanted)).at(-1) ?? own[0]!
+}
+
+export function widensCap(saved: PlanEffort | undefined, next: PlanEffort | 'none'): boolean {
+  const reach = (choice: PlanEffort | 'none' | undefined): number => (choice === undefined || choice === 'none' ? PLAN_EFFORTS.length : effortRank(choice) + 1)
+  return reach(next) > reach(saved)
+}
+
 export function isPlanEffort(value: string): value is PlanEffort {
   return (PLAN_EFFORTS as readonly string[]).includes(value)
 }

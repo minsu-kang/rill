@@ -12,7 +12,8 @@ import { RulesScreen } from './RulesScreen'
 export interface RulesStageProps {
   rules?: readonly Rule[]
   violations?: readonly RuleViolation[]
-  list?: 'hang' | 'fail'
+  list?: 'hang' | 'fail' | 'failLater'
+  catalog?: 'loading' | 'error' | 'none'
   check?: 'hang' | 'fail'
   failSave?: { code: string; problems?: string[] }
   failDelete?: string
@@ -20,6 +21,7 @@ export interface RulesStageProps {
 }
 
 export function rulesClientOf(props: RulesStageProps): EngineClient {
+  let lists = 0
   const inner = withPlanMethods(createFakeClient(fakeData), {
     models,
     script: () => outcomeOf(results.workflow),
@@ -32,6 +34,7 @@ export function rulesClientOf(props: RulesStageProps): EngineClient {
     request: async <M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> => {
       if (method === 'listRules' && props.list === 'hang') return new Promise<MethodResult<M>>(() => undefined)
       if (method === 'listRules' && props.list === 'fail') throw new RillError('INTERNAL', 'x')
+      if (method === 'listRules' && props.list === 'failLater' && ++lists > 1) throw new RillError('INTERNAL', 'x')
       if (method === 'checkRules' && props.check === 'hang') return new Promise<MethodResult<M>>(() => undefined)
       if (method === 'checkRules' && props.check === 'fail') throw new RillError('INTERNAL', 'x')
       if (method === 'saveRule' && props.failSave !== undefined) throw new RillError(props.failSave.code, 'x', props.failSave.problems ?? [])
@@ -46,7 +49,7 @@ export function RulesStage(props: RulesStageProps) {
   return (
     <div style={{ height: props.height ?? 900, overflow: 'auto' }}>
       <Page>
-        <RulesScreen client={client} catalog={catalog} />
+        <RulesScreen client={client} catalog={props.catalog === undefined ? catalog : []} catalogStatus={props.catalog === undefined || props.catalog === 'none' ? 'ready' : props.catalog} onRetryCatalog={() => undefined} />
       </Page>
     </div>
   )

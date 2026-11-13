@@ -2,7 +2,7 @@ import type { LlmModelInfo, PlanEffort } from '@rill/protocol'
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useLocale, useT } from '../i18n'
 import { markHidden } from './model/clamp'
-import { EFFORT_STEPS, effortLabelOf, stepAvailability, type EffortHint, type EffortStep, type StepReason } from './model/effort'
+import { EFFORT_STEPS, effectiveStep, effortLabelOf, stepAvailability, type EffortHint, type EffortStep, type StepReason } from './model/effort'
 import { formatSeconds, formatUsd } from './model/format'
 import styles from './EffortSlider.module.css'
 
@@ -33,7 +33,8 @@ export function EffortSlider({ value, onChange, model, cap, hints, disabled = fa
   const showAdvanced = expanded || value === 'max'
   const entries: Entry[] = EFFORT_STEPS.filter((step) => !step.advanced || showAdvanced).map((step) => ({ step, ...stepAvailability(step, model, cap) }))
   const usable = (entry: Entry): boolean => entry.enabled && !disabled
-  const tabStop = entries.find((entry) => entry.step.effort === value && usable(entry)) ?? entries.find(usable)
+  const landing = effectiveStep(value, model, cap)
+  const tabStop = entries.find((entry) => entry.step.effort === landing && usable(entry)) ?? entries.find(usable)
   const current = entries.find((entry) => entry.step.effort === value)
   const stepName = (step: EffortStep): string => t(`chat.effort.${step.label}`)
 
@@ -140,9 +141,9 @@ export function EffortSlider({ value, onChange, model, cap, hints, disabled = fa
           {t('chat.effort.willLower')}
         </p>
       ) : null}
-      {current?.reason === 'rule_cap' && cap !== undefined ? (
+      {current?.reason === 'rule_cap' && cap !== undefined && landing !== undefined ? (
         <p className={styles.note} role="status">
-          {t('chat.effort.willLowerRule', { cap: t(`chat.effort.${effortLabelOf(cap)}`) })}
+          {t(landing === cap ? 'chat.effort.willLowerRule' : 'chat.effort.willLowerRuleModel', { cap: t(`chat.effort.${effortLabelOf(cap)}`), step: t(`chat.effort.${effortLabelOf(landing)}`) })}
         </p>
       ) : null}
       {ordered.length > 0 ? (

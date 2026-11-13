@@ -269,7 +269,7 @@ export function App({ initial = {} }: AppProps) {
         </p>
       ) : (
         <fieldset className={styles.reset} disabled={!connected}>
-          <AgentsTab client={client} catalog={data.catalog} files={host.dialogs} section={agentsSection} onSectionChange={setAgentsSection} />
+          <AgentsTab client={client} catalog={data.catalog} catalogStatus={data.catalogStatus} onRetryCatalog={data.reloadCatalog} files={host.dialogs} section={agentsSection} onSectionChange={setAgentsSection} />
         </fieldset>
       )
   } else {

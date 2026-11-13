@@ -16,6 +16,8 @@ import {
 } from '@rill/planner'
 import {
   AGENT_DEFAULT_ID,
+  RULE_CHECK_MAX_ISSUES,
+  RULE_CHECK_MAX_WORKFLOWS,
   type Agent,
   type AgentFields,
   type AttachmentRef,
@@ -85,8 +87,8 @@ export interface EngineOptions {
   maxRepairRounds?: number
 }
 
-export const MAX_CHECK_WORKFLOWS = 200
-export const MAX_CHECK_ISSUES = 20
+export const MAX_CHECK_WORKFLOWS = RULE_CHECK_MAX_WORKFLOWS
+export const MAX_CHECK_ISSUES = RULE_CHECK_MAX_ISSUES
 
 export interface RuleCheckEntry {
   workflowId: string

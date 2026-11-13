@@ -8,6 +8,7 @@ import { activeModelOf } from './model/models'
 
 const opus = activeModelOf(models)!
 const haiku = activeModelOf(modelsHaikuActive)!
+const muse = activeModelOf({ ...models, active: { provider: 'meta', model: 'muse-spark-1.0' } })!
 
 const HINTS: EffortHint[] = [
   { effort: 'low', costUsd: 0.012, latencyMs: 6_000, basis: 'planner evaluation, 48 cases' },
@@ -65,3 +66,5 @@ export const CappedAtTheLowestStep: Story = { name: 'Capped at the lowest step, 
 export const CapAndModelLimit: Story = { name: 'A cap and a model with fewer levels', args: base, render: () => <Demo initial="low" model={haiku} cap="medium" /> }
 
 export const CapBelowEverythingTheModelAllows: Story = { name: 'The cap is the model limit', args: base, render: () => <Demo initial="medium" model={haiku} cap="high" /> }
+
+export const ChosenStepAboveACapTheModelLacks: Story = { name: 'Chosen step above a cap the model lacks', args: base, render: () => <Demo initial="xhigh" model={muse} cap="high" /> }

@@ -1,7 +1,7 @@
-import { RULE_MAX_ITEMS, RillError, type MethodName, type MethodParams, type MethodResult, type Rule } from '@rill/protocol'
+import { RULE_MAX_ITEMS, RillError, type MethodName, type MethodParams, type MethodResult, type NodeInfo, type Rule } from '@rill/protocol'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { RulesScreen } from '../src/app/agents/RulesScreen'
 import type { EngineClient } from '../src/engine/client'
 import { createFakeClient } from '../src/engine/fake-client'
@@ -17,6 +17,9 @@ import { violations as axeViolations } from './axe'
 import { renderThemed } from './render'
 
 interface Options {
+  catalog?: readonly NodeInfo[]
+  catalogStatus?: 'loading' | 'ready' | 'error'
+  onRetryCatalog?: () => void
   rules?: readonly Rule[]
   violations?: RuleViolationScript
   intercept?: (method: MethodName, params: unknown) => Promise<unknown> | undefined
@@ -46,7 +49,15 @@ function world(options: Options = {}) {
 function mount(options: Options = {}) {
   const made = world(options)
   const locale = options.locale ?? 'en'
-  const view = renderThemed(<RulesScreen client={made.client} catalog={catalog} />, { locale })
+  const view = renderThemed(
+    <RulesScreen
+      client={made.client}
+      catalog={options.catalog ?? catalog}
+      {...(options.catalogStatus === undefined ? {} : { catalogStatus: options.catalogStatus })}
+      {...(options.onRetryCatalog === undefined ? {} : { onRetryCatalog: options.onRetryCatalog })}
+    />,
+    { locale },
+  )
   return { ...made, view, user: userEvent.setup(), t: createTranslator(locale) }
 }
 
@@ -95,14 +106,51 @@ describe('loading', () => {
 })
 
 describe('the page', () => {
-  it('has the title, says that rules only restrict and apply to everything, and says that removing one allows more', async () => {
+  it('has the title and says that rules apply to everything, without a claim that is wrong for hosts', async () => {
     mount()
     await ready()
     expect(screen.getByRole('heading', { level: 2, name: 'Rules' })).toBeTruthy()
     const text = document.body.textContent ?? ''
-    expect(text).toContain('A rule only restricts')
     expect(text).toContain('every agent and to everything that is deployed, activated or run')
-    expect(text).toContain('removing a rule allows more again')
+    expect(text).not.toContain('A rule only restricts')
+    expect(text).not.toContain('can never allow more')
+    expect(text).not.toContain('removing a rule allows more again')
+  })
+
+  it('says per kind what a rule does: forbidding only restricts, the host list allows only the listed hosts, and a cap restricts or allows more', async () => {
+    mount()
+    await ready()
+    expect(within(forbidden()).getByText(/Forbidding a node only restricts, and removing the rule allows that node again\./)).toBeTruthy()
+    const hostsText = within(hosts()).getByText(/^With no host in the list/).textContent
+    expect(hostsText).toContain('Once the list has a host, a request node may call only the listed hosts')
+    expect(hostsText).toContain('a URL whose host is a template is refused')
+    expect(hostsText).toContain('Adding a host allows that host, and removing the last one allows every host again.')
+    expect(within(cap()).getByText(/A lower cap restricts; a higher cap or No cap allows more\./)).toBeTruthy()
+  })
+
+  it('says the same per kind in Korean', async () => {
+    mount({ locale: 'ko' })
+    await screen.findByRole('region', { name: ko['rules.forbid.title'] })
+    for (const key of ['rules.forbid.intro', 'rules.hosts.intro', 'rules.cap.intro'] as const) expect(screen.getByText(ko[key])).toBeTruthy()
+    expect(ko['rules.hosts.intro']).toContain('마지막 호스트를 지우면 모든 호스트가 다시 허용돼요')
+    expect(ko['rules.screen.intro']).not.toContain('제한만 해요')
+  })
+
+  it('gives each screen its own title id, so two screens on one page stay labelled by their own heading', async () => {
+    const made = world()
+    renderThemed(
+      <>
+        <RulesScreen client={made.client} catalog={catalog} />
+        <RulesScreen client={made.client} catalog={catalog} />
+      </>,
+      { locale: 'en' },
+    )
+    await waitFor(() => expect(screen.getAllByRole('region', { name: 'Forbidden nodes' })).toHaveLength(2))
+    const screens = screen.getAllByRole('region', { name: 'Rules' })
+    expect(screens).toHaveLength(2)
+    const ids = screens.map((element) => element.getAttribute('aria-labelledby')!)
+    expect(new Set(ids).size).toBe(2)
+    screens.forEach((element, index) => expect(element.querySelector(`[id="${CSS.escape(ids[index]!)}"]`)?.tagName).toBe('H2'))
   })
 
   it('says in a muted line that the forbidden nodes and the allowed hosts are told to the model', async () => {
@@ -187,6 +235,49 @@ describe('forbidden nodes', () => {
     const rows = within(within(forbidden()).getByRole('list', { name: 'Forbidden node types' })).getAllByRole('listitem')
     expect(rows.map((row) => row.textContent)).toEqual(['Delay (delay)Remove', 'Slack message (notify.slack)Remove'])
     expect(within(forbidden()).getByRole('button', { name: 'Remove Delay (delay) from the forbidden nodes' })).toBeTruthy()
+  })
+
+  it('does not say that every type is forbidden when the catalog is empty, and says it is loading', async () => {
+    mount({ catalog: [], catalogStatus: 'loading' })
+    await ready()
+    expect(within(forbidden()).queryByText('Every node type is already forbidden.')).toBeNull()
+    expect(within(forbidden()).getByText('Loading the node types…')).toBeTruthy()
+    expect(nodeSelect().disabled).toBe(true)
+  })
+
+  it('says the catalog could not be loaded and offers to try again', async () => {
+    const onRetryCatalog = vi.fn()
+    const { user } = mount({ catalog: [], catalogStatus: 'error', onRetryCatalog })
+    await ready()
+    expect(within(forbidden()).queryByText('Every node type is already forbidden.')).toBeNull()
+    expect(within(forbidden()).getByText('The node types could not be loaded.')).toBeTruthy()
+    await user.click(within(forbidden()).getByRole('button', { name: 'Try again' }))
+    expect(onRetryCatalog).toHaveBeenCalledTimes(1)
+  })
+
+  it('says there are no node types to choose from for an empty catalog that was loaded, and has no retry without a handler', async () => {
+    mount({ catalog: [], catalogStatus: 'ready' })
+    await ready()
+    expect(within(forbidden()).getByText('There are no node types to choose from.')).toBeTruthy()
+    expect(within(forbidden()).queryByText('Every node type is already forbidden.')).toBeNull()
+    expect(within(forbidden()).queryByRole('button', { name: 'Try again' })).toBeNull()
+  })
+
+  it('still says that no node type is forbidden when the catalog is empty, and shows a saved rule by its code', async () => {
+    const first = mount({ catalog: [], catalogStatus: 'loading' })
+    await ready()
+    expect(within(forbidden()).getByText('No node type is forbidden.')).toBeTruthy()
+    first.view.unmount()
+    mount({ catalog: [], catalogStatus: 'loading', rules: [NODE_RULE] })
+    await ready()
+    expect(within(forbidden()).getByText('http.request')).toBeTruthy()
+    expect(within(forbidden()).queryByText('Every node type is already forbidden.')).toBeNull()
+  })
+
+  it('speaks Korean for the catalog states', async () => {
+    mount({ catalog: [], catalogStatus: 'error', onRetryCatalog: () => undefined, locale: 'ko' })
+    await screen.findByRole('region', { name: ko['rules.forbid.title'] })
+    expect(screen.getByText(ko['rules.forbid.catalogError'])).toBeTruthy()
   })
 
   it('shows a rule for a type that the catalog does not know by its code', async () => {
@@ -369,28 +460,111 @@ describe('the planning effort cap', () => {
     expect(capSelect().value).toBe('high')
   })
 
-  it('saves a cap as soon as one is chosen, and says so', async () => {
+  it('does not save while a step is only chosen, also when the keys step through the list, and has Save off until the choice differs from the saved cap', async () => {
+    const { callsOf } = mount({ rules: [CAP_RULE] })
+    await ready()
+    const save = (): HTMLButtonElement => within(cap()).getByRole('button', { name: 'Save' }) as HTMLButtonElement
+    expect(save().disabled).toBe(true)
+    for (const value of ['medium', 'low', 'medium', 'low']) fireEvent.change(capSelect(), { target: { value } })
+    expect(capSelect().value).toBe('low')
+    expect(save().disabled).toBe(false)
+    expect(callsOf('saveRule')).toEqual([])
+    fireEvent.change(capSelect(), { target: { value: 'high' } })
+    expect(save().disabled).toBe(true)
+  })
+
+  it('saves the chosen cap when Save is pressed, and says so', async () => {
     const { user, callsOf } = mount()
     await ready()
     await user.selectOptions(capSelect(), 'medium')
+    await user.click(within(cap()).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(within(cap()).getByRole('status').textContent).toBe('The highest effort is now Normal.'))
     expect(callsOf('saveRule')).toEqual([{ kind: 'maxPlanEffort', value: 'medium' }])
     expect(capSelect().value).toBe('medium')
+    expect((within(cap()).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('replaces the cap when another step is chosen and keeps one cap rule', async () => {
+  it('replaces the cap with a lower step without asking, and keeps one cap rule', async () => {
     const { user, callsOf } = mount({ rules: [CAP_RULE] })
     await ready()
     await user.selectOptions(capSelect(), 'low')
-    await waitFor(() => expect(capSelect().value).toBe('low'))
-    expect(callsOf('saveRule')).toEqual([{ kind: 'maxPlanEffort', value: 'low' }])
+    await user.click(within(cap()).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(callsOf('saveRule')).toEqual([{ kind: 'maxPlanEffort', value: 'low' }]))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    await waitFor(() => expect(within(cap()).getByRole('status').textContent).toBe('The highest effort is now Fast.'))
     expect(screen.getByText('1 of 30 rules')).toBeTruthy()
+  })
+
+  it('sends one request when Save is pressed twice at once', async () => {
+    const { callsOf } = mount()
+    await ready()
+    fireEvent.change(capSelect(), { target: { value: 'medium' } })
+    const save = within(cap()).getByRole('button', { name: 'Save' })
+    fireEvent.click(save)
+    fireEvent.click(save)
+    await waitFor(() => expect(within(cap()).getByRole('status').textContent).toBe('The highest effort is now Normal.'))
+    expect(callsOf('saveRule')).toHaveLength(1)
+  })
+
+  it('asks before a higher step replaces the cap, says what is allowed again, and keeps the old cap when the answer is no', async () => {
+    const { user, callsOf } = mount({ rules: [rule('r-cap', 'maxPlanEffort', 'low')] })
+    await ready()
+    await user.selectOptions(capSelect(), 'xhigh')
+    await user.click(within(cap()).getByRole('button', { name: 'Save' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Raise the cap?' })
+    expect(within(dialog).getByText('The cap is raised from “Fast” to “Very careful”. A plan request may use up to Very careful again.')).toBeTruthy()
+    expect(callsOf('saveRule')).toEqual([])
+    await user.click(within(dialog).getByRole('button', { name: 'Keep it' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(capSelect().value).toBe('low')
+    expect(callsOf('saveRule')).toEqual([])
+    expect((within(cap()).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('raises the cap after the confirmation and says so', async () => {
+    const { user, callsOf } = mount({ rules: [rule('r-cap', 'maxPlanEffort', 'low')] })
+    await ready()
+    await user.selectOptions(capSelect(), 'high')
+    await user.click(within(cap()).getByRole('button', { name: 'Save' }))
+    await user.click(within(await screen.findByRole('dialog', { name: 'Raise the cap?' })).getByRole('button', { name: 'Raise the cap' }))
+    await waitFor(() => expect(capSelect().value).toBe('high'))
+    expect(callsOf('saveRule')).toEqual([{ kind: 'maxPlanEffort', value: 'high' }])
+    expect(within(cap()).getByRole('status').textContent).toBe('The highest effort is now Careful.')
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('treats Maximum like No cap: it asks first and says that any step may be used again', async () => {
+    const { user, callsOf } = mount({ rules: [rule('r-cap', 'maxPlanEffort', 'low')] })
+    await ready()
+    await user.selectOptions(capSelect(), 'max')
+    await user.click(within(cap()).getByRole('button', { name: 'Save' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Raise the cap?' })
+    expect(within(dialog).getByText('The cap is raised from “Fast” to “Maximum”. A plan request may use any step again.')).toBeTruthy()
+    expect(callsOf('saveRule')).toEqual([])
+    await user.click(within(dialog).getByRole('button', { name: 'Raise the cap' }))
+    await waitFor(() => expect(capSelect().value).toBe('max'))
+    expect(callsOf('saveRule')).toEqual([{ kind: 'maxPlanEffort', value: 'max' }])
+  })
+
+  it('does not ask when Maximum replaces a cap that is already as wide, or when a cap is set for the first time', async () => {
+    const first = mount()
+    await ready()
+    await first.user.selectOptions(capSelect(), 'max')
+    await first.user.click(within(cap()).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(first.callsOf('saveRule')).toEqual([{ kind: 'maxPlanEffort', value: 'max' }]))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    await first.user.selectOptions(capSelect(), 'none')
+    await first.user.click(within(cap()).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(first.callsOf('deleteRule')).toHaveLength(1))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(capSelect().value).toBe('none')
   })
 
   it('asks before the cap is removed, names it, and keeps it when the answer is no', async () => {
     const { user, callsOf } = mount({ rules: [CAP_RULE] })
     await ready()
     await user.selectOptions(capSelect(), 'none')
+    await user.click(within(cap()).getByRole('button', { name: 'Save' }))
     const dialog = await screen.findByRole('dialog', { name: 'Remove this rule?' })
     expect(within(dialog).getByText('The cap “Careful” is removed. A plan request may use any step again.')).toBeTruthy()
     await user.click(within(dialog).getByRole('button', { name: 'Keep it' }))
@@ -399,15 +573,37 @@ describe('the planning effort cap', () => {
     expect(callsOf('deleteRule')).toEqual([])
   })
 
+  it('puts the select back on the saved cap when the dialog is closed with Escape', async () => {
+    const { user } = mount({ rules: [CAP_RULE] })
+    await ready()
+    await user.selectOptions(capSelect(), 'xhigh')
+    await user.click(within(cap()).getByRole('button', { name: 'Save' }))
+    await screen.findByRole('dialog')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(capSelect().value).toBe('high')
+  })
+
   it('removes the cap after the confirmation', async () => {
     const { user, callsOf } = mount({ rules: [CAP_RULE] })
     await ready()
     await user.selectOptions(capSelect(), 'none')
+    await user.click(within(cap()).getByRole('button', { name: 'Save' }))
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove rule' }))
     await waitFor(() => expect(capSelect().value).toBe('none'))
     expect(callsOf('deleteRule')).toEqual([{ id: 'r-cap' }])
     expect(within(cap()).getByRole('status').textContent).toBe('The cap was removed.')
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('speaks Korean in the cap controls and in the dialog that raises it', async () => {
+    const { user } = mount({ locale: 'ko', rules: [rule('r-cap', 'maxPlanEffort', 'low')] })
+    const region = await screen.findByRole('region', { name: ko['rules.cap.title'] })
+    await user.selectOptions(within(region).getByRole('combobox', { name: ko['rules.cap.label'] }), 'high')
+    await user.click(within(region).getByRole('button', { name: ko['rules.cap.save'] }))
+    const dialog = await screen.findByRole('dialog', { name: ko['rules.confirm.raiseTitle'] })
+    expect(within(dialog).getByRole('button', { name: ko['rules.confirm.raiseConfirm'] })).toBeTruthy()
+    expect(within(dialog).getByText('상한을 “빠르게”에서 “꼼꼼히”(으)로 올려요. 계획 요청이 다시 “꼼꼼히” 단계까지 쓸 수 있어요.')).toBeTruthy()
   })
 
   it('explains that a request above the cap is lowered and never refused', async () => {
@@ -496,6 +692,49 @@ describe('removing a rule', () => {
     expect((await within(forbidden()).findByRole('alert')).textContent).toBe(en['rules.error.RULE_NOT_FOUND'])
     expect(screen.queryByRole('dialog')).toBeNull()
     await waitFor(() => expect(callsOf('listRules')).toHaveLength(2))
+  })
+
+  it('says only that the rule was already removed for RULE_NOT_FOUND, without claiming the list is up to date', () => {
+    expect(en['rules.error.RULE_NOT_FOUND']).toBe('This rule was already removed.')
+    expect(ko['rules.error.RULE_NOT_FOUND']).not.toContain('새로 불러왔어요')
+  })
+
+  it('keeps showing the load error with a retry when the list cannot be loaded again after RULE_NOT_FOUND, and marks the old list as out of date', async () => {
+    let lists = 0
+    const { user } = mount({
+      rules: [NODE_RULE],
+      intercept: (method) => {
+        if (method === 'deleteRule') return Promise.reject(new RillError('RULE_NOT_FOUND', 'x'))
+        if (method === 'listRules' && ++lists === 2) return Promise.reject(new RillError('INTERNAL', 'x'))
+        return undefined
+      },
+    })
+    await ready()
+    await user.click(within(forbidden()).getByRole('button', { name: /^Remove HTTP request/ }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove rule' }))
+    expect(await screen.findByText('Could not refresh the rules. The list below may be out of date.')).toBeTruthy()
+    expect(within(forbidden()).getByRole('list', { name: 'Forbidden node types' })).toBeTruthy()
+    expect(within(forbidden()).getByRole('alert').textContent).toBe('This rule was already removed.')
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.queryByText('Could not refresh the rules. The list below may be out of date.')).toBeNull())
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+  })
+
+  it('says the same in Korean', async () => {
+    let lists = 0
+    const { user } = mount({
+      locale: 'ko',
+      rules: [NODE_RULE],
+      intercept: (method) => {
+        if (method === 'deleteRule') return Promise.reject(new RillError('RULE_NOT_FOUND', 'x'))
+        if (method === 'listRules' && ++lists === 2) return Promise.reject(new RillError('INTERNAL', 'x'))
+        return undefined
+      },
+    })
+    await screen.findByRole('region', { name: ko['rules.forbid.title'] })
+    await user.click(within(screen.getByRole('region', { name: ko['rules.forbid.title'] })).getByRole('button', { name: /지우기$/ }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: ko['rules.confirm.confirm'] }))
+    expect(await screen.findByText(ko['rules.screen.staleError'])).toBeTruthy()
   })
 
   it('sends one request when Remove rule is pressed twice', async () => {
@@ -591,13 +830,14 @@ describe('errors of the engine', () => {
     expect(within(hosts()).queryByRole('alert')).toBeNull()
   })
 
-  it('says a fixed text for a cap that could not be saved and keeps the old cap', async () => {
+  it('says a fixed text for a cap that could not be saved and keeps the choice, so Save can be pressed again', async () => {
     const user = userEvent.setup()
     mount({ rules: [CAP_RULE], intercept: (method) => (method === 'saveRule' ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined) })
     await ready()
     await user.selectOptions(capSelect(), 'low')
+    await user.click(within(cap()).getByRole('button', { name: 'Save' }))
     expect((await within(cap()).findByRole('alert')).textContent).toBe(en['rules.error.generic'])
-    expect(capSelect().value).toBe('high')
+    expect(capSelect().value).toBe('low')
   })
 })
 
@@ -666,14 +906,62 @@ describe('existing workflows', () => {
   })
 
   it('shows the first three issues of a workflow and counts the rest', async () => {
-    const many = Array.from({ length: 20 }, (_, index) => issue(`problem number ${index}`, `/nodes/${index}/type`))
+    const many = Array.from({ length: 12 }, (_, index) => issue(`problem number ${index}`, `/nodes/${index}/type`))
     mount({ violations: () => [entry('wf-1', 'Many', many)] })
     await ready()
     const list = await within(existing()).findByRole('list', { name: 'Workflows that break a rule' })
     expect(list.textContent).toContain('problem number 0')
     expect(list.textContent).toContain('problem number 2')
     expect(list.textContent).not.toContain('problem number 3')
-    expect(within(list).getByText('…and 17 more problems')).toBeTruthy()
+    expect(within(list).getByText('…and 9 more problems')).toBeTruthy()
+  })
+
+  it('says at least 200 when the engine stopped at its limit, and the exact count just below it', async () => {
+    const first = mount({ violations: () => Array.from({ length: 200 }, (_, index) => entry(`wf-${index}`, `Workflow ${index}`)) })
+    await ready()
+    expect(await within(existing()).findByText(/^At least 200 workflows break a rule\./)).toBeTruthy()
+    expect(within(existing()).queryByText('200 workflows break a rule.')).toBeNull()
+    first.view.unmount()
+    mount({ violations: () => Array.from({ length: 199 }, (_, index) => entry(`wf-${index}`, `Workflow ${index}`)) })
+    await ready()
+    expect(await within(existing()).findByText('199 workflows break a rule.')).toBeTruthy()
+  })
+
+  it('says at least 200 in Korean too', async () => {
+    mount({ locale: 'ko', violations: () => Array.from({ length: 200 }, (_, index) => entry(`wf-${index}`, `Workflow ${index}`)) })
+    await screen.findByRole('region', { name: ko['rules.check.title'] })
+    expect(await screen.findByText(/^워크플로우 200개 이상이 규칙을 어겨요\./)).toBeTruthy()
+  })
+
+  it('says 17 or more when a workflow has the most issues the engine keeps, and exactly 16 more just below it', async () => {
+    const issues = (count: number) => Array.from({ length: count }, (_, index) => issue(`problem number ${index}`, `/nodes/${index}/type`))
+    const first = mount({ violations: () => [entry('wf-1', 'Many', issues(20))] })
+    await ready()
+    expect(await within(existing()).findByText('…and 17 or more problems')).toBeTruthy()
+    first.view.unmount()
+    const second = mount({ violations: () => [entry('wf-1', 'Many', issues(19))] })
+    await ready()
+    expect(await within(existing()).findByText('…and 16 more problems')).toBeTruthy()
+    second.view.unmount()
+    mount({ locale: 'ko', violations: () => [entry('wf-1', 'Many', issues(20))] })
+    await screen.findByRole('region', { name: ko['rules.check.title'] })
+    expect(await screen.findByText('…그리고 문제 17개 이상 더')).toBeTruthy()
+  })
+
+  it('keeps one status element for loading, the answer and the next answer, so a screen reader hears each change', async () => {
+    const user = userEvent.setup()
+    mount({ violations: (rules) => (rules.some((item) => item.value === 'delay') ? [entry('wf-9', 'Pauses a lot', [issue('node n3: the node type delay is forbidden by the rules')])] : []) })
+    await ready()
+    const status = await within(existing()).findByText('No workflow breaks a rule.')
+    expect(status.getAttribute('role')).toBe('status')
+    await user.selectOptions(nodeSelect(), 'delay')
+    await user.click(within(forbidden()).getByRole('button', { name: 'Add' }))
+    await within(existing()).findByRole('list', { name: 'Workflows that break a rule' })
+    expect(within(existing()).getByRole('status')).toBe(status)
+    expect(status.textContent).toBe('1 workflow breaks a rule.')
+    await user.click(within(existing()).getByRole('button', { name: 'Check again' }))
+    await waitFor(() => expect(status.textContent).toBe('1 workflow breaks a rule.'))
+    expect(within(existing()).getByRole('status')).toBe(status)
   })
 
   it('says it could not check, and checks again on the button', async () => {

@@ -104,12 +104,64 @@ export const ConfirmRemoveLastHost: Story = {
   },
 }
 
+function saveCap(root: HTMLElement): void {
+  [...root.querySelectorAll<HTMLElement>('button')].find((button) => button.textContent === 'Save' || button.textContent === '저장')?.click()
+}
+
+export const CapChosen: Story = {
+  name: 'A new cap is chosen, not saved yet',
+  args: some,
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    chooseOption(canvasElement.querySelectorAll('select')[1] ?? null, 'low')
+  },
+}
+
+export const ConfirmRaiseCap: Story = {
+  name: 'Confirm raising the cap',
+  args: some,
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    chooseOption(canvasElement.querySelectorAll('select')[1] ?? null, 'xhigh')
+    await pause(40)
+    saveCap(canvasElement)
+  },
+}
+
+export const ConfirmRaiseCapToMaximum: Story = {
+  name: 'Confirm raising the cap to Maximum',
+  args: some,
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    chooseOption(canvasElement.querySelectorAll('select')[1] ?? null, 'max')
+    await pause(40)
+    saveCap(canvasElement)
+  },
+}
+
 export const ConfirmRemoveCap: Story = {
   name: 'Confirm removing the cap',
   args: some,
   play: async ({ canvasElement }) => {
     await pause(80)
     chooseOption(canvasElement.querySelectorAll('select')[1] ?? null, 'none')
+    await pause(40)
+    saveCap(canvasElement)
+  },
+}
+
+export const CatalogLoading: Story = { name: 'The node types are loading', args: { catalog: 'loading' } }
+
+export const CatalogLoadError: Story = { name: 'The node types could not be loaded', args: { catalog: 'error' } }
+
+export const RefreshFailsAfterRemoving: Story = {
+  name: 'The list cannot be refreshed after a rule was already gone',
+  args: { rules: ruleFixtures.some, list: 'failLater', failDelete: 'RULE_NOT_FOUND' },
+  play: async ({ canvasElement }) => {
+    await pause(80)
+    removeButton(canvasElement, 'http.request')?.click()
+    await pause(40)
+    confirmButton(canvasElement)?.click()
   },
 }
 
@@ -173,6 +225,8 @@ export const OneWorkflowBreaksARule: Story = { name: 'Existing workflows: one br
 export const SeveralWorkflowsBreakRules: Story = { name: 'Existing workflows: several break rules', args: some }
 
 export const ManyProblemsInOneWorkflow: Story = { name: 'Existing workflows: twenty problems in one', args: { rules: ruleFixtures.some, violations: violationFixtures.manyIssues } }
+
+export const ChecksStopAt200: Story = { name: 'Existing workflows: the check stopped at 200', args: { rules: ruleFixtures.some, violations: violationFixtures.atTheLimit } }
 
 export const HostileWorkflowText: Story = { name: 'Existing workflows: hostile and long text', args: { rules: ruleFixtures.some, violations: violationFixtures.hostile } }
 

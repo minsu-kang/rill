@@ -87,15 +87,34 @@ function failureText(node: string): string {
   return `node ${node} failed: HTTP 503 from https://api.example.com/health`
 }
 
-function forbiddenNodeViolations(workflows: Iterable<FakeWorkflow>, rules: readonly Rule[]): RuleViolation[] {
+function hostOfUrl(url: string): string | undefined {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.hostname : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function hostAllowed(host: string, pattern: string): boolean {
+  if (!pattern.startsWith('*.')) return host === pattern
+  const suffix = pattern.slice(1)
+  return host.length > suffix.length && host.endsWith(suffix)
+}
+
+function ruleViolations(workflows: Iterable<FakeWorkflow>, rules: readonly Rule[]): RuleViolation[] {
   const forbidden = new Set(rules.filter((rule) => rule.kind === 'forbidNode').map((rule) => rule.value))
-  if (forbidden.size === 0) return []
+  const hosts = rules.filter((rule) => rule.kind === 'allowHost').map((rule) => rule.value)
+  if (forbidden.size === 0 && hosts.length === 0) return []
   return [...workflows].flatMap((entry) => {
-    const issues = entry.workflow.nodes.flatMap((node, index) =>
-      forbidden.has(baseNodeType(node.type))
-        ? [{ stage: 3 as const, pointer: `/nodes/${index}/type`, code: 'rule_violation', message: `node ${node.id}: the node type ${baseNodeType(node.type)} is forbidden by the rules` }]
-        : [],
-    )
+    const issues = entry.workflow.nodes.flatMap((node, index) => {
+      const type = baseNodeType(node.type)
+      if (forbidden.has(type)) return [{ stage: 3 as const, pointer: `/nodes/${index}/type`, code: 'rule_violation', message: `node ${node.id}: the node type ${type} is forbidden by the rules` }]
+      const url = (node.config as { url?: unknown } | undefined)?.url
+      const host = type === 'http.request' && hosts.length > 0 && typeof url === 'string' ? hostOfUrl(url) : undefined
+      if (host === undefined || hosts.some((pattern) => hostAllowed(host, pattern))) return []
+      return [{ stage: 3 as const, pointer: `/nodes/${index}/config/url`, code: 'rule_violation', message: `node ${node.id}: the host ${host} is not in the allowed hosts` }]
+    })
     return issues.length === 0 ? [] : [{ workflowId: entry.id, name: entry.workflow.name, issues }]
   })
 }
@@ -118,7 +137,7 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
     models,
     script: options.plan ?? (() => outcomeOf(results.workflow)),
     memory: [...memoryFixtures.three],
-    violations: (rules) => forbiddenNodeViolations(registry.values(), rules),
+    violations: (rules) => ruleViolations(registry.values(), rules),
     ...(options.agents === undefined ? {} : { agents: options.agents }),
     ...(options.activeAgentId === undefined ? {} : { activeAgentId: options.activeAgentId }),
     ...(options.planDelayMs === undefined ? {} : { delayMs: options.planDelayMs }),

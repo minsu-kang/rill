@@ -68,4 +68,10 @@ const hostile: RuleViolation[] = [
   },
 ]
 
-export const violationFixtures = { one, several, manyIssues, hostile }
+const atTheLimit: RuleViolation[] = Array.from({ length: 200 }, (_, index) => ({
+  workflowId: `wf-limit-${index + 1}`,
+  name: `Imported workflow ${index + 1}`,
+  issues: [issue('/nodes/1/type', 'node call: the node type http.request is forbidden by the rules')],
+}))
+
+export const violationFixtures = { one, several, manyIssues, atTheLimit, hostile }

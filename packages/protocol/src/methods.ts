@@ -23,7 +23,7 @@ import {
   PlanTurnSchema,
 } from './plan'
 import { RecipeDraftSchema, RecipeInfoSchema, RecipeValuesSchema } from './recipes'
-import { RULE_MAX_INPUT_CHARS, RULE_MAX_ITEMS, RuleKindSchema, RuleSchema } from './rules'
+import { RULE_CHECK_MAX_ISSUES, RULE_CHECK_MAX_WORKFLOWS, RULE_MAX_INPUT_CHARS, RULE_MAX_ITEMS, RuleKindSchema, RuleSchema } from './rules'
 
 const id = IdSchema
 const closed = { additionalProperties: false } as const
@@ -188,8 +188,8 @@ export const METHODS = {
     params: noParams,
     result: Type.Object({
       violations: Type.Array(
-        Type.Object({ workflowId: id, name: Type.String(), issues: Type.Array(PlanIssueSchema, { maxItems: 20 }) }, closed),
-        { maxItems: 200 },
+        Type.Object({ workflowId: id, name: Type.String(), issues: Type.Array(PlanIssueSchema, { maxItems: RULE_CHECK_MAX_ISSUES }) }, closed),
+        { maxItems: RULE_CHECK_MAX_WORKFLOWS },
       ),
     }),
   },

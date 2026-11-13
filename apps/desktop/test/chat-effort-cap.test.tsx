@@ -5,7 +5,7 @@ import { ChatPanel } from '../src/chat/ChatPanel'
 import type { AttachmentPort } from '../src/chat/Composer'
 import { EffortSlider } from '../src/chat/EffortSlider'
 import { MetaLine } from '../src/chat/MetaLine'
-import { EFFORT_STEPS, stepAvailability } from '../src/chat/model/effort'
+import { EFFORT_STEPS, effectiveStep, stepAvailability } from '../src/chat/model/effort'
 import { planErrorKey } from '../src/chat/model/errors'
 import { activeModelOf } from '../src/chat/model/models'
 import { rulesStoreFor } from '../src/engine/rules'
@@ -18,6 +18,7 @@ import { renderThemed } from './render'
 
 const opus = activeModelOf(models)!
 const haiku = activeModelOf(modelsHaikuActive)!
+const muse = models.models.find((model) => model.id === 'muse-spark-1.0')!
 
 const radios = (): HTMLElement[] => screen.getAllByRole('radio')
 const disabled = (): string[] => radios().filter((radio) => radio.getAttribute('aria-disabled') === 'true').map((radio) => radio.textContent ?? '')
@@ -40,6 +41,37 @@ describe('stepAvailability with a cap', () => {
     expect(stepAvailability(veryCareful, haiku, 'medium')).toEqual({ enabled: false, reason: 'rule_cap' })
     expect(stepAvailability(veryCareful, haiku, 'xhigh')).toEqual({ enabled: false, reason: 'model_unsupported' })
     expect(stepAvailability(veryCareful, undefined, 'medium')).toEqual({ enabled: false, reason: 'no_model' })
+  })
+})
+
+describe('effectiveStep', () => {
+  it('is the step itself when the model has it and no cap is in the way', () => {
+    expect(effectiveStep('medium', opus, undefined)).toBe('medium')
+    expect(effectiveStep('max', opus, undefined)).toBe('max')
+  })
+
+  it('lowers to the cap, and then to the closest lower step the model has', () => {
+    expect(effectiveStep('xhigh', opus, 'medium')).toBe('medium')
+    expect(effectiveStep('xhigh', muse, 'high')).toBe('medium')
+    expect(effectiveStep('medium', muse, 'low')).toBe('low')
+  })
+
+  it('lowers a step the model lacks to the closest lower one, and to the first one when none is lower', () => {
+    expect(effectiveStep('xhigh', haiku, undefined)).toBe('high')
+    const upper = { ...opus, capabilities: { ...opus.capabilities, effortLevels: ['high', 'xhigh'] as PlanEffort[] } }
+    expect(effectiveStep('low', upper, undefined)).toBe('high')
+  })
+
+  it('keeps the step when the model lists no level, and has none without a model', () => {
+    const none = { ...opus, capabilities: { ...opus.capabilities, effortLevels: [] as PlanEffort[] } }
+    expect(effectiveStep('high', none, undefined)).toBe('high')
+    expect(effectiveStep('high', none, 'low')).toBe('low')
+    expect(effectiveStep('high', undefined, undefined)).toBeUndefined()
+  })
+
+  it('does not lower a step at the cap or below it', () => {
+    expect(effectiveStep('high', opus, 'high')).toBe('high')
+    expect(effectiveStep('low', opus, 'high')).toBe('low')
   })
 })
 
@@ -88,7 +120,47 @@ describe('EffortSlider with a cap', () => {
 
   it('has no tab stop on a step above the cap, so the keyboard lands on the cap', () => {
     renderThemed(<EffortSlider value="xhigh" onChange={() => undefined} model={opus} cap="medium" />, { locale: 'en' })
-    expect(radios().map((radio) => radio.getAttribute('tabindex'))).toEqual(['0', '-1', '-1', '-1'])
+    expect(radios().map((radio) => radio.getAttribute('tabindex'))).toEqual(['-1', '0', '-1', '-1'])
+  })
+
+  it('does not drop a keyboard user to the lowest step: pressing the tab stop chooses the cap', () => {
+    const onChange = vi.fn()
+    renderThemed(<EffortSlider value="xhigh" onChange={onChange} model={opus} cap="medium" />, { locale: 'en' })
+    const stop = radios().find((radio) => radio.getAttribute('tabindex') === '0')!
+    expect(stop.textContent).toBe('Normal')
+    fireEvent.click(stop)
+    expect(onChange).toHaveBeenLastCalledWith('medium')
+  })
+
+  it('puts the tab stop on the cap when the advanced step is chosen and shown', () => {
+    renderThemed(<EffortSlider value="max" onChange={() => undefined} model={opus} cap="high" />, { locale: 'en' })
+    expect(radios().map((radio) => [radio.textContent, radio.getAttribute('tabindex')])).toEqual([
+      ['Fast', '-1'],
+      ['Normal', '-1'],
+      ['Careful', '0'],
+      ['Very careful', '-1'],
+      ['Maximum', '-1'],
+    ])
+  })
+
+  it('names the step the request really runs at when the cap is a step the model does not have', () => {
+    renderThemed(<EffortSlider value="xhigh" onChange={() => undefined} model={muse} cap="high" />, { locale: 'en' })
+    expect(screen.getByRole('status').textContent).toBe(
+      'A rule you set allows Careful at most and the model does not support that step, so this request runs at Normal. You can change the rule on the Rules screen.',
+    )
+    expect(radios().find((radio) => radio.getAttribute('tabindex') === '0')!.textContent).toBe('Normal')
+  })
+
+  it('says it in Korean too', () => {
+    renderThemed(<EffortSlider value="xhigh" onChange={() => undefined} model={muse} cap="high" />, { locale: 'ko' })
+    expect(screen.getByRole('status').textContent).toBe(
+      '직접 정한 규칙이 최대 꼼꼼히까지만 허용하고 모델이 그 단계를 지원하지 않아서, 이 요청은 보통(으)로 실행돼요. 규칙은 규칙 화면에서 바꿀 수 있어요.',
+    )
+  })
+
+  it('puts the tab stop on the step a model lowers to, not on the lowest one', () => {
+    renderThemed(<EffortSlider value="xhigh" onChange={() => undefined} model={haiku} />, { locale: 'en' })
+    expect(radios().find((radio) => radio.getAttribute('tabindex') === '0')!.textContent).toBe('Careful')
   })
 
   it('looks the same as before without a cap', () => {

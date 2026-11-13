@@ -1,5 +1,5 @@
 import type { LlmModelInfo, PlanEffort } from '@rill/protocol'
-import { effortRank } from '../../model/rules'
+import { cappedEffort, closestLevel, effortRank } from '../../model/rules'
 
 export type EffortLabel = 'fast' | 'normal' | 'careful' | 'very_careful' | 'max'
 export type EffortStep = { label: EffortLabel; effort: PlanEffort; advanced: boolean }
@@ -23,4 +23,8 @@ export function stepAvailability(step: EffortStep, model: LlmModelInfo | undefin
   if (model === undefined) return { enabled: false, reason: 'no_model' }
   if (cap !== undefined && effortRank(step.effort) > effortRank(cap)) return { enabled: false, reason: 'rule_cap' }
   return model.capabilities.effortLevels.includes(step.effort) ? { enabled: true } : { enabled: false, reason: 'model_unsupported' }
+}
+
+export function effectiveStep(value: PlanEffort, model: LlmModelInfo | undefined, cap?: PlanEffort): PlanEffort | undefined {
+  return model === undefined ? undefined : closestLevel(model.capabilities.effortLevels, cappedEffort(value, cap))
 }

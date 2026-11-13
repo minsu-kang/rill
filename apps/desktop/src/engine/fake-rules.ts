@@ -1,5 +1,18 @@
-import { PLAN_EFFORTS, RULE_MAX_ITEMS, RULE_MAX_INPUT_CHARS, RillError, type MethodParams, type MethodResult, type PlanEffort, type PlanMeta, type Rule } from '@rill/protocol'
-import { checkRuleValue, effortCapOf, effortRank, type RuleProblem, type RuleViolation } from '../model/rules'
+import {
+  PLAN_EFFORTS,
+  RULE_CHECK_MAX_ISSUES,
+  RULE_CHECK_MAX_WORKFLOWS,
+  RULE_MAX_ITEMS,
+  RULE_MAX_INPUT_CHARS,
+  RillError,
+  type LlmModelInfo,
+  type MethodParams,
+  type MethodResult,
+  type PlanEffort,
+  type PlanMeta,
+  type Rule,
+} from '@rill/protocol'
+import { checkRuleValue, closestLevel, effortCapOf, effortRank, type RuleProblem, type RuleViolation } from '../model/rules'
 
 export type { RuleViolation }
 export type RuleViolationScript = (rules: readonly Rule[]) => RuleViolation[]
@@ -71,12 +84,16 @@ export function createFakeRules(options: FakeRulesOptions = {}): FakeRules {
       saved.splice(at, 1)
       return { deleted: true }
     },
-    check: () => ({ violations: structuredClone(options.violations?.(structuredClone(saved)) ?? []) }),
+    check: () => ({
+      violations: structuredClone((options.violations?.(structuredClone(saved)) ?? []).slice(0, RULE_CHECK_MAX_WORKFLOWS).map((entry) => ({ ...entry, issues: entry.issues.slice(0, RULE_CHECK_MAX_ISSUES) }))),
+    }),
     cap: () => effortCapOf(saved),
   }
 }
 
-export function metaUnderCap(meta: PlanMeta, requested: PlanEffort, cap: PlanEffort | undefined): PlanMeta {
+export function metaUnderCap(meta: PlanMeta, requested: PlanEffort, cap: PlanEffort | undefined, model?: LlmModelInfo): PlanMeta {
   if (cap === undefined || effortRank(requested) <= effortRank(cap)) return meta
-  return { ...meta, effort: cap, effortDetail: { requested, effective: cap, native: cap, collapsed: false, cappedByRule: true } }
+  const effective = closestLevel(model?.capabilities.effortLevels ?? PLAN_EFFORTS, cap)
+  const native = model?.capabilities.effortMap[effective] ?? effective
+  return { ...meta, effort: effective, effortDetail: { requested, effective, native, collapsed: effective !== requested, cappedByRule: true } }
 }

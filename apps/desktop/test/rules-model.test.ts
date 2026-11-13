@@ -5,7 +5,7 @@ import { policyIssues } from '@rill/nodes-core'
 import { PLAN_EFFORTS, RULE_MAX_INPUT_CHARS, type Rule, type RuleKind } from '@rill/protocol'
 import { describe, expect, it } from 'vitest'
 import { catalog } from '../src/fixtures'
-import { checkRuleValue, effortCapOf, effortRank, forbiddableNodes, isRuleMessage, splitRules } from '../src/model/rules'
+import { checkRuleValue, effortCapOf, effortRank, forbiddableNodes, isRuleMessage, splitRules, widensCap } from '../src/model/rules'
 
 const TYPES = new Set(catalog.map((entry) => entry.type.replace(/@\d+$/, '')))
 
@@ -129,6 +129,29 @@ describe('the rule check of the renderer and the engine', () => {
 describe('the planning effort order', () => {
   it('ranks the efforts of the protocol from the lowest to the highest', () => {
     expect(PLAN_EFFORTS.map((effort) => effortRank(effort))).toEqual([0, 1, 2, 3, 4])
+  })
+})
+
+describe('widensCap', () => {
+  it('is true when the new choice allows a higher step than the saved cap', () => {
+    expect(widensCap('low', 'medium')).toBe(true)
+    expect(widensCap('medium', 'xhigh')).toBe(true)
+    expect(widensCap('xhigh', 'max')).toBe(true)
+    expect(widensCap('low', 'none')).toBe(true)
+    expect(widensCap('xhigh', 'none')).toBe(true)
+  })
+
+  it('is false for the same step and for a lower one', () => {
+    expect(widensCap('medium', 'medium')).toBe(false)
+    expect(widensCap('high', 'low')).toBe(false)
+    expect(widensCap('max', 'xhigh')).toBe(false)
+  })
+
+  it('counts no cap and Maximum as the same, the widest choice', () => {
+    expect(widensCap(undefined, 'max')).toBe(false)
+    expect(widensCap(undefined, 'none')).toBe(false)
+    expect(widensCap(undefined, 'low')).toBe(false)
+    expect(widensCap('max', 'none')).toBe(false)
   })
 })
 

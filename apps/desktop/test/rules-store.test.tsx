@@ -57,6 +57,42 @@ describe('the rules store', () => {
     expect(result.current.state.status).toBe('ready')
   })
 
+  it('asks again when a reader subscribes while the last load failed, so a chat that opens later still learns the cap', async () => {
+    let fail = true
+    const { client, count } = world([seed('cap', 'maxPlanEffort', 'medium')], (method) => (method === 'listRules' && fail ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined))
+    const first = renderHook(() => useRules(client))
+    await waitFor(() => expect(first.result.current.state.status).toBe('error'))
+    expect(first.result.current.cap).toBeUndefined()
+    fail = false
+    const second = renderHook(() => useRules(client))
+    await waitFor(() => expect(second.result.current.state.status).toBe('ready'))
+    expect(second.result.current.cap).toBe('medium')
+    expect(first.result.current.cap).toBe('medium')
+    expect(count('listRules')).toBe(2)
+  })
+
+  it('does not ask again for a reader that subscribes while the rules are loading or ready', async () => {
+    const { client, count } = world()
+    const first = renderHook(() => useRules(client))
+    const second = renderHook(() => useRules(client))
+    await waitFor(() => expect(first.result.current.state.status).toBe('ready'))
+    renderHook(() => useRules(client))
+    expect(second.result.current.state.status).toBe('ready')
+    expect(count('listRules')).toBe(1)
+  })
+
+  it('sends one request when two readers subscribe in a row after a failure', async () => {
+    let fail = true
+    const { client, count } = world([], (method) => (method === 'listRules' && fail ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined))
+    const first = renderHook(() => useRules(client))
+    await waitFor(() => expect(first.result.current.state.status).toBe('error'))
+    fail = false
+    renderHook(() => useRules(client))
+    renderHook(() => useRules(client))
+    await waitFor(() => expect(first.result.current.state.status).toBe('ready'))
+    expect(count('listRules')).toBe(2)
+  })
+
   it('saves a rule and puts it at the end of the list', async () => {
     const { client } = world([seed('r1', 'forbidNode', 'delay')])
     const { result } = renderHook(() => useRules(client))

@@ -71,6 +71,9 @@ function createRulesStore(client: EngineClient): RulesStore {
       if (!started) {
         started = true
         void load()
+      } else if (state.status === 'error') {
+        set({ ...state, status: 'loading' })
+        void load()
       }
       return () => {
         listeners.delete(listener)

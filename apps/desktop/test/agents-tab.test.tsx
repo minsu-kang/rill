@@ -1,10 +1,12 @@
-import { fireEvent, screen, within } from '@testing-library/react'
+import { RillError, type MethodName, type MethodParams, type MethodResult } from '@rill/protocol'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { AGENTS_SECTIONS, AgentsTab, type AgentsSectionId } from '../src/app/agents/AgentsTab'
 import { SubNav } from '../src/app/agents/SubNav'
 import { App } from '../src/app/App'
+import type { ConnectFn } from '../src/app/connection'
 import { createFakeWorld } from '../src/app/fake-world'
 import { HostProvider } from '../src/app/host'
 import { createFakeClient } from '../src/engine/fake-client'
@@ -166,6 +168,32 @@ describe('the Agents tab of the app', () => {
     await user.click(within(region).getByRole('button', { name: 'Add' }))
     await within(region).findByRole('list', { name: 'Forbidden node types' })
     expect(world.callsOf('saveRule').map((call) => call.params)).toEqual([{ kind: 'forbidNode', value: 'http.request' }])
+  })
+
+  it('says the node types could not be loaded, and loads them again on Try again', async () => {
+    const world = createFakeWorld({ hostOptions: { restartDelayMs: 0 }, hostInit: { settings: READY }, control: { stepIntervalMs: 0 }, agents: agentFixtures.few })
+    let failures = 1
+    const connect: ConnectFn = async (url, token) => {
+      const connected = await world.connect(url, token)
+      return {
+        ...connected,
+        request: <M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> =>
+          method === 'nodeCatalog' && failures-- > 0 ? Promise.reject(new RillError('INTERNAL', 'x')) : connected.request(method, params),
+      }
+    }
+    const user = userEvent.setup()
+    renderThemed(
+      <HostProvider host={world.host} connect={connect}>
+        <App initial={{ tab: 'agents', agentsSection: 'rules' }} />
+      </HostProvider>,
+      { locale: 'en' },
+    )
+    const region = await screen.findByRole('region', { name: 'Forbidden nodes' })
+    expect(await within(region).findByText('The node types could not be loaded.')).toBeTruthy()
+    expect(within(region).queryByText('Every node type is already forbidden.')).toBeNull()
+    await user.click(within(region).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(within(region).getByRole('combobox', { name: 'Node type' }).querySelectorAll('option').length).toBeGreaterThan(1))
+    expect(within(region).queryByText('The node types could not be loaded.')).toBeNull()
   })
 
   it('lists a deployed workflow that a new rule breaks', async () => {

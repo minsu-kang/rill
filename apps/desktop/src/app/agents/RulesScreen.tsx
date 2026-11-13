@@ -5,9 +5,10 @@ import { errorCodeOf } from '../../engine/agents'
 import type { EngineClient } from '../../engine/client'
 import { useRules } from '../../engine/rules'
 import { useT, type MessageKey, type Translate } from '../../i18n'
-import { checkRuleValue, forbiddableNodes, isPlanEffort, splitRules, type RuleProblem } from '../../model/rules'
+import { checkRuleValue, forbiddableNodes, isPlanEffort, splitRules, widensCap, type RuleProblem } from '../../model/rules'
 import { SafeText } from '../../ui/SafeText'
 import controls from '../controls.module.css'
+import type { CatalogStatus } from '../glue/useEngineData'
 import { useAction } from '../settings/useAction'
 import { ConfirmDialog } from '../workflows/ConfirmDialog'
 import { ExistingWorkflows } from './ExistingWorkflows'
@@ -16,9 +17,13 @@ import styles from './RulesScreen.module.css'
 export interface RulesScreenProps {
   client: EngineClient
   catalog: readonly NodeInfo[]
+  catalogStatus?: CatalogStatus
+  onRetryCatalog?(): void
 }
 
 type Group = 'forbid' | 'hosts' | 'cap'
+
+type Asking = { kind: 'remove'; rule: Rule } | { kind: 'raise'; to: PlanEffort }
 
 interface Notice {
   group: Group
@@ -48,6 +53,12 @@ const PROBLEM_KEYS: Readonly<Record<RuleProblem, MessageKey>> = {
   host_idn: 'rules.problem.host_idn',
 }
 
+const CATALOG_KEYS: Readonly<Record<CatalogStatus, MessageKey>> = {
+  loading: 'rules.forbid.catalogLoading',
+  error: 'rules.forbid.catalogError',
+  ready: 'rules.forbid.catalogNone',
+}
+
 const ERROR_KEYS: Readonly<Record<string, MessageKey>> = {
   RULE_FULL: 'rules.error.RULE_FULL',
   RULE_DUPLICATE: 'rules.error.RULE_DUPLICATE',
@@ -69,17 +80,18 @@ function say(t: Translate, key: MessageKey): string {
   return t(key, { max: RULE_MAX_ITEMS, chars: RULE_MAX_INPUT_CHARS })
 }
 
-export function RulesScreen({ client, catalog }: RulesScreenProps) {
+export function RulesScreen({ client, catalog, catalogStatus = 'ready', onRetryCatalog }: RulesScreenProps) {
   const t = useT()
   const { state, store } = useRules(client)
   const action = useAction(ruleErrorKey)
   const [forbidChoice, setForbidChoice] = useState('')
   const [hostText, setHostText] = useState('')
-  const [asking, setAsking] = useState<Rule | undefined>(undefined)
+  const [asking, setAsking] = useState<Asking | undefined>(undefined)
+  const [pendingCap, setPendingCap] = useState<string | undefined>(undefined)
   const [notice, setNotice] = useState<Notice | undefined>(undefined)
   const [origin, setOrigin] = useState<Group>('hosts')
   const [changes, setChanges] = useState(0)
-  const ids = { forbid: useId(), hosts: useId(), cap: useId() }
+  const ids = { title: useId(), forbid: useId(), hosts: useId(), cap: useId() }
   const fieldIds = { node: useId(), host: useId(), cap: useId(), hostHint: useId(), hostProblem: useId() }
   const nodeSelect = useRef<HTMLSelectElement>(null)
   const hostInput = useRef<HTMLInputElement>(null)
@@ -97,7 +109,11 @@ export function RulesScreen({ client, catalog }: RulesScreenProps) {
     return known === undefined ? type : `${known.title} (${type})`
   }
   const available = nodes.filter((node) => !groups.forbidden.some((rule) => rule.value === node.type))
-  const capValue = groups.cap !== undefined && isPlanEffort(groups.cap.value) ? groups.cap.value : 'none'
+  const savedCap = groups.cap !== undefined && isPlanEffort(groups.cap.value) ? groups.cap.value : undefined
+  const capValue = savedCap ?? 'none'
+  const capChoice = pendingCap ?? capValue
+  const capLocked = full && groups.cap === undefined
+  const canSaveCap = capChoice !== capValue && !capLocked && !action.busy
   const stepName = (effort: PlanEffort): string => t(`chat.effort.${effortLabelOf(effort)}`)
 
   const hostCheck = hostText.trim() === '' ? undefined : checkRuleValue('allowHost', hostText, nodeTypes)
@@ -140,32 +156,61 @@ export function RulesScreen({ client, catalog }: RulesScreenProps) {
     })
   }
 
-  function changeCap(value: string): void {
-    if (value === 'none') {
-      if (groups.cap === undefined) return
-      setOrigin('cap')
-      setNotice(undefined)
-      action.clearError()
-      setAsking(groups.cap)
+  function chooseCap(value: string): void {
+    setNotice(undefined)
+    action.clearError()
+    setPendingCap(value)
+  }
+
+  function applyCap(choice: PlanEffort | 'none'): void {
+    run('cap', async () => {
+      if (choice === 'none') {
+        if (groups.cap !== undefined) await store.remove(groups.cap.id)
+        setNotice({ group: 'cap', key: 'rules.status.capRemoved' })
+      } else {
+        await store.save('maxPlanEffort', choice)
+        setNotice({ group: 'cap', key: 'rules.status.capSet', effort: choice })
+      }
+      setPendingCap(undefined)
+    })
+  }
+
+  function saveCap(): void {
+    if (!canSaveCap || (capChoice !== 'none' && !isPlanEffort(capChoice))) return
+    const choice = capChoice as PlanEffort | 'none'
+    if (!widensCap(savedCap, choice)) {
+      applyCap(choice)
       return
     }
-    if (!isPlanEffort(value)) return
-    run('cap', async () => {
-      await store.save('maxPlanEffort', value)
-      setNotice({ group: 'cap', key: 'rules.status.capSet', effort: value })
-    })
+    setOrigin('cap')
+    setNotice(undefined)
+    action.clearError()
+    if (choice !== 'none') setAsking({ kind: 'raise', to: choice })
+    else if (groups.cap !== undefined) setAsking({ kind: 'remove', rule: groups.cap })
   }
 
   function askToRemove(rule: Rule, group: Group): void {
     setOrigin(group)
     setNotice(undefined)
     action.clearError()
-    setAsking(rule)
+    setAsking({ kind: 'remove', rule })
+  }
+
+  function raise(): void {
+    if (asking?.kind !== 'raise') return
+    const to = asking.to
+    setOrigin('cap')
+    void action.run(async () => {
+      await store.save('maxPlanEffort', to)
+      setAsking(undefined)
+      setPendingCap(undefined)
+      setNotice({ group: 'cap', key: 'rules.status.capSet', effort: to })
+    })
   }
 
   function remove(): void {
-    const rule = asking
-    if (rule === undefined) return
+    if (asking?.kind !== 'remove') return
+    const rule = asking.rule
     const group: Group = rule.kind === 'forbidNode' ? 'forbid' : rule.kind === 'allowHost' ? 'hosts' : 'cap'
     setOrigin(group)
     void action.run(async () => {
@@ -176,6 +221,7 @@ export function RulesScreen({ client, catalog }: RulesScreenProps) {
         throw error
       }
       setAsking(undefined)
+      if (group === 'cap') setPendingCap(undefined)
       setNotice({ group, key: group === 'cap' ? 'rules.status.capRemoved' : 'rules.status.removed' })
       if (group !== 'cap') setChanges((value) => value + 1)
       const target = group === 'forbid' ? forbidHeading.current : group === 'hosts' ? hostsHeading.current : capSelect.current
@@ -191,21 +237,27 @@ export function RulesScreen({ client, catalog }: RulesScreenProps) {
 
   function confirmBody() {
     if (asking === undefined) return null
-    if (asking.kind === 'forbidNode') return { message: t('rules.confirm.forbid', { name: asking.value }), details: undefined }
-    if (asking.kind === 'allowHost') {
-      const last = groups.hosts.length === 1
-      return { message: t('rules.confirm.host', { host: asking.value }), details: <p className={controls.note}>{t(last ? 'rules.confirm.hostLast' : 'rules.confirm.hostMore')}</p> }
+    if (asking.kind === 'raise') {
+      const from = savedCap === undefined ? '' : stepName(savedCap)
+      return { title: t('rules.confirm.raiseTitle'), confirmLabel: t('rules.confirm.raiseConfirm'), message: t(asking.to === 'max' ? 'rules.confirm.raiseMax' : 'rules.confirm.raise', { from, step: stepName(asking.to) }), details: undefined }
     }
-    const step = isPlanEffort(asking.value) ? stepName(asking.value) : asking.value
-    return { message: t('rules.confirm.cap', { step }), details: undefined }
+    const rule = asking.rule
+    const base = { title: t('rules.confirm.title'), confirmLabel: t('rules.confirm.confirm') }
+    if (rule.kind === 'forbidNode') return { ...base, message: t('rules.confirm.forbid', { name: rule.value }), details: undefined }
+    if (rule.kind === 'allowHost') {
+      const last = groups.hosts.length === 1
+      return { ...base, message: t('rules.confirm.host', { host: rule.value }), details: <p className={controls.note}>{t(last ? 'rules.confirm.hostLast' : 'rules.confirm.hostMore')}</p> }
+    }
+    const step = isPlanEffort(rule.value) ? stepName(rule.value) : rule.value
+    return { ...base, message: t('rules.confirm.cap', { step }), details: undefined }
   }
 
   const confirm = confirmBody()
 
   return (
-    <section className={styles.root} aria-labelledby="rules-screen-title">
+    <section className={styles.root} aria-labelledby={ids.title}>
       <header className={styles.head}>
-        <h2 id="rules-screen-title" className={styles.title}>
+        <h2 id={ids.title} className={styles.title}>
           {t('rules.screen.title')}
         </h2>
         <p className={controls.note}>{t('rules.screen.intro')}</p>
@@ -216,10 +268,10 @@ export function RulesScreen({ client, catalog }: RulesScreenProps) {
           {t('rules.screen.loading')}
         </p>
       ) : null}
-      {state.status === 'error' && !ready ? (
+      {state.status === 'error' ? (
         <div className={styles.loadError}>
           <p className={controls.error} role="alert">
-            {t('rules.screen.loadError')}
+            {t(ready ? 'rules.screen.staleError' : 'rules.screen.loadError')}
           </p>
           <div className={controls.row}>
             <button type="button" className={controls.button} onClick={() => void store.refresh()}>
@@ -273,7 +325,20 @@ export function RulesScreen({ client, catalog }: RulesScreenProps) {
                     {t('rules.add')}
                   </button>
                 </form>
-                {available.length === 0 ? <p className={controls.note}>{t('rules.forbid.allUsed')}</p> : null}
+                {available.length > 0 ? null : nodes.length > 0 ? (
+                  <p className={controls.note}>{t('rules.forbid.allUsed')}</p>
+                ) : (
+                  <>
+                    <p className={catalogStatus === 'error' ? controls.error : controls.note}>{t(CATALOG_KEYS[catalogStatus])}</p>
+                    {catalogStatus === 'error' && onRetryCatalog !== undefined ? (
+                      <div className={controls.row}>
+                        <button type="button" className={controls.button} onClick={onRetryCatalog}>
+                          {t('rules.screen.retry')}
+                        </button>
+                      </div>
+                    ) : null}
+                  </>
+                )}
                 {groups.forbidden.length === 0 ? (
                   <p className={controls.note}>{t('rules.forbid.empty')}</p>
                 ) : (
@@ -372,25 +437,23 @@ export function RulesScreen({ client, catalog }: RulesScreenProps) {
               </h3>
               <div className={styles.card}>
                 <p className={controls.note}>{t('rules.cap.intro')}</p>
-                <div className={styles.capField}>
-                  <label htmlFor={fieldIds.cap} className={styles.label}>
-                    {t('rules.cap.label')}
-                  </label>
-                  <select
-                    ref={capSelect}
-                    id={fieldIds.cap}
-                    className={`${controls.input} ${styles.capSelect}`}
-                    value={capValue}
-                    disabled={full && groups.cap === undefined}
-                    onChange={(event) => changeCap(event.target.value)}
-                  >
-                    <option value="none">{t('rules.cap.none')}</option>
-                    {EFFORT_STEPS.map((step) => (
-                      <option key={step.effort} value={step.effort}>
-                        {t(`chat.effort.${step.label}`)}
-                      </option>
-                    ))}
-                  </select>
+                <div className={styles.addRow}>
+                  <div className={styles.capField}>
+                    <label htmlFor={fieldIds.cap} className={styles.label}>
+                      {t('rules.cap.label')}
+                    </label>
+                    <select ref={capSelect} id={fieldIds.cap} className={`${controls.input} ${styles.capSelect}`} value={capChoice} disabled={capLocked} onChange={(event) => chooseCap(event.target.value)}>
+                      <option value="none">{t('rules.cap.none')}</option>
+                      {EFFORT_STEPS.map((step) => (
+                        <option key={step.effort} value={step.effort}>
+                          {t(`chat.effort.${step.label}`)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button type="button" className={controls.primary} disabled={!canSaveCap} onClick={saveCap}>
+                    {t('rules.cap.save')}
+                  </button>
                 </div>
                 <p className={controls.ok} role="status" hidden={noticeText('cap') === ''}>
                   {noticeText('cap')}
@@ -408,17 +471,18 @@ export function RulesScreen({ client, catalog }: RulesScreenProps) {
       ) : null}
       {asking !== undefined && confirm !== null ? (
         <ConfirmDialog
-          title={t('rules.confirm.title')}
+          title={confirm.title}
           message={confirm.message}
           details={confirm.details}
-          confirmLabel={t('rules.confirm.confirm')}
+          confirmLabel={confirm.confirmLabel}
           cancelLabel={t('rules.confirm.cancel')}
           danger
           busy={action.busy}
           error={action.error === undefined ? undefined : say(t, action.error)}
-          onConfirm={remove}
+          onConfirm={asking.kind === 'raise' ? raise : remove}
           onCancel={() => {
             action.clearError()
+            if (asking.kind === 'raise' || asking.rule.kind === 'maxPlanEffort') setPendingCap(undefined)
             setAsking(undefined)
           }}
         />

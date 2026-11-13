@@ -4,6 +4,7 @@ import { createFakeClient } from '../src/engine/fake-client'
 import { withPlanMethods, type FakePlanData } from '../src/engine/fake-plan'
 import { fakeData } from '../src/fixtures'
 import { memoryFixtures, metaOf, models, outcomeOf, results } from '../src/fixtures/plan'
+import type { RuleViolation } from '../src/model/rules'
 
 function make(extra: Partial<FakePlanData> = {}) {
   const data: FakePlanData = { models, script: () => outcomeOf(results.workflow), memory: [...memoryFixtures.three], ...extra }
@@ -134,6 +135,17 @@ describe('the fake engine answers the rule methods with the rules of the engine'
     expect((await request('checkRules', {})).violations).toEqual(scripted)
   })
 
+  it('stops at 200 workflows and 20 issues for each, as the engine does', async () => {
+    const issue = (index: number) => ({ stage: 3 as const, pointer: `/nodes/${index}/type`, code: 'rule_violation', message: `node n${index}: the node type delay is forbidden by the rules` })
+    const many: RuleViolation[] = Array.from({ length: 250 }, (_, index) => ({ workflowId: `wf-${index}`, name: `Workflow ${index}`, issues: Array.from({ length: 25 }, (_, at) => issue(at)) }))
+    const { violations } = await make({ violations: () => many }).request('checkRules', {})
+    expect(violations).toHaveLength(200)
+    expect(violations.every((entry) => entry.issues.length === 20)).toBe(true)
+    expect(violations[199]!.workflowId).toBe('wf-199')
+    const few = await make({ violations: () => many.slice(0, 3) }).request('checkRules', {})
+    expect(few.violations).toHaveLength(3)
+  })
+
   it('gives the scripted violations the rules at the moment of the call', async () => {
     const seen: string[][] = []
     const { request } = make({
@@ -156,7 +168,26 @@ describe('the fake planner and the cap', () => {
     await request('saveRule', { kind: 'maxPlanEffort', value: 'medium' })
     const answer = await request('plan', { ...asked, effort: 'xhigh' })
     expect(answer.meta.effort).toBe('medium')
-    expect(answer.meta.effortDetail).toMatchObject({ requested: 'xhigh', effective: 'medium', cappedByRule: true })
+    expect(answer.meta.effortDetail).toMatchObject({ requested: 'xhigh', effective: 'medium', native: 'medium', collapsed: true, cappedByRule: true })
+  })
+
+  it('lowers the cap to a step the active model has, as the planner does, and says it collapsed', async () => {
+    const muse = { ...models, active: { provider: 'meta' as const, model: 'muse-spark-1.0' } }
+    const { request } = make({ models: muse })
+    await request('saveRule', { kind: 'maxPlanEffort', value: 'high' })
+    const answer = await request('plan', { ...asked, effort: 'xhigh' })
+    expect(answer.meta.effort).toBe('medium')
+    expect(answer.meta.effortDetail).toMatchObject({ requested: 'xhigh', effective: 'medium', native: 'medium', collapsed: true, cappedByRule: true })
+  })
+
+  it('keeps the cap itself when the active model has that step, and when no model is active', async () => {
+    const haiku = { ...models, active: { provider: 'anthropic' as const, model: 'claude-haiku-5' } }
+    const first = make({ models: haiku })
+    await first.request('saveRule', { kind: 'maxPlanEffort', value: 'high' })
+    expect((await first.request('plan', { ...asked, effort: 'max' })).meta.effortDetail).toMatchObject({ effective: 'high', collapsed: true, cappedByRule: true })
+    const second = make({ models: { ...models, active: null } })
+    await second.request('saveRule', { kind: 'maxPlanEffort', value: 'low' })
+    expect((await second.request('plan', { ...asked, effort: 'high' })).meta.effortDetail).toMatchObject({ effective: 'low', cappedByRule: true })
   })
 
   it('leaves a request at or below the cap alone', async () => {

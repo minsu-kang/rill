@@ -5,6 +5,7 @@ import {
   RillError,
   validateParams,
   type Agent,
+  type LlmModelInfo,
   type LlmModelsResult,
   type MemoryItem,
   type MethodName,
@@ -99,6 +100,11 @@ interface PlanRecord {
   workflowId?: string
 }
 
+function activeModelOf(result: LlmModelsResult): LlmModelInfo | undefined {
+  const { active } = result
+  return active === null ? undefined : result.models.find((model) => model.provider === active.provider && model.id === active.model)
+}
+
 export type FakePlanClient = EngineClient & { pendingPlans(): string[]; planAgentIds(): Array<string | undefined>; agents: FakeAgents; rules: FakeRules }
 
 export function withPlanMethods(client: EngineClient, data: FakePlanData): FakePlanClient {
@@ -135,7 +141,7 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): FakeP
         }
         const flagKeys = answer.result.kind === 'workflow' ? answer.result.flags.map(flagKey) : []
         records.set(params.planId, { result: structuredClone(answer.result), flagKeys })
-        resolve({ planId: params.planId, result: structuredClone(answer.result), meta: structuredClone(metaUnderCap(answer.meta, params.effort, rules.cap())) })
+        resolve({ planId: params.planId, result: structuredClone(answer.result), meta: structuredClone(metaUnderCap(answer.meta, params.effort, rules.cap(), activeModelOf(data.models))) })
       }
       if ((data.delayMs ?? 0) > 0) setTimeout(finish, data.delayMs)
       else queueMicrotask(finish)
