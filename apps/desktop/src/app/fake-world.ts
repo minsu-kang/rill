@@ -5,6 +5,8 @@ import {
   type Agent,
   type EngineEvent,
   type ExplainResult,
+  type Hook,
+  type HookLogEntry,
   type LlmModelsResult,
   type MethodName,
   type MethodParams,
@@ -62,6 +64,8 @@ export interface FakeWorldOptions {
   explain?: ExplainScript
   agents?: readonly Agent[]
   activeAgentId?: string
+  hooks?: readonly Hook[]
+  hookLog?: readonly HookLogEntry[]
   recipes?: FakeRecipeData
   control?: Partial<FakeWorldControl>
 }
@@ -133,13 +137,17 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
     if (event.type === 'run.finished') inFlight.delete(event.runId)
   })
 
-  const planned = withPlanMethods({ request: (method, given) => base.request(method, given), onEvent: (listener) => base.onEvent(listener) }, {
+  const listed = { request: async (method, given) => (method === 'listWorkflows' ? (listWorkflows() as MethodResult<typeof method>) : base.request(method, given)), onEvent: (listener) => base.onEvent(listener) } satisfies EngineClient
+  const planned = withPlanMethods(listed, {
     models,
     script: options.plan ?? (() => outcomeOf(results.workflow)),
     memory: [...memoryFixtures.three],
     violations: (rules) => ruleViolations(registry.values(), rules),
     ...(options.agents === undefined ? {} : { agents: options.agents }),
     ...(options.activeAgentId === undefined ? {} : { activeAgentId: options.activeAgentId }),
+    ...(options.hooks === undefined ? {} : { hooks: options.hooks }),
+    ...(options.hookLog === undefined ? {} : { hookLog: options.hookLog }),
+    connections: async () => (await host.settings.get()).connections,
     ...(options.planDelayMs === undefined ? {} : { delayMs: options.planDelayMs }),
   })
   const recipes = withRecipeMethods(planned, options.recipes ?? fixtureRecipeData())
@@ -147,6 +155,20 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
 
   function register(id: string, workflow: Workflow): void {
     registry.set(id, { id, workflow: structuredClone(workflow), active: false, createdAt: Date.now() })
+  }
+
+  function listWorkflows(): MethodResult<'listWorkflows'> {
+    return {
+      workflows: [...registry.values()]
+        .map((entry) => ({
+          id: entry.id,
+          name: entry.workflow.name,
+          active: entry.active ?? false,
+          triggerType: entry.workflow.nodes.find((node) => isTrigger(node.type))?.type ?? 'unknown',
+          createdAt: entry.createdAt ?? 0,
+        }))
+        .sort((a, b) => b.createdAt - a.createdAt),
+    }
   }
 
   function entryOf(workflowId: string): FakeWorkflow {
@@ -217,17 +239,7 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
       case 'llmModels':
         return modelsFor(await host.settings.get()) as MethodResult<M>
       case 'listWorkflows':
-        return {
-          workflows: [...registry.values()]
-            .map((entry) => ({
-              id: entry.id,
-              name: entry.workflow.name,
-              active: entry.active ?? false,
-              triggerType: entry.workflow.nodes.find((node) => isTrigger(node.type))?.type ?? 'unknown',
-              createdAt: entry.createdAt ?? 0,
-            }))
-            .sort((a, b) => b.createdAt - a.createdAt),
-        } as MethodResult<M>
+        return listWorkflows() as MethodResult<M>
       case 'getWorkflow':
         return { workflow: structuredClone(entryOf((params as MethodParams<'getWorkflow'>).workflowId).workflow) } as MethodResult<M>
       case 'startRun':

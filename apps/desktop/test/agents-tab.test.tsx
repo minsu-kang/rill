@@ -66,9 +66,9 @@ function Host({ initial = 'agents' }: { initial?: AgentsSectionId }) {
 }
 
 describe('AgentsTab', () => {
-  it('lists its screens from one table, Agents first and Rules second', () => {
-    expect(AGENTS_SECTIONS.map((section) => section.id)).toEqual(['agents', 'rules'])
-    expect(AGENTS_SECTIONS.map((section) => section.label)).toEqual(['agents.nav.agents', 'agents.nav.rules'])
+  it('lists its screens from one table, Agents first, Rules second and Hooks third', () => {
+    expect(AGENTS_SECTIONS.map((section) => section.id)).toEqual(['agents', 'rules', 'hooks'])
+    expect(AGENTS_SECTIONS.map((section) => section.label)).toEqual(['agents.nav.agents', 'agents.nav.rules', 'agents.nav.hooks'])
   })
 
   it('shows the Agents screen first, with the sub-navigation above it', async () => {

@@ -147,6 +147,7 @@ describe.each(['ko', 'en'] as const)('the Agents tab (%s)', (locale) => {
   it.each([
     ['agents', 'agents.screen.title'],
     ['rules', 'rules.screen.title'],
+    ['hooks', 'agents.hooks.screen.title'],
   ] as const)('keeps the title of the %s screen for screen readers and does not draw it, because the sub-navigation names it', async (section, key) => {
     const { view, user } = mount({ tab: 'agents', agentsSection: section }, locale)
     const heading = await screen.findByRole('heading', { level: 2, name: t(key) })
@@ -159,20 +160,27 @@ describe.each(['ko', 'en'] as const)('the Agents tab (%s)', (locale) => {
     await neverTabsTo(user, heading)
   })
 
-  it.each(['agents', 'rules'] as const)('has no accessibility violations on the %s screen', async (section) => {
+  it.each([
+    ['agents', 'agents.screen.title'],
+    ['rules', 'rules.screen.title'],
+    ['hooks', 'agents.hooks.screen.title'],
+  ] as const)('has no accessibility violations on the %s screen', async (section, key) => {
     const { view } = mount({ tab: 'agents', agentsSection: section }, locale)
-    await screen.findByRole('heading', { level: 2, name: t(section === 'agents' ? 'agents.screen.title' : 'rules.screen.title') })
+    await screen.findByRole('heading', { level: 2, name: t(key) })
     expect(await violations(view.container)).toEqual([])
   })
 
-  it('has no style of its own for either title', () => {
+  it('has no style of its own for any of the titles', () => {
     expect(css('app/agents/AgentsScreen.module.css')).not.toMatch(/(?:^|\n)\.title\b/)
     expect(css('app/agents/RulesScreen.module.css')).not.toMatch(/(?:^|\n)\.title\b/)
+    expect(css('app/agents/HooksScreen.module.css')).not.toMatch(/(?:^|\n)\.title\b/)
   })
 
   it('keeps the transfer mark on the same line as its sentence', () => {
-    const rule = css('app/agents/AgentsScreen.module.css').match(/(?:^|\n)\.transfer\s*\{([^}]*)\}/)![1]!
-    expect(rule).toMatch(/display:\s*flex/)
-    expect(rule).toMatch(/align-items:\s*baseline/)
+    for (const file of ['app/agents/AgentsScreen.module.css', 'app/agents/HooksScreen.module.css']) {
+      const rule = css(file).match(/(?:^|\n)\.transfer\s*\{([^}]*)\}/)![1]!
+      expect(rule, file).toMatch(/display:\s*flex/)
+      expect(rule, file).toMatch(/align-items:\s*baseline/)
+    }
   })
 })

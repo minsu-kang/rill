@@ -3,9 +3,10 @@ import type { ReactNode } from 'react'
 import type { EngineClient } from '../../engine/client'
 import type { MessageKey } from '../../i18n'
 import type { CatalogStatus } from '../glue/useEngineData'
-import type { HostApi } from '../../shared/host-api'
+import type { ConnectionSummary, HostApi } from '../../shared/host-api'
 import { AgentsScreen } from './AgentsScreen'
 import styles from './AgentsTab.module.css'
+import { HooksScreen } from './HooksScreen'
 import { RulesScreen } from './RulesScreen'
 import { SubNav } from './SubNav'
 
@@ -15,6 +16,8 @@ export interface AgentsSectionContext {
   catalogStatus?: CatalogStatus
   onRetryCatalog?(): void
   files?: Pick<HostApi['dialogs'], 'openText' | 'saveText'>
+  connections?: readonly ConnectionSummary[] | undefined
+  onOpenConnections?(): void
 }
 
 export interface AgentsSection {
@@ -35,6 +38,11 @@ export const AGENTS_SECTIONS = [
     render: ({ client, catalog, catalogStatus, onRetryCatalog }) => (
       <RulesScreen client={client} catalog={catalog} {...(catalogStatus === undefined ? {} : { catalogStatus })} {...(onRetryCatalog === undefined ? {} : { onRetryCatalog })} />
     ),
+  },
+  {
+    id: 'hooks',
+    label: 'agents.nav.hooks',
+    render: ({ client, connections, onOpenConnections }) => <HooksScreen client={client} connections={connections} {...(onOpenConnections === undefined ? {} : { onOpenConnections })} />,
   },
 ] as const satisfies readonly AgentsSection[]
 

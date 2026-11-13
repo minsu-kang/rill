@@ -114,11 +114,12 @@ describe('the hooks section of the security notes', () => {
 })
 
 describe('the root README', () => {
-  it('lists hooks with their limit and says that the screen is not built yet', () => {
+  it('lists hooks with their limit and says where the screen is', () => {
     const rows = readme.split('\n').filter((line) => line.startsWith('| Hooks |'))
     expect(rows).toHaveLength(1)
     expect(rows[0]).toContain(`Up to ${HOOK_MAX_ITEMS} hooks`)
     expect(rows[0]).toContain(`${HOOK_FAILURE_COUNT_MIN} to ${HOOK_FAILURE_COUNT_MAX} failures in a row`)
-    expect(rows[0]).toMatch(/screen that edits the hooks is not built yet/)
+    expect(rows[0]).toContain('You edit the hooks on the Agents tab, under Hooks, where an activity list shows what each hook did.')
+    expect(rows[0]).not.toMatch(/not built yet/)
   })
 })

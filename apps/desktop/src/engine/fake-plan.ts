@@ -26,6 +26,8 @@ import { createFakeRules, metaUnderCap, type FakeRules, type RuleViolationScript
 
 export type PlanOutcome = { result: PlanResultBody; meta: PlanMeta }
 
+type FakeConnections = ReadonlyArray<{ name: string; kind: string }>
+
 export interface FakePlanData {
   models: LlmModelsResult
   script: (params: MethodParams<'plan'>) => PlanOutcome | RillError | 'hang'
@@ -36,7 +38,7 @@ export interface FakePlanData {
   violations?: RuleViolationScript
   hooks?: readonly Hook[]
   hookLog?: readonly HookLogEntry[]
-  connections?: ReadonlyArray<{ name: string; kind: string }>
+  connections?: FakeConnections | (() => FakeConnections | Promise<FakeConnections>)
   deployId?: string
   delayMs?: number
   now?: () => number
@@ -233,9 +235,10 @@ export function withPlanMethods(client: EngineClient & { emit?: (event: EngineEv
     listHooks: () => hooks.list(),
     saveHook: async (params) => {
       const { workflows } = await client.request('listWorkflows', {})
+      const connections = typeof data.connections === 'function' ? await data.connections() : (data.connections ?? [])
       return hooks.save(params, {
         workflowIds: new Set(workflows.map((workflow) => workflow.id)),
-        connections: new Map((data.connections ?? []).map((connection) => [connection.name, connection.kind])),
+        connections: new Map(connections.map((connection) => [connection.name, connection.kind])),
         notifyForbidden: rules.list().rules.some((rule) => rule.kind === 'forbidNode' && baseNodeType(rule.value).toLowerCase() === 'notify.slack'),
       })
     },
