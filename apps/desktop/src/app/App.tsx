@@ -28,6 +28,7 @@ import { useSettings } from './settings/useSettings'
 import { TopBar, type AppTab } from './TopBar'
 import { useWorkflowList } from './workflows/useWorkflowList'
 import { WorkflowActions } from './workflows/WorkflowActions'
+import { WorkflowSwitcher } from './workflows/WorkflowSwitcher'
 
 export interface AppProps {
   initial?: {
@@ -88,7 +89,7 @@ export function App({ initial = {} }: AppProps) {
 
   useEffect(() => {
     if (deletedTick === 0) return
-    const target = document.querySelector<HTMLElement>('[data-rill-region="topbar"] select') ?? document.querySelector<HTMLElement>('[data-rill-region="workspace"]')
+    const target = document.querySelector<HTMLElement>('[data-rill-region="workflow-switcher"] select') ?? document.querySelector<HTMLElement>('[data-rill-region="workspace"]')
     target?.focus()
   }, [deletedTick])
 
@@ -260,6 +261,9 @@ export function App({ initial = {} }: AppProps) {
   } else {
     main = (
       <div className={styles.workflows}>
+        <div className={styles.switcherRow} data-rill-region="workflow-switcher">
+          <WorkflowSwitcher list={list} selectedId={workflowId} onSelect={selection.selectWorkflow} labelHidden />
+        </div>
         {settings.settings === undefined || firstRunDone(settings.settings) ? null : <FirstRunCard settings={settings.settings} onOpen={openSettings} />}
         {client === undefined ? (
           <p className={styles.placeholder} role="status">
@@ -300,12 +304,6 @@ export function App({ initial = {} }: AppProps) {
           <TopBar
             tab={tab}
             onTab={goTab}
-            list={list}
-            selectedId={workflowId}
-            onSelectWorkflow={(id) => {
-              selection.selectWorkflow(id)
-              goTab('workflows')
-            }}
             connection={connection}
             ping={ping}
             onRestart={restartEngine}

@@ -2,7 +2,6 @@ import { cleanup, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TopBar, type TopBarProps } from '../src/app/TopBar'
-import { ids } from '../src/fixtures'
 import { createTranslator } from '../src/i18n'
 import { violations } from './axe'
 import { renderThemed } from './render'
@@ -10,16 +9,11 @@ import { renderThemed } from './render'
 afterEach(cleanup)
 
 const t = createTranslator('en')
-const refresh = async (): Promise<void> => undefined
-const workflows = [{ id: ids.workflows.receipt, name: 'Receipts', active: true, triggerType: 'trigger.folderWatch@1', createdAt: 3 }]
 
 function props(overrides: Partial<TopBarProps> = {}): TopBarProps {
   return {
     tab: 'workflows',
     onTab: () => undefined,
-    list: { status: 'ready', workflows, refresh },
-    selectedId: ids.workflows.receipt,
-    onSelectWorkflow: () => undefined,
     connection: { state: 'connected', status: { state: 'running', restarts: 0 } },
     ping: { state: 'ok', ms: 3 },
     onRestart: () => undefined,
@@ -116,8 +110,6 @@ describe('top bar structure', () => {
     expect(within(nav).getAllByRole('button').map((button) => button.textContent)).toEqual(['Workflows', 'Recipes', 'Settings'])
     expect(within(nav).getByRole('button', { name: 'Recipes' }).getAttribute('aria-current')).toBe('page')
     const user = userEvent.setup()
-    await user.tab()
-    expect(document.activeElement?.tagName).toBe('SELECT')
     await user.tab()
     expect(document.activeElement).toBe(within(nav).getByRole('button', { name: 'Workflows' }))
     await user.tab()

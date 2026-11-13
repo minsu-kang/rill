@@ -28,6 +28,11 @@
   min-height: 0;
 }
 
+
+.switcherRow {
+  max-width: 480px;
+}
+
 .workspace {
   flex: 1;
   min-height: 0;

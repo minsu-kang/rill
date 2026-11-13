@@ -5,8 +5,6 @@ import controls from './controls.module.css'
 import type { PingState } from './glue/usePing'
 import { Logo } from './Logo'
 import styles from './TopBar.module.css'
-import { WorkflowSwitcher } from './workflows/WorkflowSwitcher'
-import type { WorkflowListState } from './workflows/useWorkflowList'
 
 export type AppTab = 'workflows' | 'recipes' | 'settings'
 export const APP_TABS: readonly AppTab[] = ['workflows', 'recipes', 'settings']
@@ -14,9 +12,6 @@ export const APP_TABS: readonly AppTab[] = ['workflows', 'recipes', 'settings']
 export interface TopBarProps {
   tab: AppTab
   onTab(tab: AppTab): void
-  list: Pick<WorkflowListState, 'status' | 'workflows' | 'refresh'>
-  selectedId: string | undefined
-  onSelectWorkflow(workflowId: string): void
   connection: Pick<ConnectionState, 'state' | 'status'>
   ping?: PingState
   onRestart(): void
@@ -34,7 +29,7 @@ function engineKey(connection: Pick<ConnectionState, 'state' | 'status'>) {
   return connection.state === 'reconnecting' ? ('app.top.engine.reconnecting' as const) : ('app.top.engine.connecting' as const)
 }
 
-export function TopBar({ tab, onTab, list, selectedId, onSelectWorkflow, connection, ping, onRestart, restarting = false, chatOpen, onToggleChat, chatToggleRef }: TopBarProps) {
+export function TopBar({ tab, onTab, connection, ping, onRestart, restarting = false, chatOpen, onToggleChat, chatToggleRef }: TopBarProps) {
   const t = useT()
   const stopped = connection.state === 'engine_stopped'
   const reason = connection.status?.error
@@ -47,9 +42,6 @@ export function TopBar({ tab, onTab, list, selectedId, onSelectWorkflow, connect
         <Logo size={24} />
         <span>{t('app.name')}</span>
       </strong>
-      <div className={styles.switcher}>
-        <WorkflowSwitcher list={list} selectedId={selectedId} onSelect={onSelectWorkflow} />
-      </div>
       <nav className={styles.tabs} aria-label={t('app.top.screens')}>
         {APP_TABS.map((value) => (
           <button key={value} type="button" className={styles.tab} aria-current={value === tab ? 'page' : undefined} onClick={() => onTab(value)}>

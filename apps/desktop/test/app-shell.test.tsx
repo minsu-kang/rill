@@ -122,6 +122,42 @@ describe('switching workflows', () => {
   })
 })
 
+describe('the workflow selector', () => {
+  it('is in the Workflows page under the tabs, not in the top bar, and has no visible label', async () => {
+    mount({ hostInit: { settings: KEYED } })
+    await workflowsLoaded()
+    const select = screen.getByLabelText(t('app.wf.switcher.label'))
+    const banner = screen.getByRole('banner', { name: t('app.region.top') })
+    expect(banner.contains(select)).toBe(false)
+    expect(select.closest('[data-rill-region="workflow-switcher"]')).not.toBeNull()
+    expect(banner.querySelector('label, select')).toBeNull()
+    const label = document.querySelector(`label[for="${select.id}"]`)
+    expect(label?.className).toMatch(/labelHidden/)
+  })
+
+  it('is gone on the other tabs and comes back with the Workflows tab', async () => {
+    const { user } = mount({ hostInit: { settings: KEYED } })
+    await workflowsLoaded()
+    const nav = screen.getByRole('navigation', { name: t('app.top.screens') })
+    await user.click(within(nav).getByRole('button', { name: t('app.tab.recipes') }))
+    expect(screen.queryByLabelText(t('app.wf.switcher.label'))).toBeNull()
+    await user.click(within(nav).getByRole('button', { name: t('app.tab.settings') }))
+    expect(screen.queryByLabelText(t('app.wf.switcher.label'))).toBeNull()
+    await user.click(within(nav).getByRole('button', { name: t('app.tab.workflows') }))
+    expect(await screen.findByLabelText(t('app.wf.switcher.label'))).toBeTruthy()
+  })
+
+  it('keeps the chosen workflow when the person leaves the tab and comes back', async () => {
+    const { user } = mount({ hostInit: { settings: KEYED } })
+    await workflowsLoaded()
+    const nav = screen.getByRole('navigation', { name: t('app.top.screens') })
+    await user.selectOptions(screen.getByLabelText(t('app.wf.switcher.label')), ids.workflows.webhook)
+    await user.click(within(nav).getByRole('button', { name: t('app.tab.recipes') }))
+    await user.click(within(nav).getByRole('button', { name: t('app.tab.workflows') }))
+    expect((await screen.findByLabelText(t('app.wf.switcher.label'))) as HTMLSelectElement).toHaveProperty('value', ids.workflows.webhook)
+  })
+})
+
 describe('first run', () => {
   it('shows the checklist from the host settings and leads to the right settings sections', async () => {
     const { user } = mount({ world: { workflows: [] } })

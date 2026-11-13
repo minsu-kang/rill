@@ -11,11 +11,12 @@ export interface WorkflowSwitcherProps {
   list: Pick<WorkflowListState, 'status' | 'workflows' | 'refresh'>
   selectedId: string | undefined
   onSelect(workflowId: string): void
+  labelHidden?: boolean
 }
 
 const MAX_NAME = 48
 
-export function WorkflowSwitcher({ list, selectedId, onSelect }: WorkflowSwitcherProps) {
+export function WorkflowSwitcher({ list, selectedId, onSelect, labelHidden = false }: WorkflowSwitcherProps) {
   const t = useT()
   const id = useId()
   const { status, workflows } = list
@@ -38,7 +39,7 @@ export function WorkflowSwitcher({ list, selectedId, onSelect }: WorkflowSwitche
   const known = selectedId === undefined || workflows.some((workflow) => workflow.id === selectedId)
   return (
     <div className={styles.switcher}>
-      <label className={styles.switcherLabel} htmlFor={id}>
+      <label className={labelHidden ? styles.labelHidden : styles.switcherLabel} htmlFor={id}>
         {t('app.wf.switcher.label')}
       </label>
       <select id={id} className={controls.input} value={selectedId ?? ''} onChange={(event) => onSelect(event.target.value)}>
