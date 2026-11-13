@@ -1,0 +1,21 @@
+.logo {
+  display: inline-block;
+  flex: none;
+  vertical-align: middle;
+}
+
+.drop {
+  fill: var(--accent);
+}
+
+.inner {
+  fill: var(--on-accent);
+}
+
+.stroke {
+  fill: none;
+  stroke: var(--on-accent);
+  stroke-width: 15;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

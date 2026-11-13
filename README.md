@@ -1,3 +1,5 @@
+<img src="apps/desktop/build/icon.svg" alt="Rill logo" width="96" align="right">
+
 # Rill
 
 Describe an automation in plain language, review it as a graph, and run it on your own machine.

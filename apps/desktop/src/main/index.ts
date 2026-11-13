@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, protocol, safeStorage, Tray, utilityProcess } from 'electron'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { applicationMenuTemplate } from './app-menu'
@@ -8,6 +8,7 @@ import { createAttachmentStore } from './attachments'
 import { createConfigStore } from './config-store'
 import { createEngineSupervisor, type ForkLike } from './engine-supervisor'
 import { createIpcHandlers, type DialogLike } from './ipc-handlers'
+import { applyDevDockIcon } from './dock-icon'
 import { createKeyChecker } from './key-check'
 import { applyLoginItem, launchedHidden } from './login-item'
 import { createSecretStore, type SafeStorageLike } from './secret-store'
@@ -43,6 +44,7 @@ async function start(): Promise<void> {
   }
   protocol.registerSchemesAsPrivileged([{ scheme: APP_SCHEME, privileges: { ...APP_SCHEME_PRIVILEGES } }])
   await app.whenReady()
+  applyDevDockIcon({ platform: process.platform, isPackaged: app.isPackaged, dock: app.dock, iconPath: join(import.meta.dirname, '../../build/icon.png'), exists: existsSync, createFromPath: (path) => nativeImage.createFromPath(path) })
 
   const userData = app.getPath('userData')
   const devUrl = app.isPackaged ? undefined : process.env['ELECTRON_RENDERER_URL']
