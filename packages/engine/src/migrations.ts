@@ -175,6 +175,7 @@ export const MIGRATIONS: string[] = [
   );
   ALTER TABLE agents ADD COLUMN kind TEXT NOT NULL DEFAULT 'assistant' CHECK (kind IN ('assistant','reviewer'));
   ALTER TABLE agents ADD COLUMN skill_ids TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE plans ADD COLUMN review_text TEXT;
   `,
 ]
 

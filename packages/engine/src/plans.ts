@@ -9,7 +9,7 @@ import {
   type PlanResultBody,
 } from '@rill/protocol'
 
-export type StoredPlan = PlanRecord & { workflowHash: string | null }
+export type StoredPlan = PlanRecord & { workflowHash: string | null; reviewText?: string }
 
 export interface PlanOutcome {
   planId: string
@@ -24,6 +24,7 @@ interface PlanSource {
   effort: PlanEffort
   memoryIds?: readonly string[]
   agentId?: string
+  reviewText?: string
 }
 
 export class PlanNotFoundError extends Error {
@@ -197,6 +198,7 @@ export function plannedRecord(source: PlanSource, planned: PlanResult, createdAt
     confirmed: null,
     memoryIds: [...(source.memoryIds ?? [])],
     ...(source.agentId === undefined ? {} : { agentId: source.agentId }),
+    ...(result.kind !== 'workflow' || source.reviewText === undefined || source.reviewText === source.text ? {} : { reviewText: source.reviewText }),
     workflowHash: result.kind === 'workflow' ? workflowHash(result.workflow) : null,
   }
   return { record, outcome: { planId: source.planId, result, meta } }

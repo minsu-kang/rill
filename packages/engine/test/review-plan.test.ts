@@ -5,7 +5,7 @@ import { LlmError } from '@rill/llm'
 import { ERROR_CODES, METHODS, RillClient, type AttachmentRef, type MethodParams } from '@rill/protocol'
 import { REVIEW_AGENT_INTRO, REVIEW_AGENT_SKILLS_NOTE, REVIEW_RULES, ReviewError, rulesLines } from '@rill/planner'
 import Value from 'typebox/value'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Engine } from '../src/engine'
 import { RillServer } from '../src/server/server'
 import { workflowHash, type StoredPlan } from '../src/plans'
@@ -206,6 +206,18 @@ describe('the errors, in the order they are checked, each before any model call'
     const agent = await withReviewer(env)
     expect((await failure(review(env, { agentId: agent.id }))).code).toBe('REVIEW_PROVIDER')
     expect((await failure(review(env, { agentId: agent.id }))).code).toBe('REVIEW_INVALID')
+    expect((await review(env, { agentId: agent.id })).review.summary).toBe(GOOD_REVIEW.summary)
+  })
+
+  it('frees the place of a review that fails before the model is called, when the skills of the reviewer cannot be read', async () => {
+    const env = await start([{ data: GOOD_REVIEW }])
+    env.engine.store.savePlan(seeded())
+    const agent = await withReviewer(env)
+    vi.spyOn(env.engine.store, 'skillsOf').mockImplementationOnce(() => {
+      throw new Error('SQLITE_CORRUPT')
+    })
+    expect((await failure(review(env, { agentId: agent.id }))).code).toBe('INTERNAL')
+    expect(env.provider.requests).toHaveLength(0)
     expect((await review(env, { agentId: agent.id })).review.summary).toBe(GOOD_REVIEW.summary)
   })
 

@@ -55,6 +55,8 @@ describe('the skills migration', () => {
     ])
     expect(db.all('SELECT * FROM skills')).toEqual([])
     expect(db.get('SELECT id, request_text, agent_id FROM plans')).toEqual({ id: 'old-plan', request_text: 'old text', agent_id: 'a1' })
+    expect(db.get('SELECT review_text FROM plans')).toEqual({ review_text: null })
+    expect(new Engine({ db, registry: createCoreRegistry() }).store.getPlan('old-plan').reviewText).toBeUndefined()
     const engine = new Engine({ db, registry: createCoreRegistry() })
     const listed = engine.listAgents()
     expect(listed.activeId).toBe('a2')
@@ -87,6 +89,7 @@ describe('the skills migration', () => {
     const columns = (table: string) => db.all<{ name: string }>(`SELECT name FROM pragma_table_info('${table}')`).map((row) => row.name)
     expect(columns('skills')).toEqual(['id', 'name', 'name_key', 'description', 'body', 'created_at', 'updated_at'])
     expect(columns('agents')).toEqual(['id', 'name', 'name_key', 'description', 'persona', 'instructions', 'created_at', 'updated_at', 'kind', 'skill_ids'])
+    expect(columns('plans').slice(-2)).toEqual(['agent_id', 'review_text'])
     db.close()
   })
 

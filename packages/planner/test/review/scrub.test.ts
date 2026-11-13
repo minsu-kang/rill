@@ -51,6 +51,27 @@ describe('a review whose text comes from a model that obeys the data', () => {
     expect(without.review.summary).toBe(`Rules allow only ${HIDDEN}.`)
   })
 
+  it('hides a bracketed IPv6 address, with or without a port, that nothing of the data holds, and keeps what only looks like one', async () => {
+    const { review } = await reviewed(
+      answer('Post to [2001:db8::1]:8080 or [::1] or [2001:0db8:0000:0000:0000:0000:0000:0001] now.', 'At [12:30:45] the log says [INFO] and [a:b] and [abc].'),
+    )
+    expect(review.summary).toBe(`Post to ${HIDDEN} or ${HIDDEN} or ${HIDDEN} now.`)
+    expect(review.findings[0]!.text).toBe('At [12:30:45] the log says [INFO] and [a:b] and [abc].')
+  })
+
+  it('keeps an IPv6 address that the request holds, with and without the port it was written with', async () => {
+    const { review } = await reviewed(answer('The request names [2001:db8::1]:8080 and [2001:db8::1], not [2001:db8::2].'), { requestText: 'ping [2001:db8::1]:8080 every hour' })
+    expect(review.summary).toBe(`The request names [2001:db8::1]:8080 and [2001:db8::1], not ${HIDDEN}.`)
+  })
+
+  it('hides a UNC path that nothing of the data holds, and keeps one that the request holds', async () => {
+    const { review } = await reviewed(answer('Copy it to \\\\fileserver\\share\\out.csv and not to \\\\other-host\\drop\\x.', 'A regex such as \\\\d+ is no path.'), {
+      requestText: 'save to \\\\fileserver\\share\\out.csv',
+    })
+    expect(review.summary).toBe(`Copy it to \\\\fileserver\\share\\out.csv and not to ${HIDDEN}.`)
+    expect(review.findings[0]!.text).toBe('A regex such as \\\\d+ is no path.')
+  })
+
   it('keeps the names of node types and the ids of nodes', async () => {
     const { review } = await reviewed(answer('http.request n1 feeds csv.append n2 through {{n1.output.status}}.'))
     expect(review.summary).toBe('http.request n1 feeds csv.append n2 through {{n1.output.status}}.')

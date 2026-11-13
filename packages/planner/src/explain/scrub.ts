@@ -16,6 +16,7 @@ const EMAIL_LIKE = /[^\s@"'<>()[\]{},;:]+@[^\s@"'<>()[\]{},;]+\.[a-z]{2,}/gi
 const SLACK_ID = /<[@#!][^>\s]{1,40}>/g
 const HANDLE = /(?<![\w@.])[@#][a-z](?:[\w.-]{0,77}\w)?/gi
 const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b/g
+const IPV6 = /\[(?:(?=[0-9a-f:.]*::)[0-9a-f:.]{2,45}|(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4})\](?::\d{1,5})?/gi
 const WORD = String.raw`\p{L}\p{M}\p{N}`
 const JOINER_CHARS = String.raw`\u200c|\u200d`
 const INNER = `(?:[${WORD}_-]|${JOINER_CHARS})`
@@ -29,7 +30,7 @@ const DOTTED = new RegExp(`${BEFORE}${DOTTED_PART}(?:\\.${DOTTED_PART})+${AFTER}
 const TEMPLATE_REF = /\{\{\s*([A-Za-z0-9_]+)\.output(?:\.[A-Za-z0-9_]+|\[\d{1,4}\])*\s*\}\}/g
 const JOINER = /[\u200c\u200d]/g
 const LETTER = /\p{L}/u
-const PATH = /(?<![\w.:/-])(?:~\/|[A-Za-z]:\\|\/)[^\s"'<>)\]}]+/g
+const PATH = /(?<![\w.:/-])(?:~\/|[A-Za-z]:\\|\/|\\\\[\w.-]+\\)[^\s"'<>)\]}]+/g
 const TAIL = /[.,;:!?]+$/
 const PORT = /:\d{1,5}$/
 
@@ -110,6 +111,7 @@ export function createAnswerScrubber(context: ScrubContext): AnswerScrubber {
     out = out.replace(SLACK_ID, (match) => (corpus.includes(fold(match)) ? match : HIDDEN))
     out = out.replace(HANDLE, (match) => (inCorpus(match, 'name') ? match : HIDDEN))
     out = out.replace(IPV4, (match) => (inCorpus(match.replace(PORT, ''), 'host') ? match : HIDDEN))
+    out = out.replace(IPV6, (match) => (inCorpus(match.replace(PORT, ''), 'host') ? match : HIDDEN))
     return out.replace(HOST, (match) => (hostTrusted(match) ? match : HIDDEN))
   }
 

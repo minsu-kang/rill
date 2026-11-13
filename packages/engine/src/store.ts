@@ -332,10 +332,11 @@ interface RawPlan {
   confirmed: string | null
   memory_ids: string
   agent_id: string | null
+  review_text: string | null
 }
 
 const PLAN_COLUMNS =
-  'id, created_at, status, effort, model, request_text, attachments, result, meta, error, workflow_hash, flag_keys, workflow_id, confirmed, memory_ids, agent_id'
+  'id, created_at, status, effort, model, request_text, attachments, result, meta, error, workflow_hash, flag_keys, workflow_id, confirmed, memory_ids, agent_id, review_text'
 
 function toStoredPlan(row: RawPlan): StoredPlan {
   return {
@@ -354,6 +355,7 @@ function toStoredPlan(row: RawPlan): StoredPlan {
     confirmed: parseJson(row.confirmed) as string[] | null,
     memoryIds: JSON.parse(row.memory_ids) as string[],
     ...(row.agent_id === null ? {} : { agentId: row.agent_id }),
+    ...(row.review_text === null ? {} : { reviewText: row.review_text }),
     workflowHash: row.workflow_hash,
   }
 }
@@ -701,7 +703,7 @@ export class Store {
   savePlan(record: StoredPlan): void {
     const refs = record.attachments.map(({ id, mediaType, name, bytes }) => ({ id, mediaType, name, bytes }))
     const added = this.db.run(
-      `INSERT INTO plans (${PLAN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+      `INSERT INTO plans (${PLAN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
       record.planId,
       record.createdAt,
       record.status,
@@ -718,6 +720,7 @@ export class Store {
       record.confirmed === null ? null : JSON.stringify(record.confirmed),
       JSON.stringify(record.memoryIds ?? []),
       record.agentId ?? null,
+      record.reviewText ?? null,
     )
     if (added === 0) throw new PlanExistsError(record.planId)
   }

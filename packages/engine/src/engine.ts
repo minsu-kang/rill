@@ -71,7 +71,7 @@ import {
 } from './plans'
 import { RunQueue } from './queue'
 import { draftFromRecipe, listRecipeInfos } from './recipes'
-import { MAX_CONCURRENT_REVIEWS, PlanNotReviewableError, ReviewBusyError } from './review'
+import { MAX_CONCURRENT_REVIEWS, PlanNotReviewableError, ReviewBusyError, reviewRequestText } from './review'
 import { RuleNotFoundError, RuleViolationError, normaliseRule } from './rules'
 import { NotFoundError, Store, type AgentSaveInput, type RunRow } from './store'
 import { TriggerManager } from './triggers/manager'
@@ -352,6 +352,7 @@ export class Engine {
         attachments: input.attachments,
         effort: input.effort,
         memoryIds,
+        reviewText: reviewRequestText(input.text, input.turns),
         ...(agent === undefined ? {} : { agentId: agent.id }),
       }
       const request: PlanRequest = {
@@ -503,6 +504,7 @@ export class Engine {
       this.connections,
       this.planConnections.map((connection) => connection.name),
     )
+    const explainAgent = agent === undefined ? undefined : planAgent(agent, this.store.skillsOf(agent.skillIds ?? []))
     const controller = new AbortController()
     const pending: PendingPlan = { controller, done: Promise.resolve() }
     this.pendingExplains.add(pending)
@@ -523,7 +525,7 @@ export class Engine {
       workflow,
       registry: this.registry,
       secrets,
-      ...(agent === undefined ? {} : { agent: planAgent(agent, this.store.skillsOf(agent.skillIds ?? [])) }),
+      ...(explainAgent === undefined ? {} : { agent: explainAgent }),
       ...(input.effort === undefined ? {} : { effort: input.effort }),
       signal: controller.signal,
     })
@@ -547,6 +549,7 @@ export class Engine {
     if (llm === undefined) throw new LlmUnavailableError('reviewing')
     if (this.pendingReviews.size >= this.maxConcurrentReviews) throw new ReviewBusyError()
     const policy = this.policy()
+    const reviewAgent = planAgent(agent, this.store.skillsOf(agent.skillIds ?? []))
     const controller = new AbortController()
     const pending: PendingPlan = { controller, done: Promise.resolve() }
     this.pendingReviews.add(pending)
@@ -555,10 +558,10 @@ export class Engine {
     else input.signal?.addEventListener('abort', forward, { once: true })
     const result = createReviewer({ provider: llm, registry: this.registry }).review({
       workflow: stored.result.workflow,
-      requestText: stored.requestText,
+      requestText: stored.reviewText ?? stored.requestText,
       flags: stored.result.flags,
       ...(isEmptyPolicy(policy) ? {} : { rules: policy }),
-      agent: planAgent(agent, this.store.skillsOf(agent.skillIds ?? [])),
+      agent: reviewAgent,
       ...(input.effort === undefined ? {} : { effort: input.effort }),
       signal: controller.signal,
     })

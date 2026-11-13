@@ -6,7 +6,7 @@ import { createCoreRegistry } from '@rill/nodes-core'
 import { AGENT_INTRO, AGENT_SKILLS_NOTE, EXPLAIN_AGENT_INTRO, EXPLAIN_AGENT_SKILLS_NOTE, EXPLAIN_RULES } from '@rill/planner'
 import { PlanMetaSchema, RillClient, RillError, type AgentFields, type MethodParams } from '@rill/protocol'
 import Value from 'typebox/value'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Db } from '../src/db'
 import { Engine } from '../src/engine'
 import { RillServer } from '../src/server/server'
@@ -192,6 +192,21 @@ describe('explainRun hands the skills of the chosen agent to the explainer', () 
     expect(JSON.stringify(result)).not.toContain('ALPHA BODY')
     const quiet = [...env.frames.filter((frame) => frame.includes('"explanation"')), ...env.logs].join('\n')
     expect(quiet).not.toContain('ALPHA BODY')
+  })
+
+  it('frees the places of explanations that fail before the model is called, when the skills of the agent cannot be read', async () => {
+    const env = await startEnv(dir, [{ data: GOOD }])
+    const runId = await env.run([http(env.base, '/status/404')])
+    const agent = (await env.client.request('saveAgent', { ...fields, skillIds: [] })).agent
+    const broken = () => {
+      throw new Error('SQLITE_CORRUPT')
+    }
+    vi.spyOn(env.engine.store, 'skillsOf').mockImplementationOnce(broken).mockImplementationOnce(broken)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(env.client.request('explainRun', { runId, agentId: agent.id })).rejects.toMatchObject({ code: 'INTERNAL' })
+    }
+    expect(env.provider.requests).toHaveLength(0)
+    expect((await env.client.request('explainRun', { runId, agentId: agent.id })).explanation).toBe(GOOD.explanation)
   })
 
   it('sends only the rules for the built-in agent, whatever skills exist', async () => {
