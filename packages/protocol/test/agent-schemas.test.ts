@@ -78,7 +78,7 @@ describe('AgentSchema', () => {
   it('rejects extra properties, missing fields and wrong types', () => {
     expect(valid({ ...agent, extra: 1 })).toBe(false)
     expect(valid({ ...agent, kind: 'chat' })).toBe(false)
-    expect(valid({ ...agent, skillIds: [] })).toBe(false)
+    expect(valid({ ...agent, skills: [] })).toBe(false)
     for (const key of Object.keys(agent)) {
       const rest: Record<string, unknown> = { ...agent }
       delete rest[key]

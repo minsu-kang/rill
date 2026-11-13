@@ -21,7 +21,6 @@ import {
   RULE_CHECK_MAX_ISSUES,
   RULE_CHECK_MAX_WORKFLOWS,
   type Agent,
-  type AgentFields,
   type AttachmentRef,
   type Hook,
   type HookInput,
@@ -39,10 +38,12 @@ import {
   type Rule,
   type RuleKind,
   type RunSummary,
+  type Skill,
+  type SkillFields,
   type StepDetail,
   type WorkflowSummary,
 } from '@rill/protocol'
-import { AgentNotFoundError } from './agents'
+import { AgentNotAssistantError, AgentNotFoundError } from './agents'
 import { createFsAttachmentStore, recordReads } from './attachments'
 import { systemClock, type Clock } from './clock'
 import type { Db } from './db'
@@ -68,7 +69,7 @@ import {
 import { RunQueue } from './queue'
 import { draftFromRecipe, listRecipeInfos } from './recipes'
 import { RuleNotFoundError, RuleViolationError, normaliseRule } from './rules'
-import { NotFoundError, Store, type RunRow } from './store'
+import { NotFoundError, Store, type AgentSaveInput, type RunRow } from './store'
 import { TriggerManager } from './triggers/manager'
 import type { FireOptions } from './triggers/types'
 
@@ -521,6 +522,7 @@ export class Engine {
     if (agentId === undefined || agentId === AGENT_DEFAULT_ID) return undefined
     const agent = this.store.getAgent(agentId)
     if (agent === undefined) throw new AgentNotFoundError()
+    if (agent.kind === 'reviewer') throw new AgentNotAssistantError()
     return agent
   }
 
@@ -528,7 +530,7 @@ export class Engine {
     return this.store.listAgents()
   }
 
-  saveAgent(input: AgentFields & { id?: string }): Agent {
+  saveAgent(input: AgentSaveInput): Agent {
     return this.store.saveAgent(input)
   }
 
@@ -538,6 +540,18 @@ export class Engine {
 
   setActiveAgent(id: string): void {
     this.store.setActiveAgent(id)
+  }
+
+  listSkills(): Skill[] {
+    return this.store.listSkills()
+  }
+
+  saveSkill(input: SkillFields & { id?: string }): Skill {
+    return this.store.saveSkill(input)
+  }
+
+  deleteSkill(id: string): boolean {
+    return this.store.deleteSkill(id)
   }
 
   listMemory(): MemoryItem[] {

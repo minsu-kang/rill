@@ -133,7 +133,7 @@ describe('agent methods over the websocket, with no model provider', () => {
     expect((await failure(client.request('saveAgent', { ...fields, extra: 1 } as never))).code).toBe('INVALID_PARAMS')
     expect((await failure(client.request('saveAgent', { name: 'x' } as never))).code).toBe('INVALID_PARAMS')
     expect((await failure(client.request('saveAgent', { ...fields, kind: 'chat' } as never))).code).toBe('INVALID_PARAMS')
-    expect((await failure(client.request('saveAgent', { ...fields, skillIds: [] } as never))).code).toBe('INVALID_PARAMS')
+    expect((await failure(client.request('saveAgent', { ...fields, skillIds: 'none' } as never))).code).toBe('INVALID_PARAMS')
     expect((await failure(client.request('deleteAgent', {} as never))).code).toBe('INVALID_PARAMS')
     expect((await failure(client.request('setActiveAgent', { id: '' }))).code).toBe('INVALID_PARAMS')
     expect((await failure(client.request('listAgents', { limit: 1 } as never))).code).toBe('INVALID_PARAMS')

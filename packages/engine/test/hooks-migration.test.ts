@@ -40,7 +40,7 @@ describe('the hooks migration', () => {
     raw.close()
 
     const db = Db.open(path)
-    expect(db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version').map((row) => row.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect(db.all<{ version: number }>('SELECT version FROM schema_migrations ORDER BY version').map((row) => row.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
     expect(db.get('SELECT id, name, dsl, active, created_at FROM workflows')).toEqual({ id: 'w', name: 'wf', dsl: '{}', active: 1, created_at: 5 })
     expect(db.get('SELECT id, status FROM runs')).toEqual({ id: 'r', status: 'failed' })
     expect(db.get('SELECT id, text FROM memory_items')).toEqual({ id: 'm', text: 'Note' })

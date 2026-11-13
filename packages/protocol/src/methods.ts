@@ -6,6 +6,8 @@ import {
   AGENT_MAX_ITEMS,
   AGENT_NAME_MAX_INPUT_CHARS,
   AGENT_PERSONA_MAX_INPUT_CHARS,
+  AGENT_SKILL_IDS_MAX_INPUT,
+  AgentKindSchema,
   AgentSchema,
 } from './agents'
 import { ExplainEffortSchema, ExplainResultSchema } from './explain'
@@ -33,6 +35,13 @@ import {
 } from './plan'
 import { RecipeDraftSchema, RecipeInfoSchema, RecipeValuesSchema } from './recipes'
 import { RULE_CHECK_MAX_ISSUES, RULE_CHECK_MAX_WORKFLOWS, RULE_MAX_INPUT_CHARS, RULE_MAX_ITEMS, RuleKindSchema, RuleSchema } from './rules'
+import {
+  SKILL_BODY_MAX_INPUT_CHARS,
+  SKILL_DESCRIPTION_MAX_INPUT_CHARS,
+  SKILL_MAX_ITEMS,
+  SKILL_NAME_MAX_INPUT_CHARS,
+  SkillSchema,
+} from './skills'
 
 const id = IdSchema
 const closed = { additionalProperties: false } as const
@@ -214,6 +223,8 @@ export const METHODS = {
         description: Type.String({ maxLength: AGENT_DESCRIPTION_MAX_INPUT_CHARS }),
         persona: Type.String({ maxLength: AGENT_PERSONA_MAX_INPUT_CHARS }),
         instructions: Type.String({ maxLength: AGENT_INSTRUCTIONS_MAX_INPUT_CHARS }),
+        kind: Type.Optional(AgentKindSchema),
+        skillIds: Type.Optional(Type.Array(id, { maxItems: AGENT_SKILL_IDS_MAX_INPUT })),
       },
       closed,
     ),
@@ -242,6 +253,26 @@ export const METHODS = {
   listHookLog: {
     params: Type.Object({ limit: Type.Optional(Type.Integer({ minimum: 1, maximum: HOOK_LOG_MAX_LIMIT })), hookId: Type.Optional(id) }, closed),
     result: Type.Object({ entries: Type.Array(HookLogEntrySchema, { maxItems: HOOK_LOG_MAX_LIMIT }) }, closed),
+  },
+  listSkills: {
+    params: noParams,
+    result: Type.Object({ skills: Type.Array(SkillSchema, { maxItems: SKILL_MAX_ITEMS }) }, closed),
+  },
+  saveSkill: {
+    params: Type.Object(
+      {
+        id: Type.Optional(id),
+        name: Type.String({ maxLength: SKILL_NAME_MAX_INPUT_CHARS }),
+        description: Type.String({ maxLength: SKILL_DESCRIPTION_MAX_INPUT_CHARS }),
+        body: Type.String({ maxLength: SKILL_BODY_MAX_INPUT_CHARS }),
+      },
+      closed,
+    ),
+    result: Type.Object({ skill: SkillSchema }, closed),
+  },
+  deleteSkill: {
+    params: Type.Object({ id }, closed),
+    result: Type.Object({ deleted: Type.Boolean() }),
   },
   explainRun: {
     params: Type.Object({ runId: id, effort: Type.Optional(ExplainEffortSchema), agentId: Type.Optional(id) }, closed),
@@ -292,6 +323,11 @@ export const ERROR_CODES = [
   'AGENT_DUPLICATE',
   'AGENT_NOT_FOUND',
   'AGENT_BUILTIN',
+  'AGENT_NOT_ASSISTANT',
+  'SKILL_INVALID',
+  'SKILL_FULL',
+  'SKILL_DUPLICATE',
+  'SKILL_NOT_FOUND',
   'RUN_NOT_EXPLAINABLE',
   'EXPLAIN_BUSY',
   'EXPLAIN_PROVIDER',

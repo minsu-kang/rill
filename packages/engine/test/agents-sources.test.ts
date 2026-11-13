@@ -38,7 +38,7 @@ const WRITE = String.raw`(INSERT\s+(OR\s+\w+\s+)?INTO|UPDATE|DELETE\s+FROM|REPLA
 
 describe('only saveAgent, deleteAgent and setActiveAgent write the agent tables', () => {
   it('has no writer of agents in the engine or the planner except the store methods and the migration', () => {
-    expect(found([ENGINE, PLANNER], new RegExp(`${WRITE}agents\\b`, 'i')).sort()).toEqual(['store.ts:deleteAgent', 'store.ts:saveAgent', 'store.ts:saveAgent'].sort())
+    expect(found([ENGINE, PLANNER], new RegExp(`${WRITE}agents\\b`, 'i')).sort()).toEqual(['migrations.ts:', 'migrations.ts:', 'store.ts:deleteAgent', 'store.ts:deleteSkill', 'store.ts:saveAgent', 'store.ts:saveAgent'].sort())
   })
 
   it('has no writer of app_state except deleteAgent and setActiveAgent', () => {
@@ -57,7 +57,7 @@ describe('only saveAgent, deleteAgent and setActiveAgent write the agent tables'
 
   it('keeps every line that mentions the tables inside the store methods that read or write agents', () => {
     const owners = new Set(sitesOf(join(ENGINE, 'store.ts'), /\bapp_state\b|\bFROM agents\b|\bINTO agents\b|\bUPDATE agents\b|\bagents\b.*name_key/).map((site) => site.owner))
-    expect([...owners].sort()).toEqual(['activeAgentId', 'deleteAgent', 'getAgent', 'listAgents', 'saveAgent', 'setActiveAgent', 'storedActiveAgentId'].sort())
+    expect([...owners].sort()).toEqual(['activeAgentId', 'agentSkillLists', 'deleteAgent', 'deleteSkill', 'getAgent', 'listAgents', 'saveAgent', 'setActiveAgent', 'storedActiveAgentId'].sort())
   })
 
   it('calls the writing methods only from the engine methods, the store methods and the server handlers', () => {

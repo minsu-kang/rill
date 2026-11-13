@@ -163,6 +163,19 @@ export const MIGRATIONS: string[] = [
     code TEXT CHECK (code IS NULL OR code IN ('connection','timeout','http_status','slack_error','unknown'))
   );
   `,
+  `
+  CREATE TABLE skills (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  ALTER TABLE agents ADD COLUMN kind TEXT NOT NULL DEFAULT 'assistant' CHECK (kind IN ('assistant','reviewer'));
+  ALTER TABLE agents ADD COLUMN skill_ids TEXT NOT NULL DEFAULT '[]';
+  `,
 ]
 
 export function migrate(db: Db): void {

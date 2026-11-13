@@ -8,13 +8,18 @@ import {
   HOOK_MAX_ITEMS,
   HOOK_RATE_LIMIT,
   HOOK_RATE_WINDOW_MS,
+  AGENT_SKILLS_MAX_CHARS,
   MEMORY_MAX_ITEMS,
   RULE_MAX_ITEMS,
+  SKILL_MAX_ITEMS,
   agentNameKey,
   hookKey,
   isReservedAgentName,
+  skillNameKey,
   type Agent,
   type AgentFields,
+  type AgentKind,
+  type AgentSkillRule,
   type AttachmentRef,
   type Hook,
   type HookAction,
@@ -29,13 +34,25 @@ import {
   type PlanSummary,
   type Rule,
   type RuleKind,
+  type Skill,
+  type SkillFields,
 } from '@rill/protocol'
-import { AgentBuiltinError, AgentDuplicateError, AgentFullError, AgentNotFoundError, builtinAgent, normaliseAgent } from './agents'
+import {
+  AgentBuiltinError,
+  AgentDuplicateError,
+  AgentFullError,
+  AgentInvalidError,
+  AgentNotAssistantError,
+  AgentNotFoundError,
+  builtinAgent,
+  normaliseAgent,
+} from './agents'
 import type { Db } from './db'
 import { HookFullError, HookInvalidError, HookNotFoundError } from './hooks'
 import { MemoryDuplicateError, MemoryFullError, memoryKey, normaliseMemoryText } from './memory'
 import { PlanDeployedError, PlanExistsError, PlanNotFoundError, type StoredPlan } from './plans'
 import { RuleDuplicateError, RuleFullError } from './rules'
+import { SkillDuplicateError, SkillFullError, SkillInvalidError, SkillNotFoundError, normaliseSkill } from './skills'
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 export type AttemptStatus = 'running' | 'succeeded' | 'failed' | 'abandoned' | 'skipped' | 'continued'
@@ -203,11 +220,13 @@ interface RawAgent {
   description: string
   persona: string
   instructions: string
+  kind: AgentKind
+  skill_ids: string
   created_at: number
   updated_at: number
 }
 
-const AGENT_COLUMNS = 'id, name, description, persona, instructions, created_at, updated_at'
+const AGENT_COLUMNS = 'id, name, description, persona, instructions, kind, skill_ids, created_at, updated_at'
 const ACTIVE_AGENT_KEY = 'active_agent'
 
 function toAgent(row: RawAgent): Agent {
@@ -217,6 +236,8 @@ function toAgent(row: RawAgent): Agent {
     description: row.description,
     persona: row.persona,
     instructions: row.instructions,
+    kind: row.kind,
+    skillIds: JSON.parse(row.skill_ids) as string[],
     builtin: false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -232,6 +253,15 @@ interface RawHook {
   channel: string | null
   failure_count: number | null
   enabled: number
+  created_at: number
+  updated_at: number
+}
+
+interface RawSkill {
+  id: string
+  name: string
+  description: string
+  body: string
   created_at: number
   updated_at: number
 }
@@ -272,6 +302,18 @@ interface RawHookLog {
 }
 
 export type HookLogInput = Omit<HookLogEntry, 'id'>
+
+const SKILL_COLUMNS = 'id, name, description, body, created_at, updated_at'
+
+function toSkill(row: RawSkill): Skill {
+  return { id: row.id, name: row.name, description: row.description, body: row.body, createdAt: row.created_at, updatedAt: row.updated_at }
+}
+
+function textLength(text: string): number {
+  return [...text].length
+}
+
+export type AgentSaveInput = AgentFields & { id?: string; kind?: AgentKind; skillIds?: readonly string[] }
 
 interface RawPlan {
   id: string
@@ -807,46 +849,65 @@ export class Store {
     return row === undefined ? undefined : toAgent(row)
   }
 
-  saveAgent(input: AgentFields & { id?: string }): Agent {
+  saveAgent(input: AgentSaveInput): Agent {
     if (input.id === AGENT_DEFAULT_ID) throw new AgentBuiltinError()
     const fields = normaliseAgent(input)
     if (isReservedAgentName(fields.name)) throw new AgentDuplicateError()
     const key = agentNameKey(fields.name)
     return this.db.transaction(() => {
       const at = this.now()
+      if (input.skillIds !== undefined) {
+        const problem = this.skillListProblem(input.skillIds)
+        if (problem !== undefined) throw new AgentInvalidError([], [problem])
+      }
       if (input.id !== undefined) {
         const row = this.db.get<RawAgent>(`SELECT ${AGENT_COLUMNS} FROM agents WHERE id = ?`, input.id)
         if (!row) throw new AgentNotFoundError()
+        if (input.kind === 'reviewer' && this.storedActiveAgentId() === input.id) throw new AgentNotAssistantError()
         if (this.db.get('SELECT 1 AS found FROM agents WHERE name_key = ? AND id != ?', key, input.id) !== undefined) throw new AgentDuplicateError()
+        const kind = input.kind ?? row.kind
+        const skillIds = input.skillIds === undefined ? (JSON.parse(row.skill_ids) as string[]) : [...input.skillIds]
         this.db.run(
-          'UPDATE agents SET name = ?, name_key = ?, description = ?, persona = ?, instructions = ?, updated_at = ? WHERE id = ?',
+          'UPDATE agents SET name = ?, name_key = ?, description = ?, persona = ?, instructions = ?, kind = ?, skill_ids = ?, updated_at = ? WHERE id = ?',
           fields.name,
           key,
           fields.description,
           fields.persona,
           fields.instructions,
+          kind,
+          JSON.stringify(skillIds),
           at,
           input.id,
         )
-        return { ...toAgent(row), ...fields, updatedAt: at }
+        return { ...toAgent(row), ...fields, kind, skillIds, updatedAt: at }
       }
       if (this.db.get('SELECT 1 AS found FROM agents WHERE name_key = ?', key) !== undefined) throw new AgentDuplicateError()
       const count = this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM agents')?.n ?? 0
       if (count >= AGENT_MAX_ITEMS) throw new AgentFullError(AGENT_MAX_ITEMS)
       const id = randomUUID()
+      const kind = input.kind ?? 'assistant'
+      const skillIds = [...(input.skillIds ?? [])]
       this.db.run(
-        'INSERT INTO agents (id, name, name_key, description, persona, instructions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO agents (id, name, name_key, description, persona, instructions, kind, skill_ids, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         id,
         fields.name,
         key,
         fields.description,
         fields.persona,
         fields.instructions,
+        kind,
+        JSON.stringify(skillIds),
         at,
         at,
       )
-      return { id, ...fields, builtin: false, createdAt: at, updatedAt: at }
+      return { id, ...fields, kind, skillIds, builtin: false, createdAt: at, updatedAt: at }
     })
+  }
+
+  private skillListProblem(ids: readonly string[]): AgentSkillRule | undefined {
+    const rows = this.skillsOf(ids)
+    if (rows.length < new Set(ids).size) return 'unknown'
+    return rows.reduce((total, skill) => total + textLength(skill.body), 0) > AGENT_SKILLS_MAX_CHARS ? 'too_large' : undefined
   }
 
   deleteAgent(id: string): boolean {
@@ -864,7 +925,9 @@ export class Store {
         this.db.run('DELETE FROM app_state WHERE key = ?', ACTIVE_AGENT_KEY)
         return
       }
-      if (this.db.get('SELECT 1 AS found FROM agents WHERE id = ?', id) === undefined) throw new AgentNotFoundError()
+      const row = this.db.get<{ kind: AgentKind }>('SELECT kind FROM agents WHERE id = ?', id)
+      if (row === undefined) throw new AgentNotFoundError()
+      if (row.kind === 'reviewer') throw new AgentNotAssistantError()
       this.db.run('INSERT INTO app_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', ACTIVE_AGENT_KEY, id)
     })
   }
@@ -984,6 +1047,68 @@ export class Store {
 
   hookExecutionsSince(at: number): number {
     return this.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM hook_log WHERE outcome IN ('ok', 'failed') AND at > ?", at)?.n ?? 0
+  }
+
+  listSkills(): Skill[] {
+    return this.db.all<RawSkill>(`SELECT ${SKILL_COLUMNS} FROM skills ORDER BY name_key, rowid`).map(toSkill)
+  }
+
+  skillsOf(ids: readonly string[]): Skill[] {
+    const unique = [...new Set(ids)]
+    if (unique.length === 0) return []
+    const marks = unique.map(() => '?').join(', ')
+    return this.db.all<RawSkill>(`SELECT ${SKILL_COLUMNS} FROM skills WHERE id IN (${marks}) ORDER BY name_key, rowid`, ...unique).map(toSkill)
+  }
+
+  saveSkill(input: SkillFields & { id?: string }): Skill {
+    const fields = normaliseSkill(input)
+    const key = skillNameKey(fields.name)
+    return this.db.transaction(() => {
+      const at = this.now()
+      if (input.id !== undefined) {
+        const row = this.db.get<RawSkill>(`SELECT ${SKILL_COLUMNS} FROM skills WHERE id = ?`, input.id)
+        if (!row) throw new SkillNotFoundError()
+        if (this.db.get('SELECT 1 AS found FROM skills WHERE name_key = ? AND id != ?', key, input.id) !== undefined) throw new SkillDuplicateError()
+        const broken = this.agentsBrokenBy(input.id, textLength(fields.body))
+        if (broken > 0) throw new SkillInvalidError([{ field: 'body', rule: 'too_large_for_agent', agents: broken }])
+        this.db.run('UPDATE skills SET name = ?, name_key = ?, description = ?, body = ?, updated_at = ? WHERE id = ?', fields.name, key, fields.description, fields.body, at, input.id)
+        return { ...toSkill(row), ...fields, updatedAt: at }
+      }
+      if (this.db.get('SELECT 1 AS found FROM skills WHERE name_key = ?', key) !== undefined) throw new SkillDuplicateError()
+      const count = this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM skills')?.n ?? 0
+      if (count >= SKILL_MAX_ITEMS) throw new SkillFullError()
+      const id = randomUUID()
+      this.db.run('INSERT INTO skills (id, name, name_key, description, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', id, fields.name, key, fields.description, fields.body, at, at)
+      return { id, ...fields, createdAt: at, updatedAt: at }
+    })
+  }
+
+  private agentsBrokenBy(skillId: string, newLength: number): number {
+    let broken = 0
+    for (const { skillIds } of this.agentSkillLists()) {
+      if (!skillIds.includes(skillId)) continue
+      const lengths = new Map(this.skillsOf(skillIds).map((skill) => [skill.id, textLength(skill.body)]))
+      lengths.set(skillId, newLength)
+      if ([...lengths.values()].reduce((total, length) => total + length, 0) > AGENT_SKILLS_MAX_CHARS) broken += 1
+    }
+    return broken
+  }
+
+  private agentSkillLists(): Array<{ id: string; skillIds: string[] }> {
+    return this.db
+      .all<{ id: string; skill_ids: string }>("SELECT id, skill_ids FROM agents WHERE skill_ids != '[]' ORDER BY rowid")
+      .map((row) => ({ id: row.id, skillIds: JSON.parse(row.skill_ids) as string[] }))
+  }
+
+  deleteSkill(id: string): boolean {
+    return this.db.transaction(() => {
+      if (this.db.run('DELETE FROM skills WHERE id = ?', id) === 0) return false
+      for (const agent of this.agentSkillLists()) {
+        if (!agent.skillIds.includes(id)) continue
+        this.db.run('UPDATE agents SET skill_ids = ? WHERE id = ?', JSON.stringify(agent.skillIds.filter((skillId) => skillId !== id)), agent.id)
+      }
+      return true
+    })
   }
 
   journal(): Journal {
