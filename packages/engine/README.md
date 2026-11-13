@@ -159,7 +159,7 @@ The free text of a result (the summary, the question texts, options and defaults
 
 A flag marks a node field whose value did not come from the user's own words (`attachment_origin`, `new_egress_target` or `untrusted_flow`). Each flag has a key, `flagKey(flag)` from `@rill/protocol`, which is the JSON text of `[nodeId, pointer, code]`.
 
-`deployPlan` deploys the planned workflow only when `confirmed` contains every flag key of the plan and nothing else. Otherwise it fails with `PLAN_NOT_CONFIRMED`, and the message names the unconfirmed flags by node and pointer, never by value. It does not activate the workflow or start a run; use `activate` and `startRun` (with `dryRun`) for that.
+`deployPlan` deploys the planned workflow only when `confirmed` contains every flag key of the plan and nothing else. Otherwise it fails with `PLAN_NOT_CONFIRMED`, and the message names the unconfirmed flags by node and pointer, never by value. It does not activate the workflow or start a run; use `activate` and `startRun` (with `dryRun`) for that. It emits one `plan.deployed` event `{ workflowId, planId }` after the workflow is stored, and a deploy that fails emits none (see Hook methods).
 
 `deploy` refuses the content of a plan that has flags and has not been deployed yet, with the same error. The comparison ignores the workflow name, key order, the order of the nodes and edges, and an `onError` or `retry` that only spells out the default. It stops accidental deploys, not a client that edits the content first.
 
@@ -228,6 +228,8 @@ The engine checks in this order and stops at the first failure, so a refusal cha
 | `plans` | Kept. Only `workflow_id` is set to null, because it points at a workflow that is gone. `confirmed` stays: it records which flags the user approved, not a link. The request text, the result and the meta of a plan are the user's own history and do not need the workflow row, and a plan can be deployed again with `deployPlan`, which writes `workflow_id` and `confirmed` anew. |
 | `memory_items` | Untouched. A note has no link to a workflow. |
 | `agents`, `app_state` | Untouched. An agent has no link to a workflow, and a plan keeps the `agent_id` it was made with. |
+| `hooks` | Rows whose scope is the workflow are deleted. A hook with the scope all stays. |
+| `hook_log` | Kept. A row has no link to a hook or a workflow, so the screen can call it a deleted hook. |
 
 Other windows learn of the delete through the `workflow.deleted` event.
 
@@ -512,3 +514,122 @@ Only the connections that the connections file lists with a kind are known to th
 - Deploy only after the user confirms, through the existing `deploy` with the `workflow` of the draft. Then use `startRun` with `dryRun` and `activate` as for any workflow.
 - Show a `RECIPE_INVALID` problem next to the form field named by `<param>`. A `<code> at <pointer>` problem belongs to the workflow, not to one field: the first segments of the pointer name the node. Do not show a problem as if the user had typed it.
 - Never assemble a value from other text, for example a reference to a node. The engine refuses a text that contains `{{` or `}}`.
+
+## Hook methods
+
+A hook ties an engine event to a fixed action, for the whole app. It can send a Slack notice when a run fails or succeeds or when a plan is deployed, switch a workflow off after a number of failures in a row, or only write a line to the activity log. The engine runs the hooks, so they act while no window is open, and `rill-engine serve` runs them too. A hook acts only while the engine process is running. Nothing runs while the engine is stopped, and nothing is replayed when it starts again.
+
+A hook is created, changed or deleted only by an explicit request to `saveHook` or `deleteHook`. No plan, plan result, attachment, run data, recipe or imported file can write one, hooks are not part of any import or export, and the planner package has no database access at all. A test scans the sources for a new write path. `PROTOCOL_VERSION` is still 1.
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `listHooks` | none | `hooks`, oldest first |
+| `saveHook` | `event`, `scope`, `action`, `enabled`, optional `id` | `hook` |
+| `deleteHook` | `id` | `deleted` (`false` for an id that is not there) |
+| `listHookLog` | optional `limit` (1 to 200, default 50), optional `hookId` | `entries`, newest first |
+
+A hook is `{ id, event, scope, action, enabled, createdAt, updatedAt }`. `saveHook` without `id` creates a hook under a new random id. With an `id` it edits that hook: the id and `createdAt` stay and `updatedAt` moves, and an unknown id is `HOOK_NOT_FOUND`. The four methods work when the engine has no model provider.
+
+### Events
+
+| Event | When |
+| --- | --- |
+| `run.failed` | A run that is not a dry run finished with the status `failed`. |
+| `run.succeeded` | A run that is not a dry run finished with the status `succeeded`. |
+| `plan.deployed` | `deployPlan` stored the workflow of a plan. |
+
+`run.failed` and `run.succeeded` come from the `run.finished` event, which has only the run id, so the engine reads the workflow id and the dry run flag from the run record. A dry run never reaches a hook, whether it fails or succeeds. A run that a rule blocked before any node ran, and a run that `recover` finishes after a crash, are ordinary finished runs. `plan.deployed` is an engine event with the fields `workflowId` and `planId`. `deployPlan` emits it once, after the workflow and the plan record are stored, and a deploy that fails emits none. `deploy` does not emit it, and no other event is a hook event: the actions of a hook emit nothing that a hook listens to, so no hook can start another hook.
+
+A hook has a scope: `{ type: 'all' }` for every workflow, or `{ type: 'workflow', workflowId }` for one. A hook that is not enabled does nothing.
+
+### Actions
+
+| Action | Fields | What it does |
+| --- | --- | --- |
+| `notify` | `connection`, optional `channel` | Posts a fixed message to Slack through a saved connection of kind `slack`. |
+| `deactivateAfterFailures` | `count`, 2 to 20 | For the event `run.failed` only. When the failed run is the newest non-dry run of the workflow and the newest `count` non-dry runs have all failed, the workflow is switched off through the same path as `deactivate`, if it is active. |
+| `record` | none | Writes the log row and nothing else. |
+
+`notify` posts through `postSlackMessage` in `@rill/nodes-core`, the same function that the `notify.slack` node calls, so the request is the same: a bot connection gets `POST https://slack.com/api/chat.postMessage` with the token in the `Authorization` header, a webhook connection gets the text posted to its own address, and the answer is read the same way. The secret comes from the connections of the engine when the hook acts, a post waits at most 15 seconds, and there is no retry. The channel is read for a bot connection only and takes the same grammar as the `channel` of `notify.slack` (1 to 80 characters, no space, no control character). Without a channel the default channel of the connection is used. A webhook connection with a channel is a failed row with the code `connection`.
+
+`deactivateAfterFailures` reads the stored run history, so the count survives a restart and needs no counter. A success between two failures resets it, and a dry run neither counts nor resets. The check is skipped, with the outcome `skipped_inactive`, when fewer than `count` runs exist, when the failed run is not the newest one (a newer run is queued, running or finished), when a run in the newest `count` did not fail, and when the workflow is already inactive. Reactivating is the user's action. Because the history is not cleared, a workflow that the user switches on again while its newest `count` runs are all failed is switched off by its next failure.
+
+### The message
+
+The text of a `notify` hook is a fixed English sentence with the workflow name in it:
+
+| Event | Text |
+| --- | --- |
+| `run.failed` | `Workflow "<name>" failed.` |
+| `run.succeeded` | `Workflow "<name>" finished.` |
+| `plan.deployed` | `Workflow "<name>" was deployed.` |
+
+The name is made safe by `hookWorkflowLabel` in `@rill/protocol`: control characters, line and paragraph separators, bidirectional marks and invisible format characters are removed, a run of spaces becomes one space, the name is cut to 60 characters by code point, and only then `&`, `<` and `>` become `&amp;`, `&lt;` and `&gt;`, so a name cannot make a mention or a link and an escape is never cut in half. A name with nothing visible left reads `unnamed`. No run data, error text, step output, node id or path ever goes into the message. The name is text that the workflow carries, so up to 60 characters of it appear in the message as written, and Slack may turn a bare address in it into a link.
+
+### Saving a hook
+
+`saveHook` checks the hook before it stores anything, and lists every problem that it finds as `<field>.<rule>: <fixed sentence>`, never the value that was sent. The check itself is `checkHookInput` in `@rill/protocol`, so the fake engine of the desktop app applies the same rules.
+
+| Problem | Meaning |
+| --- | --- |
+| `scope.unknown_workflow` | The workflow of a workflow scope does not exist. |
+| `connection.empty`, `connection.unknown_connection`, `connection.not_slack_connection` | The connection is missing, is not one the engine knows by this exact spelling, or has a kind other than `slack` (a connection without a kind counts as another kind). |
+| `connection.control_character`, `.line_separator`, `.bidi_format`, `.format_character`, `.too_long` | The connection name breaks the character rules of other user text, or has more than 128 characters. The name is not changed, because it is looked up by its exact spelling. |
+| `channel.whitespace`, `channel.control_character`, `channel.line_separator`, `channel.bidi_format`, `channel.format_character`, `channel.too_long` | The channel breaks the grammar of `notify.slack` or the character rules. The channel is trimmed and composed to NFC first, and an empty channel means no channel. |
+| `count.out_of_range` | The count is not a whole number from 2 to 20. |
+| `action.only_for_run_failed` | `deactivateAfterFailures` with an event other than `run.failed`. |
+| `action.forbidden_by_rule` | A `notify` hook while a `forbidNode` rule names `notify.slack`. |
+| `hook.duplicate` | A hook with the same event, scope and action (the same connection and channel, or the same count) is already saved. `enabled` does not make a difference. |
+
+At most 20 hooks exist (`HOOK_FULL`). Editing a hook when the list is full is allowed. The count and the insert run in one transaction. A text field of the request is capped at four times its limit, only to bound the payload; a text above the limit but under the cap passes the schema and is a problem of its own. The count must be a whole number, but its range is judged by the engine, so `count: 1` is `HOOK_INVALID` and `count: 2.5` is `INVALID_PARAMS`.
+
+### Limits and order
+
+- A `notify` hook has a cooldown of 60 seconds. A matching event less than 60 seconds after the last post of that hook, successful or not, writes `skipped_cooldown` and does nothing. The cooldown belongs to the hook, so a hook with the scope `all` posts at most one message a minute for all workflows together. `record` and `deactivateAfterFailures` have no cooldown.
+- A global cap of 30 actions in 10 minutes applies to every hook. An action counts when its row says `ok` or `failed`; a skipped, blocked or rate limited row does not. When the cap is reached, the next actions write `rate_limited` and do nothing, a deactivation included, until the oldest counted action is 10 minutes old.
+- Both limits are read from the log, measured from the time of the event, so they survive a restart. The check order for a `notify` hook is the rule, then the cooldown, then the cap.
+- Hooks run one at a time, in the order of their creation, after the event has reached every other listener and never inside the run. A run finishes and its promise settles before any hook starts, and a slow Slack call delays only the hooks behind it. An event that arrives while the runner is busy waits in a queue. The runner uses the hooks as they are when its turn comes, so a hook that was deleted in between is skipped.
+- A hook that throws is caught and written as `failed` with the code `unknown`. Nothing is retried. `Engine.idle` waits for the runner, and `Engine.shutdown` stops it: pending events are dropped, a post in flight is aborted and written as `failed`, and no hook starts afterwards.
+- With no enabled hook for an event, the runner does no work: no query, no timer and no row. It reads the hooks again only when a hook changes.
+
+### Rules
+
+A `notify` hook is a way to send a message like the node, so it follows the rule that forbids the node. `saveHook` refuses a `notify` hook with `action.forbidden_by_rule` while a `forbidNode` rule names `notify.slack`, and an existing `notify` hook that a rule later blocks writes `blocked_by_rule`, posts nothing and does not start a cooldown. `record` and `deactivateAfterFailures` are not affected. Hooks do not use `http.request`, so `allowHost` does not apply: a post goes only to `slack.com` or to the webhook address of the connection.
+
+### The activity log
+
+Every action, skipped or not, writes one row to `hook_log`: `{ id, hookId, at, event, workflowId, outcome, code }`. `at` is the time of the event. The newest 500 rows are kept, and the oldest are deleted when a row is written. Deleting a hook, or the workflow that a hook was about, keeps its old rows, because a row has no link to either.
+
+| Outcome | Meaning |
+| --- | --- |
+| `ok` | The action was done. |
+| `failed` | The action was tried and failed, or something went wrong. `code` says what. |
+| `skipped_cooldown` | A `notify` hook is in its cooldown. |
+| `rate_limited` | The global cap is reached. |
+| `blocked_by_rule` | A rule forbids `notify.slack`. |
+| `skipped_inactive` | `deactivateAfterFailures` found nothing to do: the workflow is already inactive, or the run history does not match. |
+
+A `failed` row has one code, and every other row has none. The code is a fixed word, never text from Slack, a name or a value: `connection` (the connection is missing, changed, not a Slack connection or cannot post as set), `timeout`, `http_status` (an HTTP error status or a redirect), `slack_error` (Slack answered `ok: false` or something unexpected) and `unknown`. An event whose run record is gone, because its workflow was deleted in between, writes no row. `listHookLog` returns the rows newest first. No row, response, event or log line holds a token, a webhook address, a channel, a connection name or a workflow name.
+
+### Errors
+
+| Code | Meaning |
+| --- | --- |
+| `HOOK_INVALID` | The hook breaks a rule of Saving a hook; `problems` lists them and never a value |
+| `HOOK_FULL` | The 20 hook places are taken; delete one first |
+| `HOOK_NOT_FOUND` | `saveHook` got an `id` that is not there |
+| `INVALID_PARAMS` | The params are malformed: an unknown field or event or action type, a text above four times its limit, or a count that is not a whole number |
+
+An unexpected failure of `saveHook`, `deleteHook`, `listHooks` or `listHookLog` logs only the error name. Hook values never appear in a log line, an error message or an event.
+
+### What a hook cannot do
+
+- It cannot start a run, a plan, a deploy or a model call. The runner has no way to do any of them: it can read the store, write the log, post to Slack and switch a workflow off. A test scans the runner for each of them.
+- It cannot send anything but the fixed sentence, and the only text in it is the sanitised workflow name.
+- It cannot act on a dry run, replay an event that the engine missed, or trigger another hook.
+- It cannot affect a run. A failing, slow or throwing hook changes neither the status of a run, the events that other listeners get, nor the hooks behind it.
+- When a check cannot decide, it does nothing and writes a `failed` row.
+
+### Storage
+
+Migration 8 creates `hooks` (`id`, `event`, `scope_workflow_id` with a foreign key to `workflows`, `action_type`, `connection`, `channel`, `failure_count`, `enabled`, a unique `dedupe_key`, `created_at`, `updated_at`, and checks that tie each action to its fields) and `hook_log`. A database from before this migration migrates forward and keeps its data. `deleteWorkflow` deletes the hooks that have the workflow as their scope in the same transaction.
