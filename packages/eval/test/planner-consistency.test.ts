@@ -165,6 +165,7 @@ const MUTATIONS: [string, string, (d: Mutable) => void][] = [
   ['an unsupported block with a malformed invented type', 'is not a well-formed node type', (d) => void (d.expectOf(UNSUP)['mustNotInvent'] = ['kakao.send@1', 'Kakao'])],
   ['an empty alsoAccept', 'alsoAccept must be a non-empty array', (d) => void (d.expectOf(UNSUP)['alsoAccept'] = [])],
   ['a missing case', 'expected exactly 61 cases', (d) => void d.cases.pop()],
+  ['an extra case', 'expected exactly 61 cases, found 62', (d) => void d.cases.push({ ...structuredClone(d.c(EASY)), id: 'easy-98-extra' })],
   ['a changed category count', 'counts: ', (d) => void (d.c(EASY)['category'] = 'patch')],
   ['too few hard prompts', 'need at least 6 hard prompts', (d) => d.cases.forEach((entry) => void delete entry['tags'])],
   ['too few Korean prompts', MOST_KOREAN, (d) => withKoreanCount(d, Math.floor(d.cases.length / 2))],
