@@ -183,6 +183,49 @@ describe('the hook store', () => {
     await waitFor(() => expect(count('listHooks')).toBe(2))
   })
 
+  it('does not load the list again for a refusal that says nothing about the list', async () => {
+    const { client, count } = world({ hooks: [seedHook('h1')] })
+    const { result } = renderHook(() => useHookStore(client))
+    await waitFor(() => expect(result.current.state.status).toBe('ready'))
+    await act(async () => {
+      await expect(result.current.store.save({ ...record, action: { type: 'deactivateAfterFailures', count: 1 } })).rejects.toMatchObject({ code: 'HOOK_INVALID' })
+    })
+    expect(count('listHooks')).toBe(1)
+  })
+
+  it('loads the list again when the answer of a save is lost, since the engine may have saved the hook', async () => {
+    let lose = true
+    const { client, count, inner } = world({
+      hooks: [seedHook('h1')],
+      intercept: (method, params) =>
+        method === 'saveHook' && lose
+          ? inner.request(method, params as MethodParams<'saveHook'>).then(() => {
+              throw new RillError('INTERNAL', 'engine restarted')
+            })
+          : undefined,
+    })
+    const { result } = renderHook(() => useHookStore(client))
+    await waitFor(() => expect(result.current.state.status).toBe('ready'))
+    await act(async () => {
+      await expect(result.current.store.save(other)).rejects.toMatchObject({ code: 'INTERNAL' })
+    })
+    lose = false
+    await waitFor(() => expect(result.current.state.hooks.map((hook) => hook.event)).toEqual(['run.failed', 'run.succeeded']))
+    expect(count('listHooks')).toBe(2)
+  })
+
+  it('loads the list again when the engine calls a hook a duplicate that the list does not show', async () => {
+    const { client, count, inner } = world({ hooks: [seedHook('h1')] })
+    const { result } = renderHook(() => useHookStore(client))
+    await waitFor(() => expect(result.current.state.status).toBe('ready'))
+    await inner.request('saveHook', other)
+    await act(async () => {
+      await expect(result.current.store.save(other)).rejects.toMatchObject({ code: 'HOOK_INVALID', problems: [expect.stringContaining('hook.duplicate')] })
+    })
+    await waitFor(() => expect(result.current.state.hooks.map((hook) => hook.event)).toEqual(['run.failed', 'run.succeeded']))
+    expect(count('listHooks')).toBe(2)
+  })
+
   it('answers a write that comes before the first list, and then loads the list', async () => {
     const { client, count } = world({ hooks: [seedHook('h1')] })
     const store = hookStoreFor(client)
@@ -206,6 +249,37 @@ describe('the hooks of a workflow that is deleted', () => {
     })
     await waitFor(() => expect(result.current.state.hooks.map((hook) => hook.id)).toEqual(['h1']))
     expect(count('listHooks')).toBe(2)
+  })
+
+  it('are loaded again when a write finishes while that load is on its way, so that the old list is not written back over it', async () => {
+    const scoped = seedHook('h2', { event: 'run.failed', scope: { type: 'workflow', workflowId }, action: { type: 'record' }, enabled: true })
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let lists = 0
+    const { client, base, inner, count } = world({
+      hooks: [seedHook('h1'), scoped],
+      intercept: (method, params) => {
+        if (method !== 'listHooks') return undefined
+        lists += 1
+        return lists === 2 ? gate.then(() => inner.request(method, params as MethodParams<'listHooks'>)) : undefined
+      },
+    })
+    const { result } = renderHook(() => useHookStore(client))
+    await waitFor(() => expect(result.current.state.hooks.map((hook) => hook.id)).toEqual(['h1', 'h2']))
+    act(() => {
+      base.emit({ type: 'workflow.deleted', at: 1, workflowId })
+    })
+    await act(async () => {
+      await result.current.store.save(other)
+    })
+    await act(async () => {
+      release()
+    })
+    await waitFor(() => expect(result.current.state.hooks.map((hook) => hook.event)).toEqual(['run.failed', 'run.succeeded']))
+    expect(result.current.state.hooks.map((hook) => hook.id)).not.toContain('h2')
+    expect(count('listHooks')).toBe(3)
   })
 
   it('are not loaded for an event of another kind, nor before anyone has asked for the hooks', async () => {

@@ -88,6 +88,39 @@ describe('the Hooks entry of the Agents tab in the app', () => {
     expect(await screen.findByRole('heading', { level: 2, name: t('app.settings.section.connections') })).toBeTruthy()
   })
 
+  it('keeps the form and what was typed in it when the person looks at Rules, and comes back', async () => {
+    const { user } = mount({ tab: 'agents', agentsSection: 'hooks' })
+    await screen.findByRole('region', { name: 'Saved hooks' })
+    await user.click(screen.getByRole('button', { name: 'New hook' }))
+    const form = await screen.findByRole('region', { name: 'New hook' })
+    await user.selectOptions(within(form).getByRole('combobox', { name: 'For' }), ids.workflows.webhook)
+    await user.selectOptions(within(form).getByRole('combobox', { name: 'Then' }), 'deactivateAfterFailures')
+    await user.clear(within(form).getByRole('spinbutton'))
+    await user.type(within(form).getByRole('spinbutton'), '5')
+    await user.click(within(subNav()).getByRole('button', { name: 'Rules' }))
+    await screen.findByRole('heading', { level: 2, name: 'Rules' })
+    await user.click(within(subNav()).getByRole('button', { name: 'Hooks' }))
+    const again = await screen.findByRole('region', { name: 'New hook' })
+    expect((within(again).getByRole('combobox', { name: 'For' }) as HTMLSelectElement).value).toBe(ids.workflows.webhook)
+    expect((within(again).getByRole('combobox', { name: 'Then' }) as HTMLSelectElement).value).toBe('deactivateAfterFailures')
+    expect((within(again).getByRole('spinbutton') as HTMLInputElement).value).toBe('5')
+    expect(within(again).getByText('Unsaved changes')).toBeTruthy()
+  })
+
+  it('keeps the form while the person goes to Settings, Connections to add a connection, and comes back', async () => {
+    const { user } = mount({ tab: 'agents', agentsSection: 'hooks' }, {}, NO_SLACK)
+    await screen.findByRole('region', { name: 'Saved hooks' })
+    await user.click(screen.getByRole('button', { name: 'New hook' }))
+    const form = await screen.findByRole('region', { name: 'New hook' })
+    await user.selectOptions(within(form).getByRole('combobox', { name: 'When' }), 'run.succeeded')
+    await user.click(within(form).getByRole('button', { name: 'Open Settings, Connections' }))
+    await screen.findByRole('heading', { level: 2, name: t('app.settings.section.connections') })
+    const top = within(screen.getByRole('navigation', { name: t('app.top.screens') }))
+    await user.click(top.getByRole('button', { name: 'Agents' }))
+    const again = await screen.findByRole('region', { name: 'New hook' })
+    expect((within(again).getByRole('combobox', { name: 'When' }) as HTMLSelectElement).value).toBe('run.succeeded')
+  })
+
   it('loses the hooks of a workflow that is deleted, as the engine does', async () => {
     const { world } = mount(
       { tab: 'agents', agentsSection: 'hooks' },

@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import preview from '../.storybook/preview'
 import * as module from '../src/app/agents/HooksScreen.stories'
 import { createTranslator, type Locale } from '../src/i18n'
+import { violations } from './axe'
 
 type PlayableStory = ComponentType & { play?: (context: { canvasElement: HTMLElement; canvas: ReturnType<typeof within>; userEvent: ReturnType<typeof userEvent.setup> }) => Promise<void> }
 
@@ -40,6 +41,7 @@ const SHOWN: Readonly<Record<string, readonly string[]>> = {
   SaveRefusedAsFull: ['agents.hooks.error.HOOK_FULL'],
   SaveRefusedAsInvalid: ['agents.hooks.problem.unknown_workflow'],
   SaveFails: ['agents.hooks.error.generic'],
+  SwitchOnRefused: ['agents.hooks.error.switchOn'],
   SwitchedOff: ['agents.hooks.status.switchedOff'],
   ActivityLoading: ['agents.hooks.activity.loading'],
   ActivityError: ['agents.hooks.activity.loadError'],
@@ -87,5 +89,36 @@ describe.each(['en', 'ko'] as const)('the stories of the Hooks screen (%s)', (lo
     await Hostile.play?.({ canvasElement: second.container, canvas: within(second.container), userEvent: userEvent.setup() })
     await waitFor(() => expect(second.container.textContent).toContain('Workflow "&lt;img src=x onerror=alert(1)&gt; gpj&lt;/b&gt; {{secret}}" failed.'))
     expect(second.container.querySelector('img, script')).toBeNull()
+  })
+})
+
+describe.each([
+  { locale: 'ko', theme: 'light' },
+  { locale: 'en', theme: 'dark' },
+] as const)('the stories of the Hooks screen have no axe violation ($locale, $theme)', (mode) => {
+  const composed = composeStories(module, { ...preview, initialGlobals: { theme: mode.theme, locale: mode.locale } } as never) as unknown as Record<string, PlayableStory>
+
+  it.each(Object.keys(SHOWN))('%s', async (name) => {
+    const Story = composed[name]!
+    const view = render(<Story />)
+    await Story.play?.({ canvasElement: view.container, canvas: within(view.container), userEvent: userEvent.setup() })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    expect(await violations(view.container)).toEqual([])
+    view.unmount()
+  })
+
+  it('the other stories too', async () => {
+    for (const name of Object.keys(composed).filter((entry) => !Object.hasOwn(SHOWN, entry))) {
+      const Story = composed[name]!
+      const view = render(<Story />)
+      await Story.play?.({ canvasElement: view.container, canvas: within(view.container), userEvent: userEvent.setup() })
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 60))
+      })
+      expect(await violations(view.container), name).toEqual([])
+      view.unmount()
+    }
   })
 })

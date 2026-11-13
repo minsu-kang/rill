@@ -303,6 +303,17 @@ describe('switching a hook on or off', () => {
     expect((within(rowOf('team-slack to #alerts')).getByRole('switch') as HTMLInputElement).checked).toBe(true)
   })
 
+  it('does not tell the person to choose from a list on the page: the connection of a switched off notice is gone, and the connections are not known yet when the switch is pressed', async () => {
+    const gone = hookOf('hook-gone', 'run.failed', { type: 'all' }, { type: 'notify', connection: 'old-slack' }, { enabled: false })
+    const { user } = mount({ hooks: [gone], connections: undefined })
+    await ready()
+    await user.click(within(rowOf('old-slack')).getByRole('switch'))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('This hook cannot be switched on as it is saved. Choose Edit to see what has to change.')
+    expect(alert.textContent).not.toContain('Choose one from the list')
+    expect((within(rowOf('old-slack')).getByRole('switch') as HTMLInputElement).checked).toBe(false)
+  })
+
   it('does not let a notice be switched on while a rule forbids notify.slack, says why on each notice, and still lets one be switched off', async () => {
     const { user, callsOf } = mount({ hooks: hookFixtures.some, rules: [rule('r', 'notify.slack')] })
     await ready()
@@ -557,6 +568,34 @@ describe('the form', () => {
     expect((within(rowOf('ops-webhook')).getByRole('switch') as HTMLInputElement).disabled).toBe(false)
   })
 
+  it('keeps the form of a hook with its changes when the screen is closed and opened again, and starts clean for another client', async () => {
+    const { user, client, view, connections } = mount({ hooks: hookFixtures.some })
+    await ready()
+    await user.click(within(rowOf('ops-webhook')).getByRole('button', { name: /^Edit the hook/ }))
+    await user.type(field('Channel (optional)'), '#late')
+    view.unmount()
+    const again = renderThemed(<HooksScreen client={client} connections={connections} timeZone="UTC" />, { locale: 'en' })
+    await screen.findByRole('region', { name: 'Edit hook' })
+    expect((field('Channel (optional)') as HTMLInputElement).value).toBe('#late')
+    expect(within(editor()).getByText('Unsaved changes')).toBeTruthy()
+    again.unmount()
+    mount({ hooks: hookFixtures.some })
+    await ready()
+    expect(screen.queryByRole('region', { name: 'Edit hook' })).toBeNull()
+  })
+
+  it('drops the kept form when it is cancelled or saved, so that a later visit finds none', async () => {
+    const { user, client, view, connections } = mount({ hooks: hookFixtures.some })
+    await ready()
+    await user.click(within(rowOf('ops-webhook')).getByRole('button', { name: /^Edit the hook/ }))
+    await user.type(field('Channel (optional)'), '#late')
+    await user.click(within(editor()).getByRole('button', { name: 'Cancel' }))
+    view.unmount()
+    renderThemed(<HooksScreen client={client} connections={connections} timeZone="UTC" />, { locale: 'en' })
+    await ready()
+    expect(screen.queryByRole('region', { name: 'Edit hook' })).toBeNull()
+  })
+
   it('asks before it drops changes when another hook or a new hook is opened, and not when nothing changed', async () => {
     const { user } = mount({ hooks: hookFixtures.some })
     await ready()
@@ -695,9 +734,9 @@ describe('what the form prevents', () => {
     expect(within(editor()).getByText('A channel has no spaces.')).toBeTruthy()
     expect(channel.getAttribute('aria-invalid')).toBe('true')
     expect(saveButton().disabled).toBe(true)
-    fireEvent.change(channel, { target: { value: '#a‮b' } })
+    fireEvent.change(channel, { target: { value: '#a\u202eb' } })
     expect(within(editor()).getByText('The text has a character that changes the text direction.')).toBeTruthy()
-    fireEvent.change(channel, { target: { value: '#a​b' } })
+    fireEvent.change(channel, { target: { value: '#a\u200bb' } })
     expect(within(editor()).getByText('The text has an invisible formatting character.')).toBeTruthy()
     fireEvent.change(channel, { target: { value: `#${'a'.repeat(80)}` } })
     expect(within(editor()).getByText('The channel is too long. At most 80 characters.')).toBeTruthy()
@@ -818,12 +857,12 @@ describe('the message preview', () => {
 
   it('shows the sentence with the name of the chosen workflow, as the engine would make it', async () => {
     const { user } = mount({
-      workflows: [{ id: 'wf-hostile', workflow: workflowOf('<!channel> & "Q&A" ‮​daily', [], []), active: false, createdAt: 1 }],
+      workflows: [{ id: 'wf-hostile', workflow: workflowOf('<!channel> & "Q&A" \u202e\u200bdaily', [], []), active: false, createdAt: 1 }],
     })
     await open(user)
     await user.selectOptions(select('For'), 'wf-hostile')
     const preview = within(editor()).getByRole('group', { name: 'Message in Slack' })
-    expect(preview.textContent).toContain(hookMessage('run.failed', '<!channel> & "Q&A" ‮​daily'))
+    expect(preview.textContent).toContain(hookMessage('run.failed', '<!channel> & "Q&A" \u202e\u200bdaily'))
     expect(preview.textContent).toContain('Workflow "&lt;!channel&gt; &amp; \'Q&amp;A\' daily" failed.')
     expect(preview.querySelector('a, img, script')).toBeNull()
   })
@@ -981,6 +1020,24 @@ describe('the activity', () => {
     expect(gone).toBeTruthy()
   })
 
+  it('says that the action of a row is the one that the hook has now, since the log keeps no action: an old failure is not shown as a failure of the record action', async () => {
+    mount({ hooks: hookFixtures.some, log: [logRow('hook-deployed', ids.workflows.receipt, 'plan.deployed', 'failed', 5, 'http_status')] })
+    await ready()
+    const items = await within(activity()).findAllByRole('listitem')
+    expect(items[0]!.textContent).toContain('Now: Write to the activity log only')
+    expect(items[0]!.textContent).not.toMatch(/(^|[^:] )Write to the activity log only/)
+    expect(within(items[0]!).getByText('Failed')).toBeTruthy()
+  })
+
+  it('says it in Korean too, and does not say it of a deleted hook', async () => {
+    mount({ hooks: hookFixtures.some, log: [{ ...logRow('hook-removed', ids.workflows.receipt, 'run.failed', 'ok', 6), id: 1 }, { ...logRow('hook-deployed', ids.workflows.receipt, 'plan.deployed', 'failed', 5, 'http_status'), id: 2 }], locale: 'ko' })
+    await screen.findByRole('region', { name: '저장한 훅' })
+    const items = await within(screen.getByRole('region', { name: '활동' })).findAllByRole('listitem')
+    expect(items[0]!.textContent).toContain('지금: ')
+    expect(items[1]!.textContent).toContain('지운 훅')
+    expect(items[1]!.textContent).not.toContain('지금: ')
+  })
+
   it('does not call the rows of a hook a deleted hook before the hooks are loaded', async () => {
     mount({ hooks: hookFixtures.some, log: hookLogFixtures.mixed, intercept: (method) => (method === 'listHooks' ? new Promise(() => undefined) : undefined) })
     await act(async () => {
@@ -1075,6 +1132,29 @@ describe('the activity', () => {
     expect(callsOf('listHookLog')).toHaveLength(1)
   })
 
+  it.each([
+    ['connection', 'The connection is missing, changed or cannot post as it is set up.'],
+    ['timeout', 'Slack did not answer in 15 seconds.'],
+    ['http_status', 'Slack answered with an HTTP error.'],
+    ['slack_error', 'Slack refused the message.'],
+    ['unknown', 'Something unexpected went wrong.'],
+  ] as const)('says in words what the code %s of a failed row means, in the row, so that a screen reader does not have to spell it', async (code, meaning) => {
+    mount({ hooks: hookFixtures.one, log: [logRow('hook-failed-all', ids.workflows.receipt, 'run.failed', 'failed', 5, code)] })
+    await ready()
+    const row = (await within(activity()).findAllByRole('listitem'))[0]!
+    expect(row.querySelector('code')?.getAttribute('title')).toBe(meaning)
+    expect(row.textContent).toContain(meaning)
+    const spoken = [...row.querySelectorAll('span')].find((element) => element.textContent === meaning)
+    expect(spoken?.className).toMatch(/hidden/)
+  })
+
+  it('says the meaning of a code in Korean', async () => {
+    mount({ hooks: hookFixtures.one, log: [logRow('hook-failed-all', ids.workflows.receipt, 'run.failed', 'failed', 5, 'http_status')], locale: 'ko' })
+    await screen.findByRole('region', { name: '저장한 훅' })
+    const row = (await within(screen.getByRole('region', { name: '활동' })).findAllByRole('listitem'))[0]!
+    expect(row.querySelector('code')?.getAttribute('title')).toBe('슬랙이 HTTP 오류로 답했어요.')
+  })
+
   it('explains what each result and each code means', async () => {
     const { user } = mount({ hooks: hookFixtures.some })
     await ready()
@@ -1085,7 +1165,136 @@ describe('the activity', () => {
   })
 })
 
+function dropFocusOfDisabledControls(): () => void {
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.target instanceof HTMLElement && record.target === document.activeElement && record.target.matches(':disabled')) record.target.blur()
+    }
+  })
+  observer.observe(document.body, { attributes: true, attributeFilter: ['disabled'], subtree: true })
+  return () => observer.disconnect()
+}
+
+function gated(): { gate: Promise<void>; release(): Promise<void> } {
+  let open: () => void = () => undefined
+  const gate = new Promise<void>((resolve) => {
+    open = resolve
+  })
+  return {
+    gate,
+    release: () =>
+      act(async () => {
+        open()
+      }),
+  }
+}
+
 describe('the focus and the live regions', () => {
+  it('gives the focus back to the switch after the request, where the browser drops the focus of a control that turns disabled', async () => {
+    const stop = dropFocusOfDisabledControls()
+    try {
+      const { gate, release } = gated()
+      const { user, inner } = mount({
+        hooks: hookFixtures.some,
+        intercept: (method, params) => (method === 'saveHook' ? gate.then(() => inner.request(method, params as MethodParams<'saveHook'>)) : undefined),
+      })
+      await ready()
+      const toggle = within(rowOf('team-slack to #alerts')).getByRole('switch')
+      toggle.focus()
+      await user.keyboard(' ')
+      await waitFor(() => expect((toggle as HTMLInputElement).disabled).toBe(true))
+      expect(document.activeElement).toBe(document.body)
+      await release()
+      await waitFor(() => expect((toggle as HTMLInputElement).checked).toBe(false))
+      await waitFor(() => expect(document.activeElement).toBe(toggle))
+    } finally {
+      stop()
+    }
+  })
+
+  it('gives the focus back to the switch after a refused switch', async () => {
+    const stop = dropFocusOfDisabledControls()
+    try {
+      const { user } = mount({ hooks: hookFixtures.some, intercept: (method) => (method === 'saveHook' ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined) })
+      await ready()
+      const toggle = within(rowOf('team-slack to #alerts')).getByRole('switch')
+      toggle.focus()
+      await user.keyboard(' ')
+      await screen.findByRole('alert')
+      await waitFor(() => expect(document.activeElement).toBe(toggle))
+    } finally {
+      stop()
+    }
+  })
+
+  it('does not take the focus from where the person moved it while the switch waited', async () => {
+    const stop = dropFocusOfDisabledControls()
+    try {
+      const { gate, release } = gated()
+      const { user, inner } = mount({
+        hooks: hookFixtures.some,
+        intercept: (method, params) => (method === 'saveHook' ? gate.then(() => inner.request(method, params as MethodParams<'saveHook'>)) : undefined),
+      })
+      await ready()
+      const toggle = within(rowOf('team-slack to #alerts')).getByRole('switch')
+      toggle.focus()
+      await user.keyboard(' ')
+      await waitFor(() => expect((toggle as HTMLInputElement).disabled).toBe(true))
+      const refresh = within(activity()).getByRole('button', { name: 'Refresh' })
+      refresh.focus()
+      await release()
+      await waitFor(() => expect((toggle as HTMLInputElement).disabled).toBe(false))
+      expect(document.activeElement).toBe(refresh)
+    } finally {
+      stop()
+    }
+  })
+
+  it('gives the focus back to the field where Enter was pressed, after a failed save, and puts the alert next to it', async () => {
+    const stop = dropFocusOfDisabledControls()
+    try {
+      const { user } = mount({ intercept: (method) => (method === 'saveHook' ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined) })
+      await open(user)
+      await pickConnection(user)
+      await user.type(field('Channel (optional)'), '#ops{Enter}')
+      await within(editor()).findByRole('alert')
+      await waitFor(() => expect(document.activeElement).toBe(field('Channel (optional)')))
+    } finally {
+      stop()
+    }
+  })
+
+  it('gives the focus back to the Save button after a failed save that was started by a click', async () => {
+    const stop = dropFocusOfDisabledControls()
+    try {
+      const { user } = mount({ intercept: (method) => (method === 'saveHook' ? Promise.reject(new RillError('INTERNAL', 'x')) : undefined) })
+      await open(user)
+      await pickConnection(user)
+      saveButton().focus()
+      await user.keyboard('{Enter}')
+      await within(editor()).findByRole('alert')
+      await waitFor(() => expect(document.activeElement).toBe(saveButton()))
+    } finally {
+      stop()
+    }
+  })
+
+  it('puts the focus on the heading of the list when the form closes because its hook is gone', async () => {
+    const stop = dropFocusOfDisabledControls()
+    try {
+      const { user, inner } = mount({ hooks: hookFixtures.some })
+      await ready()
+      await user.click(within(rowOf('ops-webhook')).getByRole('button', { name: /^Edit the hook/ }))
+      await user.type(field('Channel (optional)'), '#x')
+      inner.hooks.remove({ id: 'hook-ok-webhook' })
+      await user.keyboard('{Enter}')
+      await waitFor(() => expect(screen.queryByRole('region', { name: 'Edit hook' })).toBeNull())
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Saved hooks' })))
+    } finally {
+      stop()
+    }
+  })
+
   it('has one live region for what happened, which stays in the page while it is empty', async () => {
     mount({ hooks: hookFixtures.some })
     await ready()

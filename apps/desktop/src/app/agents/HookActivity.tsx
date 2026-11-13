@@ -4,6 +4,7 @@ import type { HookLogState } from '../../engine/hook-store'
 import { useLocale, useT } from '../../i18n'
 import { formatTimestamp } from '../../model/time'
 import { SafeText } from '../../ui/SafeText'
+import visuallyHidden from '../../ui/visuallyHidden.module.css'
 import controls from '../controls.module.css'
 import styles from './HooksScreen.module.css'
 import type { HookLabels } from './model/hooks'
@@ -41,7 +42,7 @@ export function HookActivity({ log, hooks, visible, names, clip, timeZone, onRef
     const hook = hooksById.get(entry.hookId)
     const workflow = names.get(entry.workflowId)
     return {
-      hook: hook === undefined ? t('agents.hooks.activity.deletedHook') : visible.action(hook.action),
+      hook: hook === undefined ? t('agents.hooks.activity.deletedHook') : t('agents.hooks.activity.hookNow', { action: visible.action(hook.action) }),
       deleted: hook === undefined,
       workflow: workflow === undefined ? t('agents.hooks.scope.unknown') : clip(workflow),
     }
@@ -79,7 +80,14 @@ export function HookActivity({ log, hooks, visible, names, clip, timeZone, onRef
                 <li key={entry.id} className={styles.logRow}>
                   <div className={styles.logTop}>
                     <span className={OUTCOME_CLASS[entry.outcome]}>{t(`agents.hooks.activity.outcome.${entry.outcome}`)}</span>
-                    {entry.code === null ? null : <code className={styles.code}>{entry.code}</code>}
+                    {entry.code === null ? null : (
+                      <>
+                        <code className={styles.code} title={t(`agents.hooks.activity.code.${entry.code}`)}>
+                          {entry.code}
+                        </code>
+                        <span className={visuallyHidden.hidden}>{t(`agents.hooks.activity.code.${entry.code}`)}</span>
+                      </>
+                    )}
                     <span className={styles.time}>{formatTimestamp(entry.at, locale, timeZone)}</span>
                   </div>
                   <p className={styles.logHook}>

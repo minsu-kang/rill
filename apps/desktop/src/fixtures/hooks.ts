@@ -33,7 +33,7 @@ const full: Hook[] = Array.from({ length: HOOK_MAX_ITEMS }, (_, index) =>
   hookOf(`hook-${String(index + 1).padStart(2, '0')}`, 'run.failed', all, { type: 'notify', connection: 'team-slack', channel: `#alerts-${String(index + 1).padStart(2, '0')}` }),
 )
 
-const HOSTILE_CONNECTION = '<b>slack</b>‮prod​'
+const HOSTILE_CONNECTION = '<b>slack</b>\u202eprod\u200b'
 
 const hostile: Hook[] = [
   hookOf('hook-hostile', 'run.failed', only('wf-hostile'), { type: 'notify', connection: HOSTILE_CONNECTION, channel: '#alerts' }),
@@ -74,7 +74,11 @@ const mixed: HookLogEntry[] = ordered([
 ])
 
 const many: HookLogEntry[] = ordered(
-  Array.from({ length: 50 }, (_, index) => logRow('hook-deployed', ids.workflows.receipt, 'plan.deployed', index % 7 === 0 ? 'failed' : 'ok', index * 17 + 1, index % 7 === 0 ? 'timeout' : null)),
+  Array.from({ length: 50 }, (_, index) =>
+    index % 7 === 0
+      ? logRow('hook-failed-all', ids.workflows.receipt, 'run.failed', 'failed', index * 17 + 1, 'timeout')
+      : logRow('hook-deployed', ids.workflows.receipt, 'plan.deployed', 'ok', index * 17 + 1),
+  ),
 )
 
 const hostileLog: HookLogEntry[] = ordered([
@@ -84,5 +88,5 @@ const hostileLog: HookLogEntry[] = ordered([
 
 export const hookLogFixtures = { mixed, many, hostile: hostileLog }
 
-export const HOSTILE_WORKFLOW_NAME = '<img src=x onerror=alert(1)> ‮gpj​</b> {{secret}}'
+export const HOSTILE_WORKFLOW_NAME = '<img src=x onerror=alert(1)> \u202egpj\u200b</b> {{secret}}'
 export const LONG_WORKFLOW_NAME = `Nightly reconciliation of every receipt, invoice and bank statement for all the regional offices ${'and their sub-ledgers '.repeat(4)}`

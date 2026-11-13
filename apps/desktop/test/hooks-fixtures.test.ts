@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { HOOK_MAX_ITEMS, HOOK_OUTCOMES, HookLogEntrySchema, HookSchema, hookKey, type Hook } from '@rill/protocol'
+import { HOOK_MAX_ITEMS, HOOK_OUTCOMES, HookLogEntrySchema, HookSchema, hookKey, type Hook, type HookOutcome } from '@rill/protocol'
 import Value from 'typebox/value'
 import { describe, expect, it } from 'vitest'
 import { hookConnections, hookFixtures, hookLogFixtures } from '../src/fixtures/hooks'
@@ -34,6 +34,25 @@ describe('the hook fixtures', () => {
       for (const row of rows) expect(Value.Check(HookLogEntrySchema, row), `${name} ${row.id}`).toBe(true)
       expect(rows.map((row) => row.id), name).toEqual(rows.map((_, index) => index + 1))
       expect([...rows].sort((a, b) => a.at - b.at), name).toEqual(rows)
+    }
+  })
+
+  it('have log rows that the engine could have written for the hook of the row: its event, its workflow, and an outcome that its action can give', () => {
+    const allowed: Record<Hook['action']['type'], readonly HookOutcome[]> = {
+      record: ['ok', 'rate_limited'],
+      deactivateAfterFailures: ['ok', 'skipped_inactive'],
+      notify: ['ok', 'failed', 'skipped_cooldown', 'rate_limited', 'blocked_by_rule'],
+    }
+    const known = new Map([...hookFixtures.some, ...hookFixtures.hostile].map((hook) => [hook.id, hook]))
+    for (const [name, rows] of Object.entries(hookLogFixtures)) {
+      for (const row of rows) {
+        const hook = known.get(row.hookId)
+        if (hook === undefined) continue
+        const label = `${name} ${row.id} ${row.hookId}`
+        expect(row.event, label).toBe(hook.event)
+        if (hook.scope.type === 'workflow') expect(row.workflowId, label).toBe(hook.scope.workflowId)
+        expect(allowed[hook.action.type], label).toContain(row.outcome)
+      }
     }
   })
 

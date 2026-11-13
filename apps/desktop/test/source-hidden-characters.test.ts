@@ -4,7 +4,13 @@ import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const ROOT = join(import.meta.dirname, '../../..')
-const DIRECTORIES = ['packages/protocol/src', 'packages/engine/src', 'packages/planner/src', 'apps/desktop/src/app', 'apps/desktop/src/engine/agents.ts', 'apps/desktop/src/engine/fake-agents.ts']
+const DIRECTORIES = ['packages/protocol/src', 'packages/engine/src', 'packages/planner/src', 'apps/desktop/src/app', 'apps/desktop/src/engine/agents.ts', 'apps/desktop/src/engine/fake-agents.ts',
+  'apps/desktop/src/engine/hook-store.ts',
+  'apps/desktop/src/engine/fake-hooks.ts',
+  'apps/desktop/src/fixtures/hooks.ts',
+  'apps/desktop/test/hooks-model.test.ts',
+  'apps/desktop/test/hooks-screen.test.tsx',
+]
 const HIDDEN = /[\p{Cf}\p{Zl}\p{Zp}\p{Cs}\ufffd]/u
 
 function sources(path: string): string[] {

@@ -142,6 +142,16 @@ export function hookErrorKey(error: unknown): MessageKey {
   return typeof code === 'string' && Object.hasOwn(ERROR_KEYS, code) ? ERROR_KEYS[code]! : 'agents.hooks.error.generic'
 }
 
+const PAGE_KEYS: Readonly<Partial<Record<MessageKey, MessageKey>>> = {
+  'agents.hooks.problem.unknown_workflow': 'agents.hooks.error.switchOn',
+  'agents.hooks.problem.unknown_connection': 'agents.hooks.error.switchOn',
+  'agents.hooks.problem.forbidden_by_rule': 'agents.hooks.error.switchOn',
+}
+
+export function pageErrorKey(key: MessageKey): MessageKey {
+  return PAGE_KEYS[key] ?? key
+}
+
 export interface HookLabels {
   event(event: HookEvent): string
   scope(scope: HookScope): string

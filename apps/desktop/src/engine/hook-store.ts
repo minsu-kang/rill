@@ -1,4 +1,4 @@
-import { HOOK_LOG_DEFAULT_LIMIT, type Hook, type HookInput, type HookLogEntry } from '@rill/protocol'
+import { HOOK_LOG_DEFAULT_LIMIT, parseHookProblemLine, type Hook, type HookInput, type HookLogEntry } from '@rill/protocol'
 import { useSyncExternalStore } from 'react'
 import { errorCodeOf } from './agents'
 import type { EngineClient } from './client'
@@ -25,12 +25,21 @@ export interface HookStore {
   remove(id: string): Promise<boolean>
 }
 
+function saysListIsStale(error: unknown): boolean {
+  const code = errorCodeOf(error)
+  if (code === 'INVALID_PARAMS') return false
+  if (code !== 'HOOK_INVALID') return true
+  const problems = (error as { problems?: unknown }).problems
+  return Array.isArray(problems) && problems.some((line) => typeof line === 'string' && parseHookProblemLine(line)?.rule === 'duplicate')
+}
+
 const INITIAL: HooksState = { status: 'loading', loaded: false, hooks: [], log: { status: 'idle', entries: [] } }
 
 function createHookStore(client: EngineClient): HookStore {
   let state: HooksState = INITIAL
   let started = false
   let generation = 0
+  let loading = 0
   let logGeneration = 0
   let tail: Promise<unknown> = Promise.resolve()
   const listeners = new Set<() => void>()
@@ -42,25 +51,25 @@ function createHookStore(client: EngineClient): HookStore {
 
   function load(): Promise<void> {
     generation += 1
+    loading += 1
     const mine = generation
     return client.request('listHooks', {}).then(
       (result) => {
+        loading -= 1
         if (mine === generation) set({ ...state, status: 'ready', loaded: true, hooks: result.hooks })
       },
       (error: unknown) => {
+        loading -= 1
         if (mine === generation) set({ ...state, status: 'error', error })
       },
     )
   }
 
   function applied(hooks: readonly Hook[]): void {
+    const reload = state.status !== 'ready' || loading > 0
     generation += 1
-    if (state.status === 'ready') {
-      set({ ...state, hooks })
-      return
-    }
     set({ ...state, hooks })
-    void load()
+    if (reload) void load()
   }
 
   function start(): void {
@@ -73,7 +82,7 @@ function createHookStore(client: EngineClient): HookStore {
 
   function enqueue<T>(job: () => Promise<T>): Promise<T> {
     const run = tail.then(job, job).catch((error: unknown) => {
-      if (errorCodeOf(error) === 'HOOK_NOT_FOUND') void load()
+      if (saysListIsStale(error)) void load()
       throw error
     })
     tail = run.catch(() => undefined)

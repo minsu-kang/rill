@@ -287,6 +287,15 @@ export const SaveFails: Story = {
   },
 }
 
+export const SwitchOnRefused: Story = {
+  name: 'A switch is refused: the connection of the hook is gone',
+  args: { hooks: [hookOf('hook-gone', 'run.failed', { type: 'all' }, { type: 'notify', connection: 'old-slack' }, { enabled: false }), ...hookFixtures.one], connections: 'unknown' },
+  play: async ({ canvasElement }) => {
+    await pause(150)
+    canvasElement.querySelector<HTMLInputElement>('[data-hook-id="hook-gone"] input[type="checkbox"]')?.click()
+  },
+}
+
 export const SwitchedOff: Story = {
   name: 'A hook is switched off',
   args: some,

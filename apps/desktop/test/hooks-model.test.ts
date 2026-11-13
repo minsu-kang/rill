@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { HOOK_EVENTS, HOOK_RULES, RillError, hookProblemLine, type Hook, type HookRule, type Rule } from '@rill/protocol'
 import { describe, expect, it } from 'vitest'
-import { NEW_HOOK_DRAFT, checkDraft, draftOf, hookErrorKey, hookInputOf, notifyForbiddenBy, problemKey, sameDraft, type HookDraft, type HookEnv } from '../src/app/agents/model/hooks'
+import { NEW_HOOK_DRAFT, checkDraft, draftOf, hookErrorKey, hookInputOf, notifyForbiddenBy, pageErrorKey, problemKey, sameDraft, type HookDraft, type HookEnv } from '../src/app/agents/model/hooks'
 import { en } from '../src/i18n/en'
 import { ko } from '../src/i18n/ko'
 
@@ -109,8 +109,8 @@ describe('the check of a draft uses the check of the engine', () => {
   it('refuses a channel with a space, a control character, a hidden character or too many characters', () => {
     expect(rulesOf(draft({ channel: '#two words' }))).toEqual(['channel.whitespace'])
     expect(rulesOf(draft({ channel: '#a\tb' }))).toEqual(['channel.control_character'])
-    expect(rulesOf(draft({ channel: '#a‮b' }))).toEqual(['channel.bidi_format'])
-    expect(rulesOf(draft({ channel: '#a​b' }))).toEqual(['channel.format_character'])
+    expect(rulesOf(draft({ channel: '#a\u202eb' }))).toEqual(['channel.bidi_format'])
+    expect(rulesOf(draft({ channel: '#a\u200bb' }))).toEqual(['channel.format_character'])
     expect(rulesOf(draft({ channel: `#${'a'.repeat(80)}` }))).toEqual(['channel.too_long'])
     expect(rulesOf(draft({ channel: '  #alerts  ' }))).toEqual([])
   })
@@ -176,6 +176,17 @@ describe('the error texts', () => {
     expect(keyOf(new RillError('HOOK_INVALID', 'x', lines))).toBe(problemKey({ field: 'count', rule: 'out_of_range' }))
     expect(keyOf(new RillError('HOOK_INVALID', 'x', ['garbage', 'a.b: c']))).toBe('agents.hooks.error.HOOK_INVALID')
     expect(keyOf(new RillError('HOOK_INVALID', 'x', []))).toBe('agents.hooks.error.HOOK_INVALID')
+  })
+
+  it('says on the page, where there is no list to choose from, that a hook cannot be switched on as it is saved, for the problems that only the form can fix', () => {
+    for (const key of [problemKey({ field: 'connection', rule: 'unknown_connection' }), problemKey({ field: 'scope', rule: 'unknown_workflow' }), problemKey({ field: 'action', rule: 'forbidden_by_rule' })]) {
+      expect(pageErrorKey(key), key).toBe('agents.hooks.error.switchOn')
+    }
+    for (const key of [problemKey({ field: 'connection', rule: 'not_slack_connection' }), 'agents.hooks.error.HOOK_NOT_FOUND', 'agents.hooks.error.generic'] as const) {
+      expect(pageErrorKey(key), key).toBe(key)
+    }
+    expect(Object.hasOwn(en, 'agents.hooks.error.switchOn')).toBe(true)
+    expect(Object.hasOwn(ko, 'agents.hooks.error.switchOn')).toBe(true)
   })
 
   it('tells a channel that is too long from a connection name that is too long', () => {

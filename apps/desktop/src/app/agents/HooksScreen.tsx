@@ -17,7 +17,8 @@ import { ConfirmDialog } from '../workflows/ConfirmDialog'
 import { HookActivity } from './HookActivity'
 import { HookEditor, say } from './HookEditor'
 import styles from './HooksScreen.module.css'
-import { NEW_HOOK_DRAFT, checkDraft, draftOf, hookErrorKey, hookLabels, inputOfHook, notifyForbiddenBy, sameDraft, type HookDraft, type HookEnv } from './model/hooks'
+import { NEW_HOOK_DRAFT, checkDraft, draftOf, hookErrorKey, hookLabels, inputOfHook, notifyForbiddenBy, pageErrorKey, sameDraft, type HookDraft, type HookEnv } from './model/hooks'
+import { useHookEditor } from './model/hooks-view'
 import { useWorkflowList } from '../workflows/useWorkflowList'
 
 export interface HooksScreenProps {
@@ -27,15 +28,9 @@ export interface HooksScreenProps {
   timeZone?: string
 }
 
-interface EditorState {
-  id: string | undefined
-  base: HookDraft
-  draft: HookDraft
-}
-
 type Asking = { kind: 'delete'; hook: Hook } | { kind: 'discard'; then(): void }
 
-type Focus = { kind: 'editor' } | { kind: 'edit'; id: string } | { kind: 'new' } | { kind: 'list' }
+type Focus = { kind: 'editor' } | { kind: 'edit'; id: string } | { kind: 'new' } | { kind: 'list' } | { kind: 'element'; element: HTMLElement }
 
 const VISIBLE_CHARS = 80
 const SUMMARY_CHARS = 60
@@ -50,7 +45,14 @@ function findFocus(container: HTMLElement, target: Focus): HTMLElement | null {
       return container.querySelector<HTMLElement>('[data-hook-list-title]')
     case 'edit':
       return [...container.querySelectorAll<HTMLElement>('[data-hook-edit]')].find((button) => button.dataset.hookEdit === target.id) ?? null
+    case 'element':
+      return target.element.isConnected && container.contains(target.element) ? target.element : null
   }
+}
+
+function nobodyHasFocus(element: HTMLElement): boolean {
+  const { activeElement } = document
+  return activeElement === null || activeElement === document.body || activeElement === element
 }
 
 export function HooksScreen({ client, connections, onOpenConnections, timeZone }: HooksScreenProps) {
@@ -59,7 +61,7 @@ export function HooksScreen({ client, connections, onOpenConnections, timeZone }
   const workflowList = useWorkflowList(client)
   const { state: rules } = useRules(client)
   const action = useAction(hookErrorKey)
-  const [editor, setEditor] = useState<EditorState | undefined>(undefined)
+  const { editor, setEditor } = useHookEditor(client)
   const [asking, setAsking] = useState<Asking | undefined>(undefined)
   const [status, setStatus] = useState<MessageKey | undefined>(undefined)
   const [origin, setOrigin] = useState<'page' | 'editor'>('page')
@@ -82,8 +84,9 @@ export function HooksScreen({ client, connections, onOpenConnections, timeZone }
       pendingFocus.current = undefined
       return
     }
-    if (element instanceof HTMLButtonElement && element.disabled) return
+    if (element.matches(':disabled')) return
     pendingFocus.current = undefined
+    if (target.kind === 'element' && !nobodyHasFocus(element)) return
     element.focus()
   })
 
@@ -106,6 +109,11 @@ export function HooksScreen({ client, connections, onOpenConnections, timeZone }
   const dialogError = asking?.kind === 'delete' ? action.error : undefined
   const editorError = asking === undefined && open !== undefined && origin === 'editor' ? action.error : undefined
   const pageError = asking === undefined && !(open !== undefined && origin === 'editor') ? action.error : undefined
+
+  function focusedControl(): Focus | undefined {
+    const { activeElement } = document
+    return activeElement instanceof HTMLElement && root.current?.contains(activeElement) === true ? { kind: 'element', element: activeElement } : undefined
+  }
 
   function begin(next: { id?: string; draft: HookDraft }): void {
     action.clearError()
@@ -151,6 +159,7 @@ export function HooksScreen({ client, connections, onOpenConnections, timeZone }
     const input = check.input
     setOrigin('editor')
     setStatus(undefined)
+    pendingFocus.current = focusedControl()
     void action.run(async () => {
       try {
         const hook = await store.save(id === undefined ? input : { ...input, id })
@@ -161,6 +170,7 @@ export function HooksScreen({ client, connections, onOpenConnections, timeZone }
         if (id !== undefined && errorCodeOf(error) === 'HOOK_NOT_FOUND') {
           setEditor(undefined)
           setOrigin('page')
+          pendingFocus.current = { kind: 'list' }
         }
         throw error
       }
@@ -170,6 +180,7 @@ export function HooksScreen({ client, connections, onOpenConnections, timeZone }
   function toggle(hook: Hook): void {
     setOrigin('page')
     setStatus(undefined)
+    pendingFocus.current = focusedControl()
     void action.run(async () => {
       await store.save({ ...inputOfHook(hook), id: hook.id, enabled: !hook.enabled })
       setStatus(hook.enabled ? 'agents.hooks.status.switchedOff' : 'agents.hooks.status.switchedOn')
@@ -246,7 +257,7 @@ export function HooksScreen({ client, connections, onOpenConnections, timeZone }
           <div role="status">{status === undefined ? null : <p className={controls.ok}>{t(status)}</p>}</div>
           {pageError === undefined ? null : (
             <p className={controls.error} role="alert">
-              {say(t, pageError)}
+              {say(t, pageErrorKey(pageError))}
             </p>
           )}
           {open !== undefined && check !== undefined ? (
