@@ -1,4 +1,5 @@
 import { encodeSlackBotSecret } from '@rill/nodes-core'
+import { vi } from 'vitest'
 import type { HookActionInput, HookInput } from '@rill/protocol'
 import { ConnectionTable } from '../src/connection-channel'
 import { Db } from '../src/db'
@@ -56,3 +57,34 @@ export function openEngine(options: Partial<EngineOptions> & { table?: Connectio
   const engine = new Engine({ registry: createTestRegistry(), connections: table.resolver, sleep: async () => {}, ...rest, db })
   return { engine, db, table }
 }
+
+export interface SlackCall {
+  url: string
+  method: string
+  headers: Headers
+  body: string
+  redirect: string | undefined
+  signal: AbortSignal | undefined
+}
+
+export const slackJson = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8' } })
+
+export function stubSlack(respond?: (call: SlackCall) => Response | Promise<Response>): SlackCall[] {
+  const calls: SlackCall[] = []
+  vi.stubGlobal('fetch', async (input: URL | string, init?: RequestInit) => {
+    const call: SlackCall = {
+      url: String(input),
+      method: init?.method ?? 'GET',
+      headers: new Headers(init?.headers),
+      body: typeof init?.body === 'string' ? init.body : '',
+      redirect: init?.redirect,
+      signal: init?.signal ?? undefined,
+    }
+    calls.push(call)
+    if (respond !== undefined) return respond(call)
+    return call.url.includes('slack.com/api/') ? slackJson({ ok: true }) : new Response('ok', { status: 200 })
+  })
+  return calls
+}
+
+export const textOf = (call: SlackCall): string => (JSON.parse(call.body) as { text: string }).text

@@ -5,6 +5,7 @@ export interface HttpCallInit {
   headers?: Record<string, string>
   body?: string
   timeoutMs: number
+  signal?: AbortSignal
   maxBytes?: number
   redact?: (text: string) => string
 }
@@ -76,7 +77,7 @@ export async function httpCall(url: string, init: HttpCallInit): Promise<HttpRes
       headers,
       body: init.body,
       redirect: 'manual',
-      signal: AbortSignal.timeout(init.timeoutMs),
+      signal: init.signal === undefined ? AbortSignal.timeout(init.timeoutMs) : AbortSignal.any([AbortSignal.timeout(init.timeoutMs), init.signal]),
     })
     status = response.status
     responseHeaders = Object.fromEntries(response.headers.entries())

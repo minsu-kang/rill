@@ -48,6 +48,7 @@ import { systemClock, type Clock } from './clock'
 import type { Db } from './db'
 import { EventBus, type EngineListener } from './events'
 import { checkHook } from './hooks'
+import { HookRunner } from './hooks-runner'
 import { ExplainBusyError, MAX_CONCURRENT_EXPLAINS, RunNotExplainableError, connectionSecrets, isExplainable } from './explain'
 import { RunExecutor, type RunResult } from './executor'
 import { llmModelsResult, type EngineLlmInfo } from './llm-models'
@@ -157,6 +158,7 @@ export class Engine {
   private readonly bus: EventBus
   private readonly queue: RunQueue
   private readonly triggers: TriggerManager
+  private readonly hooks: HookRunner
   private readonly owned = new Set<string>()
   private readonly db: Db
   private readonly now: () => number
@@ -225,6 +227,13 @@ export class Engine {
       webhookPort: options.webhookPort ?? 0,
       ruleIssues: (workflow) => this.ruleIssues(workflow),
     })
+    this.hooks = new HookRunner({
+      store: this.store,
+      connections,
+      forbiddenNodes: () => this.policy().forbiddenNodes,
+      deactivate: (workflowId) => this.deactivate(workflowId),
+    })
+    this.bus.on((event) => this.hooks.handle(event))
   }
 
   on(listener: EngineListener): () => void {
@@ -648,9 +657,11 @@ export class Engine {
   async idle(): Promise<void> {
     await this.triggers.idle()
     await this.queue.idle()
+    await this.hooks.idle()
   }
 
   async shutdown(): Promise<void> {
+    await this.hooks.stop()
     const pending = [...this.pendingPlans.values(), ...this.pendingExplains]
     for (const plan of pending) plan.controller.abort()
     await Promise.all(pending.map((plan) => plan.done))

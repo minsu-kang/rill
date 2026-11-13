@@ -954,6 +954,30 @@ export class Store {
       .map((row) => ({ id: row.id, hookId: row.hook_id, at: row.at, event: row.event, workflowId: row.workflow_id, outcome: row.outcome, code: row.code }))
   }
 
+  workflowName(id: string): string | undefined {
+    return this.db.get<{ name: string }>('SELECT name FROM workflows WHERE id = ?', id)?.name
+  }
+
+  isWorkflowActive(id: string): boolean {
+    return this.db.get<{ active: number }>('SELECT active FROM workflows WHERE id = ?', id)?.active === 1
+  }
+
+  recentNonDryRuns(workflowId: string, limit: number): Array<{ id: string; status: RunStatus }> {
+    return this.db.all<{ id: string; status: RunStatus }>(
+      'SELECT id, status FROM runs WHERE workflow_id = ? AND dry_run = 0 ORDER BY created_at DESC, rowid DESC LIMIT ?',
+      workflowId,
+      limit,
+    )
+  }
+
+  lastHookExecution(hookId: string): number | undefined {
+    return this.db.get<{ at: number | null }>("SELECT MAX(at) AS at FROM hook_log WHERE hook_id = ? AND outcome IN ('ok', 'failed')", hookId)?.at ?? undefined
+  }
+
+  hookExecutionsSince(at: number): number {
+    return this.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM hook_log WHERE outcome IN ('ok', 'failed') AND at > ?", at)?.n ?? 0
+  }
+
   journal(): Journal {
     return {
       get: (key) => {
