@@ -739,6 +739,17 @@ describe('GeneralSection', () => {
       expect(host.state().restartCalls).toBe(0)
     })
 
+    it('sends nothing when the select reports a value that is not a language', async () => {
+      const { host, t } = await openGeneral()
+      const update = vi.spyOn(host.settings, 'update')
+      fireEvent.change(picker(t), { target: { value: 'fr' } })
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      })
+      expect(update).not.toHaveBeenCalled()
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+
     it('shows the error and keeps the saved value when saving fails', async () => {
       const host = createFakeHost({}, { restartDelayMs: 0 })
       vi.spyOn(host.settings, 'update').mockRejectedValue(new HostError('INTERNAL'))

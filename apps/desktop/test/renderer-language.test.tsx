@@ -89,6 +89,19 @@ describe('LiveRoot locale', () => {
     expect(seen).not.toContain(en('app.tab.recipes'))
   })
 
+  it('leaves no timer behind when it is removed before the settings are read', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const wrap = (host: HostApi): HostApi => ({ ...host, settings: { ...host.settings, get: () => new Promise<Settings>(() => undefined) } })
+      const { view } = start({ system: 'en-US', wrap })
+      expect(vi.getTimerCount()).toBe(1)
+      view.unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('draws the app in the system language when the first read takes longer than a second', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {

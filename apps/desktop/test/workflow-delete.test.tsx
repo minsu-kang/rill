@@ -166,6 +166,16 @@ describe('WorkflowActions: delete dialog', () => {
     await act(async () => release())
   })
 
+  it('styles the confirm button of the delete dialog as dangerous and the one of the deactivate dialog as plain', async () => {
+    const { user } = await show({ workflowId: ids.workflows.receipt })
+    await user.click(deleteButton())
+    expect(confirmButton().className).toMatch(/dangerPrimary/)
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: t('app.common.cancel') }))
+    await user.click(screen.getByRole('button', { name: t('app.wf.actions.deactivate') }))
+    const plain = within(screen.getByRole('dialog')).getByRole('button', { name: t('app.deactivate.confirm') })
+    expect(plain.className).not.toMatch(/danger/)
+  })
+
   it('says the run is still in progress when the workflow is busy, keeps the dialog open and allows another try', async () => {
     const base = createFakeWorld({ hostOptions: { restartDelayMs: 0 } })
     let busy = true

@@ -264,6 +264,15 @@ describe('deleteWorkflow', () => {
     expect(env.events.filter((event) => event.type === 'workflow.deleted')).toHaveLength(1)
   })
 
+  it('has a store delete that reports a workflow row that is not there and changes nothing', async () => {
+    const env = setup()
+    const kept = env.engine.deploy(echoWorkflow('kept'))
+    await fill(env, kept, 'a')
+    const before = counts(env.db)
+    expect(() => env.engine.store.deleteWorkflow('nope')).toThrow(NotFoundError)
+    expect(counts(env.db)).toEqual(before)
+  })
+
   it('refuses while a run is running, deletes nothing and keeps the workflow active', async () => {
     let release!: () => void
     const env = setup({ release: new Promise<void>((resolve) => (release = resolve)) })
