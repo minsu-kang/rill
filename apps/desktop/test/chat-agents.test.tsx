@@ -72,6 +72,7 @@ describe('the agent picker in the chat header', () => {
     await screen.findByRole('combobox')
     expect(document.body.textContent).not.toContain('No persona')
     expect(optionNamesOf()).toEqual([ko['agents.default.name']])
+    expect((screen.getByRole('combobox') as HTMLSelectElement).title).toBe('')
 
     function optionNamesOf(): string[] {
       return within(screen.getByRole('combobox')).getAllByRole('option').map((option) => option.textContent ?? '')

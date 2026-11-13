@@ -78,6 +78,15 @@ describe('plan with an agentId', () => {
     expect(provider.requests).toHaveLength(1)
   })
 
+  it('answers AGENT_NOT_FOUND before it looks at the plan id, so a taken id does not hide an unknown agent', async () => {
+    const { client, provider } = await start([{ data: workflowReply(plainWorkflow()) }])
+    await client.request('plan', planParams())
+    expect(provider.requests).toHaveLength(1)
+    expect((await failure(client.request('plan', planParams({ agentId: 'missing' })))).code).toBe('AGENT_NOT_FOUND')
+    expect((await failure(client.request('plan', planParams()))).code).toBe('PLAN_EXISTS')
+    expect(provider.requests).toHaveLength(1)
+  })
+
   it('throws AgentNotFoundError from the engine', async () => {
     const { engine } = await start()
     await expect(engine.plan({ planId: 'p', text: 't', turns: [], attachments: [], effort: 'low', agentId: 'missing' })).rejects.toBeInstanceOf(AgentNotFoundError)

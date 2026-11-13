@@ -201,6 +201,12 @@ describe('agentPlacement', () => {
     expect(agentPlacement(caps({ cache: 'none' }, true), 5, undefined)).toBe('plain')
   })
 
+  it('leaves the block unmarked for automatic and no caching even when a maximum is named', () => {
+    expect(agentPlacement(caps({ cache: 'automatic', maxCacheBreakpoints: 4 }), 0, undefined)).toBe('plain')
+    expect(agentPlacement(caps({ cache: 'none', maxCacheBreakpoints: 4 }), 0, undefined)).toBe('plain')
+    expect(agentPlacement(caps({ cache: 'explicit', maxCacheBreakpoints: 4 }), 0, undefined)).toBe('marked')
+  })
+
   it('leaves the placement of the memory block as it was', () => {
     expect(memoryPlacement(caps({}), 0)).toBe('marked')
     expect(memoryPlacement(caps({ maxCacheBreakpoints: 2 }), 1)).toBe('plain')

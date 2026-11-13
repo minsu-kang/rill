@@ -19,6 +19,7 @@ import { Db } from '../src/db'
 import { Engine } from '../src/engine'
 import { normaliseMemoryText, MemoryInvalidError } from '../src/memory'
 import { MIGRATIONS } from '../src/migrations'
+import { Store } from '../src/store'
 
 let dir: string
 
@@ -75,6 +76,12 @@ describe('the built-in agent', () => {
     expect(() => save(engine, { id: 'default', name: '' })).toThrow(AgentBuiltinError)
     expect(() => engine.deleteAgent('default')).toThrow(AgentBuiltinError)
     expect(engine.listAgents().agents).toEqual([builtinAgent()])
+  })
+
+  it('is returned by the store for its id, without a row, and an unknown id is undefined', () => {
+    const store = new Store(Db.open(':memory:'))
+    expect(store.getAgent('default')).toEqual(builtinAgent())
+    expect(store.getAgent('missing')).toBeUndefined()
   })
 
   it('can be made the active agent', () => {
