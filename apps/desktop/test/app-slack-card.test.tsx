@@ -72,7 +72,7 @@ describe('the Slack card: layout', () => {
     const card = slack(t)
     expect(within(card).getByRole('heading', { name: t('app.connections.provider.slack'), level: 3 })).toBeTruthy()
     expect(within(card).getByText(t('app.connections.account.notConnected'))).toBeTruthy()
-    expect(within(card).queryByRole('button', { name: t('app.connections.account.connectLabel', { provider: 'Slack' }) })).toBeNull()
+    expect(within(card).queryByRole('button', { name: t('app.oauth.connectLabel', { provider: 'Slack' }) })).toBeNull()
     expect(screen.queryByText(/webhook url/i)).toBeNull()
     expect(screen.queryByText(t('app.slackBot.stepsTitle' as never))).toBeNull()
     expect(steps(t).getAttribute('aria-expanded')).toBe('false')
@@ -102,9 +102,11 @@ describe('the Slack card: layout', () => {
 
   it('shows the Google and Microsoft cards unchanged next to it', async () => {
     const { t } = await open()
-    const accounts = screen.getByRole('region', { name: t('app.connections.accounts.heading') })
-    expect(within(accounts).getAllByRole('listitem')).toHaveLength(2)
-    expect(within(accounts).queryByText(t('app.connections.provider.slack'))).toBeNull()
+    for (const provider of ['google', 'microsoft'] as const) {
+      const account = screen.getByRole('region', { name: t(`app.connections.provider.${provider}`) })
+      expect(within(account).queryByText(t('app.connections.provider.slack'))).toBeNull()
+      expect(account).not.toBe(slack(t))
+    }
   })
 })
 

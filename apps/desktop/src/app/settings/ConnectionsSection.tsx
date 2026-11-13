@@ -9,7 +9,6 @@ import {
   OAUTH_PROVIDERS,
   type AuthType,
   type ConnectionSummary,
-  type OAuthProvider,
 } from '../../shared/host-api'
 import { SafeText } from '../../ui/SafeText'
 import controls from '../controls.module.css'
@@ -17,6 +16,7 @@ import { useHost } from '../host'
 import { ConfirmDialog } from '../workflows/ConfirmDialog'
 import { buildCustomAuth, nameProblem, type CustomField, type CustomFieldValues } from './connection-form'
 import look from './ConnectionsSection.module.css'
+import { OAuthCard } from './OAuthCard'
 import { SlackCard } from './SlackCard'
 import styles from './Settings.module.css'
 import type { SettingsApi } from './types'
@@ -71,79 +71,14 @@ interface GroupProps {
   onRemove(name: string): void
 }
 
-function Accounts({ api, locked }: GroupProps) {
-  const t = useT()
-  const host = useHost()
-  const action = useAction()
-  const noteId = useId()
-  const headingId = useId()
-  const [done, setDone] = useState<{ provider: OAuthProvider; connected: boolean } | undefined>(undefined)
+function Accounts({ api, locked }: { api: SettingsApi; locked: boolean }) {
   const { oauth } = api.settings
-  const label = (provider: OAuthProvider): string => t(`app.connections.provider.${provider}`)
-
-  function change(provider: OAuthProvider, connected: boolean): void {
-    setDone(undefined)
-    void action.run(async () => {
-      if (connected) await host.oauth.connect(provider)
-      else await host.oauth.disconnect(provider)
-      await api.reload()
-      setDone({ provider, connected })
-    })
-  }
-
   return (
-    <section className={look.group} aria-labelledby={headingId}>
-      <h3 id={headingId} className={look.groupTitle}>
-        {t('app.connections.accounts.heading')}
-      </h3>
-      {oauth.available ? null : (
-        <p id={noteId} className={controls.note}>
-          {t('app.connections.accounts.unavailable')}
-        </p>
-      )}
-      <ul className={controls.list}>
-        {OAUTH_PROVIDERS.map((provider) => {
-          const entry = oauth.accounts.find((account) => account.provider === provider)
-          const connected = entry?.status === 'connected'
-          return (
-            <li key={provider} className={look.card}>
-              <div className={look.cardHead}>
-                <span className={styles.itemMain}>
-                  <strong>{label(provider)}</strong>
-                  <span className={connected ? controls.chipOk : controls.chip}>
-                    {!connected
-                      ? t('app.connections.account.notConnected')
-                      : entry.account === undefined
-                        ? t('app.connections.account.connected')
-                        : t('app.connections.account.connectedAs', { account: escapeInvisible(entry.account) })}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  className={connected ? controls.button : controls.primary}
-                  disabled={locked || action.busy || !oauth.available}
-                  aria-describedby={oauth.available ? undefined : noteId}
-                  aria-label={t(connected ? 'app.connections.account.disconnectLabel' : 'app.connections.account.connectLabel', { provider: label(provider) })}
-                  onClick={() => change(provider, !connected)}
-                >
-                  {t(connected ? 'app.connections.account.disconnect' : 'app.connections.account.connect')}
-                </button>
-              </div>
-            </li>
-          )
-        })}
-      </ul>
-      {done === undefined || action.error !== undefined ? null : (
-        <p className={controls.ok} role="status">
-          {t(done.connected ? 'app.connections.account.didConnect' : 'app.connections.account.didDisconnect', { provider: label(done.provider) })}
-        </p>
-      )}
-      {action.error === undefined ? null : (
-        <p className={controls.error} role="alert">
-          {t(action.error)}
-        </p>
-      )}
-    </section>
+    <>
+      {OAUTH_PROVIDERS.map((provider) => (
+        <OAuthCard key={provider} provider={provider} api={api} locked={locked || !oauth.available} />
+      ))}
+    </>
   )
 }
 
@@ -351,7 +286,7 @@ export function ConnectionsSection({ api, locked }: { api: SettingsApi; locked: 
     <section className={styles.panel} aria-label={t('app.settings.section.connections')}>
       <p className={controls.note}>{t('app.connections.intro')}</p>
       {full ? <p className={controls.warn}>{t('app.connections.limit')}</p> : null}
-      <Accounts api={api} locked={locked} full={full} onRemove={setRemoving} />
+      <Accounts api={api} locked={locked} />
       <SlackCard api={api} locked={locked} full={full} onRemove={setRemoving} />
       <CustomConnection api={api} locked={locked} full={full} onRemove={setRemoving} />
       {other.length === 0 ? null : <OtherSecrets entries={other} disabled={locked || action.busy} onRemove={setRemoving} />}

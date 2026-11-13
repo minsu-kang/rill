@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { HostApi, Settings } from '../../shared/host-api'
+import type { HostApi, OAuthAccount, Settings } from '../../shared/host-api'
 
 export interface SettingsState {
   settings: Settings | undefined
   failed: boolean
   reload(): Promise<void>
   apply(next: Settings): void
+}
+
+export function withOAuthChange(settings: Settings, change: OAuthAccount): Settings {
+  const known = settings.oauth.accounts.some((entry) => entry.provider === change.provider)
+  const accounts = known ? settings.oauth.accounts.map((entry) => (entry.provider === change.provider ? change : entry)) : [...settings.oauth.accounts, change]
+  return { ...settings, oauth: { ...settings.oauth, accounts } }
 }
 
 export function useSettings(host: HostApi): SettingsState {
@@ -47,6 +53,8 @@ export function useSettings(host: HostApi): SettingsState {
       current = false
     }
   }, [host])
+
+  useEffect(() => host.oauth.onChanged((change) => setSettings((current) => (current === undefined ? current : withOAuthChange(current, change)))), [host])
 
   const apply = useCallback((next: Settings) => setSettings(next), [])
   return { settings, failed, reload, apply }

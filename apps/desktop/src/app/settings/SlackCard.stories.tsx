@@ -36,7 +36,7 @@ function slackForm({ canvasElement }: Context): HTMLFormElement {
 
 async function openSteps({ canvas, userEvent }: Context): Promise<void> {
   const toggles = await canvas.findAllByRole('button', { expanded: false })
-  await userEvent.click(toggles[0]!)
+  await userEvent.click(toggles.at(-1)!)
 }
 
 async function fillForm(context: Context, withToken = true): Promise<void> {

@@ -12,8 +12,6 @@ import { renderThemed } from './render'
 
 const MARKER = 'CONN-SECRET-MARKER'
 const CONNECTED = { state: 'connected', status: { state: 'running', restarts: 0 } } as const
-const GOOGLE_ID = '123456789012-abcdefghijklmnop.apps.googleusercontent.com'
-const ONLINE = { available: true, accounts: [], apps: [{ provider: 'google' as const, clientId: GOOGLE_ID, hasSecret: false }] }
 
 interface Options {
   init?: Partial<FakeHostState>
@@ -43,11 +41,11 @@ async function open(options: Options = {}) {
 type T = ReturnType<typeof createTranslator>
 type User = ReturnType<typeof userEvent.setup>
 
-const region = (t: T, key: 'accounts' | 'custom' | 'other') => screen.getByRole('region', { name: t(`app.connections.${key}.heading`) })
+const region = (t: T, key: 'custom' | 'other') => screen.getByRole('region', { name: t(`app.connections.${key}.heading`) })
 const field = (label: string) => screen.getByLabelText(label) as HTMLInputElement
 const typeSelect = (t: T) => screen.getByLabelText(t('app.connections.custom.authType')) as HTMLSelectElement
 const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement
-const providerCard = (t: T, provider: 'google' | 'microsoft') => screen.getByText(t(`app.connections.provider.${provider}`), { selector: 'strong' }).closest('li') as HTMLElement
+const providerCard = (t: T, provider: 'google' | 'microsoft') => screen.getByRole('region', { name: t(`app.connections.provider.${provider}`) })
 
 function labelsOf(container: HTMLElement): string[] {
   return [...container.querySelectorAll('label')].map((label) => (label.firstChild?.textContent ?? '').trim())
@@ -71,22 +69,20 @@ function nothingSecretShown(extra: unknown = ''): void {
 afterEach(() => vi.restoreAllMocks())
 
 describe('layout', () => {
-  it('has one title, an intro, an Accounts part and a Custom connection part, and no Other part', async () => {
+  it('has one title, an intro, a part for each account and a Custom connection part, and no Other part', async () => {
     const { t } = await open()
     expect(screen.getAllByRole('heading', { name: t('app.settings.section.connections') })).toHaveLength(1)
     expect(screen.getByRole('region', { name: t('app.settings.section.connections') })).toBeTruthy()
     expect(screen.getByText(t('app.connections.intro'))).toBeTruthy()
-    expect(screen.getByRole('heading', { name: t('app.connections.accounts.heading'), level: 3 })).toBeTruthy()
+    for (const provider of ['google', 'microsoft'] as const) expect(screen.getByRole('heading', { name: t(`app.connections.provider.${provider}`), level: 3 })).toBeTruthy()
     expect(screen.getByRole('heading', { name: t('app.connections.custom.heading'), level: 3 })).toBeTruthy()
     expect(screen.queryByText(t('app.connections.other.heading'))).toBeNull()
   })
 
   it('shows two account cards, Google and Microsoft, each with a status chip', async () => {
     const { t } = await open()
-    const cards = within(region(t, 'accounts')).getAllByRole('listitem')
-    expect(cards).toHaveLength(2)
     for (const provider of ['google', 'microsoft'] as const) {
-      expect(within(providerCard(t, provider)).getByText(t('app.connections.account.notConnected'))).toBeTruthy()
+      expect(within(providerCard(t, provider)).getByText(t('app.oauth.status.not_configured'))).toBeTruthy()
     }
     expect(screen.queryByText(t('app.connections.kind.slack' as never))).toBeNull()
   })
@@ -96,50 +92,6 @@ describe('layout', () => {
     for (const word of ['webhookSecret', 'Webhook signing secret']) expect(screen.queryByText(word)).toBeNull()
     const options = within(typeSelect(t)).getAllByRole('option').map((option) => (option as HTMLOptionElement).value)
     expect(options).toEqual(['none', 'apiKey', 'bearer', 'basic'])
-  })
-})
-
-describe('accounts', () => {
-  it('disables every Connect button and says why, while sign-in is not available', async () => {
-    const { t, host } = await open({ init: { settings: fakeSettings({ encryptionAvailable: false }) } })
-    const note = screen.getByText(t('app.connections.accounts.unavailable'))
-    for (const provider of ['google', 'microsoft'] as const) {
-      const connect = within(providerCard(t, provider)).getByRole('button', { name: t('app.connections.account.connectLabel', { provider: t(`app.connections.provider.${provider}`) }) }) as HTMLButtonElement
-      expect(connect.disabled).toBe(true)
-      expect(connect.getAttribute('aria-describedby')).toBe(note.id)
-    }
-    expect(host.state().settings.oauth.accounts.map((entry) => entry.status)).toEqual(['not_configured', 'not_configured'])
-  })
-
-  it('connects and disconnects when sign-in is available, showing who is connected', async () => {
-    const { t, user, host } = await open({ init: { settings: fakeSettings({ oauth: ONLINE }) } })
-    expect(screen.queryByText(t('app.connections.accounts.unavailable'))).toBeNull()
-    await user.click(button(t('app.connections.account.connectLabel', { provider: 'Google' })))
-    expect(await within(providerCard(t, 'google')).findByText(t('app.connections.account.connectedAs', { account: 'someone@example.com' }))).toBeTruthy()
-    expect((await screen.findByRole('status')).textContent).toBe(t('app.connections.account.didConnect', { provider: 'Google' }))
-    expect(host.state().settings.oauth.accounts.filter((entry) => entry.status === 'connected').map((entry) => entry.provider)).toEqual(['google'])
-    expect(within(providerCard(t, 'microsoft')).getByText(t('app.connections.account.notConnected'))).toBeTruthy()
-    await user.click(button(t('app.connections.account.disconnectLabel', { provider: 'Google' })))
-    expect(await within(providerCard(t, 'google')).findByText(t('app.connections.account.notConnected'))).toBeTruthy()
-    expect(screen.getByRole('status').textContent).toBe(t('app.connections.account.didDisconnect', { provider: 'Google' }))
-    expect(host.state().settings.oauth.accounts.map((entry) => entry.status)).toEqual(['not_connected', 'not_configured'])
-  })
-
-  it('shows a connected provider without an account name as just Connected', async () => {
-    const { t } = await open({ init: { settings: fakeSettings({ oauth: { available: true, accounts: [{ provider: 'microsoft', status: 'connected' }], apps: [] } }) } })
-    expect(within(providerCard(t, 'microsoft')).getByText(t('app.connections.account.connected'))).toBeTruthy()
-  })
-
-  it('shows a failed connect as an alert with the fixed text', async () => {
-    const { t, user, host } = await open({ init: { settings: fakeSettings({ oauth: ONLINE }) } })
-    vi.spyOn(host.oauth, 'connect').mockRejectedValue(new HostError('OAUTH_UNAVAILABLE'))
-    await user.click(button(t('app.connections.account.connectLabel', { provider: 'Microsoft' })))
-    expect((await screen.findByRole('alert')).textContent).toBe(t('app.error.host.OAUTH_UNAVAILABLE'))
-  })
-
-  it('disables Connect without a keychain, even when sign-in is available', async () => {
-    const { t } = await open({ init: { settings: fakeSettings({ oauth: ONLINE, encryptionAvailable: false }) } })
-    expect(button(t('app.connections.account.connectLabel', { provider: 'Google' })).disabled).toBe(true)
   })
 })
 
@@ -440,7 +392,7 @@ describe('accessibility and languages', () => {
     for (const type of ['apiKey', 'bearer', 'basic', 'none'] as const) await pick(user, t, type)
     await user.click(button(t('app.connections.custom.save')))
     expect(document.body.textContent).not.toMatch(/\bapp\.[a-z]+\./)
-    expect(screen.getByRole('heading', { name: t('app.connections.accounts.heading') })).toBeTruthy()
+    for (const provider of ['google', 'microsoft'] as const) expect(screen.getByRole('heading', { name: t(`app.connections.provider.${provider}`) })).toBeTruthy()
     expect(screen.getByRole('heading', { name: t('app.connections.custom.heading') })).toBeTruthy()
   })
 })

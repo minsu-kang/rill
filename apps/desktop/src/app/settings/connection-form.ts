@@ -1,10 +1,11 @@
 import type { MessageKey } from '../../i18n'
-import { MAX_NAME_LENGTH, foldName, isValidCustomAuth, type AuthType, type ConnectionSummary, type CustomAuth } from '../../shared/host-api'
+import { MAX_NAME_LENGTH, foldName, isReservedConnectionName, isValidCustomAuth, type AuthType, type ConnectionSummary, type CustomAuth } from '../../shared/host-api'
 
 const CONTROL = /\p{Cc}/u
 
 export function nameProblem(name: string, connections: readonly ConnectionSummary[]): MessageKey | undefined {
   if (name === '' || name.length > MAX_NAME_LENGTH || CONTROL.test(name)) return 'app.connections.nameInvalid'
+  if (isReservedConnectionName(name)) return 'app.connections.nameReserved'
   if (connections.some((entry) => foldName(entry.name) === foldName(name))) return 'app.connections.duplicate'
   return undefined
 }

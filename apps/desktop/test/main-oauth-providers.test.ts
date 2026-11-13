@@ -2,7 +2,7 @@
 import { createCoreRegistry } from '@rill/nodes-core'
 import { describe, expect, it } from 'vitest'
 import { OAUTH_PROVIDER_CONFIGS, grantsRequiredScopes, normalizeScope, redirectUri, requiredScopes } from '../src/main/oauth-providers'
-import { OAUTH_PROVIDERS } from '../src/shared/host-api'
+import { OAUTH_PROVIDERS, OAUTH_REDIRECT_REGISTRATION } from '../src/shared/host-api'
 
 describe('provider table', () => {
   it('holds the documented Google constants', () => {
@@ -109,6 +109,15 @@ describe('grantsRequiredScopes', () => {
   it('does not strip the Graph prefix from Google scopes', () => {
     expect(normalizeScope('google', 'https://graph.microsoft.com/Files.ReadWrite')).toBe('https://graph.microsoft.com/files.readwrite')
     expect(normalizeScope('microsoft', 'https://graph.microsoft.com/Files.ReadWrite')).toBe('files.readwrite')
+  })
+})
+
+describe('the redirect address that the card shows', () => {
+  it('is the start of the address that the sign-in uses for Microsoft, and there is none for Google, whose loopback address needs no registration', () => {
+    expect(OAUTH_REDIRECT_REGISTRATION.microsoft).toBe('http://localhost')
+    expect(redirectUri('microsoft', 51234).startsWith(`${OAUTH_REDIRECT_REGISTRATION.microsoft}:`)).toBe(true)
+    expect(OAUTH_REDIRECT_REGISTRATION.google).toBeUndefined()
+    expect(OAUTH_PROVIDER_CONFIGS.google.redirectHost).toBe('127.0.0.1')
   })
 })
 
