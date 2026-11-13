@@ -22,7 +22,7 @@ A JSON object that maps a connection name to a secret string, or to an object wi
       "team": { "secret": "https://hooks.example.test/def", "kind": "slack" }
     }
 
-Nodes can use both forms. The planner is told only about the second form, by name and kind (`slack`, `http` or `webhookSecret`), and never receives a secret. A bad kind or a secret that is not a string stops the command with a usage error.
+Nodes can use both forms. The planner is told only about the second form, by name and kind (`slack`, `http`, `webhookSecret`, `google` or `microsoft`), and never receives a secret. A bad kind or a secret that is not a string stops the command with a usage error.
 
 The secret of an `http` connection can also describe how `http.request` signs the call. The secret is then a JSON text with `"rillAuth": 1` and a `type` of `none`, `apiKey`, `bearer` or `basic`:
 
@@ -37,6 +37,39 @@ The secret of a `slack` connection is a Slack webhook URL (`https:`, or `http:` 
     { "rillSlack": 1, "token": "xoxb-...", "channel": "#alerts" }
 
 `notify.slack` tells the forms apart from the secret and posts through `chat.postMessage` for a bot token. The `channel` of the step wins over the default channel of the connection; when neither exists the step fails with `no Slack channel: set the channel of this step or give the connection a default channel`, and a step that names a `channel` for a webhook connection fails with a message that says the webhook posts to its own channel. Any other secret fails the node with the fixed text `the Slack connection is not a webhook URL or a bot token`, which holds no part of the secret. A refusal from Slack fails the step with `Slack: <code>` (`ratelimited`, `internal_error`, `fatal_error`, `service_unavailable` and `request_timeout` are retried; Slack says that `internal_error` and `fatal_error` can come after the message was posted, so a retry can send it twice, as a retry after an HTTP 5xx can). The token is replaced with `<secret>` in any error text, and the failure explanation hides it like any other connection secret. `http.request` refuses a connection whose secret is a Slack bot token (the JSON form with `rillSlack`, or the plain `xoxb-` token) with `connection <name> is a Slack connection` before it sends anything, so a workflow cannot send the token to an address of its own. The planner is told whether each `slack` connection is a `webhook` or a `bot` (the engine reads it from the secret and passes only that word), and a plan that sets a `channel` for a webhook connection is sent back for repair with the code `channel_on_webhook`.
+
+### Google and Microsoft connections
+
+The secret of a `google` or a `microsoft` connection is an OAuth access token as plain text, 8 to 8192 characters from the bearer-token set (letters, digits and `-._~+/`, with optional trailing `=`). Anything else fails the node with the fixed text `the connection does not hold an access token`, which holds no part of the secret. Only `google.sheets.append` (a `google` connection) and `microsoft.excel.append` (a `microsoft` connection) use these connections. They read the token from the connection each time they run and send it to one fixed host:
+
+| Node | Request | Host |
+| --- | --- | --- |
+| `google.sheets.append@1` | `POST /v4/spreadsheets/{spreadsheetId}/values/{range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS` with `{ "values": [[...]] }` | `https://sheets.googleapis.com` |
+| `microsoft.excel.append@1` | `POST /v1.0/me/drive/root:/{filePath}:/workbook/tables/{table}/rows/add` with `{ "values": [[...]] }` | `https://graph.microsoft.com` |
+
+Each node adds one row of 1 to 50 cells (strings up to 2000 characters, numbers, booleans or `null`). Google gets the cells as typed with `RAW` input, so a text that starts with `=` stays text and is not evaluated. Excel may read such a text as a formula, so the node puts a single quote in front of a text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return (the rule of `csv.append`; plain numbers stay as they are) and sends `null` as an empty text. The spreadsheet id is 20 to 100 characters of `A-Z a-z 0-9 _ -`. The range is a sheet name or an A1 range such as `Sheet1` or `Receipts!A:D`, at most 120 characters of letters, digits, spaces and `_ . - ' ! : $` (no `?`, `#`, `/` or `%`), and defaults to `Sheet1`. The Excel file is a OneDrive path such as `Receipts/ledger.xlsx` (no leading `/`, no `..` or empty segment, no control character and none of `\ : * ? " < > | # %`, at most 400 characters, ending in `.xlsx`) and the table name starts with a letter or `_` and is at most 255 characters. The table must already exist in the workbook. Path parts are URL-encoded one by one.
+
+A failure shows a fixed text and never a word of the answer: `HTTP 400: the data was not accepted`, `HTTP 401: the sign-in is no longer valid, reconnect the account`, `HTTP 403: the account may not change this file`, `HTTP 404: the file, sheet or table was not found` and `HTTP <status>: the request was not accepted` for any other 4xx. A 429, a 5xx and a network error are retried. Neither API has an idempotency key, so a crash right after the request, or a retry after a server error, can make a resumed run add the row twice. A dry run sends nothing and does not need the connection.
+
+A connection of kind `google` or `microsoft` is never sent anywhere else. A plain `http.request` whose `auth.connection` names one fails before any request with `connection <name> is a Google connection` (or `Microsoft`), and a spreadsheet node that names a connection of another kind fails with `connection <name> is a <kind> connection, not a <google|microsoft> connection`. The engine knows the kind from the `kind` of the entry in this file (`kindOf` of the connection resolver), so give such an entry a `kind`: an entry that is a bare string has no kind, and `http.request` cannot tell it from any other secret.
+
+To append a row without the app, put a token into the connections file and run the workflow:
+
+    { "sheets": { "secret": "ya29....", "kind": "google" } }
+
+    {
+      "schemaVersion": 1,
+      "name": "append a row",
+      "nodes": [
+        { "id": "t1", "type": "trigger.manual@1", "config": {} },
+        { "id": "n1", "type": "google.sheets.append@1", "config": { "connection": "sheets", "spreadsheetId": "<id from the spreadsheet address>", "values": ["2026-11-12", 12.5, "Cafe"] } }
+      ],
+      "edges": [{ "from": "t1", "to": "n1" }]
+    }
+
+    rill-engine run append-row.json --connections connections.json
+
+An access token lives about an hour and the engine does not refresh it, so a headless run needs a fresh token each time. Getting and refreshing tokens is the job of the sign-in, which is not built yet. The two APIs were read from the vendors' documentation and have not been called live by this project, and the Graph workbook API is documented for OneDrive files, so a personal account may behave differently from a work account.
 
 ### Model provider
 
@@ -318,7 +351,7 @@ The result is `{ recipeId, workflow, summary }`:
 
 - `workflow` is the draft. The same recipe and values give the same workflow, node ids included, on every call.
 - `summary.nodes` lists `{ id, type, title }` for every node, with the title taken from the node definition.
-- `summary.sideEffects` is derived from the node definitions, not stored in the recipe: `idempotent` when a node writes a file (`csv.append`) and `external` when a node calls the network or sends a message (`http.request`, `notify.slack`). It holds each value at most once, in this order, and is empty for a recipe that only reads. It describes what a retry may repeat and does not tell whether content leaves the computer.
+- `summary.sideEffects` is derived from the node definitions, not stored in the recipe: `idempotent` when a node writes a file (`csv.append`) and `external` when a node calls the network or sends a message (`http.request`, `google.sheets.append`, `microsoft.excel.append`, `notify.slack`). It holds each value at most once, in this order, and is empty for a recipe that only reads. It describes what a retry may repeat and does not tell whether content leaves the computer.
 - `summary.sendsToModel` is `true` when a node sends content to the model provider (`llm.extract`, which uploads each receipt, whatever its type), and `false` otherwise. It is derived from the node types, not stored in the recipe, and it is separate from `sideEffects` because `llm.extract` is not a side effect in that sense.
 
 `instantiateRecipe` never deploys and never writes: no table changes (a test compares every table before and after, for drafts and for refusals), no run starts and no event is emitted. A draft is not a plan, so it has no flags and no confirmation; the open-plan check of `deploy` does not apply to it.

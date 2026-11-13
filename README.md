@@ -174,10 +174,10 @@ Not run yet. The suite has 48 approved cases: 20 easy, 10 ambiguous (the right a
 
 - macOS first. The installer is signed ad hoc and not notarized, and the smoke check of the packed app runs on macOS only. Windows and Linux are untested.
 - The graph is read-only. You change a workflow by selecting a node and asking in the chat (patch mode), or with a recipe. Editing node settings in forms is not built. A workflow can be deleted with its run history from the Workflows screen. It cannot be undone, and the engine refuses while a run is queued or running.
-- The delivery guarantee is at least once. A crash between sending a Slack message and recording it, or a retry after a server error, can send the message twice. CSV rows are deduplicated by an idempotency key.
-- A dry run still reads the file and calls the model, because reading is not a side effect. It skips the CSV write, the Slack message and HTTP requests.
+- The delivery guarantee is at least once. A crash between sending a Slack message or a spreadsheet row and recording it, or a retry after a server error, can send the message or add the row twice. CSV rows are deduplicated by an idempotency key.
+- A dry run still reads the file and calls the model, because reading is not a side effect. It skips the CSV write, the Slack message, the spreadsheet rows and HTTP requests.
 - Webhook triggers listen on `localhost` only. There is no tunnel and no cloud sync.
-- No OAuth connectors. Outputs are CSV, Slack and plain HTTP. Slack posts through a bot token that you create in your own Slack app and paste into Settings (older incoming webhook connections keep working).
+- No sign-in for Google or Microsoft yet. Outputs are CSV, Slack, plain HTTP, a row in Google Sheets and a row in an Excel table on OneDrive. The two spreadsheet nodes take an OAuth access token from a connection that you put into a connections file (see the engine README); getting and refreshing the token in the app is not built, and the two APIs have not been called live. Slack posts through a bot token that you create in your own Slack app and paste into Settings (older incoming webhook connections keep working).
 - Only the Anthropic adapter has been called live (by the extraction evaluation). The OpenAI, Gemini, Grok and Meta adapters are tested against fake transports built from vendor documentation, and `pnpm eval check-provider` exists to verify them once keys are available. Grok does not read PDFs.
 - No local models (Ollama, hosted Llama).
 - Secrets reach the engine through the environment of its process. On macOS any process of the same user can read that block. [docs/security.md](docs/security.md) lists this and the other gaps.

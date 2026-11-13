@@ -10,12 +10,17 @@ export const CONNECTION_KINDS: Readonly<Record<string, PlanConnection['kind']>> 
   'billing-api': 'http',
 }
 
+export const SPREADSHEET_DRAFT_CONNECTION_KINDS: Readonly<Record<string, PlanConnection['kind']>> = {
+  'google-main': 'google',
+  'microsoft-main': 'microsoft',
+}
+
 export const DEFAULT_ATTACHMENTS_ROOT = `${HOME_DIR}/.rill/attachments`
 const ATTACHMENTS_FOLDER = '.attachments'
 
 export function connectionsOf(names: readonly string[]): PlanConnection[] {
   return names.map((name) => {
-    const kind = CONNECTION_KINDS[name]
+    const kind = CONNECTION_KINDS[name] ?? SPREADSHEET_DRAFT_CONNECTION_KINDS[name]
     if (kind === undefined) throw new Error(`no connection kind is known for ${name}`)
     return { name, kind }
   })

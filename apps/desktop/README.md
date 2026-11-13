@@ -154,7 +154,7 @@ Every text a person reads goes through `useT()`. Add the key to both `src/i18n/k
     interface RecipePanelProps {
       client: EngineClient
       catalog: readonly NodeInfo[]
-      connections: readonly { name: string; kind: 'slack' | 'http' | 'webhookSecret' }[]
+      connections: readonly { name: string; kind: 'slack' | 'http' | 'webhookSecret' | 'google' | 'microsoft' }[]
       onPickPath?(kind: 'folder' | 'file'): Promise<string | undefined>
       onDeployed?(workflowId: string): void
       onAction?(action: 'activate' | 'dry_run', workflowId: string): void
@@ -333,6 +333,8 @@ The Connections section of the settings has four parts: Accounts, Slack, Custom 
 - Custom connection: a name and an Auth type, as in the Authorization tab of an API client. No Auth sends nothing. API Key adds a key name and a value to a header or to the query string. Bearer Token sends `Authorization: Bearer <token>`. Basic Auth sends `Authorization: Basic` with the base64 of `username:password`. The fields change with the type, and changing the type clears every secret field. A custom connection is chosen in the `auth` setting of an HTTP request node. A name must differ from every other connection of any kind, ignoring case.
 - Slack: the bot token card described below. It sits between Accounts and Custom connection.
 - Other saved secrets: webhook signing secrets that were saved before. The part shows only while one exists, with a Remove button. New ones cannot be created here.
+
+The host contract accepts the connection kinds `google` and `microsoft` (the secret is an OAuth access token for the spreadsheet nodes), but the screen has no form for them: the Accounts cards are where such a connection will be made once sign-in exists. A saved connection of these kinds is passed to the engine with its kind and is not listed in the sections above.
 
 A custom connection is stored as a connection of kind `http`. Its secret is a JSON text with `"rillAuth": 1` and the auth fields, which the main process builds from a validated `CustomAuth` object (`host.secrets.setCustomConnection`), so the window never assembles a secret string. `http.request` recognises that format (see "Connections file" in the engine README), and any other `http` secret keeps its older meaning. The list shows the name and an auth type chip only.
 

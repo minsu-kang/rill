@@ -43,7 +43,7 @@ interface RecipeParam {
   min?: number // number kind only
   max?: number // number kind only
   extension?: string // file kind only: the file name must end with it, such as '.csv'
-  connectionKind?: 'slack' | 'http' | 'webhookSecret' // connection kind only, and required there
+  connectionKind?: 'slack' | 'http' | 'webhookSecret' | 'google' | 'microsoft' // connection kind only, and required there
 }
 ```
 
