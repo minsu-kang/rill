@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EMPTY_VALUES, buildCustomAuth, type CustomFieldValues } from '../src/app/settings/connection-form'
+import { createTranslator } from '../src/i18n'
 import { isValidCustomAuth } from '../src/shared/host-api'
 
 const values = (patch: Partial<CustomFieldValues>): CustomFieldValues => ({ ...EMPTY_VALUES, ...patch })
@@ -34,5 +35,12 @@ describe('buildCustomAuth', () => {
     for (const result of [buildCustomAuth('none', EMPTY_VALUES), buildCustomAuth('bearer', values({ token: 't' }))]) {
       expect('auth' in result && isValidCustomAuth(result.auth)).toBe(true)
     }
+  })
+})
+
+describe('the invalid-values message', () => {
+  it('tells the user that reserved header names are refused, in both languages', () => {
+    expect(createTranslator('en')('app.connections.custom.invalid')).toMatch(/reserved header name/)
+    expect(createTranslator('ko')('app.connections.custom.invalid')).toContain('예약')
   })
 })

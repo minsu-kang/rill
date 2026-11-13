@@ -2,7 +2,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseConnectionSecret } from '@rill/nodes-core'
+import { FORBIDDEN_NAMES, parseConnectionSecret } from '@rill/nodes-core'
 import Value from 'typebox/value'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAttachmentStore } from '../src/main/attachments'
@@ -14,6 +14,7 @@ import {
   CHANNELS,
   CONTRACTS,
   CustomAuthSchema,
+  FORBIDDEN_AUTH_NAMES,
   HostError,
   encodeCustomAuth,
   hostErrorCode,
@@ -84,12 +85,24 @@ describe('CustomAuth', () => {
     'a number': 5,
     null: null,
   }
-  for (const name of ['Host', 'content-length', 'Transfer-Encoding', 'CONNECTION', 'Cookie', 'set-cookie']) {
+  for (const name of ['Host', 'content-length', 'Transfer-Encoding', 'CONNECTION', 'Cookie', 'set-cookie', 'Upgrade', 'Keep-Alive', 'Expect', 'TE', 'Trailer', 'Proxy-Connection', 'Idempotency-Key', 'Content-Type']) {
     INVALID[`the forbidden name ${name}`] = { type: 'apiKey', in: 'header', name, value: MARKER }
   }
+  INVALID['a lone surrogate in an api key value'] = { type: 'apiKey', in: 'query', name: 'key', value: 'ab\uD800cd' }
+  INVALID['a lone low surrogate in a token'] = { type: 'bearer', token: 'ab\uDC00cd' }
+  INVALID['a lone surrogate in a username'] = { type: 'basic', username: 'us\uD800er', password: 'x' }
+  INVALID['a lone surrogate in a password'] = { type: 'basic', username: 'u', password: 'pass\uD800word' }
 
   it.each(Object.entries(INVALID))('refuses %s', (_label, auth) => {
     expect(isValidCustomAuth(auth)).toBe(false)
+  })
+
+  it('keeps the reserved header names equal to the ones the engine refuses', () => {
+    expect([...FORBIDDEN_AUTH_NAMES].sort()).toEqual([...FORBIDDEN_NAMES].sort())
+  })
+
+  it('accepts a well-formed surrogate pair', () => {
+    expect(isValidCustomAuth({ type: 'basic', username: 'u😀', password: 'pass😀word' })).toBe(true)
   })
 
   it('counts length in UTF-16 units like the engine, so a value the engine would refuse never reaches it', () => {
@@ -195,6 +208,33 @@ describe('ipc: setCustomConnection', () => {
     await h.call(CHANNELS.secretsSetConnection, { name: 'Team', kind: 'slack', secret: 'https://hooks.example.test/abc' })
     expect(hostErrorCode(await failure(h.call(CHANNELS.secretsSetCustomConnection, { name: 'Team', auth: VALID.bearer })))).toBe('NAME_COLLISION')
     expect(await h.secrets.listConnections()).toEqual([{ name: 'Team', kind: 'slack' }])
+  })
+
+  it('refuses the exact name of a saved plain http connection, and keeps its secret', async () => {
+    const h = harness()
+    await h.call(CHANNELS.secretsSetConnection, { name: 'Legacy', kind: 'http', secret: 'plain-token-0123' })
+    expect(hostErrorCode(await failure(h.call(CHANNELS.secretsSetCustomConnection, { name: 'Legacy', auth: VALID.bearer })))).toBe('NAME_COLLISION')
+    expect(await h.secrets.getConnections()).toEqual([{ name: 'Legacy', kind: 'http', secret: 'plain-token-0123' }])
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
+  })
+
+  it('never overwrites a connection of another kind that is saved at the same moment', async () => {
+    const slack = { name: 'Team', kind: 'slack' as const, secret: 'https://hooks.example.test/abc' }
+    const before = harness()
+    await Promise.allSettled([before.call(CHANNELS.secretsSetCustomConnection, { name: 'Team', auth: VALID.bearer }), before.secrets.setConnection(slack)])
+    expect(await before.secrets.listConnections()).toEqual([{ name: 'Team', kind: 'slack' }])
+    const after = harness()
+    const [stored, custom] = await Promise.allSettled([after.secrets.setConnection(slack), after.call(CHANNELS.secretsSetCustomConnection, { name: 'Team', auth: VALID.bearer })])
+    expect(stored.status).toBe('fulfilled')
+    expect(hostErrorCode((custom as PromiseRejectedResult).reason)).toBe('NAME_COLLISION')
+    expect(await after.secrets.listConnections()).toEqual([{ name: 'Team', kind: 'slack' }])
+  })
+
+  it('still replaces a custom connection of the same name', async () => {
+    const h = harness()
+    await h.call(CHANNELS.secretsSetCustomConnection, { name: 'My API', auth: VALID.bearer })
+    await h.call(CHANNELS.secretsSetCustomConnection, { name: 'My API', auth: VALID.basic })
+    expect(await h.secrets.listConnections()).toEqual([{ name: 'My API', kind: 'http', authType: 'basic' }])
   })
 
   it('refuses unknown fields and malformed auth, and stores nothing', async () => {

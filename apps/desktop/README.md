@@ -62,7 +62,7 @@ The panel validates a file before it calls `add`: the media type must be one of 
 
 ### Choosing the model
 
-`plan` has no model field: the engine is started with a provider and a model. So `ModelPicker` is controlled. It shows the table of `llmModels` grouped by provider, marks the active model (`aria-current`), disables providers without a key with a "key needed" label and the environment variable name, and shows the provider's `dataNote`. Choosing a configured model calls `onSelectModel({ provider, model })` and nothing else: the picker never changes its own selection and never says a switch happened. What the callback does (probably restarting the engine) is for the code that owns the engine.
+`plan` has no model field: the engine is started with a provider and a model. So `ModelPicker` is controlled. It shows the table of `llmModels` grouped by provider, marks the active model (`aria-current`), disables providers without a key with a "key needed" label, and shows the provider's `dataNote`. Choosing a configured model calls `onSelectModel({ provider, model })` and nothing else: the picker never changes its own selection and never says a switch happened. What the callback does (probably restarting the engine) is for the code that owns the engine.
 
 ### Notes
 

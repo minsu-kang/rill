@@ -13,7 +13,24 @@ export const AUTH_MAX_PASSWORD = 2000
 
 const TOKEN_CHARS = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
 const CONTROL = /\p{Cc}/u
-const FORBIDDEN_NAMES: ReadonlySet<string> = new Set(['host', 'content-length', 'transfer-encoding', 'connection', 'cookie', 'set-cookie'])
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+const LEADING_BLANK = /^[\s\uFEFF]+/
+export const FORBIDDEN_NAMES: ReadonlySet<string> = new Set([
+  'host',
+  'content-length',
+  'transfer-encoding',
+  'connection',
+  'cookie',
+  'set-cookie',
+  'upgrade',
+  'keep-alive',
+  'expect',
+  'te',
+  'trailer',
+  'proxy-connection',
+  'idempotency-key',
+  'content-type',
+])
 const MIN_MASKED = 4
 const MASK = '<secret>'
 
@@ -30,7 +47,7 @@ function validName(value: unknown): value is string {
 }
 
 function validText(value: unknown, min: number, max: number): value is string {
-  return typeof value === 'string' && value.length >= min && value.length <= max && !CONTROL.test(value)
+  return typeof value === 'string' && value.length >= min && value.length <= max && !CONTROL.test(value) && !LONE_SURROGATE.test(value)
 }
 
 export function parseConnectionAuth(value: unknown): ConnectionAuth | undefined {
@@ -55,10 +72,11 @@ export function parseConnectionAuth(value: unknown): ConnectionAuth | undefined 
 }
 
 export function parseConnectionSecret(secret: string): ParsedConnectionSecret {
-  if (!secret.startsWith('{')) return { kind: 'plain' }
+  const trimmed = secret.replace(LEADING_BLANK, '')
+  if (!trimmed.startsWith('{')) return { kind: 'plain' }
   let data: unknown
   try {
-    data = JSON.parse(secret)
+    data = JSON.parse(trimmed)
   } catch {
     return { kind: 'plain' }
   }
@@ -136,11 +154,27 @@ export function secretParts(secret: string): string[] {
   }
 }
 
+function lowerHex(text: string): string {
+  return text.replace(/%[0-9A-F]{2}/g, (escape) => escape.toLowerCase())
+}
+
+function echoForms(part: string): Set<string> {
+  const forms = new Set([part, JSON.stringify(part).slice(1, -1)])
+  for (const encoded of [encodeQueryPart(part), encodeURIComponent(part)]) {
+    const plus = encoded.replaceAll('%20', '+')
+    for (const form of [encoded, plus]) {
+      forms.add(form)
+      forms.add(lowerHex(form))
+    }
+  }
+  return forms
+}
+
 export function maskSecretParts(text: string, parts: readonly string[]): string {
   let out = text
   for (const part of parts) {
     if (part.length < MIN_MASKED) continue
-    for (const form of new Set([part, encodeQueryPart(part), encodeURIComponent(part)])) out = out.split(form).join(MASK)
+    for (const form of echoForms(part)) out = out.split(form).join(MASK)
   }
   return out
 }

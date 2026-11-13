@@ -67,8 +67,8 @@ const TYPES: Readonly<Record<string, { mediaType: AttachmentRef['mediaType']; li
 }
 
 const FAKE_ACCOUNTS: Readonly<Record<(typeof OAUTH_PROVIDERS)[number], string>> = {
-  google: 'minsu@example.com',
-  microsoft: 'minsu@contoso.example',
+  google: 'someone@example.com',
+  microsoft: 'someone@contoso.example',
   slack: 'Rill Team workspace',
 }
 
@@ -261,7 +261,7 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
         if (keys.length !== 2 || keys[0] !== 'auth' || keys[1] !== 'name') throw new HostError('INVALID_ARGUMENTS')
         if (!Value.Check(ConnectionNameSchema, connection.name) || !isValidCustomAuth(connection.auth)) throw new HostError('INVALID_ARGUMENTS')
         const existing = settings.connections.find((entry) => entry.name === connection.name)
-        if (existing !== undefined && existing.kind !== 'http') throw new HostError('NAME_COLLISION')
+        if (existing !== undefined && (existing.kind !== 'http' || existing.authType === undefined)) throw new HostError('NAME_COLLISION')
         if (findNameCollision([...settings.connections.map((entry) => entry.name), connection.name]) !== undefined) throw new HostError('NAME_COLLISION')
         if (existing === undefined && settings.connections.length >= MAX_CONNECTIONS) throw new HostError('INVALID_ARGUMENTS')
         settings.connections = [...settings.connections.filter((entry) => entry.name !== connection.name), { name: connection.name, kind: 'http', authType: connection.auth.type }]

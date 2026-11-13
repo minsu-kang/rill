@@ -6,6 +6,7 @@ export interface HttpCallInit {
   body?: string
   timeoutMs: number
   maxBytes?: number
+  redact?: (text: string) => string
 }
 
 export interface HttpResult {
@@ -88,6 +89,6 @@ export async function httpCall(url: string, init: HttpCallInit): Promise<HttpRes
   }
   if (status >= 300 && status < 400) throw new Error(`HTTP ${status}: redirects are not followed`)
   if (status === 429 || status >= 500) throw new RetryableError(`HTTP ${status}`)
-  if (status < 200 || status >= 300) throw new Error(`HTTP ${status}: ${text.slice(0, 200)}`)
+  if (status < 200 || status >= 300) throw new Error(`HTTP ${status}: ${(init.redact?.(text) ?? text).slice(0, 200)}`)
   return { status, headers: responseHeaders, body: parseBody(text, responseHeaders['content-type']) }
 }

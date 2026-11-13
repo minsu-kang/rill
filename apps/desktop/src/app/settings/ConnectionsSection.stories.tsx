@@ -14,8 +14,8 @@ const ONLINE: OAuthState = { available: true, accounts: [] }
 const SIGNED_IN: OAuthState = {
   available: true,
   accounts: [
-    { provider: 'google', account: 'minsu@example.com' },
-    { provider: 'microsoft', account: 'minsu@contoso.example' },
+    { provider: 'google', account: 'someone@example.com' },
+    { provider: 'microsoft', account: 'someone@contoso.example' },
   ],
 }
 

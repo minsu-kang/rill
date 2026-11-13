@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  FORBIDDEN_NAMES,
   applyConnectionAuth,
   encodeConnectionSecret,
   maskSecretParts,
@@ -64,12 +65,57 @@ describe('parseConnectionSecret', () => {
     'a control character in the password': { rillAuth: 1, type: 'basic', username: 'user', password: 'p\rw' },
     'a missing password': { rillAuth: 1, type: 'basic', username: 'user' },
   }
-  for (const name of ['Host', 'content-length', 'TRANSFER-ENCODING', 'Connection', 'cookie', 'Set-Cookie']) {
+  const lone = 'pass\uD800word'
+  malformed['a lone high surrogate in a token'] = { rillAuth: 1, type: 'bearer', token: lone }
+  malformed['a lone low surrogate in an api key value'] = { rillAuth: 1, type: 'apiKey', in: 'query', name: 'key', value: 'ab\uDC00cd' }
+  malformed['a lone surrogate in a username'] = { rillAuth: 1, type: 'basic', username: 'us\uD800er', password: 'pw' }
+  malformed['a lone surrogate in a password'] = { rillAuth: 1, type: 'basic', username: 'user', password: lone }
+  for (const name of ['Host', 'content-length', 'TRANSFER-ENCODING', 'Connection', 'cookie', 'Set-Cookie', 'Upgrade', 'Keep-Alive', 'Expect', 'TE', 'Trailer', 'Proxy-Connection', 'Idempotency-Key', 'Content-Type']) {
     malformed[`the forbidden name ${name}`] = { rillAuth: 1, type: 'apiKey', in: 'header', name, value: 'abcd' }
   }
 
   it.each(Object.entries(malformed))('flags %s as malformed', (_label, value) => {
     expect(parseConnectionSecret(text(value))).toEqual({ kind: 'malformed' })
+  })
+
+  it('accepts a well-formed surrogate pair', () => {
+    const auth: ConnectionAuth = { type: 'bearer', token: 'tok-😀-en' }
+    expect(parseConnectionSecret(encodeConnectionSecret(auth))).toEqual({ kind: 'structured', auth })
+  })
+
+  it('lists the reserved header names in lower case', () => {
+    expect([...FORBIDDEN_NAMES].sort()).toEqual([
+      'connection',
+      'content-length',
+      'content-type',
+      'cookie',
+      'expect',
+      'host',
+      'idempotency-key',
+      'keep-alive',
+      'proxy-connection',
+      'set-cookie',
+      'te',
+      'trailer',
+      'transfer-encoding',
+      'upgrade',
+    ])
+  })
+
+  it.each([' ', '\n', '\t\r\n  ', '\uFEFF', '\uFEFF \n'])('parses a structured value after the leading text %j', (lead) => {
+    const auth: ConnectionAuth = { type: 'bearer', token: 'CONN-SECRET-MARKER' }
+    expect(parseConnectionSecret(lead + encodeConnectionSecret(auth))).toEqual({ kind: 'structured', auth })
+  })
+
+  it('flags a malformed structured value after leading whitespace instead of treating it as plain', () => {
+    expect(parseConnectionSecret(` ${text({ rillAuth: 1, type: 'bearer', token: 'abcd', extra: 1 })}`)).toEqual({ kind: 'malformed' })
+    expect(parseConnectionSecret(`\n${text({ rillAuth: 2, type: 'bearer', token: 'abcd' })}`)).toEqual({ kind: 'malformed' })
+  })
+
+  it('still treats a value with leading whitespace but no rillAuth as plain', () => {
+    expect(parseConnectionSecret(' {"a":1}')).toEqual({ kind: 'plain' })
+    expect(parseConnectionSecret('  Bearer x')).toEqual({ kind: 'plain' })
+    expect(parseConnectionSecret('   ')).toEqual({ kind: 'plain' })
   })
 
   it('accepts the limits exactly', () => {
@@ -147,5 +193,15 @@ describe('secretParts and maskSecretParts', () => {
     expect(maskSecretParts('a CONN-SECRET-MARKER b CONN-SECRET-MARKER', ['CONN-SECRET-MARKER'])).toBe('a <secret> b <secret>')
     expect(maskSecretParts('k=k%201%26', ['k 1&'])).toBe('k=<secret>')
     expect(maskSecretParts('abc', ['abc'])).toBe('abc')
+  })
+
+  it('masks the forms a server may echo back: + for a space, lower-case hex, a JSON string', () => {
+    const part = 'a b+c/d"e\\f'
+    const forms = ['a%20b%2Bc%2Fd%22e%5Cf', 'a%20b%2bc%2fd%22e%5cf', 'a+b%2Bc%2Fd%22e%5Cf', 'a+b%2bc%2fd%22e%5cf', 'a b+c/d\\"e\\\\f', part]
+    for (const form of forms) expect(maskSecretParts(`x ${form} y`, [part]), form).toBe('x <secret> y')
+  })
+
+  it('masks a part that is at least four characters long and no shorter one', () => {
+    expect(maskSecretParts('abcd abc', ['abcd', 'abc'])).toBe('<secret> abc')
   })
 })

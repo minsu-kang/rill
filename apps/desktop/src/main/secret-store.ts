@@ -37,8 +37,12 @@ export interface SecretStore {
   clearProviderKey(provider: ProviderId): Promise<boolean>
   listConnections(): Promise<ConnectionSummary[]>
   getConnections(): Promise<StoredConnection[]>
-  setConnection(connection: StoredConnection): Promise<boolean>
+  setConnection(connection: StoredConnection, options?: SetConnectionOptions): Promise<boolean>
   removeConnection(name: string): Promise<boolean>
+}
+
+export interface SetConnectionOptions {
+  mayReplace?: (existing: StoredConnection) => boolean
 }
 
 export type SecretStoreErrorReason = 'no_keychain' | 'name_collision' | 'invalid_value' | 'write_failed'
@@ -206,7 +210,7 @@ export function createSecretStore(deps: { dir: string; safeStorage: SafeStorageL
     clearProviderKey: (provider) => mutate((state) => state.providerKeys.delete(provider)),
     listConnections: () => serial(async () => (await read()).state.connections.map(summary)),
     getConnections: () => serial(async () => (await read()).state.connections.map((connection) => ({ ...connection }))),
-    setConnection: (connection) => {
+    setConnection: (connection, options) => {
       if (!validConnection(connection)) return Promise.reject(new SecretStoreError('invalid_value'))
       return mutate((state) => {
         const existing = state.connections.findIndex((entry) => entry.name === connection.name)
@@ -216,6 +220,7 @@ export function createSecretStore(deps: { dir: string; safeStorage: SafeStorageL
           return true
         }
         const current = state.connections[existing]!
+        if (options?.mayReplace?.(current) === false) throw new SecretStoreError('name_collision')
         if (current.kind === connection.kind && current.secret === connection.secret && current.authType === connection.authType) return false
         state.connections[existing] = { ...connection }
         return true

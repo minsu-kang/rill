@@ -45,7 +45,23 @@ const NO_CONTROL_AT_ALL = '^[^\\u0000-\\u001f\\u007f-\\u009f]+$'
 const NO_CONTROL_OR_COLON = '^[^:\\u0000-\\u001f\\u007f-\\u009f]+$'
 const NO_CONTROL_OR_NOTHING = '^[^\\u0000-\\u001f\\u007f-\\u009f]*$'
 const HEADER_NAME = "^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$"
-const FORBIDDEN_AUTH_NAMES: ReadonlySet<string> = new Set(['host', 'content-length', 'transfer-encoding', 'connection', 'cookie', 'set-cookie'])
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+export const FORBIDDEN_AUTH_NAMES: ReadonlySet<string> = new Set([
+  'host',
+  'content-length',
+  'transfer-encoding',
+  'connection',
+  'cookie',
+  'set-cookie',
+  'upgrade',
+  'keep-alive',
+  'expect',
+  'te',
+  'trailer',
+  'proxy-connection',
+  'idempotency-key',
+  'content-type',
+])
 
 export const ConnectionNameSchema = Type.String({ minLength: 1, maxLength: MAX_NAME_LENGTH, pattern: NO_CONTROL })
 export const SecretValueSchema = Type.String({ minLength: 1, maxLength: MAX_SECRET_LENGTH, pattern: '^[^\\u0000]+$' })
@@ -71,7 +87,7 @@ export const CustomAuthSchema = Type.Union([
 export type CustomAuth = Type.Static<typeof CustomAuthSchema>
 
 function withinUnits(value: string, min: number, max: number): boolean {
-  return value.length >= min && value.length <= max
+  return value.length >= min && value.length <= max && !LONE_SURROGATE.test(value)
 }
 
 export function isValidCustomAuth(value: unknown): value is CustomAuth {

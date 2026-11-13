@@ -31,6 +31,17 @@ export async function startTestServer(): Promise<TestServer> {
         res.end(JSON.stringify({ url: req.url, headers: req.headers }))
         return
       }
+      if (route === '/echo-late') {
+        res.statusCode = 401
+        res.setHeader('content-type', 'text/plain')
+        res.end(`${'x'.repeat(183)}invalid key ${String(req.headers['x-api-key'] ?? '')}`)
+        return
+      }
+      if (route === '/echo-as-key') {
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify({ [String(req.headers['x-api-key'] ?? '')]: 1 }))
+        return
+      }
       switch (req.url) {
         case '/json':
           res.setHeader('content-type', 'application/json')

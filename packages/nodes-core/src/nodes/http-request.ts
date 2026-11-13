@@ -6,7 +6,7 @@ import { RetryableError, defineAction } from '../types'
 function maskDeep(value: unknown, parts: readonly string[]): unknown {
   if (typeof value === 'string') return maskSecretParts(value, parts)
   if (Array.isArray(value)) return value.map((item) => maskDeep(item, parts))
-  if (typeof value === 'object' && value !== null) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskDeep(item, parts)]))
+  if (typeof value === 'object' && value !== null) return Object.fromEntries(Object.entries(value).map(([key, item]) => [maskSecretParts(key, parts), maskDeep(item, parts)]))
   return value
 }
 
@@ -90,6 +90,7 @@ export const httpRequest = defineAction({
         body: config.body === undefined ? undefined : JSON.stringify(config.body),
         timeoutMs: config.timeoutMs ?? 15_000,
         maxBytes: config.maxBytes,
+        redact: hidden.length === 0 ? undefined : (text) => maskSecretParts(text, hidden),
       })
     } catch (error) {
       throw maskedFailure(error, hidden)

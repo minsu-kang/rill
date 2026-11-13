@@ -161,9 +161,8 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
       if (await deps.secrets.setConnection(connection)) restartEngine()
     },
     [CHANNELS.secretsSetCustomConnection]: async ({ name, auth }: { name: string; auth: CustomAuth }) => {
-      const existing = (await deps.secrets.listConnections()).find((entry) => entry.name === name)
-      if (existing !== undefined && existing.kind !== 'http') throw new HostError('NAME_COLLISION')
-      if (await deps.secrets.setConnection({ name, kind: 'http', secret: encodeCustomAuth(auth), authType: auth.type })) restartEngine()
+      const connection = { name, kind: 'http' as const, secret: encodeCustomAuth(auth), authType: auth.type }
+      if (await deps.secrets.setConnection(connection, { mayReplace: (existing) => existing.kind === 'http' && existing.authType !== undefined })) restartEngine()
     },
     [CHANNELS.oauthConnect]: async () => {
       throw new HostError('OAUTH_UNAVAILABLE')

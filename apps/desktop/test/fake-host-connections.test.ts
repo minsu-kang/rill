@@ -38,6 +38,23 @@ describe('createFakeHost custom connections', () => {
     expect((await host.settings.get()).connections).toEqual([{ name: 'My API', kind: 'http', authType: 'basic' }])
   })
 
+  it('refuses the exact name of a plain http connection without an auth type', async () => {
+    const host = createFakeHost()
+    await host.secrets.setConnection({ name: 'Legacy', kind: 'http', secret: 'plain-token-0123' })
+    expect(await codeOf(host.secrets.setCustomConnection({ name: 'Legacy', auth: AUTHS[3]! }))).toBe('NAME_COLLISION')
+    expect((await host.settings.get()).connections).toEqual([{ name: 'Legacy', kind: 'http' }])
+  })
+
+  it('connects example accounts with neutral names', async () => {
+    const host = createFakeHost({ settings: fakeSettings({ oauth: { available: true, accounts: [] } }) })
+    for (const provider of ['google', 'microsoft', 'slack'] as const) await host.oauth.connect(provider)
+    expect((await host.settings.get()).oauth.accounts).toEqual([
+      { provider: 'google', account: 'someone@example.com' },
+      { provider: 'microsoft', account: 'someone@contoso.example' },
+      { provider: 'slack', account: 'Rill Team workspace' },
+    ])
+  })
+
   it('refuses a name that collides with a connection of any kind, in any case', async () => {
     const host = createFakeHost()
     await host.secrets.setConnection({ name: 'Team', kind: 'slack', secret: 'https://hooks.example.test/x' })

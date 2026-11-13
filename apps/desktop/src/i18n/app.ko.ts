@@ -125,7 +125,7 @@ export const appKo = {
   'app.connections.custom.password': '비밀번호',
   'app.connections.custom.save': '연결 저장',
   'app.connections.custom.missing': '이름과 모든 칸을 채워 주세요. 비밀번호만 비워 둘 수 있어요.',
-  'app.connections.custom.invalid': '입력을 확인해 주세요. 키 이름은 영문, 숫자와 - _ . 같은 기호만 쓸 수 있고, 값은 2000자 이하이고, 사용자 이름에는 콜론(:)을 쓸 수 없어요.',
+  'app.connections.custom.invalid': '입력을 확인해 주세요. 키 이름은 영문, 숫자와 - _ . 같은 기호만 쓸 수 있고 Host, Cookie, Content-Type, Idempotency-Key 같은 예약된 헤더 이름은 쓸 수 없어요. 값은 2000자 이하이고, 사용자 이름에는 콜론(:)을 쓸 수 없어요.',
   'app.connections.custom.didSave': '저장했어요. 비밀값은 다시 보여주지 않아요.',
   'app.connections.custom.legacy': 'HTTP 비밀값',
   'app.connections.other.heading': '그 밖에 저장된 비밀값',

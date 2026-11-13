@@ -127,7 +127,7 @@ export const appEn: Record<keyof typeof appKo, string> = {
   'app.connections.custom.password': 'Password',
   'app.connections.custom.save': 'Save connection',
   'app.connections.custom.missing': 'Fill in the name and every field. Only a password can stay empty.',
-  'app.connections.custom.invalid': 'Check the values. A key name uses letters, digits and symbols such as - _ . only, a value is at most 2000 characters, and a username has no colon (:).',
+  'app.connections.custom.invalid': 'Check the values. A key name uses letters, digits and symbols such as - _ . only and cannot be a reserved header name (Host, Cookie, Content-Type, Idempotency-Key and similar), a value is at most 2000 characters, and a username has no colon (:).',
   'app.connections.custom.didSave': 'Saved. The secret is never shown again.',
   'app.connections.custom.legacy': 'HTTP secret',
   'app.connections.other.heading': 'Other saved secrets',

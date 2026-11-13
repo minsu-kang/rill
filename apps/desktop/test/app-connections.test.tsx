@@ -114,7 +114,7 @@ describe('accounts', () => {
     const { t, user, host } = await open({ init: { settings: fakeSettings({ oauth: ONLINE }) } })
     expect(screen.queryByText(t('app.connections.accounts.unavailable'))).toBeNull()
     await user.click(button(t('app.connections.account.connectLabel', { provider: 'Google' })))
-    expect(await within(providerCard(t, 'google')).findByText(t('app.connections.account.connectedAs', { account: 'minsu@example.com' }))).toBeTruthy()
+    expect(await within(providerCard(t, 'google')).findByText(t('app.connections.account.connectedAs', { account: 'someone@example.com' }))).toBeTruthy()
     expect((await screen.findByRole('status')).textContent).toBe(t('app.connections.account.didConnect', { provider: 'Google' }))
     expect(host.state().settings.oauth.accounts.map((entry) => entry.provider)).toEqual(['google'])
     expect(within(providerCard(t, 'microsoft')).getByText(t('app.connections.account.notConnected'))).toBeTruthy()

@@ -283,6 +283,33 @@ describe('http.request@1 with a structured secret', () => {
     expect(scanned).toContain('<secret>')
   })
 
+  it('hides a key that an error body repeats across the 200 character cut', async () => {
+    const key = 'KEY-abcdefghijklmnopqrstuvwxyz0123456789'
+    const ctx = structured({ type: 'apiKey', in: 'header', name: 'X-Api-Key', value: key })
+    const error = await httpRequest.execute({ url: `${server.base}/echo-late`, auth: { connection: 'api' } }, ctx).catch((e: unknown) => e)
+    const message = (error as Error).message
+    expect(message).toMatch(/^HTTP 401: x{183}invalid key /)
+    expect(message).not.toContain('KEY')
+    expect(message).not.toContain('-abc')
+    expect(message.length).toBeLessThanOrEqual('HTTP 401: '.length + 200)
+  })
+
+  it('does not change the text of an error for a plain secret', async () => {
+    const ctx = makeCtx({ connections: { get: () => 'KEY-abcdefghijklmnopqrstuvwxyz0123456789' } })
+    const error = await httpRequest
+      .execute({ url: `${server.base}/echo-late`, headers: { 'X-Api-Key': 'KEY-abcdefghijklmnopqrstuvwxyz0123456789' }, auth: { connection: 'api' } }, ctx)
+      .catch((e: unknown) => e)
+    expect((error as Error).message).toMatch(/^HTTP 401: x{183}invalid key KEY-a$/)
+  })
+
+  it('hides a key that the server uses as a JSON object key', async () => {
+    const key = 'KEY-abcdefghijklmnopqrstuvwxyz0123456789'
+    const ctx = structured({ type: 'apiKey', in: 'header', name: 'X-Api-Key', value: key })
+    const output = await httpRequest.execute({ url: `${server.base}/echo-as-key`, auth: { connection: 'api' } }, ctx)
+    expect(JSON.stringify(output)).not.toContain('KEY-')
+    expect(output).toMatchObject({ status: 200, body: { '<secret>': 1 } })
+  })
+
   it('leaves a response that does not echo anything unchanged', async () => {
     const output = await httpRequest.execute({ url: `${server.base}/json`, auth: { connection: 'api' } }, structured({ type: 'bearer', token: MARKER }))
     expect(output).toMatchObject({ status: 200, body: { hello: 'world' } })
