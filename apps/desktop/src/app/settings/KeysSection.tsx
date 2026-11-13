@@ -36,6 +36,8 @@ const REASON_KEYS: Readonly<Record<KeyInvalidReason | KeyUnverifiedReason, Messa
   unexpected_status: 'app.keys.reason.unexpected_status',
 }
 
+export const KEY_MASK = '••••••••••••••••'
+
 export function KeysSection({ api, locked }: { api: SettingsApi; locked: boolean }) {
   const t = useT()
   const noteId = useId()
@@ -232,6 +234,7 @@ function KeyRow({ provider, configured, locked, api, noteId }: { provider: Provi
           autoComplete="off"
           spellCheck={false}
           maxLength={MAX_SECRET_LENGTH}
+          placeholder={configured ? KEY_MASK : undefined}
           aria-describedby={noteId}
           disabled={locked || action.busy}
           onInput={(event) => edit(event.currentTarget.value)}

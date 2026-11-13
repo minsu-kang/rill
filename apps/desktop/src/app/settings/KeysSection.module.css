@@ -73,3 +73,9 @@
     grid-column: 1 / -1;
   }
 }
+
+.field::placeholder {
+  color: var(--text-secondary);
+  letter-spacing: 0.12em;
+  opacity: 1;
+}

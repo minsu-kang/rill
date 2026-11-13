@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { withHostModels } from '../src/app/fake-world'
 import { withHostConfigured } from '../src/app/glue/host-models'
 import { HostProvider } from '../src/app/host'
+import { KEY_MASK } from '../src/app/settings/KeysSection'
 import { SettingsScreen } from '../src/app/settings/SettingsScreen'
 import type { SettingsSectionId } from '../src/app/settings/types'
 import { useSettings } from '../src/app/settings/useSettings'
@@ -273,6 +274,27 @@ describe('KeysSection', () => {
     await ready(shown.t)
     return shown
   }
+
+  it('shows the same fixed mask in the field of every provider that has a key and none in the others, never the key', async () => {
+    await openKeys({ init: { settings: fakeSettings({ configuredProviders: ['anthropic', 'gemini'] }) } })
+    const fields = [...document.querySelectorAll('input')]
+    expect(fields.map((field) => field.placeholder)).toEqual([KEY_MASK, '', KEY_MASK, '', ''])
+    for (const field of fields) expect(field.value).toBe('')
+    expect(KEY_MASK).toBe('\u2022'.repeat(16))
+  })
+
+  it('shows the mask after a key was saved and takes it away after the key was removed', async () => {
+    const { host, t, user } = await openKeys()
+    const field = () => document.querySelectorAll('input')[0] as HTMLInputElement
+    expect(field().placeholder).toBe('')
+    await user.type(field(), 'KEY-MASK-MARKER-12345')
+    await user.click(screen.getAllByRole('button', { name: t('app.keys.save') })[0]!)
+    await waitFor(() => expect(field().placeholder).toBe(KEY_MASK))
+    expect(host.state().settings.configuredProviders).toContain('anthropic')
+    expect(document.body.innerHTML).not.toContain('KEY-MASK-MARKER-12345')
+    await user.click(screen.getAllByRole('button', { name: t('app.keys.remove') })[0]!)
+    await waitFor(() => expect(field().placeholder).toBe(''))
+  })
 
   it('has one row per provider, a password field and save and remove buttons', async () => {
     const { t } = await openKeys()
