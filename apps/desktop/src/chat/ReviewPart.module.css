@@ -1,0 +1,132 @@
+.part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.label {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.select {
+  max-width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+
+.button,
+.primary {
+  min-height: var(--control-height);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--surface-sunken);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.button:disabled,
+.primary:disabled {
+  border-color: var(--border-default);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.button:focus-visible,
+.primary:focus-visible,
+.select:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.transfer {
+  display: flex;
+  flex: 1 1 12em;
+  align-items: center;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+
+.note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.asking {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.progress {
+  margin: 0;
+  font-weight: 600;
+}
+
+.progress:focus {
+  outline: none;
+}
+
+.error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--status-failed-border);
+  border-radius: var(--radius-md);
+  background: var(--status-failed-bg);
+  color: var(--status-failed-text);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.error:focus {
+  outline: none;
+}

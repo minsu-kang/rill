@@ -1,6 +1,6 @@
 import type { AttachmentRef, NodeInfo } from '@rill/protocol'
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
-import { agentIdForRequest, errorCodeOf, sendsAgentText, useAgents } from '../engine/agents'
+import { agentIdForRequest, errorCodeOf, reviewersOf, sendsAgentText, useAgents } from '../engine/agents'
 import type { EngineClient } from '../engine/client'
 import { useRules } from '../engine/rules'
 import { useT, type MessageKey } from '../i18n'
@@ -24,6 +24,7 @@ import {
 } from './model/conversation'
 import type { EffortHint } from './model/effort'
 import { planErrorKey } from './model/errors'
+import { IDLE_REVIEW, reloadsAgents, reviewErrorKey, type ReviewState } from './model/review'
 import { activeModelOf, type ModelsState } from './model/models'
 import styles from './Conversation.module.css'
 
@@ -76,6 +77,9 @@ export function Conversation(props: ConversationProps) {
     confirmed: Object.fromEntries((initialEntries ?? []).flatMap((entry) => (entry.role === 'assistant' ? [[entry.planId, [] as string[]]] : []))),
   }))
   const [deploys, setDeploys] = useState<Record<string, DeployState>>({})
+  const [reviews, setReviews] = useState<Record<string, ReviewState>>({})
+  const reviewing = useRef(new Map<string, number>())
+  const reviewCounter = useRef(0)
   const alive = useRef(true)
   const busy = useRef(false)
   const running = useRef<string | undefined>(undefined)
@@ -216,6 +220,32 @@ export function Conversation(props: ConversationProps) {
     )
   }
 
+  function askReview(planId: string, agentId: string): void {
+    if (reviewing.current.has(planId)) return
+    reviewCounter.current += 1
+    const requestId = reviewCounter.current
+    reviewing.current.set(planId, requestId)
+    setReviews((previous) => ({ ...previous, [planId]: { phase: 'asking', agentId, requestId } }))
+    client.request('reviewPlan', { planId, agentId }).then(
+      (answer) => {
+        if (reviewing.current.get(planId) !== requestId) return
+        reviewing.current.delete(planId)
+        if (alive.current) setReviews((previous) => ({ ...previous, [planId]: { phase: 'done', agentId, result: answer } }))
+      },
+      (failure: unknown) => {
+        if (reloadsAgents(failure)) void agentsStore.refresh()
+        if (reviewing.current.get(planId) !== requestId) return
+        reviewing.current.delete(planId)
+        if (alive.current) setReviews((previous) => ({ ...previous, [planId]: { phase: 'error', agentId, key: reviewErrorKey(failure) } }))
+      },
+    )
+  }
+
+  function leaveReview(planId: string): void {
+    reviewing.current.delete(planId)
+    setReviews((previous) => ({ ...previous, [planId]: IDLE_REVIEW }))
+  }
+
   function onComposerChange(patch: Parameters<ComposerProps['onChange']>[0]): void {
     if (patch.draft !== undefined) dispatch({ type: 'draft', text: patch.draft })
     if (patch.effort !== undefined) dispatch({ type: 'effort', effort: patch.effort })
@@ -254,6 +284,14 @@ export function Conversation(props: ConversationProps) {
             deployError={deployState?.status === 'error' ? deployState.key : undefined}
             superseded={superseded}
             planning={planning}
+            review={{
+              reviewers: reviewersOf(agentsState.agents).map((agent) => ({ id: agent.id, name: agent.name })),
+              agents: agentsState.status,
+              state: reviews[entry.planId] ?? IDLE_REVIEW,
+              onAsk: (agentId) => askReview(entry.planId, agentId),
+              onCancel: () => leaveReview(entry.planId),
+              onClose: () => leaveReview(entry.planId),
+            }}
           />
         ) : result.kind === 'questions' ? (
           <>

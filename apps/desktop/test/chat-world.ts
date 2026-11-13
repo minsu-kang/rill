@@ -1,4 +1,4 @@
-import { RillError, type Agent, type MethodName, type MethodParams, type MethodResult, type Rule } from '@rill/protocol'
+import { RillError, type Agent, type MethodName, type MethodParams, type MethodResult, type Rule, type Skill } from '@rill/protocol'
 import { vi } from 'vitest'
 import type { EngineClient } from '../src/engine/client'
 import { createFakeClient } from '../src/engine/fake-client'
@@ -14,6 +14,8 @@ export interface WorldOptions {
   agents?: readonly Agent[]
   activeAgentId?: string
   rules?: readonly Rule[]
+  skills?: readonly Skill[]
+  review?: FakePlanData['review']
   script?: Script
   delayMs?: number
   intercept?: (method: MethodName, params: unknown) => Promise<unknown> | undefined
@@ -43,6 +45,8 @@ export function makeWorld(options: WorldOptions = {}) {
     ...(options.agents === undefined ? {} : { agents: options.agents }),
     ...(options.activeAgentId === undefined ? {} : { activeAgentId: options.activeAgentId }),
     ...(options.rules === undefined ? {} : { rules: options.rules }),
+    ...(options.skills === undefined ? {} : { skills: options.skills }),
+    ...(options.review === undefined ? {} : { review: options.review }),
     ...(options.delayMs === undefined ? {} : { delayMs: options.delayMs }),
   }
   const planClient = withPlanMethods(base, data)

@@ -23,6 +23,7 @@ import { baseNodeType } from '../model/rules'
 import type { EngineClient } from './client'
 import { createFakeAgents, type FakeAgents } from './fake-agents'
 import { createFakeHooks, type FakeHooks } from './fake-hooks'
+import { createFakeReviews, type ReviewScript } from './fake-review'
 import { createFakeRules, metaUnderCap, type FakeRules, type RuleViolationScript } from './fake-rules'
 import { createFakeSkills, type FakeSkills } from './fake-skills'
 
@@ -37,6 +38,7 @@ export interface FakePlanData {
   agents?: readonly Agent[]
   activeAgentId?: string
   skills?: readonly Skill[]
+  review?: ReviewScript
   rules?: readonly Rule[]
   violations?: RuleViolationScript
   hooks?: readonly Hook[]
@@ -63,6 +65,7 @@ const HANDLED = [
   'listSkills',
   'saveSkill',
   'deleteSkill',
+  'reviewPlan',
   'listRules',
   'saveRule',
   'deleteRule',
@@ -136,6 +139,7 @@ export function withPlanMethods(client: EngineClient & { emit?: (event: EngineEv
   const agents = createFakeAgents({ ...(data.agents === undefined ? {} : { agents: data.agents }), ...(data.activeAgentId === undefined ? {} : { activeId: data.activeAgentId }), skills: skills.all, now })
   const rules = createFakeRules({ ...(data.rules === undefined ? {} : { rules: data.rules }), ...(data.violations === undefined ? {} : { violations: data.violations }), now })
   const hooks = createFakeHooks({ ...(data.hooks === undefined ? {} : { hooks: data.hooks }), ...(data.hookLog === undefined ? {} : { log: data.hookLog }), now })
+  const reviews = createFakeReviews({ ...(data.review === undefined ? {} : { script: data.review }), ...(data.delayMs === undefined ? {} : { delayMs: data.delayMs }) })
   const planAgents: Array<string | undefined> = []
   let memorySerial = 0
   let deploySerial = 0
@@ -239,6 +243,7 @@ export function withPlanMethods(client: EngineClient & { emit?: (event: EngineEv
       if (answer.deleted) agents.dropSkill(params.id)
       return answer
     },
+    reviewPlan: (params) => reviews.run(params, { plan: (planId) => records.get(planId)?.result, agents, model: activeModelOf(data.models) }),
     listRules: () => rules.list(),
     saveRule: async (params) => {
       const { nodes } = await client.request('nodeCatalog', {})

@@ -1,0 +1,127 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-base);
+  color: var(--text-primary);
+}
+
+.panel:focus {
+  outline: none;
+}
+
+.panel:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.advice {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.summary {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.none {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.findings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.finding {
+  display: grid;
+  grid-template-columns: 6em minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: start;
+  font-size: var(--font-size-sm);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chip {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--status-idle-border);
+  border-radius: var(--radius-pill);
+  background: var(--status-idle-bg);
+  color: var(--status-idle-text);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.problem {
+  border-color: var(--status-failed-border);
+  background: var(--status-failed-bg);
+  color: var(--status-failed-text);
+}
+
+.warning {
+  border-color: var(--status-continued-border);
+  background: var(--status-continued-bg);
+  color: var(--status-continued-text);
+}
+
+.info {
+  border-color: var(--badge-effect-border);
+  background: var(--badge-effect-bg);
+  color: var(--badge-effect-text);
+}
+
+.nodeLabel {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.node {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.meta li:not(:last-child)::after {
+  content: '·';
+  margin-left: var(--space-3);
+}
+
+.sent {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}

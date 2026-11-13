@@ -1,4 +1,4 @@
-import { RillError, type Agent, type MethodName, type MethodParams, type MethodResult, type Rule } from '@rill/protocol'
+import { RillError, type Agent, type MethodName, type MethodParams, type MethodResult, type Rule, type Skill } from '@rill/protocol'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useMemo, useState, type ReactNode } from 'react'
 import type { EngineClient } from '../engine/client'
@@ -6,7 +6,9 @@ import { createFakeClient } from '../engine/fake-client'
 import { withPlanMethods, type FakePlanData } from '../engine/fake-plan'
 import { catalog, fakeData } from '../fixtures'
 import { agentFixtures } from '../fixtures/agents'
+import { reviewCases } from '../fixtures/review'
 import { ruleFixtures } from '../fixtures/rules'
+import { skillFixtures } from '../fixtures/skills'
 import { memoryFixtures, metas, models, modelsNothingConfigured, outcomeOf, results } from '../fixtures/plan'
 import { useT } from '../i18n'
 import { ChatPanel, type ChatPanelProps } from './ChatPanel'
@@ -62,6 +64,8 @@ interface World {
   agents?: readonly Agent[]
   activeAgentId?: string
   rules?: readonly Rule[]
+  skills?: readonly Skill[]
+  review?: FakePlanData['review']
 }
 
 function clientOf(world: World, entries: readonly ConversationEntry[] = []): EngineClient {
@@ -74,6 +78,8 @@ function clientOf(world: World, entries: readonly ConversationEntry[] = []): Eng
     ...(world.agents === undefined ? {} : { agents: world.agents }),
     ...(world.activeAgentId === undefined ? {} : { activeAgentId: world.activeAgentId }),
     ...(world.rules === undefined ? {} : { rules: world.rules }),
+    ...(world.skills === undefined ? {} : { skills: world.skills }),
+    ...(world.review === undefined ? {} : { review: world.review }),
     seed: entries.flatMap((entry) => (entry.role === 'assistant' && entry.deployed === undefined ? [{ planId: entry.planId, result: entry.result }] : [])),
   })
   const request = <M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> => client.request(method, params)
@@ -118,6 +124,16 @@ const ruleErrorsWorld: World = {
     ]),
   delayMs: 200,
 }
+const reviewerWorld: World = { script: plainWorld.script, agents: [...agentFixtures.few, ...agentFixtures.reviewers], skills: skillFixtures.few, activeAgentId: 'agent-terse', delayMs: 300 }
+const reviewErrorsWorld: World = {
+  ...reviewerWorld,
+  review: (() => {
+    let call = 0
+    const errors = ['REVIEW_BUSY', 'REVIEW_PROVIDER', 'REVIEW_INVALID', 'LLM_UNAVAILABLE']
+    return () => (call < errors.length ? new RillError(errors[call++]!, 'x') : { review: reviewCases.mixed })
+  })(),
+}
+const noReviewerWorld: World = { script: plainWorld.script, agents: agentFixtures.few, activeAgentId: 'agent-terse' }
 const hostileAgentWorld: World = { script: plainWorld.script, agents: agentFixtures.hostile, activeAgentId: 'agent-hostile' }
 
 const user = (text: string, extra: Partial<Extract<ConversationEntry, { role: 'user' }>> = {}): ConversationEntry => ({ role: 'user', text, attachments: [], ...extra })
@@ -192,3 +208,33 @@ export const CloseConfirmation: Story = {
 }
 
 export const EditContextWithoutModel: Story = { name: 'Edit context without a model', args: unused, render: () => <Demo world={nothingWorld} editContext={{ workflowId: 'wf-receipt' }} /> }
+
+const reviewEntries: ConversationEntry[] = [user('폴더에 영수증이 들어오면 CSV에 적어 줘'), { role: 'assistant', planId: 'review-1', result: results.flagged, meta: metas.plain }]
+
+function pressReview(canvasElement: HTMLElement, times = 1): Promise<void> {
+  return pressAll(canvasElement, '[data-rill-ask-review]', times)
+}
+
+export const WithAReviewer: Story = { name: 'Plan with a reviewer to ask', args: unused, render: () => <Demo world={reviewerWorld} initialEntries={reviewEntries} /> }
+
+export const ReviewerAnswer: Story = {
+  name: 'The advice of a reviewer',
+  args: unused,
+  render: () => <Demo world={reviewerWorld} initialEntries={reviewEntries} />,
+  play: async ({ canvasElement }) => {
+    await pressReview(canvasElement)
+    await new Promise((resolve) => setTimeout(resolve, 600))
+  },
+}
+
+export const ReviewerErrors: Story = {
+  name: 'Reviewer errors (each ask fails differently)',
+  args: unused,
+  render: () => <Demo world={reviewErrorsWorld} initialEntries={reviewEntries} />,
+  play: async ({ canvasElement }) => {
+    await pressReview(canvasElement)
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  },
+}
+
+export const NoReviewerToAsk: Story = { name: 'Plan with no reviewer agent', args: unused, render: () => <Demo world={noReviewerWorld} initialEntries={reviewEntries} /> }

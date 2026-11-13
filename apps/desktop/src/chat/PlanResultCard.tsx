@@ -7,6 +7,7 @@ import { ErrorNotice } from './ErrorNotice'
 import { FlagConfirm } from './FlagConfirm'
 import { plainText } from './model/clamp'
 import { canDeploy, type AssistantEntry } from './model/conversation'
+import { ReviewPart, type ReviewPartProps } from './ReviewPart'
 import styles from './PlanResultCard.module.css'
 
 export interface PlanResultCardProps {
@@ -19,6 +20,7 @@ export interface PlanResultCardProps {
   deployError?: MessageKey
   superseded?: boolean
   planning?: boolean
+  review?: Omit<ReviewPartProps, 'deployed'>
 }
 
 const MAX_PATCH_ROWS = 50
@@ -44,7 +46,7 @@ function describePatch(t: Translate, op: PatchOp): string {
   }
 }
 
-export function PlanResultCard({ entry, catalog, confirmed, onToggleFlag, onDeploy, deploying, deployError, superseded = false, planning = false }: PlanResultCardProps) {
+export function PlanResultCard({ entry, catalog, confirmed, onToggleFlag, onDeploy, deploying, deployError, superseded = false, planning = false, review }: PlanResultCardProps) {
   const t = useT()
   const { result } = entry
   if (result.kind !== 'workflow') return null
@@ -103,6 +105,7 @@ export function PlanResultCard({ entry, catalog, confirmed, onToggleFlag, onDepl
         )}
       </div>
       {deployError === undefined ? null : <ErrorNotice messageKey={deployError} />}
+      {review === undefined ? null : <ReviewPart {...review} deployed={deployed} />}
     </div>
   )
 }

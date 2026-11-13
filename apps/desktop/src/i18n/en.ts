@@ -5,6 +5,7 @@ import type { ko } from './ko'
 import { explainEn } from './explain.en'
 import { hooksEn } from './hooks.en'
 import { recipesEn } from './recipes.en'
+import { reviewEn } from './review.en'
 import { rulesEn } from './rules.en'
 import { skillsEn } from './skills.en'
 
@@ -87,6 +88,7 @@ export const en: Record<keyof typeof ko, string> = {
   ...agentsEn,
   ...rulesEn,
   ...hooksEn,
+  ...reviewEn,
   ...skillsEn,
   ...appEn,
 }
