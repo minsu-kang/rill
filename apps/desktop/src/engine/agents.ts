@@ -57,6 +57,16 @@ function createAgentsStore(client: EngineClient): AgentsStore {
     )
   }
 
+  function applied(next: Pick<AgentsState, 'agents' | 'activeId'>): void {
+    generation += 1
+    if (state.agents.length > 0) {
+      set({ status: 'ready', ...next })
+      return
+    }
+    set({ ...state, ...next })
+    void load()
+  }
+
   function enqueue<T>(job: () => Promise<T>): Promise<T> {
     const run = tail.then(job, job).catch((error: unknown) => {
       if (errorCodeOf(error) === 'AGENT_NOT_FOUND') void load()
@@ -92,21 +102,18 @@ function createAgentsStore(client: EngineClient): AgentsStore {
     select: (id) =>
       enqueue(async () => {
         await client.request('setActiveAgent', { id })
-        generation += 1
-        set({ ...state, activeId: id })
+        applied({ agents: state.agents, activeId: id })
       }),
     save: (input) =>
       enqueue(async () => {
         const { agent } = await client.request('saveAgent', input)
-        generation += 1
-        set({ ...state, agents: byName([...state.agents.filter((entry) => entry.id !== agent.id), agent]) })
+        applied({ agents: byName([...state.agents.filter((entry) => entry.id !== agent.id), agent]), activeId: state.activeId })
         return agent
       }),
     remove: (id) =>
       enqueue(async () => {
         const { deleted } = await client.request('deleteAgent', { id })
-        generation += 1
-        set({ ...state, agents: state.agents.filter((entry) => entry.id !== id), activeId: state.activeId === id ? AGENT_DEFAULT_ID : state.activeId })
+        applied({ agents: state.agents.filter((entry) => entry.id !== id), activeId: state.activeId === id ? AGENT_DEFAULT_ID : state.activeId })
         return deleted
       }),
   }

@@ -1,7 +1,7 @@
 import { RillError, type Agent, type AgentFields, type MethodName, type MethodParams, type MethodResult } from '@rill/protocol'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { agentIdForRequest, agentsStoreFor, activeAgentOf, sendsAgentText, useAgents } from '../src/engine/agents'
+import { agentIdForRequest, agentsStoreFor, activeAgentOf, sendsAgentText, useAgents, type AgentsStore } from '../src/engine/agents'
 import type { EngineClient } from '../src/engine/client'
 import { createFakeClient } from '../src/engine/fake-client'
 import { withPlanMethods } from '../src/engine/fake-plan'
@@ -170,6 +170,95 @@ describe('the agents store of a client', () => {
     expect(order).toEqual([`start ${saved.id}`, `end ${saved.id}`, 'start default', 'end default'])
     expect(store.getState().activeId).toBe('default')
     off()
+  })
+
+  const writes: Array<[string, (store: AgentsStore, id: string) => Promise<unknown>]> = [
+    ['select', (store, id) => store.select(id)],
+    ['save', (store) => store.save({ ...fields, name: 'later' })],
+    ['remove', (store, id) => store.remove(id)],
+  ]
+
+  it.each(writes)('is ready again after a %s that answers while a retry of a failed load is still running', async (_name, write) => {
+    const inner = world()
+    let mode: 'good' | 'fail' | 'hold' = 'good'
+    let answerHeld: (() => void) | undefined
+    const client: EngineClient = {
+      request: <M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> => {
+        if (method === 'listAgents' && mode === 'fail') return Promise.reject(new RillError('INTERNAL', 'x'))
+        if (method === 'listAgents' && mode === 'hold') {
+          return new Promise((resolve) => {
+            answerHeld = () => resolve(inner.client.request(method, params))
+          })
+        }
+        return inner.client.request(method, params)
+      },
+      onEvent: inner.client.onEvent,
+    }
+    const store = agentsStoreFor(client)
+    const off = store.subscribe(() => undefined)
+    await waitFor(() => expect(store.getState().status).toBe('ready'))
+    const known = await store.save({ ...fields, name: 'known' })
+    mode = 'fail'
+    await store.refresh()
+    expect(store.getState().status).toBe('error')
+    mode = 'hold'
+    const retry = store.refresh()
+    expect(store.getState().status).toBe('loading')
+    await write(store, known.id)
+    expect(store.getState().status).toBe('ready')
+    expect(store.getState().error).toBeUndefined()
+    answerHeld?.()
+    await retry
+    expect(store.getState().status).toBe('ready')
+    off()
+  })
+
+  it('sends the agentId of a selection that was made while a retry of a failed load was still running', async () => {
+    const inner = world()
+    let mode: 'good' | 'fail' | 'hold' = 'good'
+    const client: EngineClient = {
+      request: <M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> => {
+        if (method === 'listAgents' && mode === 'fail') return Promise.reject(new RillError('INTERNAL', 'x'))
+        if (method === 'listAgents' && mode === 'hold') return new Promise(() => undefined)
+        return inner.client.request(method, params)
+      },
+      onEvent: inner.client.onEvent,
+    }
+    const store = agentsStoreFor(client)
+    const off = store.subscribe(() => undefined)
+    await waitFor(() => expect(store.getState().status).toBe('ready'))
+    const known = await store.save({ ...fields, name: 'known' })
+    mode = 'fail'
+    await store.refresh()
+    mode = 'hold'
+    void store.refresh()
+    await store.select(known.id)
+    expect(agentIdForRequest(store.getState())).toBe(known.id)
+    off()
+  })
+
+  it('loads the list after a write that answers before the list was ever loaded, and does not call a partial list ready', async () => {
+    const inner = world()
+    let lists = 0
+    let answer: (() => void) | undefined
+    const client: EngineClient = {
+      request: <M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> => {
+        if (method !== 'listAgents') return inner.client.request(method, params)
+        lists += 1
+        return new Promise((resolve) => {
+          answer = () => resolve(inner.client.request(method, params))
+        })
+      },
+      onEvent: inner.client.onEvent,
+    }
+    const store = agentsStoreFor(client)
+    await store.select('default')
+    expect(store.getState().status).toBe('loading')
+    expect(store.getState().agents).toEqual([])
+    expect(lists).toBe(1)
+    answer?.()
+    await waitFor(() => expect(store.getState().status).toBe('ready'))
+    expect(store.getState().agents.map((entry) => entry.id)).toEqual(['default'])
   })
 
   it('ignores a list answer that arrives after a newer write', async () => {

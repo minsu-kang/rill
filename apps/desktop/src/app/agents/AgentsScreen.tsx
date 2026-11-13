@@ -26,7 +26,7 @@ export interface AgentsScreenProps {
   files?: Pick<HostApi['dialogs'], 'openText' | 'saveText'>
 }
 
-type Asking = { kind: 'unsaved'; then: ViewAction; review: boolean } | { kind: 'delete' }
+type Asking = { kind: 'unsaved'; then: ViewAction; review: boolean; importAfter?: true } | { kind: 'delete' }
 
 function actionError(error: unknown): MessageKey {
   return error instanceof HostError ? hostErrorKey(error) : planErrorKey(error)
@@ -62,6 +62,11 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
     if (review !== undefined) setAsking({ kind: 'unsaved', then: next, review: true })
     else if (selection.dirty) setAsking({ kind: 'unsaved', then: next, review: false })
     else go(next)
+  }
+
+  function startImport(): void {
+    if (selection.dirty) setAsking({ kind: 'unsaved', then: { type: 'revert' }, review: false, importAfter: true })
+    else importFile()
   }
 
   function edit(field: AgentField, value: string): void {
@@ -176,7 +181,7 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
             creating={selection.creating && review === undefined}
             onSelect={(id) => guarded({ type: 'select', id })}
             onCreate={() => guarded({ type: 'create' })}
-            {...(files === undefined ? {} : { onImport: importFile })}
+            {...(files === undefined ? {} : { onImport: startImport })}
           />
           {review !== undefined && outcome !== undefined ? (
             <AgentImportReview
@@ -222,8 +227,10 @@ export function AgentsScreen({ client, files }: AgentsScreenProps) {
           danger
           onConfirm={() => {
             const next = asking.then
+            const importAfter = asking.importAfter === true
             setAsking(undefined)
             go(next)
+            if (importAfter) importFile()
           }}
           onCancel={() => setAsking(undefined)}
         />

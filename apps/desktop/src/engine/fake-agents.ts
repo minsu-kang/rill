@@ -4,6 +4,7 @@ import {
   RillError,
   agentNameKey,
   agentProblemLine,
+  isReservedAgentName,
   normaliseAgentFields,
   type Agent,
   type MethodParams,
@@ -43,6 +44,7 @@ export function createFakeAgents(options: FakeAgentsOptions = {}): FakeAgents {
       if (params.id === AGENT_DEFAULT_ID) throw new RillError('AGENT_BUILTIN', 'the built-in agent cannot be changed or deleted')
       const checked = normaliseAgentFields(params)
       if (!checked.ok) throw new RillError('AGENT_INVALID', 'the agent is not valid', checked.problems.map(agentProblemLine))
+      if (isReservedAgentName(checked.fields.name)) throw new RillError('AGENT_DUPLICATE', 'an agent with the same name is already saved')
       const key = agentNameKey(checked.fields.name)
       const at = now()
       if (params.id !== undefined) {

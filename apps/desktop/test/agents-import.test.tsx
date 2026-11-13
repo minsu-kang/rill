@@ -204,6 +204,14 @@ describe('the review of an imported file', () => {
     await waitFor(() => expect(callsOf('saveAgent')).toHaveLength(1))
   })
 
+  it.each(['Default', 'default', '기본'])('makes a file name %j, which is the name of the built-in agent, be changed first', async (name) => {
+    const { user, callsOf } = mount({ host: { textPicks: [{ name: 'dup.md', text: FILE.replace('Imported helper', name) }] } })
+    await startImport(user)
+    expect(alertText()).toContain(en['agents.import.duplicate'])
+    expect((screen.getByRole('button', { name: 'Save as a new agent' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(callsOf('saveAgent')).toEqual([])
+  })
+
   it('shows the answer of the engine when the name was taken in the meantime', async () => {
     const { user, inner } = mount({ agents: agentFixtures.few, host: { textPicks: [{ name: 'a.md', text: FILE }] } })
     await startImport(user)
@@ -248,6 +256,71 @@ describe('the review of an imported file', () => {
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Discard changes' }))
     expect(screen.queryByRole('heading', { name: 'Review the imported agent' })).toBeNull()
     expect((field('Name') as HTMLInputElement).value).toBe(plain.name)
+  })
+
+  it('asks before the file dialog opens when the open agent has unsaved changes, and opens nothing when the person keeps editing', async () => {
+    const { user, host, callsOf } = mount({ agents: agentFixtures.few, activeAgentId: terse.id, host: { textPicks: [{ name: 'a.md', text: FILE }] } })
+    await ready()
+    fireEvent.change(field('Persona'), { target: { value: 'Edited persona' } })
+    await user.click(importButton())
+    const dialog = screen.getByRole('dialog', { name: 'Discard your changes?' })
+    expect(within(dialog).getByText(en['agents.unsaved.message'])).toBeTruthy()
+    expect(host.state().textPicks).toHaveLength(1)
+    await user.click(within(dialog).getByRole('button', { name: 'Keep editing' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(host.state().textPicks).toHaveLength(1)
+    expect(screen.queryByRole('heading', { name: 'Review the imported agent' })).toBeNull()
+    expect((field('Persona') as HTMLTextAreaElement).value).toBe('Edited persona')
+    expect(callsOf('saveAgent')).toEqual([])
+  })
+
+  it('opens the file dialog after the person agrees to drop the changes, and the changes stay dropped when the review is cancelled', async () => {
+    const { user, host, callsOf } = mount({ agents: agentFixtures.few, activeAgentId: terse.id, host: { textPicks: [{ name: 'a.md', text: FILE }] } })
+    await ready()
+    fireEvent.change(field('Persona'), { target: { value: 'Edited persona' } })
+    await user.click(importButton())
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Discard changes' }))
+    await screen.findByRole('heading', { level: 3, name: 'Review the imported agent' })
+    expect(host.state().textPicks).toEqual([])
+    await user.click(screen.getByRole('button', { name: 'Cancel import' }))
+    expect(screen.queryByText(en['agents.editor.unsaved'])).toBeNull()
+    expect((field('Persona') as HTMLTextAreaElement).value).toBe(terse.persona)
+    expect(callsOf('saveAgent')).toEqual([])
+  })
+
+  it('saves only the import after the person agreed to drop the changes of the open agent', async () => {
+    const { user, callsOf, inner } = mount({ agents: agentFixtures.few, activeAgentId: terse.id, host: { textPicks: [{ name: 'a.md', text: FILE }] } })
+    await ready()
+    fireEvent.change(field('Persona'), { target: { value: 'Edited persona' } })
+    await user.click(importButton())
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Discard changes' }))
+    await screen.findByRole('heading', { level: 3, name: 'Review the imported agent' })
+    await user.click(screen.getByRole('button', { name: 'Save as a new agent' }))
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe(en['agents.status.imported']))
+    expect(callsOf('saveAgent')).toHaveLength(1)
+    expect(inner.agents.list().agents.find((entry) => entry.id === terse.id)?.persona).toBe(terse.persona)
+    await user.click(listItem(/Terse reviewer/))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect((field('Persona') as HTMLTextAreaElement).value).toBe(terse.persona)
+  })
+
+  it('asks before Import also for a new agent that was started and not saved', async () => {
+    const { user, host } = mount({ host: { textPicks: [{ name: 'a.md', text: FILE }] } })
+    await ready()
+    await user.click(screen.getByRole('button', { name: 'New agent' }))
+    fireEvent.change(field('Name'), { target: { value: 'Half typed' } })
+    await user.click(importButton())
+    expect(screen.getByRole('dialog', { name: 'Discard your changes?' })).toBeTruthy()
+    expect(host.state().textPicks).toHaveLength(1)
+  })
+
+  it('does not ask before Import when nothing was changed', async () => {
+    const { user, host } = mount({ agents: agentFixtures.few, activeAgentId: terse.id, host: { textPicks: [{ name: 'a.md', text: FILE }] } })
+    await ready()
+    await user.click(importButton())
+    expect(screen.queryByRole('dialog')).toBeNull()
+    await screen.findByRole('heading', { name: 'Review the imported agent' })
+    expect(host.state().textPicks).toEqual([])
   })
 
   it('shows hostile file text as text, with hidden characters made visible', async () => {

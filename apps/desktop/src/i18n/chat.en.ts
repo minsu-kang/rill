@@ -1,3 +1,4 @@
+import { AGENT_MAX_ITEMS } from '@rill/protocol'
 import type { chatKo } from './chat.ko'
 
 export const chatEn: Record<keyof typeof chatKo, string> = {
@@ -17,7 +18,7 @@ export const chatEn: Record<keyof typeof chatKo, string> = {
   'chat.error.MEMORY_DUPLICATE': 'That note already exists.',
   'chat.error.AGENT_NOT_FOUND': 'This agent was not found. It may have been deleted, so the list was reloaded.',
   'chat.error.AGENT_INVALID': 'The agent cannot be saved. Check its text.',
-  'chat.error.AGENT_FULL': 'At most 12 agents can be saved. Delete one first.',
+  'chat.error.AGENT_FULL': `At most ${AGENT_MAX_ITEMS} agents can be saved. Delete one first.`,
   'chat.error.AGENT_DUPLICATE': 'An agent with that name already exists.',
   'chat.error.AGENT_BUILTIN': 'The default agent cannot be changed or deleted.',
   'chat.error.INVALID_PARAMS': 'The request was not accepted. The app may need an update.',

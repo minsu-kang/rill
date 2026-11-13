@@ -112,8 +112,8 @@ describe('parseAgentFile: what is refused', () => {
   })
 
   it('text that was not valid UTF-8 (the replacement character)', () => {
-    expect(only(FILE.replace('Calm', 'C�lm'))).toEqual(['not_utf8'])
-    expect(parseAgentFile(FILE.replace('Calm', 'C�lm')).fields).toBeUndefined()
+    expect(only(FILE.replace('Calm', 'C\ufffdlm'))).toEqual(['not_utf8'])
+    expect(parseAgentFile(FILE.replace('Calm', 'C\ufffdlm')).fields).toBeUndefined()
   })
 
   it('a file without front matter, or with an unclosed one', () => {

@@ -75,6 +75,18 @@ describe('the fake engine answers the agent methods with the rules of the engine
     expect((await request('saveAgent', { ...base, id: first.id, name: 'edited while full' })).agent.name).toBe('edited while full')
   })
 
+  it('keeps the names of the built-in agent for itself and refuses a name that shows nothing', async () => {
+    const { request } = make()
+    const other = (await request('saveAgent', { ...base, name: 'other' })).agent
+    for (const name of ['Default', 'default', '기본']) {
+      expect(await code(request('saveAgent', { ...base, name })), name).toBe('AGENT_DUPLICATE')
+      expect(await code(request('saveAgent', { ...base, id: other.id, name })), name).toBe('AGENT_DUPLICATE')
+    }
+    expect(await code(request('saveAgent', { ...base, name: 'Wo\u200drk' }))).toBeUndefined()
+    expect(await code(request('saveAgent', { ...base, name: 'WO\u3164RK' }))).toBe('AGENT_DUPLICATE')
+    expect(await code(request('saveAgent', { ...base, name: '\u3164' }))).toBe('AGENT_INVALID')
+  })
+
   it('checks the params with the protocol schema', async () => {
     const { request } = make()
     expect(await code(request('saveAgent', { ...base, extra: 1 } as never))).toBe('INVALID_PARAMS')

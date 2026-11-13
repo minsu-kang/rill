@@ -1,4 +1,4 @@
-import { agentNameKey, normaliseAgentField, type Agent, type AgentFields } from '@rill/protocol'
+import { agentNameKey, isReservedAgentName, normaliseAgentField, type Agent, type AgentFields } from '@rill/protocol'
 import type { FileProblem } from '../agent-file'
 import { draftProblems, hasProblems, type DraftProblems } from './draft'
 import type { ReviewState } from './view'
@@ -16,7 +16,7 @@ export function reviewOutcome(review: ReviewState, agents: readonly Agent[]): Re
   const fields: AgentFields = { ...review.base, name: review.name, description: review.description }
   const fieldProblems = draftProblems(fields)
   const named = normaliseAgentField('name', fields.name)
-  const duplicate = named.ok && agents.some((agent) => !agent.builtin && agentNameKey(agent.name) === agentNameKey(named.value))
+  const duplicate = named.ok && (isReservedAgentName(named.value) || agents.some((agent) => !agent.builtin && agentNameKey(agent.name) === agentNameKey(named.value)))
   return { fields, fileProblems: review.fileProblems, fieldProblems, duplicate, canSave: review.fileProblems.length === 0 && !hasProblems(fieldProblems) && !duplicate }
 }
 

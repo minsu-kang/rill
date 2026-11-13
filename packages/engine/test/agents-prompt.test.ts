@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LlmError } from '@rill/llm'
 import { createCoreRegistry } from '@rill/nodes-core'
-import { AGENT_INTRO, EXPLAIN_RULES, MEMORY_INTRO } from '@rill/planner'
+import { AGENT_INTRO, EXPLAIN_AGENT_INTRO, EXPLAIN_RULES, MEMORY_INTRO } from '@rill/planner'
 import { PlanMetaSchema, RillClient, RillError, type AgentFields, type MethodParams } from '@rill/protocol'
 import Value from 'typebox/value'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -172,7 +172,7 @@ describe('Engine.plan hands the chosen agent to the planner', () => {
 })
 
 describe('explainRun hands the chosen agent to the explainer', () => {
-  it('sends the same kind of block after the rules and nothing about the agent in the answer', async () => {
+  it('sends the explanation variant of the block after the rules and nothing about the agent in the answer', async () => {
     const env = await startEnv(dir, [{ data: GOOD }, { data: GOOD }])
     const runId = await env.run([http(env.base, '/status/404')])
     const agent = (await env.client.request('saveAgent', fields)).agent
@@ -183,7 +183,7 @@ describe('explainRun hands the chosen agent to the explainer', () => {
     const system = systemTexts(env.provider.requests[1]!)
     expect(system).toHaveLength(2)
     expect(system[0]).toBe(EXPLAIN_RULES)
-    expect(system[1]!.startsWith(AGENT_INTRO)).toBe(true)
+    expect(system[1]!.startsWith(EXPLAIN_AGENT_INTRO)).toBe(true)
     expect(system[1]).toContain(`Persona:\n${PERSONA}\n\nInstructions:\n${INSTRUCTIONS}`)
     expect(JSON.stringify(env.provider.requests[1]!.messages)).not.toContain(PERSONA)
     expect(followed).toEqual(plain)

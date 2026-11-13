@@ -7,6 +7,7 @@ import {
   MEMORY_MAX_ITEMS,
   RULE_MAX_ITEMS,
   agentNameKey,
+  isReservedAgentName,
   type Agent,
   type AgentFields,
   type AttachmentRef,
@@ -738,6 +739,7 @@ export class Store {
   saveAgent(input: AgentFields & { id?: string }): Agent {
     if (input.id === AGENT_DEFAULT_ID) throw new AgentBuiltinError()
     const fields = normaliseAgent(input)
+    if (isReservedAgentName(fields.name)) throw new AgentDuplicateError()
     const key = agentNameKey(fields.name)
     return this.db.transaction(() => {
       const at = this.now()

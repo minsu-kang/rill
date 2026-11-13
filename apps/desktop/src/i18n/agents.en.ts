@@ -6,7 +6,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   'agents.picker.label': 'Agent',
   'agents.picker.loading': 'Loading agents…',
   'agents.picker.loadError': 'Could not load the agents.',
-  'agents.picker.changeError': 'Could not change the agent.',
   'agents.screen.title': 'Agents',
   'agents.screen.intro': 'An agent is a persona and a set of instructions that the planner and the failure explanation follow. Pick the active agent in the chat header or here. With the Default agent nothing changes.',
   'agents.screen.transfer': 'The persona and instructions of the active agent are sent to the model provider with every request. Do not write secrets, passwords or personal data in them.',

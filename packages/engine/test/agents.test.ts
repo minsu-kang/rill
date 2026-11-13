@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { createCoreRegistry } from '@rill/nodes-core'
-import { AGENT_DEFAULT_ID, AGENT_MAX_ITEMS, AgentSchema, type AgentFields } from '@rill/protocol'
+import { AGENT_BUILTIN_NAMES, AGENT_DEFAULT_ID, AGENT_MAX_ITEMS, AgentSchema, type AgentFields } from '@rill/protocol'
 import Value from 'typebox/value'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
@@ -160,6 +160,31 @@ describe('agents in the engine', () => {
     expect(() => save(engine, { name: 'CAFÉ HELPER' })).toThrow(AgentDuplicateError)
     expect(() => save(engine, { name: 'café   helper' })).toThrow(AgentDuplicateError)
     expect(engine.listAgents().agents).toHaveLength(2)
+  })
+
+  it('refuses a name that looks the same apart from invisible characters', () => {
+    const { engine } = make()
+    save(engine, { name: 'Work' })
+    for (const name of ['Wo\u200drk', 'Wo\u200crk', 'Wo\u034frk', 'WORK\ufe0f', 'Wo\u3164rk']) expect(() => save(engine, { name }), name).toThrow(AgentDuplicateError)
+    expect(engine.listAgents().agents).toHaveLength(2)
+  })
+
+  it('refuses a name that shows nothing, and saves nothing', () => {
+    const { engine } = make()
+    for (const name of ['\u200d', '\u3164', '\u2800', '\u034f\ufe0f']) expect(() => save(engine, { name }), name).toThrow(AgentInvalidError)
+    expect(engine.listAgents().agents).toEqual([builtinAgent()])
+  })
+
+  it('keeps the names of the built-in agent for itself, when creating and when renaming', () => {
+    const { engine } = make()
+    const other = save(engine, { name: 'other' })
+    expect(AGENT_BUILTIN_NAMES).toContain(builtinAgent().name)
+    for (const name of ['Default', 'default', ' DEFAULT ', 'D\u200default', '기본']) {
+      expect(() => save(engine, { name }), name).toThrow(AgentDuplicateError)
+      expect(() => save(engine, { id: other.id, name }), name).toThrow(AgentDuplicateError)
+    }
+    expect(engine.listAgents().agents.map((agent) => agent.name)).toEqual(['Default', 'other'])
+    expect(save(engine, { name: 'Default agent' }).name).toBe('Default agent')
   })
 
   it('refuses to rename an agent into a copy of another name', () => {

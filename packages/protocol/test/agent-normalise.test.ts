@@ -6,6 +6,7 @@ import {
   AGENT_PERSONA_MAX_CHARS,
   agentNameKey,
   agentProblemLine,
+  isReservedAgentName,
   normaliseAgentFields,
   parseAgentProblemLine,
   type AgentField,
@@ -135,6 +136,18 @@ describe('normaliseAgentFields', () => {
     }
   })
 
+  it.each(['\u200d', '\u200c', '\u200d\u200c', '\u3164', '\u115f', '\u1160', '\uffa0', '\u2800', '\u034f', '\ufe0f', '\u0301', '\u17b4', '\u180b', ' \u3164\u2800 '])(
+    'refuses a name with nothing to see in it: %j',
+    (name) => {
+      expect(rulesOf({ name })).toEqual(['name.empty'])
+    },
+  )
+
+  it('keeps a name that has something to see next to invisible characters, and lets the other fields look blank', () => {
+    for (const name of ['a\u3164', '\u2800a', 'Wo\u200drk', '\u0301e', 'ก็', '한국어', '👍\ufe0f']) expect(rulesOf({ name }), name).toEqual([])
+    expect(rulesOf({ description: '\u3164', persona: '\u2800', instructions: '\u200d' })).toEqual([])
+  })
+
   it('trims a byte order mark at either end like whitespace', () => {
     expect(rulesOf({ name: '\ufeffname\ufeff', persona: '\ufeffpersona\ufeff' })).toEqual([])
   })
@@ -206,5 +219,25 @@ describe('agentNameKey', () => {
     expect(agentNameKey('CAFÉ')).toBe(agentNameKey('café'))
     expect(agentNameKey('STRASSE')).toBe(agentNameKey('Straße'))
     expect(agentNameKey('one')).not.toBe(agentNameKey('another'))
+  })
+
+  it.each(['\u200d', '\u200c', '\u034f', '\ufe0f', '\u3164', '\u00ad'])('ignores the invisible character %j, so that two names that look the same collide', (invisible) => {
+    expect(agentNameKey(`Wo${invisible}rk`)).toBe(agentNameKey('Work'))
+    expect(agentNameKey(`${invisible}WORK${invisible}`)).toBe(agentNameKey('work'))
+  })
+
+  it('still tells names that differ apart', () => {
+    expect(agentNameKey('Work')).not.toBe(agentNameKey('Work 2'))
+    expect(agentNameKey('a\u200db')).not.toBe(agentNameKey('ab c'))
+  })
+})
+
+describe('isReservedAgentName', () => {
+  it.each(['Default', 'default', ' DEFAULT ', 'D\u200default', '기본', ' 기본 '])('reserves %j, the name of the built-in agent', (name) => {
+    expect(isReservedAgentName(name)).toBe(true)
+  })
+
+  it.each(['Default agent', 'Defaults', '기본값', 'Work'])('lets %j be used', (name) => {
+    expect(isReservedAgentName(name)).toBe(false)
   })
 })

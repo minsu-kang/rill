@@ -56,8 +56,8 @@ export function serialiseAgentFile(fields: AgentFields): SerialisedAgentFile {
 
 export function parseAgentFile(input: string): ParsedAgentFile {
   if (new TextEncoder().encode(input).length > AGENT_FILE_MAX_BYTES) return { fields: undefined, problems: [fileProblem('too_large')] }
-  if (input.includes('�')) return { fields: undefined, problems: [fileProblem('not_utf8')] }
-  const lines = (input.startsWith('﻿') ? input.slice(1) : input).replaceAll('\r\n', '\n').split('\n')
+  if (input.includes('\ufffd')) return { fields: undefined, problems: [fileProblem('not_utf8')] }
+  const lines = (input.startsWith('\ufeff') ? input.slice(1) : input).replaceAll('\r\n', '\n').split('\n')
   if (lines[0] !== FENCE) return { fields: undefined, problems: [fileProblem('front_matter_missing')] }
   const close = lines.indexOf(FENCE, 1)
   if (close < 0) return { fields: undefined, problems: [fileProblem('front_matter_unclosed')] }

@@ -56,7 +56,7 @@ export function createExplainer(deps: ExplainerDeps): Explainer {
       const budget = EXPLAIN_BUDGETS[resolved.effective as ExplainEffort] ?? EXPLAIN_BUDGETS.high
       const timeoutMs = capabilities.reasoningCappedByMaxTokens ? budget.timeoutMs : budget.timeoutMs * SOFT_CAP_HEADROOM
       const tag = newTag(randomHex)
-      const agentText = buildAgentPrompt(input.agent, randomHex).text
+      const agentText = buildAgentPrompt(input.agent, randomHex, 'explain').text
       const system = agentText === '' ? [{ text: EXPLAIN_RULES }] : [{ text: EXPLAIN_RULES }, { text: agentText }]
       const digest = buildRunDigest({ ...input, registry })
       const dataText = digest.text.replace(new RegExp(`</?${tag}>?`, 'gi'), '<hidden>')

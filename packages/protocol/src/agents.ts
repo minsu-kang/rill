@@ -66,9 +66,11 @@ export function isMultiLineAgentField(field: AgentField): boolean {
 const CONTROL = /\p{Cc}/u
 const CONTROL_EXCEPT_LINE_FEED = /[^\P{Cc}\n]/u
 const SEPARATOR = /[\p{Zl}\p{Zp}]/u
-const BIDI = /[؜‎‏‪-‮⁦-⁩]/u
-const FORMAT = /(?![‌‍])\p{Cf}|[\u{e0100}-\u{e01ef}]|\p{Cs}/u
+const BIDI = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u
+const FORMAT = /(?![\u200c\u200d])\p{Cf}|[\u{e0100}-\u{e01ef}]|\p{Cs}/u
 const SPACES = /\s+/gu
+const SEEN = /[^\p{Default_Ignorable_Code_Point}\p{M}\p{Z}\u2800]/u
+const IGNORABLE = /\p{Default_Ignorable_Code_Point}/gu
 
 export function normaliseAgentField(field: AgentField, raw: string): AgentFieldCheck {
   const multiLine = MULTI_LINE.has(field)
@@ -78,6 +80,7 @@ export function normaliseAgentField(field: AgentField, raw: string): AgentFieldC
   if (SEPARATOR.test(trimmed)) return { ok: false, rule: 'line_separator' }
   if (BIDI.test(trimmed)) return { ok: false, rule: 'bidi_format' }
   if (FORMAT.test(trimmed)) return { ok: false, rule: 'format_character' }
+  if (field === 'name' && !SEEN.test(trimmed)) return { ok: false, rule: 'empty' }
   const value = multiLine ? trimmed : trimmed.replace(SPACES, ' ')
   if ([...value].length > AGENT_FIELD_LIMITS[field]) return { ok: false, rule: 'too_long' }
   return { ok: true, value }
@@ -141,5 +144,12 @@ export function parseAgentProblemLine(line: string): AgentProblem | undefined {
 }
 
 export function agentNameKey(name: string): string {
-  return name.normalize('NFC').toUpperCase().toLowerCase().normalize('NFC')
+  return name.normalize('NFC').replace(IGNORABLE, '').toUpperCase().toLowerCase().normalize('NFC')
+}
+
+export const AGENT_BUILTIN_NAMES: readonly string[] = ['Default', '기본']
+
+export function isReservedAgentName(name: string): boolean {
+  const key = agentNameKey(name.trim())
+  return AGENT_BUILTIN_NAMES.some((builtin) => agentNameKey(builtin) === key)
 }

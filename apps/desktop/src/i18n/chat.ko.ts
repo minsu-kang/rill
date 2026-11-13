@@ -1,3 +1,5 @@
+import { AGENT_MAX_ITEMS } from '@rill/protocol'
+
 export const chatKo = {
   'chat.error.generic': '문제가 생겼어요. 다시 시도해 주세요.',
   'chat.error.turnLimit': '대화가 너무 길어졌어요. 새 대화를 시작해 주세요.',
@@ -15,7 +17,7 @@ export const chatKo = {
   'chat.error.MEMORY_DUPLICATE': '같은 메모가 이미 있어요.',
   'chat.error.AGENT_NOT_FOUND': '이 에이전트를 찾을 수 없어요. 이미 지워졌을 수 있어서 목록을 다시 불러왔어요.',
   'chat.error.AGENT_INVALID': '에이전트를 저장할 수 없어요. 내용을 확인해 주세요.',
-  'chat.error.AGENT_FULL': '에이전트는 12개까지 저장할 수 있어요. 하나를 지운 뒤에 저장해 주세요.',
+  'chat.error.AGENT_FULL': `에이전트는 ${AGENT_MAX_ITEMS}개까지 저장할 수 있어요. 하나를 지운 뒤에 저장해 주세요.`,
   'chat.error.AGENT_DUPLICATE': '같은 이름의 에이전트가 이미 있어요.',
   'chat.error.AGENT_BUILTIN': '기본 에이전트는 바꾸거나 지울 수 없어요.',
   'chat.error.INVALID_PARAMS': '요청 형식이 맞지 않아요. 앱을 업데이트해야 할 수 있어요.',

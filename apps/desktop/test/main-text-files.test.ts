@@ -44,7 +44,7 @@ describe('text files: read', () => {
   it('does not interpret the bytes: text that is not valid UTF-8 comes back with replacement characters', async () => {
     const path = join(dir, 'binary.md')
     writeFileSync(path, Buffer.from([0x61, 0xff, 0xfe, 0x62]))
-    expect(await createTextFiles().read(path)).toBe('a��b')
+    expect(await createTextFiles().read(path)).toBe('a\ufffd\ufffdb')
   })
 
   it('accepts a file of exactly 64 KiB and refuses one byte more', async () => {

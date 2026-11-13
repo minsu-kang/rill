@@ -4,7 +4,6 @@ export const agentsKo = {
   'agents.picker.label': '에이전트',
   'agents.picker.loading': '에이전트를 불러오는 중…',
   'agents.picker.loadError': '에이전트를 불러오지 못했어요.',
-  'agents.picker.changeError': '에이전트를 바꾸지 못했어요.',
   'agents.screen.title': '에이전트',
   'agents.screen.intro': '에이전트는 계획을 만드는 AI와 실패 원인을 설명하는 AI가 따르는 말투(페르소나)와 지침이에요. 활성 에이전트는 대화 창 위쪽이나 여기서 고를 수 있어요. 기본 에이전트를 쓰면 아무것도 달라지지 않아요.',
   'agents.screen.transfer': '활성 에이전트의 페르소나와 지침은 요청할 때마다 AI 제공자에게 전송돼요. 비밀번호, 키, 개인정보는 적지 마세요.',
