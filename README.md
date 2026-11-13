@@ -204,3 +204,7 @@ How to read it:
 ## License
 
 To be decided before the repository goes public.
+
+## Contributing
+
+Pull requests are open to collaborators only. See [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -1,0 +1,6 @@
+# Code owners for this repository.
+# Every path is owned by @minsu-kang. A ruleset on the default branch that requires
+# a review from code owners (see CONTRIBUTING.md) makes this review mandatory.
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+
+* @minsu-kang
