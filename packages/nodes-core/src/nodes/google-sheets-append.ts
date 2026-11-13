@@ -34,7 +34,7 @@ export const googleSheetsAppend = defineAction({
   type: 'google.sheets.append@1',
   title: 'Append row to Google Sheets',
   description:
-    "Appends one row to a Google Sheets spreadsheet in the user's own Google account, through a google connection. A crash right after sending can make a resumed run add the row twice. A retry after a server error can do the same. Needs the spreadsheetId (the long id in the spreadsheet address, never its title): ask the user for it when it was not given and never invent one. The range is a sheet name or an A1 range such as Sheet1 or Receipts!A:D and defaults to Sheet1. The values are one row of 1 to 50 cells, stored as typed: a text that starts with = is kept as text and not evaluated as a formula.",
+    "Appends one row to a Google Sheets spreadsheet in the user's own Google account, through a google connection. A crash right after sending can make a resumed run add the row twice. A retry after a server error, a timeout or a network error can do the same. Needs the spreadsheetId (the long id in the spreadsheet address, never its title): ask the user for it when it was not given and never invent one. The range is a sheet name or an A1 range such as Sheet1 or Receipts!A:D and defaults to Sheet1. The values are one row of 1 to 50 cells, stored as typed: a text that starts with = is kept as text and not evaluated as a formula.",
   sideEffect: 'external',
   roles: { '/connection': 'connection', '/spreadsheetId': 'recipient' },
   configSchema,

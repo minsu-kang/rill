@@ -131,6 +131,7 @@ describe('a connections file with account connections through the real executor'
     drive: { secret: MICROSOFT_TOKEN, kind: 'microsoft' },
     api: { secret: 'plain-api-key', kind: 'http' },
     bare: GOOGLE_TOKEN,
+    stripe: 'sk_live_ABCDEF0123456789',
   })
 
   function engineFromFile() {
@@ -156,6 +157,24 @@ describe('a connections file with account connections through the real executor'
     expect((await run(engineFromFile(), { url: 'https://api.example.test/x', auth: { connection: 'api' } })).result.status).toBe('succeeded')
     expect((await run(engineFromFile(), { url: 'https://api.example.test/x', auth: { connection: 'bare' } })).result.status).toBe('succeeded')
     expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses a spreadsheet node that names an entry without a kind and sends nothing', async () => {
+    const fetchSpy = vi.fn(async () => new Response('{}'))
+    vi.stubGlobal('fetch', fetchSpy)
+    const engine = engineFromFile()
+    for (const [type, extra, kind] of [
+      ['google.sheets.append@1', { spreadsheetId: SHEET }, 'google'],
+      ['microsoft.excel.append@1', { filePath: 'Receipts/ledger.xlsx', table: 'Expenses' }, 'microsoft'],
+    ] as const) {
+      for (const name of ['bare', 'stripe']) {
+        const id = engine.deploy(linearWorkflow([trigger, { id: 'n1', type, config: { connection: name, ...extra, values: ['a'] } }]))
+        const result = await engine.startRun(id)
+        expect(result.status).toBe('failed')
+        expect(result.error).toBe(`node n1 failed: connection ${name} has no kind, give it the kind ${kind}`)
+      }
+    }
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('runs the spreadsheet nodes with the entries of the file and refuses the entry of another kind', async () => {

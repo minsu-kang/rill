@@ -25,6 +25,7 @@ function stubApi(respond: (call: { url: string; authorization: string | null }) 
 const sheetsNode = { id: 'n1', type: 'google.sheets.append@1', config: { connection: 'sheets', spreadsheetId: SHEET, values: ['a', 1] } }
 const excelNode = { id: 'n1', type: 'microsoft.excel.append@1', config: { connection: 'drive', filePath: 'Receipts/ledger.xlsx', table: 'Expenses', values: ['a', 1] } }
 const connections = (name: string) => ({ sheets: GOOGLE_TOKEN, drive: MICROSOFT_TOKEN })[name as 'sheets' | 'drive']
+const resolver = { get: connections, kindOf: (name: string) => ({ sheets: 'google', drive: 'microsoft' })[name as 'sheets' | 'drive'] }
 
 beforeEach(() => {
   vi.unstubAllGlobals()
@@ -38,7 +39,7 @@ describe('connectionSecrets with an access token', () => {
   const workflow = { schemaVersion: 1 as const, name: 'w', nodes: [sheetsNode], edges: [] }
 
   it('adds the token of the connection that the step names', () => {
-    expect(connectionSecrets(workflow, [], createCoreRegistry(), { get: connections })).toEqual([GOOGLE_TOKEN])
+    expect(connectionSecrets(workflow, [], createCoreRegistry(), resolver)).toEqual([GOOGLE_TOKEN])
   })
 
   it('adds nothing for a connection that is not configured', () => {
@@ -57,7 +58,7 @@ describe('a failed run of a spreadsheet node', () => {
   for (const [label, node, token, status, text] of cases) {
     it(`never exposes the token after ${label}`, async () => {
       stubApi(({ authorization }) => new Response(JSON.stringify({ error: { message: `bad ${authorization} ${token}` }, received: token }), { status, headers: { 'content-type': 'application/json' } }))
-      const env = await startEnv(dirOf.get(), [{ data: GOOD }], { connections: { get: connections } })
+      const env = await startEnv(dirOf.get(), [{ data: GOOD }], { connections: resolver })
       const runId = await env.run([node])
       const detail = await env.client.request('getRun', { runId })
       expect(detail.run.status).toBe('failed')
@@ -72,7 +73,7 @@ describe('a failed run of a spreadsheet node', () => {
 
   it('gives the model the signal of a rejected sign-in as a fact', async () => {
     stubApi(() => new Response('{}', { status: 401, headers: { 'content-type': 'application/json' } }))
-    const env = await startEnv(dirOf.get(), [{ data: GOOD }], { connections: { get: connections } })
+    const env = await startEnv(dirOf.get(), [{ data: GOOD }], { connections: resolver })
     const runId = await env.run([sheetsNode])
     await env.client.request('explainRun', { runId })
     expect(JSON.stringify(env.provider.requests)).toContain('n1: http_status_401_403')
@@ -80,7 +81,7 @@ describe('a failed run of a spreadsheet node', () => {
 
   it('records only the fixed text of a server error and masks a token that a later step would echo', async () => {
     stubApi(({ authorization }) => new Response(`down ${authorization ?? ''}`, { status: 503 }))
-    const env = await startEnv(dirOf.get(), [], { connections: { get: connections } })
+    const env = await startEnv(dirOf.get(), [], { connections: resolver })
     const runId = await env.run([excelNode])
     const detail = await env.client.request('getRun', { runId })
     expect(detail.steps[0]!.error).toBe('HTTP 503')
@@ -93,7 +94,7 @@ describe('a failed run of a spreadsheet node', () => {
       seen.push(authorization)
       return new Response(JSON.stringify({ updates: { updatedRange: `Sheet1!${GOOGLE_TOKEN}` } }), { status: 200, headers: { 'content-type': 'application/json' } })
     })
-    const env = await startEnv(dirOf.get(), [], { connections: { get: connections } })
+    const env = await startEnv(dirOf.get(), [], { connections: resolver })
     const runId = await env.run([sheetsNode])
     const detail = await env.client.request('getRun', { runId })
     expect(detail.run.status).toBe('succeeded')

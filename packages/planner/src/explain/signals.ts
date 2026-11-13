@@ -6,9 +6,10 @@ type Rule = readonly [RegExp, FailureSignal]
 
 const GUARDS: readonly Rule[] = [
   [/^unknown connection: /, 'unknown_connection'],
-  [/^the connection does not hold an access token$/, 'unknown_connection'],
-  [/^connection \S+ is a (?:Google|Microsoft) connection$/, 'invalid_config'],
-  [/^connection \S+ is a \S+ connection, not a (?:google|microsoft) connection$/, 'invalid_config'],
+  [/^the connection does not hold an access token$/, 'invalid_config'],
+  [/^connection .+ has no kind, give it the kind (?:google|microsoft)$/, 'invalid_config'],
+  [/^connection .+ is a (?:Google|Microsoft) connection$/, 'invalid_config'],
+  [/^connection .+ is a \S+ connection, not a (?:google|microsoft) connection$/, 'invalid_config'],
   [/^path is outside the allowed folders: /, 'path_not_allowed'],
   [/^path must be absolute or start with ~\/: /, 'path_not_allowed'],
   [/^path must not contain '\.\.': /, 'path_not_allowed'],

@@ -94,5 +94,6 @@ export function literalOf(role: 'path' | 'url' | 'connection' | 'recipient', val
   if (templated) return undefined
   const folded = fold(head.trim())
   const text = role === 'recipient' && folded.length > 1 && folded.startsWith('#') ? folded.slice(1) : folded
-  return text === '' ? undefined : { kind: 'name', text }
+  if (text === '') return undefined
+  return { kind: role === 'recipient' && /[./]/.test(text) ? 'path' : 'name', text }
 }

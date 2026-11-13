@@ -166,8 +166,17 @@ describe('parseConnections', () => {
     for (const text of ['[]', '"text"', 'null', '5', 'true']) expect(() => parseConnections(text), text).toThrow(UsageError)
   })
 
-  it('lets invalid JSON through as a syntax error', () => {
-    expect(() => parseConnections('{ nope')).toThrow(SyntaxError)
+  it('refuses invalid JSON with a fixed usage error that holds no part of the text', () => {
+    for (const text of ['{ nope', '{"sheets": {"secret": ya29.TOKENMARKER0123456789, "kind": "google"}}', '']) {
+      let error: unknown
+      try {
+        parseConnections(text)
+      } catch (caught) {
+        error = caught
+      }
+      expect(error, text).toBeInstanceOf(UsageError)
+      expect((error as Error).message).toBe('the connections file is not valid JSON')
+    }
   })
 })
 

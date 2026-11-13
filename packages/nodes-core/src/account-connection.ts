@@ -20,7 +20,8 @@ export function accessTokenOf(connections: ConnectionResolver, name: string, kin
   const secret = connections.get(name)
   if (secret === undefined) throw new Error(`unknown connection: ${name}`)
   const actual = connections.kindOf?.(name)
-  if (actual !== undefined && actual !== kind) throw new Error(`connection ${name} is a ${actual} connection, not a ${kind} connection`)
+  if (actual === undefined) throw new Error(`connection ${name} has no kind, give it the kind ${kind}`)
+  if (actual !== kind) throw new Error(`connection ${name} is a ${actual} connection, not a ${kind} connection`)
   if (isSlackBotSecret(secret)) throw new Error(`connection ${name} is a Slack connection`)
   if (!ACCESS_TOKEN.test(secret)) throw new Error('the connection does not hold an access token')
   return secret

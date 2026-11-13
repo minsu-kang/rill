@@ -53,7 +53,13 @@ function connectionsFromTable(table: unknown, source: string): LoadedConnections
 }
 
 export function parseConnections(text: string): LoadedConnections {
-  return connectionsFromTable(JSON.parse(text), 'the connections file')
+  let table: unknown
+  try {
+    table = JSON.parse(text)
+  } catch {
+    throw new UsageError('the connections file is not valid JSON')
+  }
+  return connectionsFromTable(table, 'the connections file')
 }
 
 export function loadConnections(file: string | undefined): LoadedConnections {

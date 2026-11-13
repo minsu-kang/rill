@@ -37,6 +37,7 @@ describe('microsoft.excel.append@1 definition', () => {
     expect(text).toContain('.xlsx')
     expect(text).toContain('table')
     expect(text).toContain('twice')
+    expect(text).toContain('A retry after a server error, a timeout or a network error can do the same.')
     expect(text).toContain('single quote')
   })
 
@@ -278,10 +279,14 @@ describe('microsoft.excel.append@1 connections and dry run', () => {
     expect(seen).toHaveLength(0)
   })
 
-  it('works when the resolver cannot tell the kind', async () => {
+  it('refuses a connection without a kind before any request', async () => {
     const seen = stubFetch(added())
-    expect(await run(config(), makeCtx({ connections: { get: () => TOKEN } }))).toEqual({ appended: true })
-    expect(seen).toHaveLength(1)
+    for (const ctx of [makeCtx({ connections: { get: () => TOKEN } }), makeCtx({ connections: { get: () => 'sk_live_ABCDEF0123456789', kindOf: () => undefined } })]) {
+      const error = await fail(config(), ctx)
+      expect((error as Error).message).toBe('connection ms has no kind, give it the kind microsoft')
+      expect(error).not.toBeInstanceOf(RetryableError)
+    }
+    expect(seen).toHaveLength(0)
   })
 
   it('refuses a secret that is not an access token, without showing it', async () => {

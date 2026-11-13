@@ -42,6 +42,7 @@ import {
   worstCaseCalls,
 } from './budget'
 import { verifyAttachments } from './attachments'
+import { PENDING_REAPPROVAL } from './consistency'
 import { plannerMetrics, ratio } from './metrics'
 import { renderPlannerReport } from './report'
 import { CATEGORIES } from './schema'
@@ -284,6 +285,13 @@ function budgetFor(config: PlannerCliConfig, suite: PlannerSuite, estimate: RunE
   return suggestedBudgetUsd(estimate.totalUsd, guardReserveUsd(worst, config.concurrency, estimate.calls))
 }
 
+function pendingNotes(cases: readonly { id: string }[]): string[] {
+  const ids = new Set(cases.map((testCase) => testCase.id))
+  return Object.entries(PENDING_REAPPROVAL)
+    .filter(([id]) => ids.has(id))
+    .map(([id, reason]) => `note: ${id} expects a refusal, but ${reason}; a different answer is not a regression, the case waits for your decision (see the eval README)`)
+}
+
 export function plannerPlanText(
   config: PlannerCliConfig,
   suite: PlannerSuite,
@@ -311,6 +319,7 @@ export function plannerPlanText(
     '',
     'cases:',
     ...caseTable(cases, config.effort).map((line) => `  ${line}`),
+    ...pendingNotes(cases),
     '',
     `estimate (prices as of ${PRICE_TABLE_AS_OF}):`,
     ...estimate.perModel.map((entry) => {

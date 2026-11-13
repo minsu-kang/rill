@@ -26,7 +26,7 @@ export const microsoftExcelAppend = defineAction({
   type: 'microsoft.excel.append@1',
   title: 'Append row to Excel',
   description:
-    "Appends one row to an Excel table in a .xlsx workbook in the user's own OneDrive, through a microsoft connection. A crash right after sending can make a resumed run add the row twice. A retry after a server error can do the same. Needs the OneDrive path of the workbook, for example Receipts/ledger.xlsx, and the name of a table that already exists in it: ask the user for both when they were not given and never invent them. The values are one row of 1 to 50 cells. A text that starts with =, +, -, @, a tab or a carriage return gets a leading single quote so Excel shows it as text; plain numbers stay as they are.",
+    "Appends one row to an Excel table in a .xlsx workbook in the user's own OneDrive, through a microsoft connection. A crash right after sending can make a resumed run add the row twice. A retry after a server error, a timeout or a network error can do the same. Needs the OneDrive path of the workbook, for example Receipts/ledger.xlsx, and the name of a table that already exists in it: ask the user for both when they were not given and never invent them. The values are one row of 1 to 50 cells. A text that starts with =, +, -, @, a tab or a carriage return gets a leading single quote so Excel shows it as text; plain numbers stay as they are.",
   sideEffect: 'external',
   roles: { '/connection': 'connection', '/filePath': 'recipient' },
   configSchema,

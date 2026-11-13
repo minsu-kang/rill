@@ -122,6 +122,16 @@ describe('resolveConnections with RILL_CONNECTIONS', () => {
 })
 
 describe('rill-engine with RILL_CONNECTIONS', () => {
+  it('prints no part of a malformed connections file', () => {
+    const file = join(dir, 'broken.json')
+    writeFileSync(file, '{"sheets": {"secret": ya29.TOKENMARKER0123456789, "kind": "google"}}')
+    const result = runCli(['run', slackWorkflow('x'), '--db', join(dir, 'b.db'), '--connections', file], {})
+    expect(result.status).toBe(2)
+    expect(result.stderr).toContain('the connections file is not valid JSON')
+    expect(result.stderr + result.stdout).not.toContain('TOKENMARKER')
+    expect(result.stderr + result.stdout).not.toContain('ya29')
+  })
+
   it('lets a node resolve a connection from the variable, and fails on the unknown one without it', () => {
     const wf = slackWorkflow('typed')
     const known = runCli(['run', wf, '--db', join(dir, 'a.db')], {

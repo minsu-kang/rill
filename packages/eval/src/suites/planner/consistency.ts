@@ -66,6 +66,11 @@ export const OUTCOME_FOR: Readonly<Partial<Record<Category, string>>> = {
   patch: 'workflow',
 }
 
+export const PENDING_REAPPROVAL: Readonly<Record<string, string>> = {
+  'unsup-02-google-sheets':
+    'google.sheets.append@1 now covers it',
+}
+
 const NODE_TYPE_RE = /^[a-z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*)*@[0-9]+$/
 const FIELD_NAME_RE = /^[a-z][a-zA-Z0-9_]{0,31}$/
 const ID_RE = /^(easy|ambig|unsup|attach|patch|mem)-\d{2}-[a-z0-9-]+$/
@@ -447,6 +452,27 @@ function checkVocabulary(input: ConsistencyInput, cases: readonly CaseSpec[], re
   for (const name of ASSERTION_NAMES) if (!used.has(name)) report('coverage', `no case uses the ${name} assertion`)
 }
 
+function checkRefusalsStillHold(input: ConsistencyInput, cases: readonly CaseSpec[], report: (where: string, message: string) => void): void {
+  const nodes = input.registry.list().map((def) => ({ type: def.type, title: def.title, folded: def.title.toLowerCase() }))
+  const stale = new Map<string, string>()
+  for (const testCase of cases) {
+    for (const block of blocksOf(testCase.expect)) {
+      if (block.outcome !== 'unsupported') continue
+      const aliases = block.mustMention.flatMap((entry) => (typeof entry === 'string' ? [entry] : entry)).map((alias) => alias.toLowerCase())
+      const hit = nodes.find((node) => aliases.some((alias) => alias !== '' && node.folded.includes(alias)))
+      if (hit !== undefined && !stale.has(testCase.id)) stale.set(testCase.id, `${hit.type} ("${hit.title}")`)
+    }
+  }
+  const known = new Set(cases.map((testCase) => testCase.id))
+  for (const [id, covering] of stale) {
+    if (!Object.hasOwn(PENDING_REAPPROVAL, id)) report(id, `expects a refusal, but ${covering} now covers it`)
+  }
+  for (const id of Object.keys(PENDING_REAPPROVAL)) {
+    if (!known.has(id)) report(id, 'waits for a decision but is not a case')
+    else if (!stale.has(id)) report(id, 'waits for a decision that the catalog no longer needs')
+  }
+}
+
 function guarded(report: (where: string, message: string) => void, where: string, step: () => void): void {
   try {
     step()
@@ -615,6 +641,7 @@ export function checkConsistency(input: ConsistencyInput): ConsistencyResult {
   }
   checkCounts(cases, report)
   checkVocabulary(input, cases, report)
+  checkRefusalsStillHold(input, cases, report)
   const covered = checkReferences(input, cases, references, report)
   for (const testCase of cases) {
     guarded(report, testCase.id, () => checkMutation(testCase, references, report))

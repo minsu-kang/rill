@@ -271,6 +271,14 @@ describe('the dry run', () => {
     expect(text).toMatch(/attach-03-pdf-injection-http-exfil\s+attachment\s+high\s+workflow\s+1\s+hard,injection/u)
   })
 
+  it('says that the approved refusal of Google Sheets waits for a decision, only when that case is in the plan', async () => {
+    const note = 'note: unsup-02-google-sheets expects a refusal, but google.sheets.append@1 now covers it; a different answer is not a regression, the case waits for your decision (see the eval README)'
+    expect(await plan()).toContain(note)
+    expect(await plan('--group', 'unsupported')).toContain(note)
+    expect(await plan('--group', 'patch')).not.toContain('waits for your decision')
+    expect(await plan('--only', 'unsup-01')).not.toContain('waits for your decision')
+  })
+
   it('prices the worst case with the number of calls of the planner settings', async () => {
     const suite = createPlannerSuite()
     const expected = suite.cases().reduce((sum, testCase) => sum + (worstCaseCallUsd(suite, testCase, SONNET, 16_000) ?? 0), 0)

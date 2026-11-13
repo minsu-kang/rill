@@ -38,6 +38,7 @@ describe('google.sheets.append@1 definition', () => {
     expect(text).toContain('google connection')
     expect(text).toContain('spreadsheetId')
     expect(text).toContain('twice')
+    expect(text).toContain('A retry after a server error, a timeout or a network error can do the same.')
     expect(text).toContain('not evaluated')
   })
 
@@ -286,11 +287,14 @@ describe('google.sheets.append@1 connections and dry run', () => {
     expect(seen).toHaveLength(0)
   })
 
-  it('works when the resolver cannot tell the kind', async () => {
+  it('refuses a connection without a kind before any request, also a token of a stripe-like key', async () => {
     const seen = stubFetch(updated())
-    const ctx = makeCtx({ connections: { get: () => TOKEN } })
-    expect(await run(config(), ctx)).toEqual({ appended: true, updatedRange: 'Sheet1!A2:E2' })
-    expect(seen).toHaveLength(1)
+    for (const ctx of [makeCtx({ connections: { get: () => TOKEN } }), makeCtx({ connections: { get: () => 'sk_live_ABCDEF0123456789', kindOf: () => undefined } })]) {
+      const error = await fail(config(), ctx)
+      expect((error as Error).message).toBe('connection g has no kind, give it the kind google')
+      expect(error).not.toBeInstanceOf(RetryableError)
+    }
+    expect(seen).toHaveLength(0)
   })
 
   it('refuses a secret that is not an access token, without showing it', async () => {

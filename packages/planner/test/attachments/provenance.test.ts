@@ -1023,6 +1023,24 @@ describe('provenance: the targets of the spreadsheet nodes', () => {
     expect(brief(flags)).toContain('n2 /nodes/2/config/filePath untrusted_flow')
   })
 
+  it('flags a file name that the user wrote only as the end of a longer path', () => {
+    const user = { userTexts: [`${excelText}: Receipts/ledger.xlsx`] }
+    expect(brief(provenance(chain(manual, excel('n1', 'ledger.xlsx')), user))).toEqual(['n1 /nodes/1/config/filePath new_egress_target'])
+    expect(brief(provenance(chain(manual, excel('n1', 'ledger.xlsx')), { ...user, attachmentTexts: ['append to ledger.xlsx'] }))).toEqual([
+      'n1 /nodes/1/config/filePath attachment_origin',
+      'n1 /nodes/1/config/filePath new_egress_target',
+    ])
+    expect(brief(provenance(chain(manual, excel('n1', 'Payroll/ledger.xlsx')), { userTexts: [`${excelText}: Exec/Payroll/ledger.xlsx`] }))).toEqual([
+      'n1 /nodes/1/config/filePath new_egress_target',
+    ])
+  })
+
+  it('flags no step when the user wrote the whole path or the bare file name', () => {
+    expect(provenance(chain(manual, excel('n1', 'ledger.xlsx')), { userTexts: [`${excelText}: ledger.xlsx.`] })).toEqual([])
+    expect(provenance(chain(manual, excel('n1', 'Receipts/ledger.xlsx')), { userTexts: [`${excelText} (Receipts/ledger.xlsx), thanks`] })).toEqual([])
+    expect(provenance(chain(manual, excel('n1', 'Payroll/ledger.xlsx')), { userTexts: [`${excelText}: Payroll/ledger.xlsx`] })).toEqual([])
+  })
+
   it('does not flag the range, the table or the values, which are not targets', () => {
     expect(provenance(chain(manual, sheets('n1', SHEET, { range: 'Receipts!A:D' })), { userTexts: [`${sheetsText} ${SHEET}`] })).toEqual([])
     expect(provenance(chain(manual, excel('n1', 'Receipts/ledger.xlsx', { table: 'Secret_Table' })), { userTexts: [`${excelText} Receipts/ledger.xlsx`] })).toEqual([])

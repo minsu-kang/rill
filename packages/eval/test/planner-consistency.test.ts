@@ -4,7 +4,7 @@ import { createCoreRegistry } from '@rill/nodes-core'
 import { describe, expect, it } from 'vitest'
 import { PACKAGE_ROOT } from '../src/results'
 import { CASES_PATH, REFERENCES_PATH, VOCABULARY_PATH } from '../src/suites/planner/cases'
-import { checkConsistency, type ConsistencyInput } from '../src/suites/planner/consistency'
+import { PENDING_REAPPROVAL, checkConsistency, type ConsistencyInput } from '../src/suites/planner/consistency'
 
 type Json = Record<string, unknown>
 
@@ -258,6 +258,32 @@ describe('shipped planner data', () => {
     const gone = shipped()
     gone.fixtureExists = () => false
     expect(checkConsistency(gone).problems.join('\n')).toContain('fixture file missing on disk: pdf/easy-ko-cafe-yeonnam.pdf')
+  })
+
+  it('accepts the approved refusal of Google Sheets only as a pending decision', () => {
+    expect(checkConsistency(shipped()).problems).toEqual([])
+    expect(PENDING_REAPPROVAL).toEqual({ 'unsup-02-google-sheets': expect.stringContaining('google.sheets.append@1') })
+  })
+
+  it('reports an unsupported case that a node of the catalog now covers', () => {
+    const d = draft()
+    d.expectOf(UNSUP)['mustMention'] = [['slack message', 'slack']]
+    expect(checkConsistency(d.input).problems.join('\n')).toContain(`${UNSUP}: expects a refusal, but notify.slack@1 ("Slack message") now covers it`)
+    const alias = draft()
+    alias.expectOf(UNSUP)['alsoAccept'] = [{ outcome: 'unsupported', mustMention: [['EXCEL']], mustNotInvent: ['xl.append@1', 'xl.write@1'] }]
+    expect(checkConsistency(alias.input).problems.join('\n')).toContain(`${UNSUP}: expects a refusal, but microsoft.excel.append@1 ("Append row to Excel") now covers it`)
+  })
+
+  it('reports a pending decision that the catalog no longer needs', () => {
+    const d = draft()
+    d.expectOf('unsup-02-google-sheets')['mustMention'] = [['an app that does not exist']]
+    expect(checkConsistency(d.input).problems.join('\n')).toContain('unsup-02-google-sheets: waits for a decision that the catalog no longer needs')
+  })
+
+  it('reports a pending decision that names no case', () => {
+    const d = draft()
+    d.cases.splice(d.cases.findIndex((entry) => entry['id'] === 'unsup-02-google-sheets'), 1)
+    expect(checkConsistency(d.input).problems.join('\n')).toContain('unsup-02-google-sheets: waits for a decision but is not a case')
   })
 
   it('detects a catalog that differs from the evaluator', () => {
