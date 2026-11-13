@@ -140,6 +140,14 @@ describe.each(['ko', 'en'] as const)('WorkflowHeader (%s)', (locale) => {
     expect(screen.queryByLabelText(t('app.wf.switcher.label'))).toBeNull()
   })
 
+  it.each(['loading', 'error'] as const)('draws no state or trigger chip beside the %s note, even when it is still handed a summary', (status) => {
+    const view = renderThemed(<Harness workflows={[RECEIPT, DAILY]} status={status} />, { locale })
+    expect(screen.getByText(t(status === 'loading' ? 'app.wf.switcher.loading' : 'app.wf.switcher.error'))).toBeTruthy()
+    expect(screen.queryByRole('heading')).toBeNull()
+    expect(copies(view.container, t('app.wf.active'))).toHaveLength(0)
+    expect(copies(view.container, trigger.folderWatch)).toHaveLength(0)
+  })
+
   it('has the select as its only tab stop, named by its hidden label, and moves on after it', async () => {
     const view = renderThemed(
       <>

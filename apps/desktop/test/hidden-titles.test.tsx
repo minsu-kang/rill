@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { App, type AppProps } from '../src/app/App'
 import { createFakeWorld } from '../src/app/fake-world'
 import { HostProvider } from '../src/app/host'
+import { SettingsScreen } from '../src/app/settings/SettingsScreen'
 import { SETTINGS_SECTIONS } from '../src/app/settings/types'
 import { fakeSettings } from '../src/engine/fake-host'
 import { createTranslator, type Locale } from '../src/i18n'
@@ -117,6 +118,20 @@ describe.each(['ko', 'en'] as const)('the Settings screen (%s)', (locale) => {
       await waitFor(() => expect(document.activeElement).toBe(heading))
       expect(heading.className).toBe(visuallyHidden.hidden)
     }
+  })
+
+  it('takes the focus at once when it opens with the settings already loaded and nothing holds the focus', async () => {
+    const world = createFakeWorld({ hostOptions: { restartDelayMs: 0 }, hostInit: { settings: READY }, control: { stepIntervalMs: 0 } })
+    const state = { settings: READY, failed: false, reload: async (): Promise<void> => undefined, apply: (): void => undefined }
+    expect(document.activeElement).toBe(document.body)
+    renderThemed(
+      <HostProvider host={world.host} connect={world.connect}>
+        <SettingsScreen state={state} client={undefined} connection={{ state: 'connected', status: { state: 'running', restarts: 0 } }} section="keys" />
+      </HostProvider>,
+      { locale },
+    )
+    const heading = screen.getByRole('heading', { level: 2, name: t('app.settings.section.keys') })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
   })
 
   it.each(SETTINGS_SECTIONS)('has no accessibility violations in the %s section', async (section) => {
