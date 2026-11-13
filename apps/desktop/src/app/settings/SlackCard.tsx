@@ -13,7 +13,7 @@ import {
 import { SafeText } from '../../ui/SafeText'
 import controls from '../controls.module.css'
 import { useHost } from '../host'
-import { nameProblem } from './connection-form'
+import { slackNameProblem } from './connection-form'
 import look from './ConnectionsSection.module.css'
 import keyStyles from './KeysSection.module.css'
 import styles from './Settings.module.css'
@@ -122,6 +122,7 @@ function SavedSlack({ entries, disabled, onRemove }: { entries: readonly Connect
                 <SafeText text={entry.name} />
               </strong>
               <span className={controls.chip}>{entry.slack === undefined ? t('app.slackBot.chipWebhook') : t('app.slackBot.chipBot')}</span>
+              {entry.slack === undefined || entry.slack.confirmed === true ? null : <span className={controls.chip}>{t('app.slackBot.notConfirmed')}</span>}
               {entry.slack?.account === undefined ? null : (
                 <span className={controls.note}>
                   <SafeText text={entry.slack.account} />
@@ -153,6 +154,7 @@ export function SlackCard({ api, locked, full, onRemove }: { api: SettingsApi; l
   const channelId = useId()
   const noteId = useId()
   const hintId = useId()
+  const replaceId = useId()
   const nameField = useRef<HTMLInputElement>(null)
   const tokenField = useRef<HTMLInputElement>(null)
   const channelField = useRef<HTMLInputElement>(null)
@@ -167,7 +169,9 @@ export function SlackCard({ api, locked, full, onRemove }: { api: SettingsApi; l
   const [problem, setProblem] = useState<MessageKey | undefined>(undefined)
   const { connections } = api.settings
   const slackEntries = connections.filter((entry) => entry.kind === 'slack')
-  const connected = slackEntries.some((entry) => entry.slack?.mode === 'bot')
+  const connected = slackEntries.some((entry) => entry.slack?.confirmed === true)
+  const unconfirmed = !connected && slackEntries.some((entry) => entry.slack !== undefined)
+  const replacing = slackEntries.some((entry) => entry.name === name.trim())
   const off = locked || action.busy || full
 
   useEffect(() => {
@@ -200,10 +204,10 @@ export function SlackCard({ api, locked, full, onRemove }: { api: SettingsApi; l
           setView({ kind: 'idle' })
           throw error
         }
-        await api.reload()
         setName('')
         setChannel('')
         setView({ kind: 'checked', verdict })
+        await api.reload()
       })
       .finally(() => {
         submitting.current = false
@@ -215,7 +219,7 @@ export function SlackCard({ api, locked, full, onRemove }: { api: SettingsApi; l
     const field = tokenField.current
     if (field === null || off || submitting.current) return
     const trimmed = name.trim()
-    const refused = nameProblem(trimmed, connections)
+    const refused = slackNameProblem(trimmed, connections)
     if (refused !== undefined) {
       setProblem(refused)
       nameField.current?.focus()
@@ -270,7 +274,9 @@ export function SlackCard({ api, locked, full, onRemove }: { api: SettingsApi; l
       <div className={look.card}>
         <div className={look.cardHead}>
           <span className={styles.itemMain}>
-            <span className={connected ? controls.chipOk : controls.chip}>{connected ? t('app.connections.account.connected') : t('app.connections.account.notConnected')}</span>
+            <span className={connected ? controls.chipOk : controls.chip}>
+              {connected ? t('app.connections.account.connected') : unconfirmed ? t('app.slackBot.notConfirmed') : t('app.connections.account.notConnected')}
+            </span>
           </span>
         </div>
         <p className={controls.note}>{t('app.slackBot.intro')}</p>
@@ -301,6 +307,7 @@ export function SlackCard({ api, locked, full, onRemove }: { api: SettingsApi; l
                 value={name}
                 disabled={off}
                 aria-required="true"
+                aria-describedby={replacing ? replaceId : undefined}
                 onChange={(event) => {
                   setName(event.target.value)
                   edited()
@@ -346,6 +353,11 @@ export function SlackCard({ api, locked, full, onRemove }: { api: SettingsApi; l
               />
             </label>
           </div>
+          {replacing ? (
+            <p id={replaceId} className={controls.note}>
+              {t('app.slackBot.replaceNote')}
+            </p>
+          ) : null}
           <p id={hintId} className={controls.note}>
             {t('app.slackBot.channelHint')}
           </p>

@@ -127,7 +127,7 @@ describe('the Slack card: saving', () => {
     expect(within(list).getByText('rill-bot in Rill Team')).toBeTruthy()
     expect(within(list).getByText(t('app.slackBot.defaultChannel', { channel: '#alerts' }))).toBeTruthy()
     nothingSecretShown(host.state())
-    expect(host.state().settings.connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', account: 'rill-bot in Rill Team', channel: '#alerts' } }])
+    expect(host.state().settings.connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Rill Team', channel: '#alerts' } }])
   })
 
   it('leaves the channel out of the call when it is empty, and trims what was typed', async () => {
@@ -246,6 +246,119 @@ describe('the Slack card: saving', () => {
   })
 })
 
+describe('the Slack card: replacing a Slack connection', () => {
+  const saved = () => ({ settings: fakeSettings({ connections: [{ name: 'alerts', kind: 'slack' as const, slack: { mode: 'bot' as const, confirmed: true, account: 'old-bot in Acme', channel: '#old' } }] }) })
+
+  it('accepts the exact name of a saved Slack connection, says it replaces it and saves the new token', async () => {
+    const { t, user, host } = await open({ init: saved() })
+    const set = vi.spyOn(host.secrets, 'setSlackBot')
+    await user.type(field(t, 'name'), 'alerts')
+    const note = within(slack(t)).getByText(t('app.slackBot.replaceNote'))
+    expect(field(t, 'name').getAttribute('aria-describedby')).toContain(note.id)
+    await fill(user, t, { token: OTHER, channel: '#new' })
+    await user.click(save(t))
+    expect(set).toHaveBeenCalledExactlyOnceWith({ name: 'alerts', token: OTHER, channel: '#new' })
+    expect((await screen.findByRole('status')).textContent).toBe(t('app.slackBot.connectedAs', { bot: 'rill-bot', workspace: 'Rill Team' }))
+    expect(screen.queryByText(t('app.connections.duplicate'))).toBeNull()
+    expect(host.state().settings.connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Rill Team', channel: '#new' } }])
+    expect(within(slack(t)).queryByText(t('app.slackBot.replaceNote'))).toBeNull()
+    nothingSecretShown(host.state())
+  })
+
+  it('turns a saved webhook of the same name into a bot', async () => {
+    const { t, user, host } = await open({ init: { settings: fakeSettings({ connections: [{ name: 'old-hook', kind: 'slack' }] }) } })
+    await fill(user, t, { name: 'old-hook', token: TOKEN })
+    expect(within(slack(t)).getByText(t('app.slackBot.replaceNote'))).toBeTruthy()
+    await user.click(save(t))
+    await screen.findByRole('status')
+    expect(host.state().settings.connections).toEqual([{ name: 'old-hook', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Rill Team' } }])
+    const list = within(slack(t)).getByRole('list', { name: t('app.slackBot.listTitle') })
+    expect(within(list).getByText(t('app.slackBot.chipBot'))).toBeTruthy()
+    expect(within(list).queryByText(t('app.slackBot.chipWebhook'))).toBeNull()
+  })
+
+  it('still refuses a name that differs from a Slack connection only in case', async () => {
+    const { t, user, host } = await open({ init: saved() })
+    const set = vi.spyOn(host.secrets, 'setSlackBot')
+    await user.type(field(t, 'name'), 'Alerts')
+    expect(within(slack(t)).queryByText(t('app.slackBot.replaceNote'))).toBeNull()
+    await fill(user, t, { token: TOKEN })
+    await user.click(save(t))
+    expect((await screen.findByRole('alert')).textContent).toBe(t('app.connections.duplicate'))
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('still refuses the exact name of a connection of another kind', async () => {
+    const { t, user, host } = await open({ init: { settings: fakeSettings({ connections: [{ name: 'billing', kind: 'http', authType: 'bearer' }] }) } })
+    const set = vi.spyOn(host.secrets, 'setSlackBot')
+    await fill(user, t, { name: 'billing', token: TOKEN })
+    expect(within(slack(t)).queryByText(t('app.slackBot.replaceNote'))).toBeNull()
+    await user.click(save(t))
+    expect((await screen.findByRole('alert')).textContent).toBe(t('app.connections.duplicate'))
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('shows no replace note for a new name, and drops it when the name changes', async () => {
+    const { t, user } = await open({ init: saved() })
+    await user.type(field(t, 'name'), 'other')
+    expect(within(slack(t)).queryByText(t('app.slackBot.replaceNote'))).toBeNull()
+    await user.clear(field(t, 'name'))
+    await user.type(field(t, 'name'), 'alerts')
+    expect(within(slack(t)).getByText(t('app.slackBot.replaceNote'))).toBeTruthy()
+    await user.type(field(t, 'name'), '2')
+    expect(within(slack(t)).queryByText(t('app.slackBot.replaceNote'))).toBeNull()
+  })
+})
+
+describe('the Slack card: the status chip', () => {
+  const bot = (name: string, confirmed?: boolean) => ({ name, kind: 'slack' as const, slack: { mode: 'bot' as const, ...(confirmed === undefined ? {} : { confirmed }) } })
+
+  it('says Connected only for a bot that Slack confirmed', async () => {
+    const { t } = await open({ init: { settings: fakeSettings({ connections: [bot('a', true)] }) } })
+    expect(within(slack(t)).getAllByText(t('app.connections.account.connected'))).toHaveLength(1)
+    expect(within(slack(t)).queryByText(t('app.slackBot.notConfirmed'))).toBeNull()
+  })
+
+  it.each([false, undefined])('says Not confirmed and not Connected for a bot saved with confirmed %s', async (confirmed) => {
+    const { t } = await open({ init: { settings: fakeSettings({ connections: [bot('a', confirmed)] }) } })
+    expect(within(slack(t)).queryByText(t('app.connections.account.connected'))).toBeNull()
+    expect(within(slack(t)).queryByText(t('app.connections.account.notConnected'))).toBeNull()
+    expect(within(slack(t)).getAllByText(t('app.slackBot.notConfirmed'))).toHaveLength(2)
+  })
+
+  it('says Connected when one bot is confirmed and another is not, and marks the unconfirmed row', async () => {
+    const { t } = await open({ init: { settings: fakeSettings({ connections: [bot('a', false), bot('b', true)] }) } })
+    expect(within(slack(t)).getAllByText(t('app.connections.account.connected'))).toHaveLength(1)
+    const rows = within(within(slack(t)).getByRole('list', { name: t('app.slackBot.listTitle') })).getAllByRole('listitem')
+    expect(within(rows[0]!).getByText(t('app.slackBot.notConfirmed'))).toBeTruthy()
+    expect(within(rows[1]!).queryByText(t('app.slackBot.notConfirmed'))).toBeNull()
+  })
+
+  it('does not say Connected after a token that Slack rejected was saved anyway', async () => {
+    const { t, user } = await open({ options: { slackChecks: () => INVALID } })
+    await fill(user, t, { name: 'alerts', token: TOKEN })
+    await user.click(save(t))
+    await user.click(within(await screen.findByRole('alert')).getByRole('button', { name: t('app.slackBot.saveAnyway') }))
+    await screen.findByText(t('app.slackBot.savedAnyway', { reason: t('app.slackBot.reason.unauthorized') }))
+    expect(within(slack(t)).queryByText(t('app.connections.account.connected'))).toBeNull()
+    expect(within(slack(t)).getAllByText(t('app.slackBot.notConfirmed')).length).toBeGreaterThan(0)
+  })
+
+  it('does not say Connected after a token that Slack could not check', async () => {
+    const { t, user } = await open({ options: { slackChecks: () => ({ status: 'unverified', reason: 'timeout' }) } })
+    await fill(user, t, { name: 'alerts', token: TOKEN })
+    await user.click(save(t))
+    await screen.findByRole('status')
+    expect(within(slack(t)).queryByText(t('app.connections.account.connected'))).toBeNull()
+  })
+
+  it('shows Not connected while only an old webhook is saved, and no Not confirmed text for it', async () => {
+    const { t } = await open({ init: { settings: fakeSettings({ connections: [{ name: 'old', kind: 'slack' }] }) } })
+    expect(within(slack(t)).getByText(t('app.connections.account.notConnected'))).toBeTruthy()
+    expect(within(slack(t)).queryByText(t('app.slackBot.notConfirmed'))).toBeNull()
+  })
+})
+
 describe('the Slack card: while Slack is asked', () => {
   function pending() {
     let release: (verdict: SlackVerdict) => void = () => undefined
@@ -291,7 +404,7 @@ describe('the Slack card: results', () => {
     await user.click(save(t))
     const status = await screen.findByRole('status')
     expect(status.textContent).toBe(t('app.slackBot.unverified', { reason: t('app.slackBot.reason.network') }))
-    expect(host.state().settings.connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot' } }])
+    expect(host.state().settings.connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: false } }])
     const list = within(slack(t)).getByRole('list', { name: t('app.slackBot.listTitle') })
     expect(within(list).getByText(t('app.slackBot.chipBot'))).toBeTruthy()
     nothingSecretShown()
@@ -323,7 +436,7 @@ describe('the Slack card: results', () => {
     expect(set.mock.calls[1]).toEqual([{ name: 'alerts', token: TOKEN, channel: '#a' }, { saveAnyway: true }])
     const status = await screen.findByRole('status')
     expect(status.textContent).toBe(t('app.slackBot.savedAnyway', { reason: t('app.slackBot.reason.unauthorized') }))
-    expect(host.state().settings.connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', channel: '#a' } }])
+    expect(host.state().settings.connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: false, channel: '#a' } }])
     expect(screen.queryByRole('alert')).toBeNull()
     nothingSecretShown(host.state())
   })
@@ -351,7 +464,7 @@ describe('the Slack card: results', () => {
 
   it('adds nothing to the saved connections when the token is refused', async () => {
     const { t, user, host } = await open({
-      init: { settings: fakeSettings({ connections: [{ name: 'other', kind: 'slack', slack: { mode: 'bot', account: 'x in y' } }] }) },
+      init: { settings: fakeSettings({ connections: [{ name: 'other', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'x in y' } }] }) },
       options: { slackChecks: () => INVALID },
     })
     await fill(user, t, { name: 'alerts', token: OTHER })
@@ -363,8 +476,8 @@ describe('the Slack card: results', () => {
 
 describe('the Slack card: the saved list', () => {
   const connections = [
-    { name: 'team', kind: 'slack' as const, slack: { mode: 'bot' as const, account: 'rill-bot in Acme', channel: '#alerts' } },
-    { name: 'no-account', kind: 'slack' as const, slack: { mode: 'bot' as const } },
+    { name: 'team', kind: 'slack' as const, slack: { mode: 'bot' as const, confirmed: true, account: 'rill-bot in Acme', channel: '#alerts' } },
+    { name: 'no-account', kind: 'slack' as const, slack: { mode: 'bot' as const, confirmed: false } },
     { name: 'old-hook', kind: 'slack' as const },
     { name: 'billing', kind: 'http' as const, authType: 'bearer' as const },
   ]
@@ -392,7 +505,7 @@ describe('the Slack card: the saved list', () => {
   })
 
   it('shows names and Slack text as text with invisible characters made visible', async () => {
-    const { t } = await open({ init: { settings: fakeSettings({ connections: [{ name: 'a‮b', kind: 'slack', slack: { mode: 'bot', account: '<b>x</b>​' } }] }) } })
+    const { t } = await open({ init: { settings: fakeSettings({ connections: [{ name: 'a‮b', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: '<b>x</b>​' } }] }) } })
     const list = within(slack(t)).getByRole('list', { name: t('app.slackBot.listTitle') })
     expect(list.querySelector('b')).toBeNull()
     expect(list.textContent).toContain('<b>x</b>')
@@ -455,9 +568,34 @@ describe('the Slack card: held token', () => {
   })
 })
 
+describe('the Slack card: a reload that fails after the save', () => {
+  it('still shows the saved result and empties the fields, and shows the error as well', async () => {
+    const host = createFakeHost({}, { restartDelayMs: 0 })
+    const api: SettingsApi = { settings: fakeSettings(), apply: () => undefined, reload: () => Promise.reject(new Error('reload broke')) }
+    renderThemed(
+      <HostProvider host={host}>
+        <SlackCard api={api} locked={false} full={false} onRemove={() => undefined} />
+      </HostProvider>,
+      { locale: 'en' },
+    )
+    const t = createTranslator('en')
+    const user = userEvent.setup()
+    await fill(user, t, { name: 'alerts', token: TOKEN, channel: '#a' })
+    await user.click(save(t))
+    expect((await screen.findByRole('status')).textContent).toBe(t('app.slackBot.connectedAs', { bot: 'rill-bot', workspace: 'Rill Team' }))
+    expect(screen.queryByText(t('app.slackBot.checking'))).toBeNull()
+    expect(field(t, 'name').value).toBe('')
+    expect(field(t, 'channel').value).toBe('')
+    expect(field(t, 'token').value).toBe('')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(host.state().settings.connections.map((entry) => entry.name)).toEqual(['alerts'])
+    nothingSecretShown(host.state())
+  })
+})
+
 describe('the Slack card: languages and accessibility', () => {
   it.each(['ko', 'en'] as const)('renders every part in %s without a missing key', async (locale) => {
-    const { t, user } = await open({ locale, init: { settings: fakeSettings({ connections: [{ name: 'team', kind: 'slack', slack: { mode: 'bot', account: 'a in b', channel: '#c' } }, { name: 'old', kind: 'slack' }] }) } })
+    const { t, user } = await open({ locale, init: { settings: fakeSettings({ connections: [{ name: 'team', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'a in b', channel: '#c' } }, { name: 'old', kind: 'slack' }, { name: 'shaky', kind: 'slack', slack: { mode: 'bot', confirmed: false } }] }) } })
     await user.click(steps(t))
     expect(document.body.textContent).not.toMatch(/\bapp\.[a-z]+\./)
     expect(slack(t)).toBeTruthy()

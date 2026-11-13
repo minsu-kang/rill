@@ -26,7 +26,7 @@ export const notifySlack = defineAction({
   type: 'notify.slack@1',
   title: 'Slack message',
   description:
-    'Posts a message through a Slack webhook connection or a bot token connection. A crash right after sending can make a resumed run send it twice. The channel is read by a bot token connection only: leave it out unless the user named a channel, otherwise the default channel of the connection is used.',
+    'Posts a message through a Slack webhook connection or a bot token connection. A crash right after sending can make a resumed run send it twice. A retry after a server error can do the same. The channel is read by a bot token connection only: leave it out unless the user named a channel, and never set it for a connection that the environment lists as a webhook. Without a channel the default channel of the connection is used.',
   sideEffect: 'external',
   roles: { '/connection': 'connection', '/channel': 'recipient', '/text': 'message' },
   configSchema: Type.Object(

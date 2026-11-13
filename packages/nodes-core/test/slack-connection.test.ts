@@ -4,6 +4,7 @@ import {
   connectionSecretParts,
   encodeConnectionSecret,
   encodeSlackBotSecret,
+  isSlackBotSecret,
   isSlackChannel,
   isSlackToken,
   parseSlackSecret,
@@ -118,5 +119,26 @@ describe('slackSecretParts and connectionSecretParts', () => {
     expect(connectionSecretParts(encodeConnectionSecret({ type: 'basic', username: 'u', password: 'pass1234' }))).toEqual(['pass1234', 'u:pass1234', Buffer.from('u:pass1234').toString('base64')])
     expect(connectionSecretParts(HOOK)).toEqual([])
     expect(connectionSecretParts('plain value')).toEqual([])
+  })
+})
+
+describe('isSlackBotSecret', () => {
+  it('recognises every bot form, valid or not', () => {
+    expect(isSlackBotSecret(encodeSlackBotSecret({ token: TOKEN, channel: '#alerts' }))).toBe(true)
+    expect(isSlackBotSecret(TOKEN)).toBe(true)
+    expect(isSlackBotSecret(`\n ${encodeSlackBotSecret({ token: TOKEN })}`)).toBe(true)
+    expect(isSlackBotSecret(JSON.stringify({ rillSlack: 2, token: TOKEN }))).toBe(true)
+    expect(isSlackBotSecret(JSON.stringify({ rillSlack: 1, token: TOKEN, extra: 1 }))).toBe(true)
+    expect(isSlackBotSecret(JSON.stringify({ rillSlack: 1 }))).toBe(true)
+  })
+
+  it('does not recognise a webhook, a rillAuth secret, other JSON or plain text', () => {
+    expect(isSlackBotSecret(HOOK)).toBe(false)
+    expect(isSlackBotSecret(encodeConnectionSecret({ type: 'bearer', token: 'abcd1234' }))).toBe(false)
+    expect(isSlackBotSecret('{"a":1}')).toBe(false)
+    expect(isSlackBotSecret('{')).toBe(false)
+    expect(isSlackBotSecret('[1]')).toBe(false)
+    expect(isSlackBotSecret('plain value')).toBe(false)
+    expect(isSlackBotSecret('')).toBe(false)
   })
 })

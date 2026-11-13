@@ -200,7 +200,7 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
         name,
         kind: 'slack' as const,
         secret: encodeSlackBot({ token, ...(channel === undefined ? {} : { channel }) }),
-        slack: { mode: 'bot' as const, ...(account === undefined ? {} : { account }), ...(channel === undefined ? {} : { channel }) },
+        slack: { mode: 'bot' as const, confirmed: verdict.status === 'valid', ...(account === undefined ? {} : { account }), ...(channel === undefined ? {} : { channel }) },
       }
       if (await deps.secrets.setConnection(connection, { mayReplace: (existing) => existing.kind === 'slack' })) restartEngine()
       return { verdict }

@@ -1,6 +1,7 @@
 import Type from 'typebox'
 import { applyConnectionAuth, maskSecretParts, parseConnectionSecret, secretParts } from '../connection-auth'
 import { httpCall, type HttpResult } from '../http'
+import { isSlackBotSecret } from '../slack-connection'
 import { RetryableError, defineAction } from '../types'
 
 function maskDeep(value: unknown, parts: readonly string[]): unknown {
@@ -72,6 +73,7 @@ export const httpRequest = defineAction({
     if (config.auth) {
       const secret = ctx.connections.get(config.auth.connection)
       if (secret === undefined) throw new Error(`unknown connection: ${config.auth.connection}`)
+      if (isSlackBotSecret(secret)) throw new Error(`connection ${config.auth.connection} is a Slack connection`)
       const parsed = parseConnectionSecret(secret)
       if (parsed.kind === 'malformed') throw new Error(`connection ${config.auth.connection} has a malformed auth value`)
       if (parsed.kind === 'structured') {

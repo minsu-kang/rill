@@ -130,6 +130,8 @@ export const appEn: Record<keyof typeof appKo, string> = {
   'app.slackBot.chipBot': 'Bot',
   'app.slackBot.chipWebhook': 'Webhook (old)',
   'app.slackBot.defaultChannel': 'Default channel {channel}',
+  'app.slackBot.notConfirmed': 'Not confirmed',
+  'app.slackBot.replaceNote': 'A Slack connection with this name is already saved. Saving replaces its token and default channel.',
   'app.slackBot.webhookNote': 'Saved before bot tokens existed. It keeps working until you remove it.',
   'app.connections.custom.heading': 'Custom connection',
   'app.connections.custom.intro': 'Save the login of any web service under a name. Choose the name in the "auth" setting of an HTTP request step.',

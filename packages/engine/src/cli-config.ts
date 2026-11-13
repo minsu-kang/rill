@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { AnthropicProvider, DEFAULT_MODEL, LlmError, PROVIDER_IDS, createProvider, providerDescriptor, type LlmProvider, type ProviderId } from '@rill/llm'
-import { assertPathAllowed, expandHome, type ConnectionResolver } from '@rill/nodes-core'
+import { assertPathAllowed, expandHome, parseSlackSecret, type ConnectionResolver } from '@rill/nodes-core'
 import type { PlanConnection } from '@rill/planner'
 import { configuredProviders, type EngineLlmInfo } from './llm-models'
 
@@ -22,6 +22,12 @@ function badEntry(name: string, reason: string): UsageError {
   return new UsageError(`connection ${JSON.stringify(name)} ${reason}`)
 }
 
+function slackMode(kind: string, secret: string): Pick<PlanConnection, 'slack'> {
+  if (kind !== 'slack') return {}
+  const parsed = parseSlackSecret(secret)
+  return parsed.kind === 'malformed' ? {} : { slack: parsed.kind }
+}
+
 function connectionsFromTable(table: unknown, source: string): LoadedConnections {
   if (!isObject(table)) throw new UsageError(`${source} must be a JSON object that maps names to secrets`)
   const secrets = new Map<string, string>()
@@ -39,7 +45,7 @@ function connectionsFromTable(table: unknown, source: string): LoadedConnections
       throw badEntry(name, `needs a "kind" of ${KINDS.join(', ')}`)
     }
     secrets.set(name, entry.secret)
-    planConnections.push({ name, kind: entry.kind as PlanConnection['kind'] })
+    planConnections.push({ name, kind: entry.kind as PlanConnection['kind'], ...slackMode(entry.kind, entry.secret) })
   }
   return { resolver: { get: (id) => secrets.get(id) }, planConnections }
 }

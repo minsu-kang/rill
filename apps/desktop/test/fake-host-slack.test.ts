@@ -23,7 +23,7 @@ describe('createFakeHost setSlackBot', () => {
     expect(await host.secrets.setSlackBot({ name: 'alerts', token: TOKEN, channel: '#alerts' })).toEqual({
       verdict: { status: 'valid', workspace: 'Rill Team', bot: 'rill-bot' },
     })
-    expect((await host.settings.get()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', account: 'rill-bot in Rill Team', channel: '#alerts' } }])
+    expect((await host.settings.get()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Rill Team', channel: '#alerts' } }])
     expect(JSON.stringify([await host.settings.get(), host.state()])).not.toContain('SLACKTOKENMARKER')
     expect(host.state().restartCalls).toBe(1)
   })
@@ -33,7 +33,7 @@ describe('createFakeHost setSlackBot', () => {
     const host = createFakeHost({}, { slackChecks })
     expect(await host.secrets.setSlackBot({ name: 'alerts', token: TOKEN })).toEqual({ verdict: { status: 'unverified', reason: 'network' } })
     expect(slackChecks).toHaveBeenCalledWith(TOKEN)
-    expect((await host.settings.get()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot' } }])
+    expect((await host.settings.get()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: false } }])
   })
 
   it('refuses an invalid token with TOKEN_INVALID and saves nothing, unless saveAnyway is true', async () => {
@@ -43,7 +43,7 @@ describe('createFakeHost setSlackBot', () => {
     expect((await host.settings.get()).connections).toEqual([])
     expect(host.state().restartCalls).toBe(0)
     expect(await host.secrets.setSlackBot({ name: 'alerts', token: TOKEN }, { saveAnyway: true })).toEqual({ verdict: { status: 'invalid', reason: 'unauthorized' } })
-    expect((await host.settings.get()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot' } }])
+    expect((await host.settings.get()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: false } }])
   })
 
   it('validates the arguments like the real host', async () => {
@@ -75,7 +75,7 @@ describe('createFakeHost setSlackBot', () => {
     expect(await codeOf(host.secrets.setSlackBot({ name: 'Api', token: TOKEN }))).toBe('NAME_COLLISION')
     await host.secrets.setConnection({ name: 'team', kind: 'slack', secret: 'https://hooks.example.test/x' })
     await host.secrets.setSlackBot({ name: 'team', token: TOKEN, channel: '#a' })
-    expect((await host.settings.get()).connections.find((entry) => entry.name === 'team')).toEqual({ name: 'team', kind: 'slack', slack: { mode: 'bot', account: 'rill-bot in Rill Team', channel: '#a' } })
+    expect((await host.settings.get()).connections.find((entry) => entry.name === 'team')).toEqual({ name: 'team', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Rill Team', channel: '#a' } })
   })
 
   it('answers a verdict that is not one with INTERNAL', async () => {

@@ -182,6 +182,9 @@ describe('host contract for Slack bots', () => {
     const connection = (extra: object) => ({ allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [{ name: 'a', kind: 'slack', ...extra }], encryptionAvailable: true, oauth: { available: false, accounts: [] } })
     expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'bot', account: 'rill-bot in Acme', channel: '#a' } }))).toBe(true)
     expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'bot' } }))).toBe(true)
+    expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'bot', confirmed: true } }))).toBe(true)
+    expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'bot', confirmed: false } }))).toBe(true)
+    expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'bot', confirmed: 'yes' } }))).toBe(false)
     expect(validateResult(CHANNELS.settingsGet, connection({}))).toBe(true)
     expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'bot', token: TOKEN } }))).toBe(false)
     expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'user' } }))).toBe(false)
@@ -196,7 +199,7 @@ describe('ipc handler: setSlackBot', () => {
     expect(h.slackCheck).toHaveBeenCalledTimes(1)
     expect(h.slackCheck).toHaveBeenCalledWith(TOKEN)
     expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
-    expect((await h.settings()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', account: 'rill-bot in Acme', channel: '#alerts' } }])
+    expect((await h.settings()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Acme', channel: '#alerts' } }])
   })
 
   it('stores a secret that the engine parser reads as a bot, with and without a default channel', async () => {
@@ -206,14 +209,29 @@ describe('ipc handler: setSlackBot', () => {
     const stored = await h.secrets.getConnections()
     expect(parseSlackSecret(stored.find((entry) => entry.name === 'alerts')!.secret)).toEqual({ kind: 'bot', token: TOKEN, channel: '#alerts' })
     expect(parseSlackSecret(stored.find((entry) => entry.name === 'plain')!.secret)).toEqual({ kind: 'bot', token: TOKEN })
-    expect(stored.find((entry) => entry.name === 'plain')!.slack).toEqual({ mode: 'bot', account: 'rill-bot in Acme' })
+    expect(stored.find((entry) => entry.name === 'plain')!.slack).toEqual({ mode: 'bot', confirmed: true, account: 'rill-bot in Acme' })
   })
 
   it('saves an unverified token without an account and returns the reason', async () => {
     const h = harness({ verdict: { status: 'unverified', reason: 'timeout' } })
     expect(await h.setBot()).toEqual({ verdict: { status: 'unverified', reason: 'timeout' } })
-    expect((await h.settings()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot' } }])
+    expect((await h.settings()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: false } }])
     expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks a valid token as confirmed even when Slack names neither workspace nor bot', async () => {
+    const h = harness({ verdict: { status: 'valid' } })
+    await h.setBot()
+    expect((await h.settings()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: true } }])
+  })
+
+  it('records a later confirmation of the same token and restarts the engine for it', async () => {
+    const h = harness({ verdict: { status: 'unverified', reason: 'network' } })
+    await h.setBot()
+    h.slackCheck.mockResolvedValueOnce(VALID)
+    await h.setBot()
+    expect((await h.settings()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Acme' } }])
+    expect(h.supervisor.restart).toHaveBeenCalledTimes(2)
   })
 
   it('refuses an invalid token with TOKEN_INVALID, saves nothing and does not restart the engine', async () => {
@@ -239,7 +257,7 @@ describe('ipc handler: setSlackBot', () => {
     const h = harness({ verdict: { status: 'invalid', reason: 'unauthorized' } })
     expect(await h.setBot({ options: { saveAnyway: true } })).toEqual({ verdict: { status: 'invalid', reason: 'unauthorized' } })
     expect(h.slackCheck).toHaveBeenCalledTimes(1)
-    expect((await h.settings()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot' } }])
+    expect((await h.settings()).connections).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: false } }])
     expect(h.supervisor.restart).toHaveBeenCalledTimes(1)
   })
 
@@ -289,7 +307,7 @@ describe('ipc handler: setSlackBot', () => {
     const h = harness()
     await h.call(CHANNELS.secretsSetConnection, { name: 'team', kind: 'slack', secret: 'https://hooks.example.test/x' })
     await h.setBot({ name: 'team', channel: '#a' })
-    expect((await h.settings()).connections).toEqual([{ name: 'team', kind: 'slack', slack: { mode: 'bot', account: 'rill-bot in Acme', channel: '#a' } }])
+    expect((await h.settings()).connections).toEqual([{ name: 'team', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Acme', channel: '#a' } }])
   })
 
   it('turns a failing checker or a checker answer that is not a verdict into INTERNAL, and saves nothing', async () => {
@@ -453,11 +471,11 @@ describe('secret store: Slack metadata', () => {
 
   it('keeps the metadata across a reload and puts it in the summary without the token', async () => {
     const { open } = stores()
-    await open().setConnection({ name: 'alerts', kind: 'slack', secret, slack: { mode: 'bot', account: 'rill-bot in Acme', channel: '#a' } })
+    await open().setConnection({ name: 'alerts', kind: 'slack', secret, slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Acme', channel: '#a' } })
     const reopened = open()
-    expect(await reopened.listConnections()).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', account: 'rill-bot in Acme', channel: '#a' } }])
+    expect(await reopened.listConnections()).toEqual([{ name: 'alerts', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Acme', channel: '#a' } }])
     expect(JSON.stringify(await reopened.listConnections())).not.toContain('SLACKTOKENMARKER')
-    expect((await reopened.getConnections())[0]!.slack).toEqual({ mode: 'bot', account: 'rill-bot in Acme', channel: '#a' })
+    expect((await reopened.getConnections())[0]!.slack).toEqual({ mode: 'bot', confirmed: true, account: 'rill-bot in Acme', channel: '#a' })
   })
 
   it('loads a file written before the metadata existed, as a webhook without it', async () => {
@@ -469,7 +487,7 @@ describe('secret store: Slack metadata', () => {
 
   it('treats a file with malformed metadata as unreadable', async () => {
     const { safeStorage, open, logs } = stores()
-    for (const slack of [{ mode: 'user' }, { mode: 'bot', token: TOKEN }, { mode: 'bot', channel: 'a b' }, { mode: 'bot', account: 'x'.repeat(201) }, 'bot']) {
+    for (const slack of [{ mode: 'user' }, { mode: 'bot', confirmed: 'yes' }, { mode: 'bot', token: TOKEN }, { mode: 'bot', channel: 'a b' }, { mode: 'bot', account: 'x'.repeat(201) }, 'bot']) {
       writeFileSync(join(dir, 'secrets.bin'), safeStorage.encryptString(JSON.stringify({ version: 1, providerKeys: [], connections: [{ name: 'a', kind: 'slack', secret, slack }] })))
       const store = open()
       expect(await store.unreadable()).toBe(true)
@@ -496,6 +514,9 @@ describe('secret store: Slack metadata', () => {
     expect(await store.setConnection({ ...base, slack: { mode: 'bot', account: 'one' } })).toBe(false)
     expect(await store.setConnection({ ...base, slack: { mode: 'bot', account: 'two' } })).toBe(true)
     expect(await store.setConnection({ ...base, slack: { mode: 'bot' } })).toBe(true)
+    expect(await store.setConnection({ ...base, slack: { mode: 'bot', confirmed: false } })).toBe(true)
+    expect(await store.setConnection({ ...base, slack: { mode: 'bot', confirmed: false } })).toBe(false)
+    expect(await store.setConnection({ ...base, slack: { mode: 'bot', confirmed: true } })).toBe(true)
     expect(await store.setConnection({ ...base })).toBe(true)
     expect(await store.listConnections()).toEqual([{ name: 'a', kind: 'slack' }])
   })

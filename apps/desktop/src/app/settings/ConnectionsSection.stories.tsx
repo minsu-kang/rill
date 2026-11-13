@@ -27,7 +27,7 @@ const CUSTOM: ConnectionSummary[] = [
   { name: 'older-http-secret', kind: 'http' },
 ]
 const SLACK: ConnectionSummary[] = [
-  { name: 'team-alerts', kind: 'slack', slack: { mode: 'bot', account: 'rill-bot in Rill Team', channel: '#alerts' } },
+  { name: 'team-alerts', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Rill Team', channel: '#alerts' } },
   { name: 'old-hook', kind: 'slack' },
 ]
 const OTHER: ConnectionSummary[] = [{ name: 'shop-webhook', kind: 'webhookSecret' }]

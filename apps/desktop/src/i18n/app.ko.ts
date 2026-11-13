@@ -128,6 +128,8 @@ export const appKo = {
   'app.slackBot.chipBot': '봇',
   'app.slackBot.chipWebhook': '웹훅(이전)',
   'app.slackBot.defaultChannel': '기본 채널 {channel}',
+  'app.slackBot.notConfirmed': '확인 안 됨',
+  'app.slackBot.replaceNote': '이 이름의 슬랙 연결이 이미 있어요. 저장하면 토큰과 기본 채널이 바뀌어요.',
   'app.slackBot.webhookNote': '봇 토큰이 생기기 전에 저장한 연결이에요. 지우기 전까지 계속 동작해요.',
   'app.connections.custom.heading': '직접 만든 연결',
   'app.connections.custom.intro': '웹 서비스의 인증 정보를 이름으로 저장해요. HTTP 요청 노드의 “auth” 설정에서 이 이름을 골라 써요.',

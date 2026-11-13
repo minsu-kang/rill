@@ -9,6 +9,10 @@ export function nameProblem(name: string, connections: readonly ConnectionSummar
   return undefined
 }
 
+export function slackNameProblem(name: string, connections: readonly ConnectionSummary[]): MessageKey | undefined {
+  return nameProblem(name, connections.filter((entry) => !(entry.kind === 'slack' && entry.name === name)))
+}
+
 export type CustomField = 'keyName' | 'keyValue' | 'token' | 'username' | 'password'
 
 export interface CustomFieldValues {

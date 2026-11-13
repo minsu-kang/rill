@@ -53,6 +53,30 @@ describe('parseConnections', () => {
     ])
   })
 
+  it('tells the planner whether a slack connection is a webhook or a bot, and never offers the token', () => {
+    const token = 'xoxb-SLACKTOKENMARKER0123'
+    const { planConnections } = parseConnections(
+      JSON.stringify({
+        hook: { secret: 'https://hooks.slack.com/services/T000/B000/WEBHOOKMARKER', kind: 'slack' },
+        bot: { secret: JSON.stringify({ rillSlack: 1, token, channel: '#alerts' }), kind: 'slack' },
+        plainBot: { secret: token, kind: 'slack' },
+        broken: { secret: 'not a hook', kind: 'slack' },
+        brokenJson: { secret: JSON.stringify({ rillSlack: 1 }), kind: 'slack' },
+        api: { secret: token, kind: 'http' },
+      }),
+    )
+    expect(planConnections).toEqual([
+      { name: 'hook', kind: 'slack', slack: 'webhook' },
+      { name: 'bot', kind: 'slack', slack: 'bot' },
+      { name: 'plainBot', kind: 'slack', slack: 'bot' },
+      { name: 'broken', kind: 'slack' },
+      { name: 'brokenJson', kind: 'slack' },
+      { name: 'api', kind: 'http' },
+    ])
+    expect(JSON.stringify(planConnections)).not.toContain('SLACKTOKENMARKER')
+    expect(JSON.stringify(planConnections)).not.toContain('WEBHOOKMARKER')
+  })
+
   it('does not offer plain secrets to the planner and never offers a secret value', () => {
     const { planConnections } = parseConnections(JSON.stringify({ plain: SECRET, typed: { secret: SECRET, kind: 'http' } }))
     expect(planConnections).toEqual([{ name: 'typed', kind: 'http' }])

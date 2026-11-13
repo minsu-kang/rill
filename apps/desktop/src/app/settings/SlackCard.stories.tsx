@@ -18,8 +18,9 @@ const never: FakeSlackCheck = () => new Promise(() => undefined)
 const invalid: FakeSlackCheck = () => ({ status: 'invalid', reason: 'unauthorized' })
 
 const SAVED: ConnectionSummary[] = [
-  { name: 'team-alerts', kind: 'slack', slack: { mode: 'bot', account: 'rill-bot in Rill Team', channel: '#alerts' } },
-  { name: 'billing', kind: 'slack', slack: { mode: 'bot', account: 'rill-bot in Rill Team' } },
+  { name: 'team-alerts', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Rill Team', channel: '#alerts' } },
+  { name: 'billing', kind: 'slack', slack: { mode: 'bot', confirmed: true, account: 'rill-bot in Rill Team' } },
+  { name: 'unchecked', kind: 'slack', slack: { mode: 'bot', confirmed: false } },
   { name: 'old-hook', kind: 'slack' },
 ]
 

@@ -57,3 +57,15 @@ export function slackSecretParts(secret: string): string[] {
   const parsed = parseSlackSecret(secret)
   return parsed.kind === 'bot' ? [parsed.token] : []
 }
+
+export function isSlackBotSecret(secret: string): boolean {
+  if (parseSlackSecret(secret).kind === 'bot') return true
+  const trimmed = secret.replace(LEADING_BLANK, '')
+  if (!trimmed.startsWith('{')) return false
+  try {
+    const data: unknown = JSON.parse(trimmed)
+    return isRecord(data) && 'rillSlack' in data
+  } catch {
+    return false
+  }
+}

@@ -6,6 +6,7 @@ import type { PlanConnection } from './types'
 export type ConnectionKind = PlanConnection['kind']
 
 export const CONNECTION_KIND_CODE = 'connection_kind_mismatch'
+export const CHANNEL_ON_WEBHOOK_CODE = 'channel_on_webhook'
 
 export const CONNECTION_KINDS: Readonly<Record<string, Readonly<Record<string, ConnectionKind>>>> = {
   'notify.slack': { '/connection': 'slack' },
@@ -46,7 +47,7 @@ export function connectionKindIssues(workflow: Workflow, registry: NodeRegistry,
       const value = valueAtPointer(node.config, pointer)
       const needed = neededConnectionKind(node.type, pointer)
       if (typeof value !== 'string' || needed === undefined) continue
-      const names = extractRefs(value).length === 0 ? [value] : candidateNames(resolver.resolve(value))
+      const names = namesOf(value, resolver)
       const configured = names.map((name) => connections.find((connection) => connection.name === name)).find((connection) => connection !== undefined && connection.kind !== needed)
       if (configured === undefined) continue
       const right = connections.filter((connection) => connection.kind === needed).map((connection) => connection.name)
@@ -58,6 +59,33 @@ export function connectionKindIssues(workflow: Workflow, registry: NodeRegistry,
         hint: right.length > 0 ? `configured ${needed} connections: ${right.join(', ')}` : `no ${needed} connections are configured`,
       })
     }
+  })
+  return issues
+}
+
+function namesOf(value: string, resolver: ReturnType<typeof createResolver>): string[] {
+  return extractRefs(value).length === 0 ? [value] : candidateNames(resolver.resolve(value))
+}
+
+export function slackChannelIssues(workflow: Workflow, registry: NodeRegistry, connections: readonly PlanConnection[]): PlanIssue[] {
+  const issues: PlanIssue[] = []
+  const resolver = createResolver(workflow)
+  workflow.nodes.forEach((node, index) => {
+    if (baseType(node.type) !== 'notify.slack' || registry.get(node.type) === undefined) return
+    const value = valueAtPointer(node.config, '/connection')
+    if (typeof value !== 'string' || valueAtPointer(node.config, '/channel') === undefined) return
+    const webhook = namesOf(value, resolver)
+      .map((name) => connections.find((connection) => connection.name === name))
+      .find((connection) => connection?.kind === 'slack' && connection.slack === 'webhook')
+    if (webhook === undefined) return
+    const bots = connections.filter((connection) => connection.kind === 'slack' && connection.slack === 'bot').map((connection) => connection.name)
+    issues.push({
+      stage: 3,
+      pointer: `/nodes/${index}/config/channel`,
+      code: CHANNEL_ON_WEBHOOK_CODE,
+      message: `node ${node.id}: connection ${webhook.name} is a Slack webhook connection and posts to its own channel, so this step cannot set a channel`,
+      hint: `a webhook connection posts to its own channel: remove the channel of this step${bots.length > 0 ? ` or use a bot connection: ${bots.join(', ')}` : ''}`,
+    })
   })
   return issues
 }

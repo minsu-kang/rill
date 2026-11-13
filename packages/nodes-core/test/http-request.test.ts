@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { RetryableError, createCoreRegistry } from '../src/index'
 import { encodeConnectionSecret, type ConnectionAuth } from '../src/connection-auth'
+import { encodeSlackBotSecret } from '../src/slack-connection'
 import { httpRequest } from '../src/nodes/http-request'
 import { closedPortUrl, startTestServer, type TestServer } from './http-server'
 import { makeCtx } from './helpers'
@@ -194,6 +195,50 @@ describe('http.request@1 with a plain secret', () => {
   it('treats a JSON object without rillAuth as a plain secret', async () => {
     await httpRequest.execute({ url: `${server.base}/json`, auth: { connection: 'api', scheme: 'None' } }, ctxFor('{"a":1}'))
     expect(server.seen[0]?.headers.authorization).toBe('{"a":1}')
+  })
+})
+
+describe('http.request@1 with a Slack bot connection', () => {
+  const TOKEN = 'xoxb-SLACKTOKENMARKER0123'
+  const forms: Record<string, string> = {
+    'a structured bot secret': encodeSlackBotSecret({ token: TOKEN, channel: '#alerts' }),
+    'a structured bot secret without a channel': encodeSlackBotSecret({ token: TOKEN }),
+    'a structured bot secret after blanks': `\n  ${encodeSlackBotSecret({ token: TOKEN })}`,
+    'a plain bot token': TOKEN,
+    'a malformed structured secret': JSON.stringify({ rillSlack: 2, token: TOKEN }),
+    'a structured secret with an extra key': JSON.stringify({ rillSlack: 1, token: TOKEN, extra: true }),
+  }
+
+  for (const [label, secret] of Object.entries(forms)) {
+    it(`refuses ${label} before any request`, async () => {
+      const error = await httpRequest
+        .execute({ url: `${server.base}/echo-request`, method: 'POST', body: {}, auth: { connection: 'api' } }, ctxFor(secret))
+        .catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(Error)
+      expect(error).not.toBeInstanceOf(RetryableError)
+      expect((error as Error).message).toBe('connection api is a Slack connection')
+      expect(server.seen).toHaveLength(0)
+    })
+  }
+
+  it('refuses it whatever the header and scheme of the step', async () => {
+    const secret = encodeSlackBotSecret({ token: TOKEN })
+    for (const auth of [{ connection: 'api', scheme: 'None' as const, header: 'X-Token' }, { connection: 'api', scheme: 'Basic' as const }]) {
+      await expect(httpRequest.execute({ url: `${server.base}/json`, auth }, ctxFor(secret))).rejects.toThrow('connection api is a Slack connection')
+    }
+    expect(server.seen).toHaveLength(0)
+  })
+
+  it('does not put the token in the refusal', async () => {
+    const error = await httpRequest.execute({ url: `${server.base}/json`, auth: { connection: 'api' } }, ctxFor(encodeSlackBotSecret({ token: TOKEN }))).catch((e: unknown) => e)
+    expect(JSON.stringify((error as Error).message)).not.toContain('SLACKTOKENMARKER')
+  })
+
+  it('still sends a request with no connection and with a webhook-shaped plain secret', async () => {
+    await httpRequest.execute({ url: `${server.base}/json` }, ctxFor(encodeSlackBotSecret({ token: TOKEN })))
+    expect(server.seen).toHaveLength(1)
+    await httpRequest.execute({ url: `${server.base}/json`, auth: { connection: 'api' } }, ctxFor('https://hooks.slack.com/services/T000/B000/WEBHOOKMARKER'))
+    expect(server.seen).toHaveLength(2)
   })
 })
 

@@ -1,6 +1,6 @@
 import { joinPointer, sortIssues, type PlanIssue, type Workflow } from '@rill/dsl'
 import { validateWorkflow, type NodeRegistry } from '@rill/nodes-core'
-import { connectionKindIssues } from './connections'
+import { connectionKindIssues, slackChannelIssues } from './connections'
 import { checkEnvelope, memberIssues, workflowFromEnvelope, type Envelope, type GenerationMode } from './generation'
 import { hiddenFieldIssues, type ConfigSite } from './hidden'
 import { applyPatch, decodePatchOps, labelIssuesForPatch, touchedOutsideSelection } from './patch'
@@ -39,6 +39,7 @@ export function checkWorkflow(workflow: Workflow, ctx: DecodeContext, sites: rea
       connections: ctx.context.connections.map((connection) => connection.name),
     }),
     ...connectionKindIssues(workflow, ctx.registry, ctx.context.connections),
+    ...slackChannelIssues(workflow, ctx.registry, ctx.context.connections),
   ]
   return sortIssues(issues)
 }

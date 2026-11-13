@@ -932,6 +932,31 @@ describe('provenance: the channel of notify.slack', () => {
     expect(provenance(chain(manual, botStep('n1', '#alerts')), { userTexts: ['post to #alerts with the slack-bot connection'], attachmentTexts: ['send it to #alerts'] })).toEqual([])
   })
 
+  it('treats #alerts and alerts as the same channel name', () => {
+    const named = { userTexts: ['post to the alerts channel with the slack-bot connection'] }
+    expect(provenance(chain(manual, botStep('n1', '#alerts')), named)).toEqual([])
+    expect(provenance(chain(manual, botStep('n1', 'alerts')), { userTexts: ['post to #alerts with the slack-bot connection'] })).toEqual([])
+    expect(provenance(chain(manual, botStep('n1', '#alerts')), { userTexts: ['post to #Alerts with the slack-bot connection'] })).toEqual([])
+  })
+
+  it('still flags a different channel that shares the name as a prefix', () => {
+    const flags = provenance(chain(manual, botStep('n1', '#alerts-private')), { userTexts: ['post to the alerts channel with the slack-bot connection'] })
+    expect(brief(flags)).toEqual(['n1 /nodes/1/config/channel new_egress_target'])
+  })
+
+  it('flags a channel that is only a hash sign', () => {
+    const flags = provenance(chain(manual, botStep('n1', '#')), { userTexts: ['use the slack-bot connection'] })
+    expect(brief(flags)).toEqual(['n1 /nodes/1/config/channel new_egress_target'])
+  })
+
+  it('names the bare form of a channel that only the attachment text names', () => {
+    const flags = provenance(chain(manual, botStep('n1', '#exec-private')), {
+      userTexts: ['use the slack-bot connection'],
+      attachmentTexts: ['please notify exec-private about this'],
+    })
+    expect(brief(flags)).toEqual(['n1 /nodes/1/config/channel attachment_origin', 'n1 /nodes/1/config/channel new_egress_target'])
+  })
+
   it('flags no step when the channel is left out', () => {
     expect(provenance(chain(manual, n('n1', 'notify.slack@1', { connection: 'slack-bot', text: 'done' })), { userTexts: ['use the slack-bot connection'] })).toEqual([])
   })

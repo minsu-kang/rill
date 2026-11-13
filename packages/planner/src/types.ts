@@ -50,6 +50,7 @@ export interface PlanTurn {
 export interface PlanConnection {
   name: string
   kind: 'slack' | 'http' | 'webhookSecret'
+  slack?: 'webhook' | 'bot'
 }
 
 export interface PlanContext {

@@ -102,7 +102,8 @@ describe.each(MODES)('Slack card stories ($locale, $theme)', (mode) => {
 
   it('SavedBotsAndAnOldWebhook lists the chips, and NoKeychain disables the form', async () => {
     const saved = await show('SavedBotsAndAnOldWebhook', mode)
-    expect(within(saved.view.container).getAllByText(saved.t('app.slackBot.chipBot'))).toHaveLength(2)
+    expect(within(saved.view.container).getAllByText(saved.t('app.slackBot.chipBot'))).toHaveLength(3)
+    expect(within(saved.view.container).getByText(saved.t('app.slackBot.notConfirmed'))).toBeTruthy()
     expect(within(saved.view.container).getByText(saved.t('app.slackBot.chipWebhook'))).toBeTruthy()
     expect(await violations(saved.view.container)).toEqual([])
     saved.view.unmount()

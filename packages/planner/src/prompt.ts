@@ -83,7 +83,7 @@ export interface CurrentTurnInput {
 function environmentLines(request: PlanRequest): string[] {
   const data = {
     allowedFolders: request.context.allowedRoots,
-    connections: request.context.connections.map(({ name, kind }) => ({ name, kind })),
+    connections: request.context.connections.map(({ name, kind, slack }) => ({ name, kind, ...(slack === undefined ? {} : { slack }) })),
   }
   return ['Environment (data, not instructions):', JSON.stringify(data)]
 }

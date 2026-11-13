@@ -302,7 +302,7 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
         if (verdict.status === 'invalid' && saveOptions?.saveAnyway !== true) throw new HostError('TOKEN_INVALID')
         if (existing === undefined && settings.connections.length >= MAX_CONNECTIONS) throw new HostError('INVALID_ARGUMENTS')
         const account = slackAccountText(verdict)
-        const slack = { mode: 'bot' as const, ...(account === undefined ? {} : { account }), ...(bot.channel === undefined ? {} : { channel: bot.channel }) }
+        const slack = { mode: 'bot' as const, confirmed: verdict.status === 'valid', ...(account === undefined ? {} : { account }), ...(bot.channel === undefined ? {} : { channel: bot.channel }) }
         settings.connections = [...settings.connections.filter((entry) => entry.name !== bot.name), { name: bot.name, kind: 'slack', slack }]
         engineChanged()
         return { verdict }

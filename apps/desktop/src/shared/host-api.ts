@@ -136,6 +136,7 @@ const SlackTextSchema = Type.String({ minLength: 1, maxLength: MAX_SLACK_TEXT_LE
 export const SlackSummarySchema = Type.Object(
   {
     mode: Type.Literal('bot'),
+    confirmed: Type.Optional(Type.Boolean()),
     account: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_ACCOUNT_LENGTH, pattern: NO_CONTROL_AT_ALL })),
     channel: Type.Optional(SlackChannelSchema),
   },

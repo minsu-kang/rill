@@ -336,5 +336,7 @@ describe('notify.slack@1 config and roles', () => {
     expect(notifySlack.description).toContain('webhook connection or a bot token connection')
     expect(notifySlack.description).toContain('channel')
     expect(notifySlack.description).toContain('A crash right after sending can make a resumed run send it twice.')
+    expect(notifySlack.description).toContain('A retry after a server error can do the same.')
+    expect(notifySlack.description).toContain('never set it for a connection that the environment lists as a webhook')
   })
 })
