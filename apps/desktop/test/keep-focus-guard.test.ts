@@ -5,17 +5,72 @@ import { describe, expect, it } from 'vitest'
 
 const SRC = join(import.meta.dirname, '../src')
 
-const BUSY = /busy|submitting|running|pending|saving|checking|working|asking|loading|deploying|planning|restarting|waiting|connecting/i
-const DISABLED = /\bdisabled=\{([^}]*)\}/g
+const WORDS = [
+  'busy',
+  'submitting',
+  'running',
+  'pending',
+  'saving',
+  'checking',
+  'working',
+  'asking',
+  'loading',
+  'deploying',
+  'planning',
+  'restarting',
+  'waiting',
+  'connecting',
+  'deleting',
+  'removing',
+  'sending',
+  'importing',
+  'exporting',
+  'uploading',
+  'confirming',
+]
+const capitalized = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1)
+const BUSY = new RegExp(WORDS.map((word) => `(?<![A-Za-z])${word}|(?<=[a-z0-9_])${capitalized(word)}`).join('|'))
 const HOOK = /\b(useAction|useKeepFocus)\(/
 const IMPORTS_HOOK = /import\s*\{[^}]*\b(useAction|useKeepFocus)\b[^}]*\}\s*from/
+const STATE_FLAG = /const\s*\[(\w+),\s*set\w+\]\s*=\s*useState\b/g
+
+function propExpressions(text: string, prop: string): string[] {
+  const found: string[] = []
+  for (const match of text.matchAll(new RegExp(`(?<![-\\w])${prop}=\\{`, 'g'))) {
+    const begin = match.index + match[0].length
+    let depth = 1
+    let end = begin
+    while (end < text.length && depth > 0) {
+      const char = text[end]
+      if (char === '{') depth += 1
+      else if (char === '}') depth -= 1
+      end += 1
+    }
+    found.push(text.slice(begin, end - 1))
+  }
+  return found
+}
+
+function guardedExpressions(text: string): string[] {
+  return [...propExpressions(text, 'disabled'), ...propExpressions(text, 'busy')]
+}
 
 function disablesWhileBusy(text: string): boolean {
-  return [...text.matchAll(DISABLED)].some((match) => BUSY.test(match[1]!))
+  return guardedExpressions(text).some((expression) => BUSY.test(expression))
 }
 
 function usesFocusHook(text: string): boolean {
   return HOOK.test(text) && IMPORTS_HOOK.test(text)
+}
+
+function flagsWithoutHook(text: string): string[] {
+  const expressions = guardedExpressions(text)
+  const flags = [...text.matchAll(STATE_FLAG)].map((match) => match[1]!).filter((name) => BUSY.test(name))
+  return flags.filter((name) => {
+    const reaches = expressions.some((expression) => new RegExp(`\\b${name}\\b`).test(expression))
+    const covered = IMPORTS_HOOK.test(text) && new RegExp(`\\buseKeepFocus\\([^)]*\\b${name}\\b`).test(text)
+    return reaches && !covered
+  })
 }
 
 const CONFIRM_HOLDERS = [
@@ -83,6 +138,11 @@ describe('the focus rule for controls that are disabled while an action runs', (
     expect(stale).toEqual([])
   })
 
+  it('has a file whose busy-named state flag reaches a disabled or busy prop pass that flag to useKeepFocus', () => {
+    const unguarded = names.flatMap((name) => flagsWithoutHook(read(name)).map((flag) => `${name}: ${flag}`))
+    expect(unguarded).toEqual([])
+  })
+
   it('tells a covered file from a new case', () => {
     const control = '<button type="button" disabled={saving} onClick={save}>save</button>'
     const hook = "import { useKeepFocus } from '../ui/useKeepFocus'\n"
@@ -94,5 +154,33 @@ describe('the focus rule for controls that are disabled while an action runs', (
     expect(usesFocusHook(`${hook}useKeepFocus(saving)\n${control}`)).toBe(true)
     expect(usesFocusHook(`${hook}${control}`)).toBe(false)
     expect(usesFocusHook("import { useAction } from './useAction'\nconst action = useAction()\n")).toBe(true)
+  })
+
+  it('sees the controls that the first version of the scan missed', () => {
+    expect(disablesWhileBusy('<ConfirmDialog busy={removing} />')).toBe(true)
+    expect(disablesWhileBusy('<button disabled={check({ a }) || saving} />')).toBe(true)
+    expect(disablesWhileBusy('<button\n  disabled={\n    ready &&\n    {}.x === isSaving\n  }\n/>')).toBe(true)
+    for (const flag of ['deleting', 'sending', 'removing', 'importing', 'exporting', 'uploading', 'confirming', 'isDeleting', 'sendingNow']) {
+      expect(disablesWhileBusy(`<button disabled={${flag}} />`), flag).toBe(true)
+    }
+  })
+
+  it('does not take a name that only contains a busy word, or another attribute, for a busy control', () => {
+    expect(disablesWhileBusy('<input disabled={masking} />')).toBe(false)
+    expect(disablesWhileBusy('<button aria-disabled={busy} />')).toBe(false)
+    expect(disablesWhileBusy('<div aria-busy={loading} />')).toBe(false)
+    expect(disablesWhileBusy('<button disabled={bypassing} />')).toBe(false)
+    expect(disablesWhileBusy('<button disabled={ready && !full} />')).toBe(false)
+  })
+
+  it('finds a busy state flag that reaches a control without useKeepFocus', () => {
+    const state = "import { useAction } from './useAction'\nconst action = useAction()\nconst [checking, setChecking] = useState(false)\n"
+    expect(flagsWithoutHook(`${state}<button disabled={checking} />`)).toEqual(['checking'])
+    expect(flagsWithoutHook(`${state}<ConfirmDialog busy={checking} />`)).toEqual(['checking'])
+    expect(flagsWithoutHook(`${state}<button disabled={action.busy} />`)).toEqual([])
+    expect(flagsWithoutHook("const [open, setOpen] = useState(false)\n<button disabled={open} />")).toEqual([])
+    const hook = "import { useKeepFocus } from '../ui/useKeepFocus'\n"
+    expect(flagsWithoutHook(`${hook}${state}useKeepFocus(checking || action.busy)\n<button disabled={checking} />`)).toEqual([])
+    expect(flagsWithoutHook(`${hook}${state}useKeepFocus(other)\n<button disabled={checking} />`)).toEqual(['checking'])
   })
 })

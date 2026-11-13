@@ -54,6 +54,6 @@ export function useKeepFocus(busy: boolean): void {
     idle.current = true
     const element = held.current
     held.current = null
-    if (canRestoreFocus(element, document.activeElement)) focusQuietly(element)
+    if (canRestoreFocus(element, document.activeElement) && element === lastFocused) focusQuietly(element)
   }, [busy])
 }

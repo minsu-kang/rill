@@ -174,7 +174,7 @@ describe('useKeepFocus', () => {
     }
   })
 
-  it('serves two instances at once, each with the element it saw when its own action began', async () => {
+  it('serves two instances at once, and gives the focus back only to the place where the person was last', async () => {
     const both = (a: boolean, b: boolean) => (
       <>
         <Form name="a" busy={a} />
@@ -191,9 +191,59 @@ describe('useKeepFocus', () => {
     await frames()
     expect(document.activeElement).toBe(document.body)
     view.rerender(both(false, true))
-    expect(document.activeElement).toBe(save('a'))
+    expect(document.activeElement).toBe(document.body)
     view.rerender(both(false, false))
-    expect(document.activeElement).toBe(save('a'))
+    expect(document.activeElement).toBe(field('b'))
+  })
+
+  it('does not pull the focus behind a dialog when a background action ends first', async () => {
+    function Background({ busy }: { busy: boolean }) {
+      useKeepFocus(busy)
+      return (
+        <button type="button" disabled={busy}>
+          background
+        </button>
+      )
+    }
+    function Dialog({ busy }: { busy: boolean }) {
+      useKeepFocus(busy)
+      return (
+        <div role="dialog" aria-modal="true" aria-label="dialog">
+          <button type="button" disabled={busy}>
+            confirm
+          </button>
+        </div>
+      )
+    }
+    const ui = (background: boolean, dialog: boolean | undefined) => (
+      <>
+        <Background busy={background} />
+        {dialog === undefined ? null : <Dialog busy={dialog} />}
+      </>
+    )
+    const view = render(ui(false, undefined))
+    screen.getByRole('button', { name: 'background' }).focus()
+    view.rerender(ui(true, undefined))
+    await frames()
+    view.rerender(ui(true, false))
+    screen.getByRole('button', { name: 'confirm' }).focus()
+    view.rerender(ui(true, true))
+    await frames()
+    expect(document.activeElement).toBe(document.body)
+    view.rerender(ui(false, true))
+    expect(document.activeElement).toBe(document.body)
+    view.rerender(ui(false, false))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'confirm' }))
+  })
+
+  it('does not put the focus back when the person clicked away to the page while the action ran', async () => {
+    const view = render(<Form busy={false} />)
+    other().focus()
+    view.rerender(<Form busy />)
+    await frames()
+    other().blur()
+    view.rerender(<Form busy={false} />)
+    expect(document.activeElement).toBe(document.body)
   })
 
   it('works under StrictMode, where effects run twice', async () => {
