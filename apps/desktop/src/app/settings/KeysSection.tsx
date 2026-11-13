@@ -216,39 +216,41 @@ function KeyRow({ provider, configured, locked, api, noteId }: { provider: Provi
 
   return (
     <li className={styles.item}>
-      <form className={styles.form} onSubmit={save}>
-        <div className={styles.itemMain}>
+      <form className={keyStyles.row} onSubmit={save}>
+        <div className={keyStyles.name}>
           <strong>{label}</strong>
           <span className={configured ? controls.chipOk : controls.chip}>{configured ? t('app.keys.configured') : t('app.keys.notConfigured')}</span>
         </div>
-        <label className={`${controls.label} ${styles.grow}`} htmlFor={inputId}>
+        <label className={keyStyles.hidden} htmlFor={inputId}>
           {t('app.keys.input', { provider: label })}
-          <input
-            ref={input}
-            id={inputId}
-            className={controls.input}
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            maxLength={MAX_SECRET_LENGTH}
-            aria-describedby={noteId}
-            disabled={locked || action.busy}
-            onInput={(event) => edit(event.currentTarget.value)}
-          />
         </label>
+        <input
+          ref={input}
+          id={inputId}
+          className={`${controls.input} ${keyStyles.field}`}
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={MAX_SECRET_LENGTH}
+          aria-describedby={noteId}
+          disabled={locked || action.busy}
+          onInput={(event) => edit(event.currentTarget.value)}
+        />
         <button type="submit" className={controls.primary} disabled={locked || action.busy || !filled}>
           {t('app.keys.save')}
         </button>
         <button type="button" className={controls.button} disabled={locked || action.busy || !configured} onClick={remove}>
           {t('app.keys.remove')}
         </button>
+        <div className={keyStyles.status}>
+          <KeyResult view={view} focusOnShow onSaveAnyway={saveAnyway} onDismiss={dismiss} />
+          {action.error === undefined ? null : (
+            <p className={controls.error} role="alert">
+              {t(action.error)}
+            </p>
+          )}
+        </div>
       </form>
-      <KeyResult view={view} focusOnShow onSaveAnyway={saveAnyway} onDismiss={dismiss} />
-      {action.error === undefined ? null : (
-        <p className={controls.error} role="alert">
-          {t(action.error)}
-        </p>
-      )}
     </li>
   )
 }
