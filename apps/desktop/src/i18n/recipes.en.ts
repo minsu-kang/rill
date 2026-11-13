@@ -30,6 +30,7 @@ export const recipesEn: Record<keyof typeof recipesKo, string> = {
   'recipes.issue.unknown_connection': 'No connection with this name is set up.',
   'recipes.issue.connection_kind_mismatch': 'The connection is the wrong kind for this item.',
   'recipes.issue.inside_watched_folder': 'The result file is inside the watched folder, so the workflow would keep starting itself. Move it outside the watched folder.',
+  'recipes.issue.rule_violation': 'A rule you set does not allow this: a node type is forbidden or a host is not in the allowed hosts.',
   'recipes.issue.cron_expression': 'The schedule is not valid or never runs.',
   'recipes.issue.config': 'A value does not meet the settings rules of a node.',
   'recipes.issue.structure': 'The workflow of the recipe has a structure problem. It may be a mistake in the recipe.',

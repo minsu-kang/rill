@@ -28,6 +28,7 @@ export const recipesKo = {
   'recipes.issue.unknown_connection': '이 이름의 연결이 설정되어 있지 않아요.',
   'recipes.issue.connection_kind_mismatch': '연결의 종류가 이 항목과 맞지 않아요.',
   'recipes.issue.inside_watched_folder': '결과 파일이 감시하는 폴더 안에 있어서 워크플로우가 계속 다시 시작돼요. 감시 폴더 밖으로 옮겨 주세요.',
+  'recipes.issue.rule_violation': '직접 정한 규칙에 어긋나요. 금지한 노드이거나 허용한 호스트 목록에 없는 호스트예요.',
   'recipes.issue.cron_expression': '실행 시각이 올바르지 않거나 한 번도 실행되지 않아요.',
   'recipes.issue.config': '값이 노드의 설정 규칙에 맞지 않아요.',
   'recipes.issue.structure': '레시피의 워크플로우 구조에 문제가 있어요. 레시피 쪽 오류일 수 있어요.',

@@ -5,6 +5,8 @@ import { httpCall, type HttpResult } from '../http'
 import { isSlackBotSecret } from '../slack-connection'
 import { RetryableError, defineAction } from '../types'
 
+export const HOST_NOT_ALLOWED = 'this host is not in the allowed hosts'
+
 function maskDeep(value: unknown, parts: readonly string[]): unknown {
   if (typeof value === 'string') return maskSecretParts(value, parts)
   if (Array.isArray(value)) return value.map((item) => maskDeep(item, parts))
@@ -87,6 +89,7 @@ export const httpRequest = defineAction({
         headers[config.auth.header ?? 'Authorization'] = scheme === 'None' ? secret : `${scheme} ${secret}`
       }
     }
+    if (ctx.hostAllowed !== undefined && !ctx.hostAllowed(url)) throw new Error(HOST_NOT_ALLOWED)
     let result: HttpResult
     try {
       result = await httpCall(url, {

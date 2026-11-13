@@ -12,6 +12,7 @@ const TRUSTED_HINTS: Record<string, RegExp[]> = {
   unknown_connection: [/^configured: [^\n]*$/, /^no connections are configured$/],
   path_outside_roots: [/^allowed folders: [^\n]*$/],
   inside_watched_folder: [/^write the file to another folder or narrow the trigger pattern$/],
+  rule_violation: [/^allowed hosts: [^\n]*$/, /^use another node type, or tell the user that this node type is not allowed$/],
   channel_on_webhook: [/^a webhook connection posts to its own channel: remove the channel of this step( or use a bot connection: [^\n]*)?$/],
   connection_kind_mismatch: [/^configured (slack|http|webhookSecret|google|microsoft) connections: [^\n]*$/, /^no (slack|http|webhookSecret|google|microsoft) connections are configured$/],
 }

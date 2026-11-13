@@ -173,6 +173,13 @@ const CASES: CodeCase[] = [
   { code: 'inside_watched_folder', input: chain(n('t1', 'trigger.folderWatch@1', { folder: '/Users/demo/Receipts', glob: '*' }), n('a', 'csv.append@1', { file: '/Users/demo/Receipts/ledger.csv', row: ['x'] })), pointer: '/nodes/1/config/file' },
 ]
 
+CASES.push({
+  code: 'rule_violation',
+  input: chain(manual, n('a', 'http.request@1', { url: 'https://example.test/x' })),
+  pointer: '/nodes/1/type',
+  env: { registry, policy: { forbiddenNodes: ['http.request'], allowedHosts: [] } },
+})
+
 const UNREACHABLE: Record<string, string> = {
   config_json_parse: 'produced by the planner when it decodes config text',
   shape_format: 'WorkflowSchema has no format',

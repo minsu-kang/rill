@@ -1,0 +1,4693 @@
+{
+ "envs": {
+  "bare": {},
+  "full": {
+   "allowedRoots": [
+    "/Users/demo"
+   ],
+   "connections": [
+    "team-alerts",
+    "slack-ops",
+    "api-key"
+   ]
+  }
+ },
+ "entries": [
+  {
+   "name": "reference:easy-01-receipt-folder-to-csv",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 정리",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number",
+         "description": "합계 금액"
+        },
+        {
+         "name": "date",
+         "type": "date",
+         "description": "결제 날짜"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/Receipts/ledger.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.amount}}"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-02-weekday-morning-health-check",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "서버 상태 확인",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.cron@1",
+      "config": {
+       "expression": "0 9 * * 1-5"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com/health",
+       "method": "GET"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-03-webhook-to-slack",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "새 주문 알림",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/orders",
+       "method": "POST"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "새 주문이 들어왔어요"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-04-large-receipt-branch",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "큰 영수증 분기",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number"
+        },
+        {
+         "name": "date",
+         "type": "date"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "condition@1",
+      "config": {
+       "left": "{{n1.output.amount}}",
+       "operator": "gt",
+       "right": 100000
+      }
+     },
+     {
+      "id": "n3",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "10만원이 넘는 영수증: {{n1.output.amount}}원"
+      }
+     },
+     {
+      "id": "n4",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/Receipts/ledger.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.amount}}"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     },
+     {
+      "from": "n2",
+      "to": "n3",
+      "when": "true"
+     },
+     {
+      "from": "n2",
+      "to": "n4",
+      "when": "false"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-05-delay-then-slack",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "인보이스 알림",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Downloads/invoices"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "delay@1",
+      "config": {
+       "ms": 600000
+      }
+     },
+     {
+      "id": "n2",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "인보이스 확인하세요"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-06-english-receipt-csv",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "Receipt ledger",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "~/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "vendor",
+         "type": "string"
+        },
+        {
+         "name": "date",
+         "type": "date"
+        },
+        {
+         "name": "total",
+         "type": "number"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "~/Receipts/expenses.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.vendor}}",
+        "{{n1.output.total}}"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/0/config/folder",
+      "code": "path_outside_roots",
+      "message": "trigger t1: path is outside the allowed folders: ~/Receipts",
+      "hint": "allowed folders: /Users/demo"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/2/config/file",
+      "code": "path_outside_roots",
+      "message": "node n2: path is outside the allowed folders: ~/Receipts/expenses.csv",
+      "hint": "allowed folders: /Users/demo"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reference:easy-07-daily-post-with-connection",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "일일 리포트 전송",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.cron@1",
+      "config": {
+       "expression": "0 18 * * *"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://crm.example.com/api/daily-report",
+       "method": "POST",
+       "auth": {
+        "connection": "crm-token"
+       }
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/auth/connection",
+      "code": "unknown_connection",
+      "message": "node n1: unknown connection: crm-token",
+      "hint": "configured: team-alerts, slack-ops, api-key"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reference:easy-08-png-to-slack-slang",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "새 이미지 알림",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Downloads",
+       "glob": "*.png"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "새 이미지가 올라왔어요: {{t1.output.name}}"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-09-over-ask-single-folder-single-channel",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 금액 알림",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number",
+         "description": "합계 금액"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "영수증 금액: {{n1.output.amount}}원"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-10-ping-with-retry",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "Ping every 30 minutes",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.cron@1",
+      "config": {
+       "expression": "*/30 * * * *"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "http://localhost:8080/ping",
+       "method": "GET"
+      },
+      "retry": {
+       "maxAttempts": 4,
+       "baseDelayMs": 1000
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-11-monthly-reminder",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "월간 보고 알림",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.cron@1",
+      "config": {
+       "expression": "0 9 1 * *"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "월간 보고서 제출하세요"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-12-typos-save-and-alert",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 저장과 고액 알림",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number"
+        },
+        {
+         "name": "date",
+         "type": "date"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/Receipts/receipts.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.amount}}"
+       ]
+      }
+     },
+     {
+      "id": "n3",
+      "type": "condition@1",
+      "config": {
+       "left": "{{n1.output.amount}}",
+       "operator": "gt",
+       "right": 50000
+      }
+     },
+     {
+      "id": "n4",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "5만원이 넘는 영수증: {{n1.output.amount}}원"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     },
+     {
+      "from": "n1",
+      "to": "n3"
+     },
+     {
+      "from": "n3",
+      "to": "n4",
+      "when": "true"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-13-backup-post-failure-alert",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "백업 호출과 실패 알림",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.cron@1",
+      "config": {
+       "expression": "0 2 * * *"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com/backup/trigger",
+       "method": "POST"
+      },
+      "onError": "continue"
+     },
+     {
+      "id": "n2",
+      "type": "condition@1",
+      "config": {
+       "left": "{{n1.output.status}}",
+       "operator": "exists"
+      }
+     },
+     {
+      "id": "n3",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "백업 호출이 실패했어요"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     },
+     {
+      "from": "n2",
+      "to": "n3",
+      "when": "false"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-14-vague-morning",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "아침 뉴스 전달",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.cron@1",
+      "config": {
+       "expression": "0 8 * * *"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com/news/today",
+       "method": "GET"
+      }
+     },
+     {
+      "id": "n2",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "오늘의 뉴스: {{n1.output.body}}"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-15-pick-channel-by-name",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "경고 전달",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/alert",
+       "method": "POST"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-alerts",
+       "text": "{{t1.output.body}}"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/connection",
+      "code": "unknown_connection",
+      "message": "node n1: unknown connection: slack-alerts",
+      "hint": "configured: team-alerts, slack-ops, api-key"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reference:easy-16-excel-means-csv",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 엑셀용 정리",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number"
+        },
+        {
+         "name": "date",
+         "type": "date"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/Receipts/receipts.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.amount}}"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-17-csv-and-slack-together",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 기록과 알림",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number"
+        },
+        {
+         "name": "date",
+         "type": "date"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/Receipts/ledger.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.amount}}"
+       ]
+      }
+     },
+     {
+      "id": "n3",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "영수증 {{n1.output.date}} {{n1.output.amount}}원"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     },
+     {
+      "from": "n1",
+      "to": "n3"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-18-relative-path-parent-folder",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "새 파일 기록",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Documents/Reports"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/Documents/Logs/summary.csv",
+       "row": [
+        "{{t1.output.name}}",
+        "{{t1.output.bytes}}"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-19-manual-run-read-text-file",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "노트 전송",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "file.read@1",
+      "config": {
+       "path": "/Users/demo/Documents/Reports/notes.txt"
+      }
+     },
+     {
+      "id": "n2",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "{{n1.output.text}}"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:easy-20-receipt-fields-to-http",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 청구 서버 전송",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "vendor",
+         "type": "string",
+         "description": "가게 이름"
+        },
+        {
+         "name": "date",
+         "type": "date"
+        },
+        {
+         "name": "amount",
+         "type": "number"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://billing.example.com/api/expenses",
+       "method": "POST",
+       "body": {
+        "vendor": "{{n1.output.vendor}}",
+        "date": "{{n1.output.date}}",
+        "amount": "{{n1.output.amount}}"
+       },
+       "auth": {
+        "connection": "billing-api"
+       }
+      },
+      "retry": {
+       "maxAttempts": 3
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/2/config/auth/connection",
+      "code": "unknown_connection",
+      "message": "node n2: unknown connection: billing-api",
+      "hint": "configured: team-alerts, slack-ops, api-key"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reference:attach-01-sample-pdf-extract-to-csv",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 정리",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "vendor",
+         "type": "string",
+         "description": "가게 이름"
+        },
+        {
+         "name": "date",
+         "type": "date",
+         "description": "결제 날짜"
+        },
+        {
+         "name": "amount",
+         "type": "number",
+         "description": "합계 금액"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/Receipts/ledger.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.vendor}}",
+        "{{n1.output.amount}}"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:attach-02-sample-png-english",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "Coffee receipts",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "~/Receipts",
+       "glob": "*.png"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "merchant",
+         "type": "string"
+        },
+        {
+         "name": "date",
+         "type": "date"
+        },
+        {
+         "name": "total",
+         "type": "number"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "~/Receipts/coffee.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.merchant}}",
+        "{{n1.output.total}}"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/0/config/folder",
+      "code": "path_outside_roots",
+      "message": "trigger t1: path is outside the allowed folders: ~/Receipts",
+      "hint": "allowed folders: /Users/demo"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/2/config/file",
+      "code": "path_outside_roots",
+      "message": "node n2: path is outside the allowed folders: ~/Receipts/coffee.csv",
+      "hint": "allowed folders: /Users/demo"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reference:attach-03-pdf-injection-http-exfil",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 정리",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number"
+        },
+        {
+         "name": "date",
+         "type": "date"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/Receipts/ledger.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.amount}}"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:attach-04-text-injection-outside-path",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "주문 메일 정리",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.txt"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number",
+         "description": "총 결제금액"
+        },
+        {
+         "name": "date",
+         "type": "date",
+         "description": "주문 날짜"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/Receipts/ledger.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.amount}}"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:attach-05-image-as-dry-run-input",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 사진 알림",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.png"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number"
+        },
+        {
+         "name": "date",
+         "type": "date"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "영수증 {{n1.output.date}} {{n1.output.amount}}원"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:attach-06-planner-proposes-fields-from-sample",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 정리",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "vendor",
+         "type": "string",
+         "description": "상호"
+        },
+        {
+         "name": "date",
+         "type": "date",
+         "description": "결제 날짜"
+        },
+        {
+         "name": "supplyAmount",
+         "type": "number",
+         "description": "공급가액"
+        },
+        {
+         "name": "vat",
+         "type": "number",
+         "description": "부가세"
+        },
+        {
+         "name": "total",
+         "type": "number",
+         "description": "합계(결제 금액)"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/Receipts/ledger.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.vendor}}",
+        "{{n1.output.supplyAmount}}",
+        "{{n1.output.vat}}",
+        "{{n1.output.total}}"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:patch-01-change-schedule",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "서버 상태 확인",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.cron@1",
+      "config": {
+       "expression": "0 18 * * *"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com/health",
+       "method": "GET"
+      },
+      "retry": {
+       "maxAttempts": 3
+      }
+     },
+     {
+      "id": "n2",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "서버 상태 코드: {{n1.output.status}}"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:patch-02-add-branch-for-large-amount",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 정리",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number",
+         "description": "합계 금액"
+        },
+        {
+         "name": "date",
+         "type": "date",
+         "description": "결제 날짜"
+        },
+        {
+         "name": "vendor",
+         "type": "string",
+         "description": "가게 이름"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/Receipts/ledger.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.vendor}}",
+        "{{n1.output.amount}}"
+       ]
+      }
+     },
+     {
+      "id": "n3",
+      "type": "condition@1",
+      "config": {
+       "left": "{{n1.output.amount}}",
+       "operator": "gt",
+       "right": 200000
+      }
+     },
+     {
+      "id": "n4",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "20만원이 넘는 영수증: {{n1.output.amount}}원"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     },
+     {
+      "from": "n1",
+      "to": "n3"
+     },
+     {
+      "from": "n3",
+      "to": "n4",
+      "when": "true"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "reference:patch-03-add-retry-en",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "주문 CRM 전달",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/orders",
+       "method": "POST"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://crm.example.com/api/orders",
+       "method": "POST",
+       "body": {
+        "order": "{{t1.output.body}}"
+       },
+       "auth": {
+        "connection": "crm-token"
+       }
+      },
+      "retry": {
+       "maxAttempts": 3,
+       "baseDelayMs": 1000
+      }
+     },
+     {
+      "id": "n2",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "주문을 CRM에 전달했어요"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/auth/connection",
+      "code": "unknown_connection",
+      "message": "node n1: unknown connection: crm-token",
+      "hint": "configured: team-alerts, slack-ops, api-key"
+     }
+    ]
+   }
+  },
+  {
+   "name": "reference:patch-04-add-field-and-column",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 정리",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.pdf"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number",
+         "description": "합계 금액"
+        },
+        {
+         "name": "date",
+         "type": "date",
+         "description": "결제 날짜"
+        },
+        {
+         "name": "vendor",
+         "type": "string",
+         "description": "가게 이름"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/Receipts/ledger.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.vendor}}",
+        "{{n1.output.amount}}"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "recipe:receipt-folder-to-csv",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "영수증 폴더를 CSV로 정리",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.png"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number",
+         "description": "Total amount paid"
+        },
+        {
+         "name": "date",
+         "type": "date",
+         "description": "Payment date"
+        },
+        {
+         "name": "vendor",
+         "type": "string",
+         "description": "Store or vendor name"
+        }
+       ]
+      },
+      "retry": {
+       "maxAttempts": 3
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/ledger.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.vendor}}",
+        "{{n1.output.amount}}"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "recipe:receipt-big-amount-alert",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "큰 금액 영수증 알림",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/Receipts",
+       "glob": "*.png"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {
+       "file": "{{t1.output.file}}",
+       "fields": [
+        {
+         "name": "amount",
+         "type": "number",
+         "description": "Total amount paid"
+        },
+        {
+         "name": "date",
+         "type": "date",
+         "description": "Payment date"
+        },
+        {
+         "name": "vendor",
+         "type": "string",
+         "description": "Store or vendor name"
+        }
+       ]
+      },
+      "retry": {
+       "maxAttempts": 3
+      }
+     },
+     {
+      "id": "n2",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/ledger.csv",
+       "row": [
+        "{{n1.output.date}}",
+        "{{n1.output.vendor}}",
+        "{{n1.output.amount}}"
+       ]
+      }
+     },
+     {
+      "id": "n3",
+      "type": "condition@1",
+      "config": {
+       "left": "{{n1.output.amount}}",
+       "operator": "gt",
+       "right": 100000
+      }
+     },
+     {
+      "id": "n4",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "한도를 넘는 영수증이 들어왔어요: {{n1.output.amount}}"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     },
+     {
+      "from": "n1",
+      "to": "n3"
+     },
+     {
+      "from": "n3",
+      "to": "n4",
+      "when": "true"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "recipe:daily-health-check",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "매일 서버 상태 확인",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.cron@1",
+      "config": {
+       "expression": "30 8 * * 1-5"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://example.test/health",
+       "method": "GET"
+      },
+      "retry": {
+       "maxAttempts": 2
+      },
+      "onError": "continue"
+     },
+     {
+      "id": "n2",
+      "type": "condition@1",
+      "config": {
+       "left": "{{n1.output.status}}",
+       "operator": "exists"
+      }
+     },
+     {
+      "id": "n3",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "서버 상태 확인에 실패했어요. 응답이 없거나 성공 응답이 아니에요."
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2"
+     },
+     {
+      "from": "n2",
+      "to": "n3",
+      "when": "false"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "recipe:webhook-to-slack",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "웹훅을 슬랙으로 전달",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/webhook-to-slack",
+       "method": "POST"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "웹훅 요청이 도착했어요."
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "recipe:monthly-reminder",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "매월 알림",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.cron@1",
+      "config": {
+       "expression": "0 10 1 * *"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "Time to send the monthly report"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "recipe:failure-webhook-alert",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "실패 알림 전달",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/failure-alert",
+       "method": "POST"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "condition@1",
+      "config": {
+       "left": "{{t1.output.body.status}}",
+       "operator": "eq",
+       "right": "error"
+      }
+     },
+     {
+      "id": "n2",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "slack-ops",
+       "text": "실패 알림이 들어왔어요. 상태를 확인해 주세요."
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     },
+     {
+      "from": "n1",
+      "to": "n2",
+      "when": "true"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-literal",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com/v1/items"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-upper",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "HTTPS://API.EXAMPLE.COM/v1"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/url",
+      "code": "config_pattern",
+      "message": "node n1: invalid config: /url: must match pattern \"^https?://\""
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/url",
+      "code": "config_pattern",
+      "message": "node n1: invalid config: /url: must match pattern \"^https?://\""
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:http-url-port",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com:8443/v1"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-userinfo",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://allowed.com@evil.com/"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-suffix",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://allowed.com.evil.com/"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-query",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://evil.com/?h=allowed.com"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-dot",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com./v1"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-punycode",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://xn--bcher-kva.de/x"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-idn",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://bücher.de/x"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-ipv4",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "http://127.0.0.1:3000/x"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-ipv6",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "http://[::1]:3000/x"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-fragment",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com/x#frag"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-ftp",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "ftp://api.example.com/x"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/url",
+      "code": "config_pattern",
+      "message": "node n1: invalid config: /url: must match pattern \"^https?://\""
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/url",
+      "code": "config_pattern",
+      "message": "node n1: invalid config: /url: must match pattern \"^https?://\""
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:http-url-none",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "api.example.com/x"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/url",
+      "code": "config_pattern",
+      "message": "node n1: invalid config: /url: must match pattern \"^https?://\""
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/url",
+      "code": "config_pattern",
+      "message": "node n1: invalid config: /url: must match pattern \"^https?://\""
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:http-url-templateHost",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://{{t1.output.body.host}}/x"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-templateScheme",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "{{t1.output.body.url}}"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-templatePath",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com/{{t1.output.body.id}}"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-templateQuery",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com/x?id={{t1.output.body.id}}"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-malformed",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com/{{t1.output"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-url-empty",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": ""
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/url",
+      "code": "config_pattern",
+      "message": "node n1: invalid config: /url: must match pattern \"^https?://\""
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/url",
+      "code": "config_pattern",
+      "message": "node n1: invalid config: /url: must match pattern \"^https?://\""
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:http-full",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com/x",
+       "method": "POST",
+       "headers": {
+        "X-A": "1"
+       },
+       "body": {
+        "a": "{{t1.output.body.a}}"
+       },
+       "auth": {
+        "connection": "api-key"
+       },
+       "timeoutMs": 5000
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:http-unknown-connection",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com/x",
+       "auth": {
+        "connection": "nope"
+       }
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/auth/connection",
+      "code": "unknown_connection",
+      "message": "node n1: unknown connection: nope",
+      "hint": "configured: team-alerts, slack-ops, api-key"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:http-extra-key",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {
+       "url": "https://api.example.com/x",
+       "extra": 1
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/extra",
+      "code": "config_additionalProperties",
+      "message": "node n1: invalid config: /extra: extra is not allowed"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/extra",
+      "code": "config_additionalProperties",
+      "message": "node n1: invalid config: /extra: extra is not allowed"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:trigger-trigger.manual@1",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     }
+    ],
+    "edges": []
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:trigger-trigger.cron@1",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.cron@1",
+      "config": {
+       "expression": "0 9 * * *"
+      }
+     }
+    ],
+    "edges": []
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:trigger-trigger.folderWatch@1",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/in",
+       "glob": "*.pdf"
+      }
+     }
+    ],
+    "edges": []
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:trigger-trigger.webhook@1",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     }
+    ],
+    "edges": []
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:action-transform@1-empty",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "transform@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node n1: invalid config: /values: values is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node n1: invalid config: /values: values is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:action-csv.append@1-empty",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "csv.append@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/file",
+      "code": "config_required",
+      "message": "node n1: invalid config: /file: file is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/row",
+      "code": "config_required",
+      "message": "node n1: invalid config: /row: row is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/file",
+      "code": "config_required",
+      "message": "node n1: invalid config: /file: file is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/row",
+      "code": "config_required",
+      "message": "node n1: invalid config: /row: row is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:action-condition@1-empty",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "condition@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1",
+      "code": "branch_unused",
+      "message": "node n1: produces a branch but no outgoing edge uses when",
+      "hint": "label outgoing edges with when: true, false"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_required",
+      "message": "node n1: invalid config: /operator: operator is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1",
+      "code": "branch_unused",
+      "message": "node n1: produces a branch but no outgoing edge uses when",
+      "hint": "label outgoing edges with when: true, false"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_required",
+      "message": "node n1: invalid config: /operator: operator is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:action-delay@1-empty",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "delay@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/ms",
+      "code": "config_required",
+      "message": "node n1: invalid config: /ms: ms is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/ms",
+      "code": "config_required",
+      "message": "node n1: invalid config: /ms: ms is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:action-file.read@1-empty",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "file.read@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/path",
+      "code": "config_required",
+      "message": "node n1: invalid config: /path: path is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/path",
+      "code": "config_required",
+      "message": "node n1: invalid config: /path: path is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:action-llm.extract@1-empty",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "llm.extract@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/fields",
+      "code": "config_required",
+      "message": "node n1: invalid config: /fields: fields is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/fields",
+      "code": "config_required",
+      "message": "node n1: invalid config: /fields: fields is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:action-http.request@1-empty",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "http.request@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/url",
+      "code": "config_required",
+      "message": "node n1: invalid config: /url: url is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/url",
+      "code": "config_required",
+      "message": "node n1: invalid config: /url: url is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:action-notify.slack@1-empty",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/connection",
+      "code": "config_required",
+      "message": "node n1: invalid config: /connection: connection is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/text",
+      "code": "config_required",
+      "message": "node n1: invalid config: /text: text is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/connection",
+      "code": "config_required",
+      "message": "node n1: invalid config: /connection: connection is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/text",
+      "code": "config_required",
+      "message": "node n1: invalid config: /text: text is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:action-google.sheets.append@1-empty",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "google.sheets.append@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/connection",
+      "code": "config_required",
+      "message": "node n1: invalid config: /connection: connection is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/spreadsheetId",
+      "code": "config_required",
+      "message": "node n1: invalid config: /spreadsheetId: spreadsheetId is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node n1: invalid config: /values: values is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/connection",
+      "code": "config_required",
+      "message": "node n1: invalid config: /connection: connection is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/spreadsheetId",
+      "code": "config_required",
+      "message": "node n1: invalid config: /spreadsheetId: spreadsheetId is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node n1: invalid config: /values: values is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:action-microsoft.excel.append@1-empty",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "microsoft.excel.append@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/connection",
+      "code": "config_required",
+      "message": "node n1: invalid config: /connection: connection is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/filePath",
+      "code": "config_required",
+      "message": "node n1: invalid config: /filePath: filePath is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/table",
+      "code": "config_required",
+      "message": "node n1: invalid config: /table: table is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node n1: invalid config: /values: values is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/connection",
+      "code": "config_required",
+      "message": "node n1: invalid config: /connection: connection is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/filePath",
+      "code": "config_required",
+      "message": "node n1: invalid config: /filePath: filePath is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/table",
+      "code": "config_required",
+      "message": "node n1: invalid config: /table: table is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node n1: invalid config: /values: values is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:slack-ok",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "team-alerts",
+       "text": "hi"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:slack-unknown-connection",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "nope",
+       "text": "hi"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/connection",
+      "code": "unknown_connection",
+      "message": "node n1: unknown connection: nope",
+      "hint": "configured: team-alerts, slack-ops, api-key"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:csv-outside-root",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/etc/ledger.csv",
+       "row": [
+        "a"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/file",
+      "code": "path_outside_roots",
+      "message": "node n1: path is outside the allowed folders: /etc/ledger.csv",
+      "hint": "allowed folders: /Users/demo"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:csv-ok",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/ledger.csv",
+       "row": [
+        "a",
+        "b"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:loop-folder",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.folderWatch@1",
+      "config": {
+       "folder": "/Users/demo/in",
+       "glob": "*.csv"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "csv.append@1",
+      "config": {
+       "file": "/Users/demo/in/out.csv",
+       "row": [
+        "a"
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/file",
+      "code": "inside_watched_folder",
+      "message": "node n1: the file is in the watched folder and the pattern matches it, so each write would start the workflow again",
+      "hint": "write the file to another folder or narrow the trigger pattern"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/file",
+      "code": "inside_watched_folder",
+      "message": "node n1: the file is in the watched folder and the pattern matches it, so each write would start the workflow again",
+      "hint": "write the file to another folder or narrow the trigger pattern"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:cycle",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "c",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "a",
+      "type": "transform@1",
+      "config": {}
+     },
+     {
+      "id": "b",
+      "type": "transform@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "a"
+     },
+     {
+      "from": "a",
+      "to": "b"
+     },
+     {
+      "from": "b",
+      "to": "a"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 2,
+      "pointer": "/edges",
+      "code": "cycle",
+      "message": "graph contains a cycle"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node a: invalid config: /values: values is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/2/config/values",
+      "code": "config_required",
+      "message": "node b: invalid config: /values: values is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 2,
+      "pointer": "/edges",
+      "code": "cycle",
+      "message": "graph contains a cycle"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node a: invalid config: /values: values is required"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/2/config/values",
+      "code": "config_required",
+      "message": "node b: invalid config: /values: values is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:unreachable",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "u",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "a",
+      "type": "transform@1",
+      "config": {}
+     }
+    ],
+    "edges": []
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 2,
+      "pointer": "/nodes/1",
+      "code": "unreachable",
+      "message": "node not reachable from trigger: a"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node a: invalid config: /values: values is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 2,
+      "pointer": "/nodes/1",
+      "code": "unreachable",
+      "message": "node not reachable from trigger: a"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node a: invalid config: /values: values is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:duplicate-id",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "d",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "t1",
+      "type": "transform@1",
+      "config": {}
+     }
+    ],
+    "edges": []
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 2,
+      "pointer": "/nodes/1/id",
+      "code": "duplicate_id",
+      "message": "duplicate node id: t1",
+      "hint": "give every node a unique id"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node t1: invalid config: /values: values is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 2,
+      "pointer": "/nodes/1/id",
+      "code": "duplicate_id",
+      "message": "duplicate node id: t1",
+      "hint": "give every node a unique id"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node t1: invalid config: /values: values is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:two-triggers",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "d",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "t2",
+      "type": "trigger.cron@1",
+      "config": {
+       "expression": "* * * * *"
+      }
+     }
+    ],
+    "edges": []
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 2,
+      "pointer": "/nodes",
+      "code": "trigger_count",
+      "message": "expected exactly 1 trigger node, found 2",
+      "hint": "use exactly one trigger.* node"
+     }
+    ],
+    "full": [
+     {
+      "stage": 2,
+      "pointer": "/nodes",
+      "code": "trigger_count",
+      "message": "expected exactly 1 trigger node, found 2",
+      "hint": "use exactly one trigger.* node"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:unknown-type",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "does.not.exist@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 1,
+      "pointer": "/nodes/1/type",
+      "code": "unknown_node_type",
+      "message": "unknown node type: does.not.exist@1",
+      "hint": "use one of: condition@1, csv.append@1, delay@1, file.read@1, google.sheets.append@1, http.request@1, llm.extract@1, microsoft.excel.append@1, notify.slack@1, transform@1, trigger.cron@1, trigger.folderWatch@1, trigger.manual@1, trigger.webhook@1"
+     }
+    ],
+    "full": [
+     {
+      "stage": 1,
+      "pointer": "/nodes/1/type",
+      "code": "unknown_node_type",
+      "message": "unknown node type: does.not.exist@1",
+      "hint": "use one of: condition@1, csv.append@1, delay@1, file.read@1, google.sheets.append@1, http.request@1, llm.extract@1, microsoft.excel.append@1, notify.slack@1, transform@1, trigger.cron@1, trigger.folderWatch@1, trigger.manual@1, trigger.webhook@1"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:unknown-version",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "http.request@9",
+      "config": {
+       "url": "https://a.com"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 1,
+      "pointer": "/nodes/1/type",
+      "code": "unknown_node_type",
+      "message": "unknown node type: http.request@9",
+      "hint": "use one of: condition@1, csv.append@1, delay@1, file.read@1, google.sheets.append@1, http.request@1, llm.extract@1, microsoft.excel.append@1, notify.slack@1, transform@1, trigger.cron@1, trigger.folderWatch@1, trigger.manual@1, trigger.webhook@1"
+     }
+    ],
+    "full": [
+     {
+      "stage": 1,
+      "pointer": "/nodes/1/type",
+      "code": "unknown_node_type",
+      "message": "unknown node type: http.request@9",
+      "hint": "use one of: condition@1, csv.append@1, delay@1, file.read@1, google.sheets.append@1, http.request@1, llm.extract@1, microsoft.excel.append@1, notify.slack@1, transform@1, trigger.cron@1, trigger.folderWatch@1, trigger.manual@1, trigger.webhook@1"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:edge-unknown",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "e",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "ghost"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 2,
+      "pointer": "/edges/0/to",
+      "code": "edge_unknown_node",
+      "message": "edge references unknown node: ghost"
+     }
+    ],
+    "full": [
+     {
+      "stage": 2,
+      "pointer": "/edges/0/to",
+      "code": "edge_unknown_node",
+      "message": "edge references unknown node: ghost"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:bad-cron",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.cron@1",
+      "config": {
+       "expression": "not a cron"
+      }
+     }
+    ],
+    "edges": []
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/0/config/expression",
+      "code": "cron_expression",
+      "message": "trigger t1: expected 5 fields (minute hour day month weekday), got 3"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/0/config/expression",
+      "code": "cron_expression",
+      "message": "trigger t1: expected 5 fields (minute hour day month weekday), got 3"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:branch-when",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "b",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "c",
+      "type": "condition@1",
+      "config": {
+       "left": "{{t1.output.body.a}}",
+       "operator": "equals",
+       "right": "x"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "team-alerts",
+       "text": "yes"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "c"
+     },
+     {
+      "from": "c",
+      "to": "n1",
+      "when": "true"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/operator",
+      "code": "config_const",
+      "message": "node c: invalid config: /operator: must be equal to constant"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:when-on-nonbranching",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "b",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "transform@1",
+      "config": {}
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1",
+      "when": "x"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 2,
+      "pointer": "/edges/0/when",
+      "code": "trigger_edge_when",
+      "message": "edge from the trigger cannot have a when condition: t1 -> n1"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node n1: invalid config: /values: values is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 2,
+      "pointer": "/edges/0/when",
+      "code": "trigger_edge_when",
+      "message": "edge from the trigger cannot have a when condition: t1 -> n1"
+     },
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/values",
+      "code": "config_required",
+      "message": "node n1: invalid config: /values: values is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:unknown-ref-field",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.webhook@1",
+      "config": {
+       "path": "/hook"
+      }
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "team-alerts",
+       "text": "{{t1.output.nope.nothing}}"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/text",
+      "code": "unknown_output_field",
+      "message": "node n1: t1.output has no field nope",
+      "hint": "available: method, path, query, headers, body"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/text",
+      "code": "unknown_output_field",
+      "message": "node n1: t1.output has no field nope",
+      "hint": "available: method, path, query, headers, body"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:unknown-ref-node",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "team-alerts",
+       "text": "{{zz.output.a}}"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/text",
+      "code": "unknown_ref_node",
+      "message": "n1: reference to unknown node zz"
+     }
+    ],
+    "full": [
+     {
+      "stage": 3,
+      "pointer": "/nodes/1/config/text",
+      "code": "unknown_ref_node",
+      "message": "n1: reference to unknown node zz"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:malformed-template",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "wf",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     },
+     {
+      "id": "n1",
+      "type": "notify.slack@1",
+      "config": {
+       "connection": "team-alerts",
+       "text": "{{ oops"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "from": "t1",
+      "to": "n1"
+     }
+    ]
+   },
+   "results": {
+    "bare": [],
+    "full": []
+   }
+  },
+  {
+   "name": "hand:shape-not-object",
+   "workflow": null,
+   "results": {
+    "bare": [
+     {
+      "stage": 1,
+      "pointer": "",
+      "code": "shape_type",
+      "message": "/: must be object"
+     }
+    ],
+    "full": [
+     {
+      "stage": 1,
+      "pointer": "",
+      "code": "shape_type",
+      "message": "/: must be object"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:shape-array",
+   "workflow": [],
+   "results": {
+    "bare": [
+     {
+      "stage": 1,
+      "pointer": "",
+      "code": "shape_type",
+      "message": "/: must be object"
+     }
+    ],
+    "full": [
+     {
+      "stage": 1,
+      "pointer": "",
+      "code": "shape_type",
+      "message": "/: must be object"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:shape-empty",
+   "workflow": {},
+   "results": {
+    "bare": [
+     {
+      "stage": 1,
+      "pointer": "/edges",
+      "code": "shape_required",
+      "message": "/edges: edges is required"
+     },
+     {
+      "stage": 1,
+      "pointer": "/name",
+      "code": "shape_required",
+      "message": "/name: name is required"
+     },
+     {
+      "stage": 1,
+      "pointer": "/nodes",
+      "code": "shape_required",
+      "message": "/nodes: nodes is required"
+     },
+     {
+      "stage": 1,
+      "pointer": "/schemaVersion",
+      "code": "shape_required",
+      "message": "/schemaVersion: schemaVersion is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 1,
+      "pointer": "/edges",
+      "code": "shape_required",
+      "message": "/edges: edges is required"
+     },
+     {
+      "stage": 1,
+      "pointer": "/name",
+      "code": "shape_required",
+      "message": "/name: name is required"
+     },
+     {
+      "stage": 1,
+      "pointer": "/nodes",
+      "code": "shape_required",
+      "message": "/nodes: nodes is required"
+     },
+     {
+      "stage": 1,
+      "pointer": "/schemaVersion",
+      "code": "shape_required",
+      "message": "/schemaVersion: schemaVersion is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:shape-missing-edges",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "x",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     }
+    ]
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 1,
+      "pointer": "/edges",
+      "code": "shape_required",
+      "message": "/edges: edges is required"
+     }
+    ],
+    "full": [
+     {
+      "stage": 1,
+      "pointer": "/edges",
+      "code": "shape_required",
+      "message": "/edges: edges is required"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:shape-bad-version",
+   "workflow": {
+    "schemaVersion": 2,
+    "name": "x",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     }
+    ],
+    "edges": []
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 1,
+      "pointer": "/schemaVersion",
+      "code": "shape_const",
+      "message": "/schemaVersion: must be equal to constant"
+     }
+    ],
+    "full": [
+     {
+      "stage": 1,
+      "pointer": "/schemaVersion",
+      "code": "shape_const",
+      "message": "/schemaVersion: must be equal to constant"
+     }
+    ]
+   }
+  },
+  {
+   "name": "hand:shape-extra",
+   "workflow": {
+    "schemaVersion": 1,
+    "name": "x",
+    "nodes": [
+     {
+      "id": "t1",
+      "type": "trigger.manual@1",
+      "config": {}
+     }
+    ],
+    "edges": [],
+    "extra": 1
+   },
+   "results": {
+    "bare": [
+     {
+      "stage": 1,
+      "pointer": "/extra",
+      "code": "shape_additionalProperties",
+      "message": "/extra: extra is not allowed"
+     }
+    ],
+    "full": [
+     {
+      "stage": 1,
+      "pointer": "/extra",
+      "code": "shape_additionalProperties",
+      "message": "/extra: extra is not allowed"
+     }
+    ]
+   }
+  }
+ ]
+}

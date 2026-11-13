@@ -49,6 +49,7 @@ const SPECIFIC_ISSUES: Readonly<Record<string, MessageKey>> = Object.freeze({
   unknown_connection: 'recipes.issue.unknown_connection',
   [CONNECTION_KIND_CODE]: 'recipes.issue.connection_kind_mismatch',
   inside_watched_folder: 'recipes.issue.inside_watched_folder',
+  rule_violation: 'recipes.issue.rule_violation',
   cron_expression: 'recipes.issue.cron_expression',
   config_rule: 'recipes.issue.config',
 })

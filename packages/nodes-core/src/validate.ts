@@ -25,6 +25,7 @@ import { Settings } from 'typebox/system'
 import Value from 'typebox/value'
 import { declaredBranches } from './branches'
 import { assertPathAllowed } from './guard'
+import { policyIssues, type Policy } from './policy'
 import type { NodeRegistry } from './registry'
 import { fieldRoles, valueAtPointer } from './roles'
 import type { NodeDefinition } from './types'
@@ -34,6 +35,7 @@ export interface ValidateEnv {
   registry: NodeRegistry
   allowedRoots?: string[]
   connections?: readonly string[]
+  policy?: Policy
   stages?: readonly IssueStage[]
 }
 
@@ -529,6 +531,7 @@ function semanticIssues(wf: Workflow, env: ValidateEnv): PlanIssue[] {
   })
   checker.branches()
   issues.push(...watchedFolderIssues(wf, env.registry))
+  issues.push(...policyIssues(wf, env.policy))
   return issues
 }
 

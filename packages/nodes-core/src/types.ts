@@ -29,6 +29,7 @@ export interface NodeContext {
   allowedRoots: string[] | undefined
   connections: ConnectionResolver
   llm?: LlmProvider
+  hostAllowed?(url: string): boolean
 }
 
 export const FIELD_ROLES = ['path', 'url', 'connection', 'recipient', 'message'] as const

@@ -38,6 +38,7 @@ first.
 | `path_outside_roots` | 3 | error | a literal path (role `path`) fails the path guard for the allowed roots; hint lists them |
 | `inside_watched_folder` | 3 | error | an action writes a file into a folder that a `trigger.folderWatch` watches and the trigger's pattern matches the file name, so every write would start the workflow again; the hint carries the fix; see the engine README, "Workflow checks" |
 | `unknown_connection` | 3 | error | a literal connection name (role `connection`) is not configured; hint lists the names |
+| `rule_violation` | 3 | error | the workflow breaks a rule the user set (`env.policy`): a forbidden node type (every version, pointer `/nodes/i/type`), or an `http.request` URL (pointer `/nodes/i/config/url`) whose host is not in the allowed hosts, cannot be judged before the run because a template reference sits in its scheme or host part, or is not a valid absolute http or https URL; the hint lists the allowed hosts. With no policy, or an empty one, the code never appears; see the engine README, "Rules" |
 
 Known gap: placeholders stand for the upstream type, not its value, so a nullable number flowing into an
 integer field passes the config check and is reported only as the two warnings above; a pattern, range or

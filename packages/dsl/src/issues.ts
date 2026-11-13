@@ -51,6 +51,7 @@ export const ISSUE_CODES = [
   'path_outside_roots',
   'unknown_connection',
   'inside_watched_folder',
+  'rule_violation',
 ] as const
 
 export type IssueCode = (typeof ISSUE_CODES)[number]
