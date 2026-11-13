@@ -56,6 +56,13 @@ export interface PlanConnection {
 
 export type PlanRules = Policy
 
+export interface PlanAgent {
+  id: string
+  name: string
+  persona: string
+  instructions: string
+}
+
 export interface PlanContext {
   connections: PlanConnection[]
   allowedRoots: string[]
@@ -63,6 +70,7 @@ export interface PlanContext {
   attachmentsRoot: string
   memory?: readonly string[]
   rules?: PlanRules
+  agent?: PlanAgent
 }
 
 export interface PlanRequest {
@@ -119,6 +127,8 @@ export interface PlanProviderMeta {
   costNote?: string
   memoryUsed: number
   memoryDropped: number
+  agentUsed?: { id: string; name: string }
+  agentDropped: number
 }
 
 export type PlanErrorKind = 'invalid_request' | 'invalid_after_repair' | 'provider' | 'aborted' | 'attachment'

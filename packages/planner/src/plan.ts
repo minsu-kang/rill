@@ -1,6 +1,7 @@
 import { capIssues, isWarningIssue, type PlanIssue, type Workflow } from '@rill/dsl'
 import { EFFORT_LEVELS, LlmError, capabilitiesOf, costUsd, type LlmCapabilities, type LlmMessage, type LlmPart, type LlmRequest, type LlmResult, type LlmUsage } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
+import { agentPlacement, buildAgentPrompt, type AgentPrompt } from './agent'
 import { ATTACHMENT_RULES, attachmentModule } from './attachments'
 import { createNameGuard } from './attachments/names'
 import { fold } from './attachments/normalize'
@@ -144,6 +145,7 @@ class Run {
   private readonly effort: ResolvedEffort
   private readonly cappedByRule: boolean
   private readonly memory: MemoryPrompt
+  private readonly agent: AgentPrompt
   private readonly trusted: string[]
   private attachmentTexts: string[] = []
   private readonly provenanceCache = createProvenanceCache()
@@ -163,7 +165,9 @@ class Run {
     const cap = request.maxEffort
     this.cappedByRule = cap !== undefined && EFFORT_LEVELS.indexOf(request.effort) > EFFORT_LEVELS.indexOf(cap)
     this.effort = resolveEffort(this.capabilities, this.cappedByRule ? cap! : request.effort)
-    this.memory = buildMemoryPrompt(request.context.memory, this.attachments.randomHex ?? defaultRandomHex)
+    const randomHex = this.attachments.randomHex ?? defaultRandomHex
+    this.agent = buildAgentPrompt(request.context.agent, randomHex)
+    this.memory = buildMemoryPrompt(request.context.memory, randomHex)
     this.trusted = trustedTexts(request)
     this.mode = request.selection === undefined ? 'create' : 'patch'
     this.allowQuestions = questionTurnsSinceLastWorkflow(request.turns) < MAX_QUESTION_TURNS
@@ -320,9 +324,11 @@ class Run {
   }
 
   private baseRequest(messages: LlmMessage[], schema: Record<string, unknown>): LlmRequest {
-    const memory = this.memory.text === '' ? undefined : { text: this.memory.text, placement: memoryPlacement(this.capabilities, cachedParts(messages)) }
+    const cached = cachedParts(messages)
+    const memory = this.memory.text === '' ? undefined : { text: this.memory.text, placement: memoryPlacement(this.capabilities, cached) }
+    const agent = this.agent.text === '' ? undefined : { text: this.agent.text, placement: agentPlacement(this.capabilities, cached, memory?.placement) }
     return {
-      system: systemBlocks(this.registry, this.hasAttachments() ? ATTACHMENT_RULES : undefined, memory),
+      system: systemBlocks(this.registry, this.hasAttachments() ? ATTACHMENT_RULES : undefined, memory, agent),
       messages,
       schema,
       maxTokens: EFFORT_BUDGETS[this.effort.effective].maxTokens,
@@ -383,6 +389,8 @@ class Run {
       ...(capped ? {} : { costNote: SOFT_CAP_NOTE }),
       memoryUsed: this.memory.used.length,
       memoryDropped: this.memory.dropped,
+      ...(this.agent.used ? { agentUsed: { id: this.request.context.agent!.id, name: this.request.context.agent!.name } } : {}),
+      agentDropped: this.agent.dropped,
     }
   }
 

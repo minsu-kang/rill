@@ -1,5 +1,6 @@
 import { LlmError, capabilitiesOf, type LlmPart, type LlmProvider, type LlmResult, type LlmUsage } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
+import { buildAgentPrompt } from '../agent'
 import { defaultRandomHex } from '../attachments/prepare'
 import type { RandomHex } from '../attachments/prepare'
 import { SOFT_CAP_HEADROOM, resolveEffort } from '../capabilities'
@@ -55,6 +56,8 @@ export function createExplainer(deps: ExplainerDeps): Explainer {
       const budget = EXPLAIN_BUDGETS[resolved.effective as ExplainEffort] ?? EXPLAIN_BUDGETS.high
       const timeoutMs = capabilities.reasoningCappedByMaxTokens ? budget.timeoutMs : budget.timeoutMs * SOFT_CAP_HEADROOM
       const tag = newTag(randomHex)
+      const agentText = buildAgentPrompt(input.agent, randomHex).text
+      const system = agentText === '' ? [{ text: EXPLAIN_RULES }] : [{ text: EXPLAIN_RULES }, { text: agentText }]
       const digest = buildRunDigest({ ...input, registry })
       const dataText = digest.text.replace(new RegExp(`</?${tag}>?`, 'gi'), '<hidden>')
       const signals = failureSignals(input.steps, registry, input.workflow)
@@ -111,7 +114,7 @@ export function createExplainer(deps: ExplainerDeps): Explainer {
         let problems: string[]
         try {
           const result = await provider.generate(
-            { system: [{ text: EXPLAIN_RULES }], messages: [{ role: 'user', content }], schema: explainSchema(), maxTokens: budget.maxTokens, effort: resolved.effective },
+            { system, messages: [{ role: 'user', content }], schema: explainSchema(), maxTokens: budget.maxTokens, effort: resolved.effective },
             { timeoutMs, ...(input.signal === undefined ? {} : { signal: input.signal }) },
           )
           spend(result)

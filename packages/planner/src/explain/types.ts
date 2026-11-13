@@ -1,7 +1,7 @@
 import type { Workflow } from '@rill/dsl'
 import type { LlmUsage } from '@rill/llm'
 import type { NodeRegistry } from '@rill/nodes-core'
-import type { PlanEffortMeta } from '../types'
+import type { PlanAgent, PlanEffortMeta } from '../types'
 
 export const MAX_DIGEST_CHARS = 12_000
 
@@ -69,6 +69,7 @@ export interface ExplainRunInput {
   workflow: Workflow
   registry: NodeRegistry
   secrets: readonly string[]
+  agent?: PlanAgent
 }
 
 export interface RunDigest {

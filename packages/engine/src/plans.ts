@@ -177,6 +177,8 @@ export function plannedRecord(source: PlanSource, planned: PlanResult, createdAt
     ...(planned.meta.costNote === undefined ? {} : { costNote: planned.meta.costNote }),
     memoryUsed: planned.meta.memoryUsed,
     memoryDropped: planned.meta.memoryDropped,
+    ...(planned.meta.agentUsed === undefined ? {} : { agentUsed: { id: planned.meta.agentUsed.id, name: planned.meta.agentUsed.name } }),
+    agentDropped: planned.meta.agentDropped,
   }
   const record: StoredPlan = {
     planId: source.planId,

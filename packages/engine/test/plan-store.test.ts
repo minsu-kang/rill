@@ -499,6 +499,7 @@ describe('plannedRecord', () => {
         reasoningCapped: false,
         memoryUsed: 0,
         memoryDropped: 0,
+        agentDropped: 0,
       },
     }
     const { record } = plannedRecord({ planId: 'p-1', text: 'x', attachments: [], effort: 'medium' }, planned, 1)

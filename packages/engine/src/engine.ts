@@ -9,6 +9,7 @@ import {
   type AttachmentStore,
   type ExplainEffort,
   type ExplainResult,
+  type PlanAgent,
   type PlanConnection,
   type PlanRequest,
   type PlanResult,
@@ -115,6 +116,10 @@ export interface EngineExplainInput {
   effort?: ExplainEffort
   agentId?: string
   signal?: AbortSignal
+}
+
+function planAgent(agent: Agent): PlanAgent {
+  return { id: agent.id, name: agent.name, persona: agent.persona, instructions: agent.instructions }
 }
 
 export class WorkflowValidationError extends Error {
@@ -324,6 +329,7 @@ export class Engine {
           ...(existingWorkflow === undefined ? {} : { existingWorkflow }),
           ...(notes.length === 0 ? {} : { memory: notes.map((note) => note.text) }),
           ...(isEmptyPolicy(policy) ? {} : { rules: policy }),
+          ...(agent === undefined ? {} : { agent: planAgent(agent) }),
         },
         signal,
       }
@@ -444,7 +450,7 @@ export class Engine {
     const run = this.store.getRunSummary(input.runId)
     const llm = this.llm
     if (llm === undefined) throw new LlmUnavailableError('explaining')
-    this.resolveAgent(input.agentId)
+    const agent = this.resolveAgent(input.agentId)
     if (this.pendingExplains.size >= this.maxConcurrentExplains) throw new ExplainBusyError(this.maxConcurrentExplains)
     const steps = this.store.listStepDetails(input.runId)
     if (!isExplainable(run, steps)) throw new RunNotExplainableError()
@@ -476,6 +482,7 @@ export class Engine {
       workflow,
       registry: this.registry,
       secrets,
+      ...(agent === undefined ? {} : { agent: planAgent(agent) }),
       ...(input.effort === undefined ? {} : { effort: input.effort }),
       signal: controller.signal,
     })

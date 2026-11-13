@@ -5,6 +5,7 @@ import { catalogText } from './catalog'
 import { encodeGeneration } from './generation'
 import { HIDDEN_FIELDS, withoutHiddenValues } from './hidden'
 import { MASK } from './mask'
+import type { AgentPlacement } from './agent'
 import type { MemoryPlacement } from './memory'
 import { MAX_QUESTION_TURNS, MAX_QUESTIONS } from './questions'
 import type { PlanEffort, PlanRequest, PlanRules, PlanTurn } from './types'
@@ -51,11 +52,17 @@ export interface MemorySystemInput {
   placement: MemoryPlacement
 }
 
-export function systemBlocks(registry: NodeRegistry, attachmentRules?: string, memory?: MemorySystemInput): LlmSystemBlock[] {
+export interface AgentSystemInput {
+  text: string
+  placement: AgentPlacement
+}
+
+export function systemBlocks(registry: NodeRegistry, attachmentRules?: string, memory?: MemorySystemInput, agent?: AgentSystemInput): LlmSystemBlock[] {
   const rules = attachmentRules === undefined || attachmentRules === '' ? PLANNER_RULES : `${PLANNER_RULES}\n\n${attachmentRules}`
-  const catalog = catalogText(registry)
-  if (memory === undefined || memory.text === '') return [{ text: rules }, { text: catalog, cache: true }]
-  return [{ text: rules }, { text: catalog, cache: true }, memory.placement === 'marked' ? { text: memory.text, cache: true } : { text: memory.text }]
+  const blocks: LlmSystemBlock[] = [{ text: rules }, { text: catalogText(registry), cache: true }]
+  if (agent !== undefined && agent.text !== '') blocks.push(agent.placement === 'marked' ? { text: agent.text, cache: true } : { text: agent.text })
+  if (memory !== undefined && memory.text !== '') blocks.push(memory.placement === 'marked' ? { text: memory.text, cache: true } : { text: memory.text })
+  return blocks
 }
 
 export function renderAnswers(answers: Readonly<Record<string, string>> | undefined): string {
