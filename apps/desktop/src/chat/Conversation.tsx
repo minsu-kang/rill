@@ -2,6 +2,7 @@ import type { AttachmentRef, NodeInfo } from '@rill/protocol'
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { agentIdForRequest, errorCodeOf, sendsAgentText, useAgents } from '../engine/agents'
 import type { EngineClient } from '../engine/client'
+import { useRules } from '../engine/rules'
 import { useT, type MessageKey } from '../i18n'
 import { ClampedText } from './ClampedText'
 import { Composer, type AttachmentPort, type ComposerProps } from './Composer'
@@ -67,6 +68,7 @@ export function Conversation(props: ConversationProps) {
   const { client, port, catalog, hints, editContext, newId, onDeployed, onClearEditContext, modelsState, onRetryModels, memoryCount, tabId, panelId, labelledBy, hidden, active, canOpenNew, onNewChat, initialEntries, initialDraft } = props
   const t = useT()
   const { state: agentsState, store: agentsStore } = useAgents(client)
+  const { cap: effortCap } = useRules(client)
   const [state, dispatch] = useReducer(conversationReducer, undefined, () => ({
     ...initialConversation(),
     entries: [...(initialEntries ?? [])],
@@ -329,6 +331,7 @@ export function Conversation(props: ConversationProps) {
           models={models}
           memoryCount={memoryCount}
           agentSent={sendsAgentText(agentsState)}
+          effortCap={effortCap}
           editContext={editContext}
           port={port}
           busy={planning}

@@ -1,4 +1,4 @@
-import { RillError, type Agent, type MethodName, type MethodParams, type MethodResult } from '@rill/protocol'
+import { RillError, type Agent, type MethodName, type MethodParams, type MethodResult, type Rule } from '@rill/protocol'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useMemo, useState, type ReactNode } from 'react'
 import type { EngineClient } from '../engine/client'
@@ -6,6 +6,7 @@ import { createFakeClient } from '../engine/fake-client'
 import { withPlanMethods, type FakePlanData } from '../engine/fake-plan'
 import { catalog, fakeData } from '../fixtures'
 import { agentFixtures } from '../fixtures/agents'
+import { ruleFixtures } from '../fixtures/rules'
 import { memoryFixtures, metas, models, modelsNothingConfigured, outcomeOf, results } from '../fixtures/plan'
 import { useT } from '../i18n'
 import { ChatPanel, type ChatPanelProps } from './ChatPanel'
@@ -60,6 +61,7 @@ interface World {
   delayMs?: number
   agents?: readonly Agent[]
   activeAgentId?: string
+  rules?: readonly Rule[]
 }
 
 function clientOf(world: World, entries: readonly ConversationEntry[] = []): EngineClient {
@@ -71,6 +73,7 @@ function clientOf(world: World, entries: readonly ConversationEntry[] = []): Eng
     delayMs: world.delayMs ?? 600,
     ...(world.agents === undefined ? {} : { agents: world.agents }),
     ...(world.activeAgentId === undefined ? {} : { activeAgentId: world.activeAgentId }),
+    ...(world.rules === undefined ? {} : { rules: world.rules }),
     seed: entries.flatMap((entry) => (entry.role === 'assistant' && entry.deployed === undefined ? [{ planId: entry.planId, result: entry.result }] : [])),
   })
   const request = <M extends MethodName>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> => client.request(method, params)
@@ -104,6 +107,17 @@ const errorsWorld: World = { script: errors, delayMs: 200 }
 const nothingWorld: World = { script: plainWorld.script, models: modelsNothingConfigured }
 const patchWorld: World = { script: () => () => outcomeOf(results.patch) }
 const agentWorld: World = { script: () => () => outcomeOf(results.workflow, metas.agent), agents: agentFixtures.few, activeAgentId: 'agent-terse' }
+const cappedWorld: World = { script: () => () => outcomeOf(results.workflow, metas.capped), rules: ruleFixtures.capOnly }
+const ruleErrorsWorld: World = {
+  script: () =>
+    cycle([
+      new RillError('PLAN_INVALID', 'x', ['rule_violation at /nodes/2/type']),
+      new RillError('PLAN_INVALID', 'x', ['rule_violation at /nodes/3/config/url']),
+      new RillError('PLAN_INVALID', 'x', ['rule_violation at /nodes/2/type', 'rule_violation at /nodes/3/config/url']),
+      outcomeOf(results.workflow),
+    ]),
+  delayMs: 200,
+}
 const hostileAgentWorld: World = { script: plainWorld.script, agents: agentFixtures.hostile, activeAgentId: 'agent-hostile' }
 
 const user = (text: string, extra: Partial<Extract<ConversationEntry, { role: 'user' }>> = {}): ConversationEntry => ({ role: 'user', text, attachments: [], ...extra })
@@ -144,6 +158,10 @@ export const NothingConfigured: Story = { name: 'Nothing configured', args: unus
 export const LongConversation: Story = { name: 'Long conversation', args: unused, render: () => <Demo world={plainWorld} initialEntries={longConversation()} /> }
 
 export const WithAnAgent: Story = { name: 'With an agent', args: unused, render: () => <Demo world={agentWorld} initialDraft="폴더에 영수증이 들어오면 CSV에 적어 줘" /> }
+
+export const EffortCapFromARule: Story = { name: 'Effort cap from a rule', args: unused, render: () => <Demo world={cappedWorld} initialDraft="폴더에 영수증이 들어오면 CSV에 적어 줘" /> }
+
+export const ErrorsFromRules: Story = { name: 'Errors from rules (each send fails differently)', args: unused, render: () => <Demo world={ruleErrorsWorld} initialDraft="폴더에 영수증이 들어오면 CSV에 적어 줘" /> }
 
 export const HostileAgentName: Story = { name: 'Hostile agent name', args: unused, render: () => <Demo world={hostileAgentWorld} /> }
 

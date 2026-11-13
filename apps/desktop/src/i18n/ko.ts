@@ -2,6 +2,7 @@ import { agentsKo } from './agents.ko'
 import { appKo } from './app.ko'
 import { explainKo } from './explain.ko'
 import { recipesKo } from './recipes.ko'
+import { rulesKo } from './rules.ko'
 import { chatKo } from './chat.ko'
 
 export const ko = {
@@ -81,5 +82,6 @@ export const ko = {
   ...recipesKo,
   ...chatKo,
   ...agentsKo,
+  ...rulesKo,
   ...appKo,
 }

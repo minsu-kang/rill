@@ -34,14 +34,27 @@ const RULES: Readonly<Record<string, MessageKey>> = {
   too_long: 'chat.memory.rule.too_long',
 }
 
+const RULE_ISSUE = /^rule_violation at \/nodes\/\d+\/(type|config\/url)$/
+const RULE_SENSITIVE: ReadonlySet<string> = new Set(['PLAN_INVALID', 'INVALID_WORKFLOW', 'RULE_VIOLATION'])
+
 function codeOf(error: unknown): string | undefined {
   if (typeof error !== 'object' || error === null) return undefined
   const code = (error as { code?: unknown }).code
   return typeof code === 'string' ? code : undefined
 }
 
+function ruleErrorKey(code: string, error: unknown): MessageKey | undefined {
+  if (!RULE_SENSITIVE.has(code)) return undefined
+  const problems = (error as { problems?: unknown }).problems
+  const kinds = new Set((Array.isArray(problems) ? problems : []).flatMap((problem) => (typeof problem === 'string' ? (RULE_ISSUE.exec(problem)?.[1] ?? []) : [])))
+  if (kinds.size === 0) return code === 'RULE_VIOLATION' ? 'chat.error.rule.both' : undefined
+  return kinds.size === 2 ? 'chat.error.rule.both' : kinds.has('type') ? 'chat.error.rule.node' : 'chat.error.rule.host'
+}
+
 export function planErrorKey(error: unknown): MessageKey {
   const code = codeOf(error)
+  const ruled = code === undefined ? undefined : ruleErrorKey(code, error)
+  if (ruled !== undefined) return ruled
   return code !== undefined && Object.hasOwn(KEYS, code) ? KEYS[code]! : 'chat.error.generic'
 }
 

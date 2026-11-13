@@ -198,6 +198,7 @@ export const appKo = {
   'app.wf.hint.dryRunFirst': '활성화하기 전에 시험 실행으로 먼저 확인해 보세요.',
   'app.wf.manualHint': '수동 워크플로우는 활성화하지 않고 “지금 실행”으로 시작해요.',
   'app.wf.error.ACTIVATION_FAILED': '활성화하지 못했어요. 트리거 설정, 연결, 허용 폴더를 확인해 주세요. 수동 트리거는 활성화할 수 없어요.',
+  'app.wf.error.RULE_VIOLATION': '직접 정한 규칙이 이 워크플로우를 막아요. 규칙을 어겨서 활성화하거나 시작할 수 없어요. 에이전트의 규칙 화면에서 어떤 워크플로우가 걸리는지 볼 수 있어요.',
   'app.wf.error.NOT_FOUND': '워크플로우를 찾지 못했어요.',
   'app.wf.error.WORKFLOW_BUSY': '이 워크플로우의 실행이 아직 진행 중이에요. 실행이 끝난 뒤 다시 시도해 주세요.',
   'app.wf.error.WORKFLOW_BUSY_ACTIVE': '이 워크플로우의 실행이 아직 진행 중이에요. 새 실행이 시작되지 않게 먼저 비활성화하고, 실행이 끝난 뒤 다시 시도해 주세요.',

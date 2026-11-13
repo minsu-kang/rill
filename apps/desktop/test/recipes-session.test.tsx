@@ -52,4 +52,30 @@ describe('useRecipeSession', () => {
     await act(async () => result.current.submit(VALUES))
     await waitFor(() => expect(result.current.session).toEqual({ phase: 'failed', key: 'recipes.error.generic' }))
   })
+
+  it('says that a rule refused the workflow when deploy fails with the message of a rule issue', async () => {
+    const base = withRecipeMethods(createFakeClient(fakeData), fixtureRecipeData())
+    const client: EngineClient = {
+      onEvent: (listener) => base.onEvent(listener),
+      request: (method, params) => (method === 'deploy' ? Promise.reject(new RillError('INVALID_WORKFLOW', 'x', ['node check: the host evil.example is not in the allowed hosts'])) : base.request(method, params)),
+    }
+    const { result } = renderHook(() => useRecipeSession(client, 'daily-health-check'))
+    await act(async () => result.current.submit(VALUES))
+    await waitFor(() => expect(result.current.session.phase).toBe('draft'))
+    await act(async () => result.current.deploy())
+    await waitFor(() => expect(result.current.session).toMatchObject({ phase: 'draft', deploy: { phase: 'failed', key: 'recipes.deployError.rule' } }))
+  })
+
+  it('keeps the old text when deploy fails for another reason', async () => {
+    const base = withRecipeMethods(createFakeClient(fakeData), fixtureRecipeData())
+    const client: EngineClient = {
+      onEvent: (listener) => base.onEvent(listener),
+      request: (method, params) => (method === 'deploy' ? Promise.reject(new RillError('INVALID_WORKFLOW', 'x', ['node check: the field url is required'])) : base.request(method, params)),
+    }
+    const { result } = renderHook(() => useRecipeSession(client, 'daily-health-check'))
+    await act(async () => result.current.submit(VALUES))
+    await waitFor(() => expect(result.current.session.phase).toBe('draft'))
+    await act(async () => result.current.deploy())
+    await waitFor(() => expect(result.current.session).toMatchObject({ phase: 'draft', deploy: { phase: 'failed', key: 'recipes.deployError.invalid' } }))
+  })
 })

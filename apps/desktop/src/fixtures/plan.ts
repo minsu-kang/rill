@@ -34,6 +34,7 @@ export function metaOf(overrides: Partial<PlanMeta> = {}): PlanMeta {
 export const metas = {
   plain: metaOf(),
   collapsed: metaOf({ effort: 'high', effortDetail: { requested: 'xhigh', effective: 'high', native: 'high', collapsed: true, cappedByRule: false } }),
+  capped: metaOf({ effort: 'medium', effortDetail: { requested: 'xhigh', effective: 'medium', native: 'medium', collapsed: false, cappedByRule: true } }),
   nullCost: metaOf({ costUsd: null }),
   memory: metaOf({ memoryUsed: 3 }),
   memoryDropped: metaOf({ memoryUsed: 18, memoryDropped: 2 }),

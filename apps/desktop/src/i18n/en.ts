@@ -4,6 +4,7 @@ import { chatEn } from './chat.en'
 import type { ko } from './ko'
 import { explainEn } from './explain.en'
 import { recipesEn } from './recipes.en'
+import { rulesEn } from './rules.en'
 
 export const en: Record<keyof typeof ko, string> = {
   'app.name': 'Rill',
@@ -82,5 +83,6 @@ export const en: Record<keyof typeof ko, string> = {
   ...recipesEn,
   ...chatEn,
   ...agentsEn,
+  ...rulesEn,
   ...appEn,
 }

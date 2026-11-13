@@ -2,6 +2,7 @@ import type { RecipeDraft, RecipeInfo, RecipeValues } from '@rill/protocol'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { EngineClient } from '../engine/client'
 import type { MessageKey } from '../i18n'
+import { isRuleMessage } from '../model/rules'
 
 export type RecipeListStatus = 'loading' | 'ready' | 'error'
 
@@ -82,6 +83,11 @@ function problemsOf(error: unknown): string[] {
   return Array.isArray(problems) ? problems.filter((problem): problem is string => typeof problem === 'string') : []
 }
 
+function deployErrorKey(error: unknown): MessageKey {
+  if (codeOf(error) === 'INVALID_WORKFLOW' && problemsOf(error).some(isRuleMessage)) return 'recipes.deployError.rule'
+  return keyFor(DEPLOY_ERRORS, error, 'recipes.deployError.generic')
+}
+
 function keyFor(table: Readonly<Record<string, MessageKey>>, error: unknown, fallback: MessageKey): MessageKey {
   const code = codeOf(error)
   return code !== undefined && Object.hasOwn(table, code) ? table[code]! : fallback
@@ -139,7 +145,7 @@ export function useRecipeSession(client: EngineClient, recipeId: string, onDeplo
       },
       (error: unknown) => {
         busy.current = false
-        if (alive.current) setSession({ phase: 'draft', draft, deploy: { phase: 'failed', key: keyFor(DEPLOY_ERRORS, error, 'recipes.deployError.generic') } })
+        if (alive.current) setSession({ phase: 'draft', draft, deploy: { phase: 'failed', key: deployErrorKey(error) } })
       },
     )
   }, [client, session])

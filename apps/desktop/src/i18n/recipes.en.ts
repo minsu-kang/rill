@@ -92,6 +92,7 @@ export const recipesEn: Record<keyof typeof recipesKo, string> = {
   'recipes.preview.another': 'Pick another recipe',
   'recipes.deployError.invalid': 'The server did not accept this workflow.',
   'recipes.deployError.generic': 'Could not deploy.',
+  'recipes.deployError.rule': 'A rule you set does not allow this workflow, so it was not deployed. Change the rule on the Rules screen, or go back and change the values.',
   'recipes.error.notFound': 'This recipe could not be found.',
   'recipes.error.params': 'The values that were sent are not valid.',
   'recipes.error.generic': 'Could not create the draft.',

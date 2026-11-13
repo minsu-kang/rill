@@ -19,9 +19,11 @@ export function MetaLine({ meta }: MetaLineProps) {
     <ul className={styles.list} aria-label={t('chat.meta.label')}>
       <li>{t('chat.meta.model', { model: markHidden(meta.model) })}</li>
       <li>
-        {detail?.collapsed === true
-          ? t('chat.meta.effortLowered', { requested: care(detail.requested), effective: care(detail.effective) })
-          : t('chat.meta.effort', { effort: care(detail?.effective ?? meta.effort) })}
+        {detail?.cappedByRule === true
+          ? t('chat.meta.effortCapped', { requested: care(detail.requested), effective: care(detail.effective) })
+          : detail?.collapsed === true
+            ? t('chat.meta.effortLowered', { requested: care(detail.requested), effective: care(detail.effective) })
+            : t('chat.meta.effort', { effort: care(detail?.effective ?? meta.effort) })}
       </li>
       <li>{meta.costUsd === null ? t('chat.meta.costUnknown') : t('chat.meta.costUpperBound', { cost: formatUsd(meta.costUsd, locale) })}</li>
       {meta.memoryUsed !== undefined && meta.memoryUsed > 0 ? <li>{t('chat.meta.memoryUsed', { count: meta.memoryUsed })}</li> : null}

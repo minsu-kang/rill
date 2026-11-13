@@ -10,7 +10,7 @@ import { useEngineConnection } from './connection'
 import controls from './controls.module.css'
 import { FirstRunCard, firstRunDone, type FirstRunTarget } from './FirstRunCard'
 import { ActionConfirm } from './ActionConfirm'
-import { AgentsScreen } from './agents/AgentsScreen'
+import { AgentsTab, type AgentsSectionId } from './agents/AgentsTab'
 import { COMPOSER, fillChatDraft, handleExplainAction, nodeExists, type ConfirmText, type ExplainActionDeps } from './glue/actions'
 import { createAttachmentPort } from './glue/attachments'
 import { useHostConfigured } from './glue/host-models'
@@ -38,6 +38,7 @@ export interface AppProps {
     runId?: string
     nodeId?: string
     settingsSection?: SettingsSectionId
+    agentsSection?: AgentsSectionId
     chatOpen?: boolean
   }
 }
@@ -63,6 +64,7 @@ export function App({ initial = {} }: AppProps) {
   const selection = useSelection(initial)
   const [tab, setTab] = useState<AppTab>(initial.tab ?? 'workflows')
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>(initial.settingsSection ?? 'folders')
+  const [agentsSection, setAgentsSection] = useState<AgentsSectionId>(initial.agentsSection ?? 'agents')
   const [chatOpen, setChatOpen] = useState(initial.chatOpen ?? false)
   const [chatFocus, setChatFocus] = useState(0)
   const [notice, setNotice] = useState<NoticeData | undefined>(undefined)
@@ -267,7 +269,7 @@ export function App({ initial = {} }: AppProps) {
         </p>
       ) : (
         <fieldset className={styles.reset} disabled={!connected}>
-          <AgentsScreen client={client} files={host.dialogs} />
+          <AgentsTab client={client} catalog={data.catalog} files={host.dialogs} section={agentsSection} onSectionChange={setAgentsSection} />
         </fieldset>
       )
   } else {

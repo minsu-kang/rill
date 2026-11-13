@@ -12,9 +12,12 @@ import {
   type MethodResult,
   type PlanMeta,
   type PlanResultBody,
+  type Rule,
 } from '@rill/protocol'
+import { baseNodeType } from '../model/rules'
 import type { EngineClient } from './client'
 import { createFakeAgents, type FakeAgents } from './fake-agents'
+import { createFakeRules, metaUnderCap, type FakeRules, type RuleViolationScript } from './fake-rules'
 
 export type PlanOutcome = { result: PlanResultBody; meta: PlanMeta }
 
@@ -24,6 +27,8 @@ export interface FakePlanData {
   memory: MemoryItem[]
   agents?: readonly Agent[]
   activeAgentId?: string
+  rules?: readonly Rule[]
+  violations?: RuleViolationScript
   deployId?: string
   delayMs?: number
   now?: () => number
@@ -42,6 +47,10 @@ const HANDLED = [
   'saveAgent',
   'deleteAgent',
   'setActiveAgent',
+  'listRules',
+  'saveRule',
+  'deleteRule',
+  'checkRules',
 ] as const satisfies readonly MethodName[]
 type Handled = (typeof HANDLED)[number]
 
@@ -90,7 +99,7 @@ interface PlanRecord {
   workflowId?: string
 }
 
-export type FakePlanClient = EngineClient & { pendingPlans(): string[]; planAgentIds(): Array<string | undefined>; agents: FakeAgents }
+export type FakePlanClient = EngineClient & { pendingPlans(): string[]; planAgentIds(): Array<string | undefined>; agents: FakeAgents; rules: FakeRules }
 
 export function withPlanMethods(client: EngineClient, data: FakePlanData): FakePlanClient {
   const records = new Map<string, PlanRecord>()
@@ -99,6 +108,7 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): FakeP
   const memory: MemoryItem[] = structuredClone(data.memory)
   const now = data.now ?? Date.now
   const agents = createFakeAgents({ ...(data.agents === undefined ? {} : { agents: data.agents }), ...(data.activeAgentId === undefined ? {} : { activeId: data.activeAgentId }), now })
+  const rules = createFakeRules({ ...(data.rules === undefined ? {} : { rules: data.rules }), ...(data.violations === undefined ? {} : { violations: data.violations }), now })
   const planAgents: Array<string | undefined> = []
   let memorySerial = 0
   let deploySerial = 0
@@ -125,7 +135,7 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): FakeP
         }
         const flagKeys = answer.result.kind === 'workflow' ? answer.result.flags.map(flagKey) : []
         records.set(params.planId, { result: structuredClone(answer.result), flagKeys })
-        resolve({ planId: params.planId, result: structuredClone(answer.result), meta: structuredClone(answer.meta) })
+        resolve({ planId: params.planId, result: structuredClone(answer.result), meta: structuredClone(metaUnderCap(answer.meta, params.effort, rules.cap())) })
       }
       if ((data.delayMs ?? 0) > 0) setTimeout(finish, data.delayMs)
       else queueMicrotask(finish)
@@ -193,6 +203,13 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): FakeP
     saveAgent: (params) => agents.save(params),
     deleteAgent: (params) => agents.remove(params),
     setActiveAgent: (params) => agents.setActive(params),
+    listRules: () => rules.list(),
+    saveRule: async (params) => {
+      const { nodes } = await client.request('nodeCatalog', {})
+      return rules.save(params, new Set(nodes.map((node) => baseNodeType(node.type))))
+    },
+    deleteRule: (params) => rules.remove(params),
+    checkRules: () => rules.check(),
   }
 
   return {
@@ -207,5 +224,6 @@ export function withPlanMethods(client: EngineClient, data: FakePlanData): FakeP
     pendingPlans: () => [...pending.keys()],
     planAgentIds: () => [...planAgents],
     agents,
+    rules,
   }
 }

@@ -20,7 +20,7 @@ const MODES = [
   { name: 'English, dark', globals: { theme: 'dark', locale: 'en' } },
 ] as const
 
-const KEY_LIKE = /\b(?:app|status|run|badge|node|graph|inspector|json|history|time|workspace|explain|recipes|chat|agents)\.[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*)*/g
+const KEY_LIKE = /\b(?:app|status|run|badge|node|graph|inspector|json|history|time|workspace|explain|recipes|chat|agents|rules)\.[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*)*/g
 const EVENT_NAMES = new Set(['run.started', 'run.finished'])
 
 function untranslated(text: string): string[] {

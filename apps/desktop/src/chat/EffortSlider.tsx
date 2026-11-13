@@ -2,7 +2,7 @@ import type { LlmModelInfo, PlanEffort } from '@rill/protocol'
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useLocale, useT } from '../i18n'
 import { markHidden } from './model/clamp'
-import { EFFORT_STEPS, stepAvailability, type EffortHint, type EffortStep } from './model/effort'
+import { EFFORT_STEPS, effortLabelOf, stepAvailability, type EffortHint, type EffortStep, type StepReason } from './model/effort'
 import { formatSeconds, formatUsd } from './model/format'
 import styles from './EffortSlider.module.css'
 
@@ -10,6 +10,7 @@ export interface EffortSliderProps {
   value: PlanEffort
   onChange(effort: PlanEffort): void
   model: LlmModelInfo | undefined
+  cap?: PlanEffort
   hints?: readonly EffortHint[]
   disabled?: boolean
   expanded?: boolean
@@ -19,10 +20,10 @@ export interface EffortSliderProps {
 interface Entry {
   step: EffortStep
   enabled: boolean
-  reason?: 'model_unsupported' | 'no_model'
+  reason?: StepReason
 }
 
-export function EffortSlider({ value, onChange, model, hints, disabled = false, expanded: controlled, toggleHidden = false }: EffortSliderProps) {
+export function EffortSlider({ value, onChange, model, cap, hints, disabled = false, expanded: controlled, toggleHidden = false }: EffortSliderProps) {
   const t = useT()
   const locale = useLocale()
   const base = useId()
@@ -30,7 +31,7 @@ export function EffortSlider({ value, onChange, model, hints, disabled = false, 
   const expanded = controlled ?? own
   const refs = useRef(new Map<PlanEffort, HTMLButtonElement>())
   const showAdvanced = expanded || value === 'max'
-  const entries: Entry[] = EFFORT_STEPS.filter((step) => !step.advanced || showAdvanced).map((step) => ({ step, ...stepAvailability(step, model) }))
+  const entries: Entry[] = EFFORT_STEPS.filter((step) => !step.advanced || showAdvanced).map((step) => ({ step, ...stepAvailability(step, model, cap) }))
   const usable = (entry: Entry): boolean => entry.enabled && !disabled
   const tabStop = entries.find((entry) => entry.step.effort === value && usable(entry)) ?? entries.find(usable)
   const current = entries.find((entry) => entry.step.effort === value)
@@ -126,10 +127,10 @@ export function EffortSlider({ value, onChange, model, hints, disabled = false, 
       ) : (
         <ul className={styles.reasons}>
           {entries
-            .filter((entry) => entry.reason === 'model_unsupported')
+            .filter((entry) => entry.reason === 'model_unsupported' || entry.reason === 'rule_cap')
             .map((entry) => (
               <li key={entry.step.effort} id={reasonId(entry.step.effort)}>
-                {t('chat.effort.disabledItem', { step: stepName(entry.step), reason: t('chat.effort.reason.model_unsupported') })}
+                {t('chat.effort.disabledItem', { step: stepName(entry.step), reason: t(entry.reason === 'rule_cap' ? 'chat.effort.reason.rule_cap' : 'chat.effort.reason.model_unsupported') })}
               </li>
             ))}
         </ul>
@@ -137,6 +138,11 @@ export function EffortSlider({ value, onChange, model, hints, disabled = false, 
       {current?.reason === 'model_unsupported' ? (
         <p className={styles.note} role="status">
           {t('chat.effort.willLower')}
+        </p>
+      ) : null}
+      {current?.reason === 'rule_cap' && cap !== undefined ? (
+        <p className={styles.note} role="status">
+          {t('chat.effort.willLowerRule', { cap: t(`chat.effort.${effortLabelOf(cap)}`) })}
         </p>
       ) : null}
       {ordered.length > 0 ? (

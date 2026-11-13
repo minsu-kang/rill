@@ -1,4 +1,4 @@
-import { type AttachmentRef, type LlmModelInfo, type LlmModelsResult } from '@rill/protocol'
+import { type AttachmentRef, type LlmModelInfo, type LlmModelsResult, type PlanEffort } from '@rill/protocol'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { useT } from '../i18n'
 import { AttachmentChips } from './AttachmentChips'
@@ -24,6 +24,7 @@ export interface ComposerProps {
   models: LlmModelsResult | undefined
   memoryCount: number | undefined
   agentSent?: boolean
+  effortCap?: PlanEffort
   editContext?: { workflowId: string; nodeId?: string }
   port: AttachmentPort
   busy: boolean
@@ -260,7 +261,7 @@ export function Composer(props: ComposerProps) {
           {state.draft.length >= SHOW_COUNTER_FROM ? <span className={styles.meta}>{t('chat.composer.counter', { count: state.draft.length, max: MAX_TEXT })}</span> : null}
         </div>
         <div className={styles.effort}>
-          <EffortSlider value={state.effort} onChange={(effort) => props.onChange({ effort })} model={model} hints={hints} disabled={busy} expanded={advanced} toggleHidden />
+          <EffortSlider value={state.effort} onChange={(effort) => props.onChange({ effort })} model={model} cap={props.effortCap} hints={hints} disabled={busy} expanded={advanced} toggleHidden />
         </div>
         <div className={styles.send}>
           {busy ? (

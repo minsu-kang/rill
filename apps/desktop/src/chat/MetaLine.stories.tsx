@@ -23,6 +23,8 @@ export const Plain: Story = {}
 
 export const EffortLowered: Story = { name: 'Effort lowered by the model', args: { meta: metas.collapsed } }
 
+export const EffortCappedByARule: Story = { name: 'Effort capped by a rule', args: { meta: metas.capped } }
+
 export const CostUnknown: Story = { name: 'Cost unknown', args: { meta: metas.nullCost } }
 
 export const NotesUsed: Story = { name: 'Notes used', args: { meta: metas.memory } }

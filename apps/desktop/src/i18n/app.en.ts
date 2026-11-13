@@ -200,6 +200,7 @@ export const appEn: Record<keyof typeof appKo, string> = {
   'app.wf.hint.dryRunFirst': 'Try a dry run first, before you activate.',
   'app.wf.manualHint': 'A manual workflow is not activated. Start it with "Run now".',
   'app.wf.error.ACTIVATION_FAILED': 'Could not activate it. Check the trigger settings, the connections and the allowed folders. A manual trigger cannot be activated.',
+  'app.wf.error.RULE_VIOLATION': 'A rule you set stops this workflow: it breaks a rule, so it cannot be activated or started. Open Agents, then Rules, to see which workflows are affected.',
   'app.wf.error.NOT_FOUND': 'The workflow was not found.',
   'app.wf.error.WORKFLOW_BUSY': 'This workflow still has a run in progress. Try again when it has finished.',
   'app.wf.error.WORKFLOW_BUSY_ACTIVE': 'This workflow still has a run in progress. Deactivate it so that no new run starts, and try again when the run has finished.',

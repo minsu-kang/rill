@@ -90,6 +90,7 @@ export const recipesKo = {
   'recipes.preview.another': '다른 레시피 고르기',
   'recipes.deployError.invalid': '서버가 이 워크플로우를 받아들이지 않았어요.',
   'recipes.deployError.generic': '배포하지 못했어요.',
+  'recipes.deployError.rule': '직접 정한 규칙이 이 워크플로우를 허용하지 않아서 배포하지 않았어요. 규칙 화면에서 규칙을 바꾸거나, 돌아가서 값을 바꿔 주세요.',
   'recipes.error.notFound': '이 레시피를 찾을 수 없어요.',
   'recipes.error.params': '보낸 값이 올바르지 않아요.',
   'recipes.error.generic': '초안을 만들지 못했어요.',

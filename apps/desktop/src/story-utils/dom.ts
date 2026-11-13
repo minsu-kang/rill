@@ -8,3 +8,9 @@ export function typeInto(field: HTMLInputElement | HTMLTextAreaElement | null, t
 export function pause(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
+
+export function chooseOption(select: HTMLSelectElement | null, value: string): void {
+  if (select === null) return
+  select.value = value
+  select.dispatchEvent(new Event('change', { bubbles: true }))
+}

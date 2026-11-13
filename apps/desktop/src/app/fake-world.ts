@@ -10,6 +10,7 @@ import {
   type MethodParams,
   type MethodResult,
   type NodeInfo,
+  type Rule,
 } from '@rill/protocol'
 import Value from 'typebox/value'
 import type { EngineClient } from '../engine/client'
@@ -22,6 +23,7 @@ import { catalog, fakeData } from '../fixtures'
 import { explainCases } from '../fixtures/explain'
 import { memoryFixtures, models, outcomeOf, results } from '../fixtures/plan'
 import { fixtureRecipeData } from '../fixtures/recipes'
+import { baseNodeType, type RuleViolation } from '../model/rules'
 import type { HostApi, Settings } from '../shared/host-api'
 import type { ConnectedClient, ConnectFn } from './connection'
 
@@ -85,6 +87,19 @@ function failureText(node: string): string {
   return `node ${node} failed: HTTP 503 from https://api.example.com/health`
 }
 
+function forbiddenNodeViolations(workflows: Iterable<FakeWorkflow>, rules: readonly Rule[]): RuleViolation[] {
+  const forbidden = new Set(rules.filter((rule) => rule.kind === 'forbidNode').map((rule) => rule.value))
+  if (forbidden.size === 0) return []
+  return [...workflows].flatMap((entry) => {
+    const issues = entry.workflow.nodes.flatMap((node, index) =>
+      forbidden.has(baseNodeType(node.type))
+        ? [{ stage: 3 as const, pointer: `/nodes/${index}/type`, code: 'rule_violation', message: `node ${node.id}: the node type ${baseNodeType(node.type)} is forbidden by the rules` }]
+        : [],
+    )
+    return issues.length === 0 ? [] : [{ workflowId: entry.id, name: entry.workflow.name, issues }]
+  })
+}
+
 export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
   const host = options.host ?? createFakeHost(options.hostInit, options.hostOptions)
   const control: FakeWorldControl = { runOutcome: 'succeeded', activationError: false, stepIntervalMs: 350, ...options.control }
@@ -103,6 +118,7 @@ export function createFakeWorld(options: FakeWorldOptions = {}): FakeWorld {
     models,
     script: options.plan ?? (() => outcomeOf(results.workflow)),
     memory: [...memoryFixtures.three],
+    violations: (rules) => forbiddenNodeViolations(registry.values(), rules),
     ...(options.agents === undefined ? {} : { agents: options.agents }),
     ...(options.activeAgentId === undefined ? {} : { activeAgentId: options.activeAgentId }),
     ...(options.planDelayMs === undefined ? {} : { delayMs: options.planDelayMs }),

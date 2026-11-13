@@ -17,11 +17,11 @@ const HINTS: EffortHint[] = [
   { effort: 'max', costUsd: 0.42, latencyMs: 95_000, basis: 'pilot run, 6 cases' },
 ]
 
-function Demo({ initial, model, hints, disabled }: { initial: PlanEffort; model: LlmModelInfo | undefined; hints?: EffortHint[]; disabled?: boolean }) {
+function Demo({ initial, model, hints, disabled, cap, expanded }: { initial: PlanEffort; model: LlmModelInfo | undefined; hints?: EffortHint[]; disabled?: boolean; cap?: PlanEffort; expanded?: boolean }) {
   const [value, setValue] = useState(initial)
   return (
     <div style={{ width: 420, padding: 'var(--space-4)' }}>
-      <EffortSlider value={value} onChange={setValue} model={model} hints={hints} disabled={disabled} />
+      <EffortSlider value={value} onChange={setValue} model={model} cap={cap} hints={hints} disabled={disabled} expanded={expanded} />
     </div>
   )
 }
@@ -55,3 +55,13 @@ export const WithMeasuredHints: Story = { name: 'With measured hints', args: bas
 export const WithoutHints: Story = { name: 'Without hints', args: base, render: () => <Demo initial="medium" model={opus} /> }
 
 export const Disabled: Story = { args: base, render: () => <Demo initial="high" model={opus} disabled /> }
+
+export const CappedByARule: Story = { name: 'Capped by a rule', args: base, render: () => <Demo initial="low" model={opus} cap="medium" /> }
+
+export const ChosenStepAboveTheCap: Story = { name: 'Chosen step is above the cap', args: base, render: () => <Demo initial="xhigh" model={opus} cap="medium" /> }
+
+export const CappedAtTheLowestStep: Story = { name: 'Capped at the lowest step, advanced step shown', args: base, render: () => <Demo initial="low" model={opus} cap="low" expanded /> }
+
+export const CapAndModelLimit: Story = { name: 'A cap and a model with fewer levels', args: base, render: () => <Demo initial="low" model={haiku} cap="medium" /> }
+
+export const CapBelowEverythingTheModelAllows: Story = { name: 'The cap is the model limit', args: base, render: () => <Demo initial="medium" model={haiku} cap="high" /> }
