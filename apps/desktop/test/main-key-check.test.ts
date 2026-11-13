@@ -98,7 +98,7 @@ describe('key check: the request', () => {
   })
 
   it('sends nothing for a key that cannot be a header value, and says so', async () => {
-    for (const bad of ['sk ant', 'sk\nant', 'sk-ant-…', 'sk\u0000ant', 'sk\tant', 'sk-ä']) {
+    for (const bad of ['sk ant', 'sk\nant', 'sk-ant-…', 'sk\u0000ant', 'sk\tant', 'sk-ä', 'sk\u007fant', 'sk\u200bant']) {
       const { fetch, calls } = recorder()
       expect(await createKeyChecker({ fetch })('anthropic', bad)).toEqual({ status: 'invalid', reason: 'malformed' })
       expect(calls).toHaveLength(0)
@@ -198,6 +198,8 @@ describe('key check: classification', () => {
     expect(await verdict('gemini', 400, '{"error":{"message":"Bad request"}}')).toEqual({ status: 'unverified', reason: 'unexpected_status' })
     expect(await verdict('gemini', 400)).toEqual({ status: 'unverified', reason: 'unexpected_status' })
     expect(await verdict('gemini', 400, GROK_400)).toEqual({ status: 'unverified', reason: 'unexpected_status' })
+    expect(await verdict('gemini', 400, 'API_KEY_INVALI')).toEqual({ status: 'unverified', reason: 'unexpected_status' })
+    expect(await verdict('gemini', 400, 'api_key_invalid')).toEqual({ status: 'unverified', reason: 'unexpected_status' })
   })
 
   it('grok: 400 with the wording about an incorrect or invalid key is invalid, any other 400 is unverified', async () => {
@@ -212,6 +214,13 @@ describe('key check: classification', () => {
   it.each(['anthropic', 'openai', 'meta'] as const)('%s: a 400 is unverified whatever the body says', async (provider) => {
     expect(await verdict(provider, 400, GEMINI_400)).toEqual({ status: 'unverified', reason: 'unexpected_status' })
     expect(await verdict(provider, 400, GROK_400)).toEqual({ status: 'unverified', reason: 'unexpected_status' })
+  })
+
+  it('treats a status outside 200 to 599 as unexpected, never as valid or a server error', async () => {
+    for (const status of [100, 199, 600, 999]) {
+      const fetch: KeyCheckFetch = async () => ({ status, body: null }) as Response
+      expect(await createKeyChecker({ fetch })('anthropic', KEY), String(status)).toEqual({ status: 'unverified', reason: 'unexpected_status' })
+    }
   })
 
   it('classifies a redirect that fetch refuses, a network error and a body failure as unverified', async () => {

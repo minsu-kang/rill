@@ -30,8 +30,26 @@ function held(): string[] {
   return refs.all.map((ref: RefObject<unknown>) => ref.current).filter((value): value is string => typeof value === 'string' && value.includes(MARKER))
 }
 
-function api(): SettingsApi {
-  return { settings: fakeSettings(), apply: () => undefined, reload: async () => undefined }
+function api(configured: Array<'anthropic'> = []): SettingsApi {
+  return { settings: fakeSettings({ configuredProviders: configured }), apply: () => undefined, reload: async () => undefined }
+}
+
+const INVALID = (): { status: 'invalid'; reason: 'unauthorized' } => ({ status: 'invalid', reason: 'unauthorized' })
+
+async function refused(options: { configured?: boolean; locked?: boolean } = {}) {
+  const host = createFakeHost({}, { keyChecks: INVALID })
+  const save = vi.spyOn(host.secrets, 'setProviderKey')
+  const ui = (locked: boolean) => (
+    <HostProvider host={host}>
+      <KeysSection api={api(options.configured === true ? ['anthropic'] : [])} locked={locked} />
+    </HostProvider>
+  )
+  const view = renderThemed(ui(false), { locale: 'ko' })
+  const user = userEvent.setup()
+  const field = screen.getByLabelText(t('app.keys.input', { provider: 'Anthropic' })) as HTMLInputElement
+  await user.type(field, `${MARKER}{Enter}`)
+  const notice = await screen.findByRole('alert')
+  return { host, save, view, user, field, notice, rerender: (locked: boolean) => view.rerender(ui(locked)) }
 }
 
 afterEach(() => {
@@ -92,5 +110,43 @@ describe('KeysSection key retention', () => {
     const notice = await screen.findByRole('alert')
     fireEvent.click(within(notice).getByRole('button', { name: t('app.keys.saveAnyway') }))
     expect(held()).toEqual([])
+  })
+
+  it('drops a refused key when the row goes away while the notice is open', async () => {
+    const { view } = await refused()
+    expect(held()).toEqual([MARKER])
+    view.unmount()
+    expect(held()).toEqual([])
+  })
+
+  it('drops a refused key when the field is edited', async () => {
+    const { user, field } = await refused()
+    expect(held()).toEqual([MARKER])
+    await user.type(field, 'x')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(held()).toEqual([])
+  })
+
+  it('drops a refused key when the field is submitted empty, and closes the notice', async () => {
+    const { field } = await refused()
+    expect(held()).toEqual([MARKER])
+    fireEvent.submit(field.closest('form')!)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(held()).toEqual([])
+  })
+
+  it('drops a refused key when the key is removed', async () => {
+    const { user, field } = await refused({ configured: true })
+    expect(held()).toEqual([MARKER])
+    await user.click(within(field.closest('li')!).getByRole('button', { name: t('app.keys.remove') }))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    expect(held()).toEqual([])
+  })
+
+  it('does not send a refused key anyway while the section is locked', async () => {
+    const { save, notice, rerender } = await refused()
+    rerender(true)
+    fireEvent.click(within(notice).getByRole('button', { name: t('app.keys.saveAnyway') }))
+    expect(save).toHaveBeenCalledTimes(1)
   })
 })
