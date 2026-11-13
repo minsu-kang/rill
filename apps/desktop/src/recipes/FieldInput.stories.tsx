@@ -49,3 +49,24 @@ export const NoMatchingConnection: Story = { args: { param: param('receipt-big-a
 export const ErrorAtField: Story = { args: { value: 'relative/dir', error: 'recipes.rule.not_absolute_path' } }
 export const UnknownRuleWithRawId: Story = { args: { value: 'x', error: 'recipes.rule.generic', raw: 'a_rule_from_the_future' } }
 export const TemplateTextHint: Story = { args: { param: param('monthly-reminder', 'message'), value: 'hello {{x.output}}' } }
+
+const GOOGLE_OK = { name: 'google', kind: 'google', account: 'someone@example.com' } as const
+const GOOGLE_AGAIN = { name: 'google', kind: 'google', account: 'someone@example.com', reconnect: true } as const
+const MICROSOFT_OK = { name: 'microsoft', kind: 'microsoft', account: 'Alex Doe' } as const
+const MICROSOFT_AGAIN = { name: 'microsoft', kind: 'microsoft', reconnect: true } as const
+
+export const SpreadsheetId: Story = { args: { param: param('receipt-folder-to-google-sheet', 'spreadsheetId') } }
+export const SpreadsheetIdWithError: Story = { args: { param: param('receipt-folder-to-google-sheet', 'spreadsheetId'), value: 'My receipts', error: 'recipes.rule.bad_spreadsheet_id' } }
+export const WorkbookPath: Story = { args: { param: param('receipt-folder-to-excel', 'workbookPath'), value: 'Receipts/ledger.xlsx' } }
+export const WorkbookPathWithError: Story = { args: { param: param('receipt-folder-to-excel', 'workbookPath'), value: '/Receipts/ledger.xlsx', error: 'recipes.rule.bad_drive_file' } }
+export const TableName: Story = { args: { param: param('receipt-folder-to-excel', 'tableName'), value: 'Expenses' } }
+export const TableNameWithError: Story = { args: { param: param('receipt-folder-to-excel', 'tableName'), value: '1Table', error: 'recipes.rule.bad_table_name' } }
+export const GoogleAccountConnected: Story = { args: { param: param('receipt-folder-to-google-sheet', 'googleConnection'), value: 'google', connections: [...CONNECTIONS, GOOGLE_OK, MICROSOFT_OK] } }
+export const GoogleAccountToPick: Story = { args: { param: param('receipt-folder-to-google-sheet', 'googleConnection'), connections: [...CONNECTIONS, GOOGLE_OK] } }
+export const GoogleAccountNeedsReconnect: Story = { args: { param: param('receipt-folder-to-google-sheet', 'googleConnection'), connections: [...CONNECTIONS, GOOGLE_AGAIN] } }
+export const NoGoogleAccount: Story = { args: { param: param('receipt-folder-to-google-sheet', 'googleConnection'), connections: [...CONNECTIONS, MICROSOFT_OK] } }
+export const MicrosoftAccountNeedsReconnect: Story = { args: { param: param('receipt-folder-to-excel', 'microsoftConnection'), connections: [...CONNECTIONS, MICROSOFT_AGAIN] } }
+export const NoMicrosoftAccount: Story = { args: { param: param('receipt-folder-to-excel', 'microsoftConnection'), connections: [...CONNECTIONS, GOOGLE_OK] } }
+export const AccountWithHostileText: Story = {
+  args: { param: param('receipt-folder-to-google-sheet', 'googleConnection'), connections: [{ name: 'google', kind: 'google', account: '<img src=x onerror=alert(1)> ‮txt.exe' }] },
+}

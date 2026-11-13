@@ -383,6 +383,179 @@
         "notify.slack@1"
       ],
       "needsConnection": true
+    },
+    {
+      "id": "receipt-folder-to-google-sheet",
+      "title": {
+        "ko": "영수증 폴더를 구글 시트로 정리",
+        "en": "Receipt folder to Google Sheet"
+      },
+      "description": {
+        "ko": "폴더에 영수증이 들어오면 AI가 금액, 날짜, 가게 이름을 읽어 내 구글 계정의 스프레드시트에 한 줄씩 쌓아요.",
+        "en": "When a receipt lands in a folder, AI reads the amount, date and vendor and appends one row to a Google Sheets spreadsheet in your Google account."
+      },
+      "tags": [
+        "receipts",
+        "spreadsheet",
+        "google",
+        "ai",
+        "folder"
+      ],
+      "params": [
+        {
+          "id": "watchFolder",
+          "kind": "folder",
+          "label": {
+            "ko": "감시할 폴더",
+            "en": "Folder to watch"
+          },
+          "help": {
+            "ko": "새 영수증 파일이 들어오는 폴더예요.",
+            "en": "The folder where new receipt files arrive."
+          },
+          "required": true
+        },
+        {
+          "id": "glob",
+          "kind": "glob",
+          "label": {
+            "ko": "파일 이름 패턴",
+            "en": "File name pattern"
+          },
+          "help": {
+            "ko": "처리할 파일의 이름 패턴이에요. 기본값은 PDF 파일이에요.",
+            "en": "Which files to process. The default matches PDF files."
+          },
+          "required": false,
+          "default": "*.pdf"
+        },
+        {
+          "id": "googleConnection",
+          "kind": "connection",
+          "label": {
+            "ko": "구글 계정",
+            "en": "Google account"
+          },
+          "help": {
+            "ko": "설정의 연결 화면에서 연결한 구글 계정이에요.",
+            "en": "The Google account that you connected in Settings, Connections."
+          },
+          "required": true,
+          "connectionKind": "google"
+        },
+        {
+          "id": "spreadsheetId",
+          "kind": "spreadsheetId",
+          "label": {
+            "ko": "스프레드시트 ID",
+            "en": "Spreadsheet id"
+          },
+          "help": {
+            "ko": "스프레드시트 주소에서 /d/ 와 /edit 사이에 있는 긴 문자열이에요. 스프레드시트 제목이 아니에요.",
+            "en": "The long id in the spreadsheet address, between /d/ and /edit. It is not the title of the spreadsheet."
+          },
+          "required": true
+        }
+      ],
+      "nodeTypes": [
+        "trigger.folderWatch@1",
+        "llm.extract@1",
+        "google.sheets.append@1"
+      ],
+      "needsConnection": true
+    },
+    {
+      "id": "receipt-folder-to-excel",
+      "title": {
+        "ko": "영수증 폴더를 엑셀로 정리",
+        "en": "Receipt folder to Excel"
+      },
+      "description": {
+        "ko": "폴더에 영수증이 들어오면 AI가 금액, 날짜, 가게 이름을 읽어 내 원드라이브의 엑셀 통합 문서 표에 한 줄씩 쌓아요.",
+        "en": "When a receipt lands in a folder, AI reads the amount, date and vendor and appends one row to a table in an Excel workbook in your OneDrive."
+      },
+      "tags": [
+        "receipts",
+        "spreadsheet",
+        "excel",
+        "ai",
+        "folder"
+      ],
+      "params": [
+        {
+          "id": "watchFolder",
+          "kind": "folder",
+          "label": {
+            "ko": "감시할 폴더",
+            "en": "Folder to watch"
+          },
+          "help": {
+            "ko": "새 영수증 파일이 들어오는 폴더예요.",
+            "en": "The folder where new receipt files arrive."
+          },
+          "required": true
+        },
+        {
+          "id": "glob",
+          "kind": "glob",
+          "label": {
+            "ko": "파일 이름 패턴",
+            "en": "File name pattern"
+          },
+          "help": {
+            "ko": "처리할 파일의 이름 패턴이에요. 기본값은 PDF 파일이에요.",
+            "en": "Which files to process. The default matches PDF files."
+          },
+          "required": false,
+          "default": "*.pdf"
+        },
+        {
+          "id": "microsoftConnection",
+          "kind": "connection",
+          "label": {
+            "ko": "마이크로소프트 계정",
+            "en": "Microsoft account"
+          },
+          "help": {
+            "ko": "설정의 연결 화면에서 연결한 마이크로소프트 계정이에요.",
+            "en": "The Microsoft account that you connected in Settings, Connections."
+          },
+          "required": true,
+          "connectionKind": "microsoft"
+        },
+        {
+          "id": "workbookPath",
+          "kind": "driveFile",
+          "label": {
+            "ko": "엑셀 파일 경로",
+            "en": "Workbook path"
+          },
+          "help": {
+            "ko": "원드라이브 안에 있는 .xlsx 파일의 경로예요. 맨 앞에 /를 붙이지 않아요. 예: Receipts/ledger.xlsx",
+            "en": "The path of the .xlsx workbook in your OneDrive, without a leading slash. For example Receipts/ledger.xlsx"
+          },
+          "required": true
+        },
+        {
+          "id": "tableName",
+          "kind": "tableName",
+          "label": {
+            "ko": "표 이름",
+            "en": "Table name"
+          },
+          "help": {
+            "ko": "그 파일 안에 이미 만들어 둔 엑셀 표의 이름이에요. 표가 없으면 먼저 만들어 주세요.",
+            "en": "The name of a table that already exists in that workbook. Create the table first if there is none."
+          },
+          "required": true
+        }
+      ],
+      "nodeTypes": [
+        "trigger.folderWatch@1",
+        "llm.extract@1",
+        "microsoft.excel.append@1"
+      ],
+      "needsConnection": true
     }
   ],
   "drafts": {
@@ -891,6 +1064,204 @@
             "external"
           ],
           "sendsToModel": false
+        }
+      }
+    },
+    "receipt-folder-to-google-sheet": {
+      "values": {
+        "watchFolder": "/Users/demo/Receipts",
+        "glob": "*.png",
+        "googleConnection": "google",
+        "spreadsheetId": "1DemoSpreadsheetIdForRecipes0"
+      },
+      "draft": {
+        "recipeId": "receipt-folder-to-google-sheet",
+        "workflow": {
+          "schemaVersion": 1,
+          "name": "영수증 폴더를 구글 시트로 정리",
+          "nodes": [
+            {
+              "id": "t1",
+              "type": "trigger.folderWatch@1",
+              "config": {
+                "folder": "/Users/demo/Receipts",
+                "glob": "*.png"
+              }
+            },
+            {
+              "id": "n1",
+              "type": "llm.extract@1",
+              "config": {
+                "file": "{{t1.output.file}}",
+                "fields": [
+                  {
+                    "name": "amount",
+                    "type": "number",
+                    "description": "Total amount paid"
+                  },
+                  {
+                    "name": "date",
+                    "type": "date",
+                    "description": "Payment date"
+                  },
+                  {
+                    "name": "vendor",
+                    "type": "string",
+                    "description": "Store or vendor name"
+                  }
+                ]
+              },
+              "retry": {
+                "maxAttempts": 3
+              }
+            },
+            {
+              "id": "n2",
+              "type": "google.sheets.append@1",
+              "config": {
+                "connection": "google",
+                "spreadsheetId": "1DemoSpreadsheetIdForRecipes0",
+                "values": [
+                  "{{n1.output.date}}",
+                  "{{n1.output.vendor}}",
+                  "{{n1.output.amount}}"
+                ]
+              }
+            }
+          ],
+          "edges": [
+            {
+              "from": "t1",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            }
+          ]
+        },
+        "summary": {
+          "nodes": [
+            {
+              "id": "t1",
+              "type": "trigger.folderWatch@1",
+              "title": "Folder watch"
+            },
+            {
+              "id": "n1",
+              "type": "llm.extract@1",
+              "title": "Extract fields with AI"
+            },
+            {
+              "id": "n2",
+              "type": "google.sheets.append@1",
+              "title": "Append row to Google Sheets"
+            }
+          ],
+          "sideEffects": [
+            "external"
+          ],
+          "sendsToModel": true
+        }
+      }
+    },
+    "receipt-folder-to-excel": {
+      "values": {
+        "watchFolder": "/Users/demo/Receipts",
+        "glob": "*.png",
+        "microsoftConnection": "microsoft",
+        "workbookPath": "Receipts/ledger.xlsx",
+        "tableName": "Expenses"
+      },
+      "draft": {
+        "recipeId": "receipt-folder-to-excel",
+        "workflow": {
+          "schemaVersion": 1,
+          "name": "영수증 폴더를 엑셀로 정리",
+          "nodes": [
+            {
+              "id": "t1",
+              "type": "trigger.folderWatch@1",
+              "config": {
+                "folder": "/Users/demo/Receipts",
+                "glob": "*.png"
+              }
+            },
+            {
+              "id": "n1",
+              "type": "llm.extract@1",
+              "config": {
+                "file": "{{t1.output.file}}",
+                "fields": [
+                  {
+                    "name": "amount",
+                    "type": "number",
+                    "description": "Total amount paid"
+                  },
+                  {
+                    "name": "date",
+                    "type": "date",
+                    "description": "Payment date"
+                  },
+                  {
+                    "name": "vendor",
+                    "type": "string",
+                    "description": "Store or vendor name"
+                  }
+                ]
+              },
+              "retry": {
+                "maxAttempts": 3
+              }
+            },
+            {
+              "id": "n2",
+              "type": "microsoft.excel.append@1",
+              "config": {
+                "connection": "microsoft",
+                "filePath": "Receipts/ledger.xlsx",
+                "table": "Expenses",
+                "values": [
+                  "{{n1.output.date}}",
+                  "{{n1.output.vendor}}",
+                  "{{n1.output.amount}}"
+                ]
+              }
+            }
+          ],
+          "edges": [
+            {
+              "from": "t1",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            }
+          ]
+        },
+        "summary": {
+          "nodes": [
+            {
+              "id": "t1",
+              "type": "trigger.folderWatch@1",
+              "title": "Folder watch"
+            },
+            {
+              "id": "n1",
+              "type": "llm.extract@1",
+              "title": "Extract fields with AI"
+            },
+            {
+              "id": "n2",
+              "type": "microsoft.excel.append@1",
+              "title": "Append row to Excel"
+            }
+          ],
+          "sideEffects": [
+            "external"
+          ],
+          "sendsToModel": true
         }
       }
     }

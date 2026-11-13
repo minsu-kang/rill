@@ -1,17 +1,15 @@
 import Type from 'typebox'
 import { neutralise, type Cell } from '../cells'
-import { RowSchema, assertConfig, encodePathPart, postRowRenewing } from '../spreadsheet-api'
+import { EXCEL_FILE_PATH_PATTERN, EXCEL_TABLE_PATTERN, RowSchema, assertConfig, encodePathPart, postRowRenewing } from '../spreadsheet-api'
 import { defineAction } from '../types'
 
 const ORIGIN = 'https://graph.microsoft.com/v1.0/me/drive/root:/'
-const FILE_PATH = '^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?=.*[^/]\\.[xX][lL][sS][xX]$)[^\\p{C}\\\\:*?"<>|#%]{1,400}$'
-const TABLE = '^[\\p{L}_][\\p{L}\\p{N}_. -]{0,254}$'
 
 const configSchema = Type.Object(
   {
     connection: Type.String({ minLength: 1 }),
-    filePath: Type.String({ minLength: 1, maxLength: 400, pattern: FILE_PATH }),
-    table: Type.String({ minLength: 1, maxLength: 255, pattern: TABLE }),
+    filePath: Type.String({ minLength: 1, maxLength: 400, pattern: EXCEL_FILE_PATH_PATTERN }),
+    table: Type.String({ minLength: 1, maxLength: 255, pattern: EXCEL_TABLE_PATTERN }),
     values: RowSchema,
   },
   { additionalProperties: false },

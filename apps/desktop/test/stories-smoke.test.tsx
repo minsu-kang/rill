@@ -56,6 +56,8 @@ const PLAYED: Readonly<Record<string, (t: Translate) => string[]>> = {
   'explain/ActionButtons.stories.tsx ConfirmRetry': (t) => [t('explain.confirm.retry_run'), t('explain.confirm.yes')],
   'explain/ActionButtons.stories.tsx ConfirmDeactivate': (t) => [t('explain.confirm.deactivate_workflow'), t('explain.confirm.yes')],
   'recipes/RecipeGallery.stories.tsx SearchWithNoMatch': (t) => [t('recipes.noMatch')],
+  'recipes/RecipePanel.stories.tsx GoogleRecipeFormOpened': (t) => [t('recipes.form.submit'), t('recipes.form.back'), 'Google (someone@example.com)'],
+  'recipes/RecipePanel.stories.tsx ExcelRecipeFormOpened': (t) => [t('recipes.form.submit'), t('recipes.form.back'), t('recipes.field.accountReconnectNote', { kind: t('recipes.kind.microsoft') })],
   'recipes/RecipePanel.stories.tsx FormOpened': (t) => [t('recipes.form.submit'), t('recipes.form.back')],
   'recipes/RecipePanel.stories.tsx ServerProblemsAtFields': (t) => [t('recipes.rule.not_absolute_path'), t('recipes.rule.wrong_extension'), t('recipes.form.submit')],
 }

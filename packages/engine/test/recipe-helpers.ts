@@ -22,7 +22,11 @@ export async function startRecipeEnv(engineOptions: Partial<EngineOptions> = {})
     db,
     registry: createCoreRegistry(),
     allowedRoots: ['/Users/demo'],
-    planConnections: [{ name: 'slack-ops', kind: 'slack' }],
+    planConnections: [
+      { name: 'slack-ops', kind: 'slack' },
+      { name: 'google', kind: 'google' },
+      { name: 'microsoft', kind: 'microsoft' },
+    ],
     connections: { get: (name) => (name === 'slack-ops' ? SLACK_URL : undefined) },
     sleep: async () => undefined,
     random: () => 1,

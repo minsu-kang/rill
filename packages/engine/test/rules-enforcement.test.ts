@@ -205,7 +205,14 @@ describe('deployPlan with rules', () => {
 })
 
 describe('instantiateRecipe with rules', () => {
-  const options = { allowedRoots: ['/Users/demo'], planConnections: [{ name: 'slack-ops', kind: 'slack' as const }] }
+  const options = {
+    allowedRoots: ['/Users/demo'],
+    planConnections: [
+      { name: 'slack-ops', kind: 'slack' as const },
+      { name: 'google', kind: 'google' as const },
+      { name: 'microsoft', kind: 'microsoft' as const },
+    ],
+  }
 
   it('refuses a recipe that has a forbidden node, naming the rule_violation, and writes nothing', () => {
     const { engine } = setup(options)

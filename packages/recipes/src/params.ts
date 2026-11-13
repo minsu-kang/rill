@@ -1,5 +1,5 @@
 import { isAbsolute } from 'node:path'
-import { CronParseError, nextCronTime, parseCron } from '@rill/nodes-core'
+import { CronParseError, EXCEL_FILE_PATH_PATTERN, EXCEL_TABLE_PATTERN, SPREADSHEET_ID_PATTERN, nextCronTime, parseCron } from '@rill/nodes-core'
 import { MAX_PARAM_STRING_CHARS, PARAM_ID_PATTERN, type ParamKind, type ParamValues, type Recipe, type RecipeParam } from './types'
 
 export const GENERAL_RULES = ['required', 'unknown_param'] as const
@@ -24,6 +24,9 @@ export const PARAM_RULES = {
   cron: [...TEXT_RULES, 'bad_cron'],
   url: [...TEXT_RULES, 'bad_url', 'url_credentials'],
   connection: [...TEXT_RULES],
+  spreadsheetId: [...TEXT_RULES, 'bad_spreadsheet_id'],
+  driveFile: [...TEXT_RULES, 'bad_drive_file'],
+  tableName: [...TEXT_RULES, 'bad_table_name'],
 } as const satisfies Record<ParamKind, readonly string[]>
 
 export type ParamRule = (typeof GENERAL_RULES)[number] | (typeof PARAM_RULES)[ParamKind][number]
@@ -39,6 +42,9 @@ const BIDI = /[؜‎‏‪-‮⁦-⁩]/u
 const FORMAT = /\p{Cf}|[\u{e0100}-\u{e01ef}]/u
 const FORMAT_KEEPING_JOINERS = /(?![‌‍])\p{Cf}|[\u{e0100}-\u{e01ef}]/u
 const PARAM_ID = new RegExp(PARAM_ID_PATTERN)
+const SPREADSHEET_ID = new RegExp(SPREADSHEET_ID_PATTERN, 'u')
+const DRIVE_FILE = new RegExp(EXCEL_FILE_PATH_PATTERN, 'u')
+const TABLE_NAME = new RegExp(EXCEL_TABLE_PATTERN, 'u')
 
 function exceedsLength(value: string): boolean {
   if (value.length <= MAX_PARAM_STRING_CHARS) return false
@@ -100,6 +106,18 @@ function urlRule(value: string): ParamRule | undefined {
   return url.username !== '' || url.password !== '' ? 'url_credentials' : undefined
 }
 
+function spreadsheetIdRule(value: string): ParamRule | undefined {
+  return SPREADSHEET_ID.test(value) ? undefined : 'bad_spreadsheet_id'
+}
+
+function driveFileRule(value: string): ParamRule | undefined {
+  return DRIVE_FILE.test(value) ? undefined : 'bad_drive_file'
+}
+
+function tableNameRule(value: string): ParamRule | undefined {
+  return TABLE_NAME.test(value) ? undefined : 'bad_table_name'
+}
+
 const KIND_RULES: Readonly<Record<ParamKind, ((value: string, param: RecipeParam) => ParamRule | undefined) | undefined>> = {
   folder: folderRule,
   file: fileRule,
@@ -109,6 +127,9 @@ const KIND_RULES: Readonly<Record<ParamKind, ((value: string, param: RecipeParam
   cron: cronRule,
   url: urlRule,
   connection: undefined,
+  spreadsheetId: spreadsheetIdRule,
+  driveFile: driveFileRule,
+  tableName: tableNameRule,
 }
 
 function numberRule(param: RecipeParam, value: unknown): ParamRule | undefined {

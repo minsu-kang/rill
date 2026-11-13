@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChatPanel } from '../chat/ChatPanel'
 import { ExplainPanel } from '../explain/ExplainPanel'
 import { useT, type MessageKey } from '../i18n'
+import { connectionsWithAccounts } from '../recipes/model/values'
 import { RecipePanel } from '../recipes/RecipePanel'
 import { Workspace, type InspectorExtraContext } from '../workspace/Workspace'
 import styles from './App.module.css'
@@ -83,6 +84,9 @@ export function App({ initial = {} }: AppProps) {
   const { editContext, setEditContext, clearEditContext } = useEditContext(workflowId, initial.workflowId !== undefined && initial.nodeId !== undefined ? { workflowId: initial.workflowId, nodeId: initial.nodeId } : undefined)
   const port = useMemo(() => createAttachmentPort(host), [host])
   const summary = list.workflows.find((item) => item.id === workflowId)
+  const savedConnections = settings.settings?.connections
+  const accounts = settings.settings?.oauth.accounts
+  const recipeConnections = useMemo(() => connectionsWithAccounts(savedConnections ?? [], accounts ?? []), [savedConnections, accounts])
 
   useEffect(() => {
     if (client === undefined) return undefined
@@ -135,7 +139,7 @@ export function App({ initial = {} }: AppProps) {
     setTab('settings')
   }, [])
 
-  useReconnectNotice(settings.settings?.oauth.accounts, (providers) => {
+  useReconnectNotice(accounts, (providers) => {
     const action: NoticeAction = { key: 'app.notice.reconnect.action', run: () => openSettings('connections') }
     if (providers.length > 1) notify('app.notice.reconnectBoth', undefined, action)
     else notify('app.notice.reconnect', { provider: t(`app.connections.provider.${providers[0]!}`) }, action)
@@ -261,7 +265,7 @@ export function App({ initial = {} }: AppProps) {
           <RecipePanel
             client={client}
             catalog={data.catalog}
-            connections={settings.settings?.connections ?? []}
+            connections={recipeConnections}
             onPickPath={pickPath}
             onDeployed={(id) => showWorkflow(id)}
             onAction={(action, id) => showWorkflow(id, action === 'dry_run' ? 'dryRun' : 'activate')}

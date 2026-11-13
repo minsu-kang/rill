@@ -31,6 +31,8 @@ const EFFECTS: Record<string, string[]> = {
   'webhook-to-slack': ['external'],
   'monthly-reminder': ['external'],
   'failure-webhook-alert': ['external'],
+  'receipt-folder-to-google-sheet': ['external'],
+  'receipt-folder-to-excel': ['external'],
 }
 
 const SENDS_TO_MODEL: Record<string, boolean> = {
@@ -40,6 +42,8 @@ const SENDS_TO_MODEL: Record<string, boolean> = {
   'webhook-to-slack': false,
   'monthly-reminder': false,
   'failure-webhook-alert': false,
+  'receipt-folder-to-google-sheet': true,
+  'receipt-folder-to-excel': true,
 }
 
 const instantiateParams = (recipeId: string, values: Record<string, string | number>): MethodParams<'instantiateRecipe'> => ({ recipeId, values })
@@ -93,11 +97,11 @@ describe('the character rules of a text value', () => {
 })
 
 describe('listRecipes', () => {
-  it('lists the six recipes with the fields of a form and no workflow body', async () => {
+  it('lists the eight recipes with the fields of a form and no workflow body', async () => {
     const { client, frames } = await startRecipeEnv()
     const result = await client.request('listRecipes', {})
     expect(result.recipes.map((entry) => entry.id)).toEqual(RECIPES.map((recipe) => recipe.id))
-    expect(result.recipes).toHaveLength(6)
+    expect(result.recipes).toHaveLength(8)
     for (const entry of result.recipes) {
       const recipe = findRecipe(entry.id)!
       expect(Object.keys(entry).sort()).toEqual(['description', 'id', 'needsConnection', 'nodeTypes', 'params', 'tags', 'title'])
@@ -112,7 +116,7 @@ describe('listRecipes', () => {
     for (const word of ['"workflow"', '"sample"', '"nodes"', '"edges"', '"config"', '"schemaVersion"']) expect(frame, word).not.toContain(word)
   })
 
-  it('says which recipes need a Slack connection', async () => {
+  it('says which recipes need a connection', async () => {
     const { client } = await startRecipeEnv()
     const need = Object.fromEntries((await client.request('listRecipes', {})).recipes.map((entry) => [entry.id, entry.needsConnection]))
     expect(need).toEqual({
@@ -122,13 +126,15 @@ describe('listRecipes', () => {
       'webhook-to-slack': true,
       'monthly-reminder': true,
       'failure-webhook-alert': true,
+      'receipt-folder-to-google-sheet': true,
+      'receipt-folder-to-excel': true,
     })
   })
 
   it('works with no model provider, no attachments folder and no connection, and writes nothing', async () => {
     const { client, db } = await startRecipeEnv({ planConnections: [], connections: undefined, allowedRoots: undefined })
     const before = snapshot(db)
-    expect((await client.request('listRecipes', {})).recipes).toHaveLength(6)
+    expect((await client.request('listRecipes', {})).recipes).toHaveLength(8)
     expect(snapshot(db)).toEqual(before)
   })
 
@@ -146,7 +152,7 @@ describe('listRecipes', () => {
     first[0]!.nodeTypes.length = 0
     first.pop()
     const again = engine.listRecipes()
-    expect(again).toHaveLength(6)
+    expect(again).toHaveLength(8)
     expect(again[0]!.params).toEqual(RECIPES[0]!.params)
     expect(again[0]!.tags).toEqual(RECIPES[0]!.tags)
     expect(again[0]!.nodeTypes).toEqual(recipeNodeTypes(RECIPES[0]!))
@@ -502,9 +508,10 @@ describe('a connection of the wrong kind', () => {
     expect(frames.join('\n')).not.toContain('webhookSecret')
   })
 
-  it('is refused in every recipe that asks for a Slack connection', async () => {
+  it('is refused in every recipe that asks for a connection', async () => {
     for (const recipe of RECIPES.filter((entry) => entry.params.some((param) => param.kind === 'connection'))) {
-      const { error } = await refused(recipe.id, { ...recipe.sample, slackConnection: 'api' })
+      const connection = recipe.params.find((param) => param.kind === 'connection')!
+      const { error } = await refused(recipe.id, { ...recipe.sample, [connection.id]: 'api' })
       expect(error.problems, recipe.id).toHaveLength(1)
       expect(error.problems[0], recipe.id).toMatch(/^connection_kind_mismatch at \/nodes\/\d+\/config\/connection$/)
     }

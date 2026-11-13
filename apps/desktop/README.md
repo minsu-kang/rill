@@ -14,7 +14,7 @@ The screens take their data as props or read it through a small `EngineClient` i
 | Workspace | `src/workspace/` | The three screens together as in the design: graph in the middle, inspector on the right, history below. Live events from the client change the node cards as they arrive. |
 | Failure explanation | `src/explain/` | The "why did it fail" flow for a failed run: a notice of what is sent to the model provider, an effort choice, the explanation card with the likely cause, signal chips, action buttons and an optional fix proposal handed to the chat box as a draft. |
 | Agents, Rules and Hooks | `src/app/agents/`, `src/chat/AgentPicker.tsx` | The Agents tab with its sub-navigation: the Agents screen (a list, an editor, an import review), the Rules screen, the Hooks screen (a list, a form and an activity list), and the agent picker in the chat header. See [Agents](#agents), [The Rules screen](#the-rules-screen) and [The Hooks screen](#the-hooks-screen). |
-| Recipe gallery | `src/recipes/` | The six ready-made recipes with search and tag filter, a form built from each recipe's params, a draft preview with the graph, side-effect lines and the "external transfer" line, and a deploy button. |
+| Recipe gallery | `src/recipes/` | The eight ready-made recipes with search and tag filter, a form built from each recipe's params, a draft preview with the graph, side-effect lines and the "external transfer" line, and a deploy button. |
 | Chat panel | `src/chat/` | The right pane: chat tabs, each a conversation with the planner (questions, workflow preview, unsupported), an effort control, file attachments, flag confirmation before deploy, a model picker, an agent picker and a notes screen. See the next section. |
 | App shell | `src/app/` | The top bar, the page container, the Workflows, Recipes, Agents and Settings screens and the chat aside, wired to the host API and the engine client. See [The window](#the-window). |
 | Shared pieces | `src/ui/`, `src/theme/`, `src/i18n/` | Status chip and icons, color tokens for light and dark, and a typed Korean and English dictionary. |
@@ -108,7 +108,7 @@ Good places to start:
 - `Inspector/Inspector` and `Inspector/JsonView`: failed runs, a ten thousand item array, a one megabyte string and hostile data.
 - `Explain/ExplainCard`: one story per likely cause, zero to three actions, a fix proposal with a `<hidden>` mark, truncated and repaired answers, an unknown cost, hostile text, and light and dark or Korean and English side by side.
 - `Explain/ExplainPanel`: the disabled button for runs that are not failed, the notice, loading, an answer and every error. The stories after the first few click through the flow with a Storybook play function, so open them in the browser (the test run renders only the first screen of each).
-- `Recipes/RecipeGallery`, `Recipes/RecipeForm` and `Recipes/FieldInput`: the six recipes, every field kind, problems at fields, general issues, unknown rules and no matching connection.
+- `Recipes/RecipeGallery`, `Recipes/RecipeForm` and `Recipes/FieldInput`: the eight recipes, every field kind, problems at fields, general issues, unknown rules, no matching connection, and the account states of the spreadsheet recipes (connected, to be connected again, not connected).
 - `Recipes/DraftPreview` and `Recipes/RecipePanel`: with and without the external transfer line, deploying, deployed and failed, and the whole flow against a fake service.
 - `App/Settings/ConnectionsSection`: the empty screen, one story per auth type of a custom connection, a filled form, a saved one, the errors (missing fields, a bad key name, a duplicate name), no keychain and the 200 connection limit. The Slack card has its own group, `App/Settings/SlackCard`: the empty card, the steps open, a filled form, checking, confirmed, saved but not confirmed, refused with "save anyway", saved anyway, the saved list with two bots and an old webhook, no keychain, and the static overviews (every result, light and dark, Korean and English). The stories that submit a form click through with a play function, so open them in the browser. The Google and Microsoft cards have their own group, `App/Settings/OAuthCard`: not set up (with the steps open, the form filled, the Microsoft redirect address and its Copy button, a bad Client ID, a bad Client secret), set up, waiting for the browser, cancelled, connected (also with hostile account text), reconnect needed, every sign-in error, the two confirmations, no keychain, and light and dark or Korean and English side by side. The saved key placeholder shows in `App/Settings/KeysSection` (`SomeConfigured`).
 - `App/Agents/AgentsScreen`: `A few agents` is the start; `Editor with errors`, `New agent`, `Delete confirmation`, `Unsaved changes prompt`, `Import review`, `Import review with problems` and `Export` click through the rest. `Chat/AgentPicker` has the picker in every state (default, custom, long and hostile names, loading, load error, a failing change).
@@ -261,7 +261,7 @@ The third entry of the sub-navigation, "Hooks" (`id: 'hooks'`), opens `HooksScre
     interface RecipePanelProps {
       client: EngineClient
       catalog: readonly NodeInfo[]
-      connections: readonly { name: string; kind: 'slack' | 'http' | 'webhookSecret' | 'google' | 'microsoft' }[]
+      connections: readonly { name: string; kind: 'slack' | 'http' | 'webhookSecret' | 'google' | 'microsoft'; account?: string; reconnect?: true }[]
       onPickPath?(kind: 'folder' | 'file'): Promise<string | undefined>
       onDeployed?(workflowId: string): void
       onAction?(action: 'activate' | 'dry_run', workflowId: string): void
@@ -270,6 +270,7 @@ The third entry of the sub-navigation, "Hooks" (`id: 'hooks'`), opens `HooksScre
 The host contract:
 
 - The protocol has no method that lists connections (the engine reads them from a file at start), so the host passes `connections`. A connection field is a select of the entries whose `kind` matches the param's `connectionKind`. With none it shows a message and no free text.
+- The Google and Microsoft accounts are not saved connections. `App` turns the accounts of the settings (`settings.oauth.accounts`) into entries named `google` or `microsoft` with the kind of the same name and gives them to the panel next to the saved connections (`connectionsWithAccounts` in `src/recipes/model/values.ts`). A connected account carries its account text; an account that needs to be connected again carries `reconnect: true`; an account that is not set up, not connected or being connected is left out. A parameter with `connectionKind` `google` or `microsoft` lists only the account of that provider, and a Slack or http parameter never lists an account. The account that needs to be connected again is shown disabled, with the reason in its label and in a note under the field, and counts as no choice, so the form cannot be submitted with it. With no account the field shows "No Google account is connected. Connect it in Settings, Connections first." and no select. The window sends the name only; the account text is shown as text and never leaves the form.
 - `onPickPath` is for a native folder or file dialog (Plan 4d). Without it a folder or file field is a plain text input. A cancelled or failed pick leaves the text alone.
 - The form checks only what costs nothing: required, 500 characters, a number range, and text with `{{` or `}}`. Every other rule comes back from `instantiateRecipe` as `RECIPE_INVALID` problems and is shown at the field or in a list. The rule and issue tables are in `src/recipes/model/problems.ts`.
 - The cron field has labelled presets and no parser; the server checks the expression.
@@ -280,7 +281,7 @@ The host contract:
 
 ### The recipe fixture
 
-`src/fixtures/recipe-infos.json` holds the recipe list and a draft for each recipe, made by the real engine from each recipe's sample values. Regenerate it after a recipe changes:
+`src/fixtures/recipe-infos.json` holds the recipe list and a draft for each recipe, made by the real engine (with the connections `slack-ops`, `google` and `microsoft`) from each recipe's sample values. Regenerate it after a recipe changes:
 
     pnpm --filter @rill/desktop exec node --import tsx scripts/make-recipe-fixture.ts
 

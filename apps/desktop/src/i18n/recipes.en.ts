@@ -23,6 +23,9 @@ export const recipesEn: Record<keyof typeof recipesKo, string> = {
   'recipes.rule.bad_cron': 'The schedule format is not valid.',
   'recipes.rule.bad_url': 'This is not a valid address that starts with http or https.',
   'recipes.rule.url_credentials': 'The address cannot contain a user name or a password.',
+  'recipes.rule.bad_spreadsheet_id': 'Use the long id from the spreadsheet address, between /d/ and /edit. The title or the whole address does not work.',
+  'recipes.rule.bad_drive_file': 'Enter the OneDrive path of an .xlsx file, such as Receipts/ledger.xlsx. It has no leading slash and no "..", and none of \\ : * ? " < > | # %.',
+  'recipes.rule.bad_table_name': 'Use the name of an Excel table: it starts with a letter or an underscore and holds only letters, digits, spaces, dots, dashes and underscores.',
   'recipes.rule.generic': 'This value cannot be used.',
   'recipes.error.not_a_number': 'Enter a number.',
   'recipes.error.too_many': 'At most 20 values can be sent at once.',
@@ -97,4 +100,8 @@ export const recipesEn: Record<keyof typeof recipesKo, string> = {
   'recipes.error.params': 'The values that were sent are not valid.',
   'recipes.error.generic': 'Could not create the draft.',
   'recipes.field.noConnectionAny': 'No matching connection. Set up a connection in the connection settings first.',
+  'recipes.field.noAccount': 'No {kind} account is connected. Connect it in Settings, Connections first.',
+  'recipes.field.accountNamed': '{kind} ({account})',
+  'recipes.field.accountOptionReconnect': '{label}, needs to be connected again',
+  'recipes.field.accountReconnectNote': 'The {kind} account needs to be connected again. Do it in Settings, Connections.',
 }

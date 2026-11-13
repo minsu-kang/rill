@@ -1,5 +1,5 @@
 import Type from 'typebox'
-import { UPDATED_RANGE_MAX, RowSchema, assertConfig, encodePathPart, postRowRenewing, untrustedText } from '../spreadsheet-api'
+import { SPREADSHEET_ID_PATTERN, UPDATED_RANGE_MAX, RowSchema, assertConfig, encodePathPart, postRowRenewing, untrustedText } from '../spreadsheet-api'
 import { defineAction } from '../types'
 
 const ORIGIN = 'https://sheets.googleapis.com/v4/spreadsheets/'
@@ -9,7 +9,7 @@ const DEFAULT_RANGE = 'Sheet1'
 const configSchema = Type.Object(
   {
     connection: Type.String({ minLength: 1 }),
-    spreadsheetId: Type.String({ minLength: 20, maxLength: 100, pattern: '^[A-Za-z0-9_-]{20,100}$' }),
+    spreadsheetId: Type.String({ minLength: 20, maxLength: 100, pattern: SPREADSHEET_ID_PATTERN }),
     range: Type.Optional(Type.String({ minLength: 1, maxLength: 120, pattern: "^[\\p{L}\\p{N}_ .'!:$-]{1,120}$", default: DEFAULT_RANGE })),
     values: RowSchema,
   },

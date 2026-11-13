@@ -20,7 +20,8 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const SixRecipes: Story = {}
+export const EveryRecipe: Story = {}
+export const SpreadsheetRecipes: Story = { args: { recipes: recipeInfos.filter((recipe) => recipe.tags.includes('spreadsheet')) } }
 export const SearchWithNoMatch: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.type(await canvas.findByRole('searchbox'), 'zzzzzz')

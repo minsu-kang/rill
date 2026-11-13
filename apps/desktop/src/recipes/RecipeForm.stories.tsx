@@ -45,6 +45,33 @@ export const DailyHealthCheck: Story = formOf('daily-health-check')
 export const WebhookToSlack: Story = formOf('webhook-to-slack')
 export const MonthlyReminder: Story = formOf('monthly-reminder')
 export const FailureWebhookAlert: Story = formOf('failure-webhook-alert')
+const GOOGLE_OK = { name: 'google', kind: 'google', account: 'someone@example.com' } as const
+const GOOGLE_AGAIN = { name: 'google', kind: 'google', account: 'someone@example.com', reconnect: true } as const
+const MICROSOFT_OK = { name: 'microsoft', kind: 'microsoft', account: 'Alex Doe' } as const
+const MICROSOFT_AGAIN = { name: 'microsoft', kind: 'microsoft', reconnect: true } as const
+const SHEET = byId('receipt-folder-to-google-sheet')
+const EXCEL = byId('receipt-folder-to-excel')
+
+export const ReceiptFolderToGoogleSheet: Story = { args: { recipe: SHEET, values: initialValues(SHEET.params), connections: [...CONNECTIONS, GOOGLE_OK, MICROSOFT_AGAIN] } }
+export const ReceiptFolderToExcel: Story = { args: { recipe: EXCEL, values: initialValues(EXCEL.params), connections: [...CONNECTIONS, GOOGLE_OK, MICROSOFT_OK] } }
+export const GoogleAccountChosen: Story = {
+  args: { recipe: SHEET, values: { ...initialValues(SHEET.params), watchFolder: '/Users/demo/Receipts', googleConnection: 'google', spreadsheetId: '1DemoSpreadsheetIdForRecipes0' }, connections: [...CONNECTIONS, GOOGLE_OK] },
+}
+export const GoogleAccountNeedsReconnect: Story = { args: { recipe: SHEET, values: { ...initialValues(SHEET.params), watchFolder: '/Users/demo/Receipts', googleConnection: 'google' }, connections: [...CONNECTIONS, GOOGLE_AGAIN] } }
+export const NoGoogleAccount: Story = { args: { recipe: SHEET, values: initialValues(SHEET.params), connections: CONNECTIONS } }
+export const ExcelAccountNeedsReconnect: Story = { args: { recipe: EXCEL, values: initialValues(EXCEL.params), connections: [...CONNECTIONS, MICROSOFT_AGAIN] } }
+export const NoMicrosoftAccount: Story = { args: { recipe: EXCEL, values: initialValues(EXCEL.params), connections: [...CONNECTIONS, GOOGLE_OK] } }
+export const SpreadsheetProblemsAtFields: Story = {
+  args: {
+    recipe: EXCEL,
+    values: { ...initialValues(EXCEL.params), watchFolder: '/Users/demo/Receipts', microsoftConnection: 'microsoft', workbookPath: '/Receipts/ledger.xlsx', tableName: '1Table' },
+    connections: [...CONNECTIONS, MICROSOFT_OK],
+    problems: ['workbookPath: bad_drive_file', 'tableName: bad_table_name'],
+  },
+}
+export const SheetIdProblem: Story = {
+  args: { recipe: SHEET, values: { ...initialValues(SHEET.params), watchFolder: '/Users/demo/Receipts', googleConnection: 'google', spreadsheetId: 'My receipts' }, connections: [...CONNECTIONS, GOOGLE_OK], problems: ['spreadsheetId: bad_spreadsheet_id'] },
+}
 export const WithBrowseButtons: Story = { args: { ...formOf('receipt-big-amount-alert').args, onPickPath: async (kind) => (kind === 'folder' ? '/Users/demo/Receipts' : '/Users/demo/ledger.csv') } }
 export const ProblemsAtFields: Story = { args: { recipe: recipeInfos[1]!, values: FILLED, problems: [...recipeProblemSets.folderAndFile, ...recipeProblemSets.numberRules.slice(0, 1)] } }
 export const PathAndConnectionIssues: Story = { args: { recipe: recipeInfos[1]!, values: FILLED, problems: [...recipeProblemSets.pathIssues, ...recipeProblemSets.connectionIssues] } }

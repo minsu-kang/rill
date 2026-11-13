@@ -13,7 +13,11 @@ export function buildRecipeFixture(): RecipeFixture {
     db: Db.open(':memory:'),
     registry: createCoreRegistry(),
     allowedRoots: ['/Users/demo'],
-    planConnections: [{ name: 'slack-ops', kind: 'slack' }],
+    planConnections: [
+      { name: 'slack-ops', kind: 'slack' },
+      { name: 'google', kind: 'google' },
+      { name: 'microsoft', kind: 'microsoft' },
+    ],
   })
   const drafts: RecipeFixture['drafts'] = {}
   for (const recipe of RECIPES) {

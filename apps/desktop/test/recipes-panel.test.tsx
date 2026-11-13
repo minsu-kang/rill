@@ -15,6 +15,8 @@ import { renderThemed } from './render'
 const t = createTranslator('ko')
 const BIG = recipeInfos.find((recipe) => recipe.id === 'receipt-big-amount-alert')!
 const HEALTH = recipeInfos.find((recipe) => recipe.id === 'daily-health-check')!
+const SHEET = recipeInfos.find((recipe) => recipe.id === 'receipt-folder-to-google-sheet')!
+const EXCEL = recipeInfos.find((recipe) => recipe.id === 'receipt-folder-to-excel')!
 const CONNECTIONS: RecipePanelProps['connections'] = [{ name: 'slack-ops', kind: 'slack' }]
 
 function spied(client: EngineClient) {
@@ -49,10 +51,10 @@ async function fillHealth(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('RecipePanel gallery', () => {
-  it('shows loading and then the six recipes', async () => {
+  it('shows loading and then the eight recipes', async () => {
     setup()
     expect(screen.getByRole('status').textContent).toContain(ko['recipes.loading'])
-    expect(await screen.findAllByRole('article')).toHaveLength(6)
+    expect(await screen.findAllByRole('article')).toHaveLength(8)
   })
 
   it('shows an error with a retry that loads again', async () => {
@@ -68,7 +70,7 @@ describe('RecipePanel gallery', () => {
     expect((await screen.findByRole('alert')).textContent).toContain(ko['recipes.loadError'])
     fail = false
     await user.click(screen.getByRole('button', { name: ko['recipes.retry'] }))
-    expect(await screen.findAllByRole('article')).toHaveLength(6)
+    expect(await screen.findAllByRole('article')).toHaveLength(8)
   })
 
   it('shows recipe titles with HTML from the server as text', async () => {
@@ -162,7 +164,7 @@ describe('RecipePanel flow', () => {
     await user.click(screen.getByRole('button', { name: ko['recipes.form.submit'] }))
     await user.click(await screen.findByRole('button', { name: ko['recipes.preview.deploy'] }))
     await user.click(await screen.findByRole('button', { name: ko['recipes.preview.another'] }))
-    expect(await screen.findAllByRole('article')).toHaveLength(6)
+    expect(await screen.findAllByRole('article')).toHaveLength(8)
   })
 
   it('shows RECIPE_INVALID problems at the fields and in the general list and keeps the values', async () => {
@@ -397,5 +399,35 @@ describe('RecipePanel focus', () => {
     await act(async () => release())
     await screen.findByRole('heading', { name: ko['recipes.preview.heading'] })
     expect(focused()).toBe(outside)
+  })
+})
+
+
+describe('RecipePanel with accounts', () => {
+  const GOOGLE: NonNullable<RecipePanelProps['connections']>[number] = { name: 'google', kind: 'google', account: 'someone@example.com' }
+
+  it('lists the connected account in the form of the Google recipe and sends only its name when the form is submitted', async () => {
+    const { user, calls } = setup({ connections: [...CONNECTIONS, GOOGLE] })
+    await screen.findAllByRole('article')
+    await choose(user, SHEET.title.ko)
+    const select = screen.getByLabelText(SHEET.params[2]!.label.ko) as HTMLSelectElement
+    expect([...select.options].map((option) => option.value)).toEqual(['', 'google'])
+    await user.type(screen.getByLabelText(SHEET.params[0]!.label.ko), '/Users/demo/Receipts')
+    await user.selectOptions(select, 'google')
+    await user.type(screen.getByLabelText(SHEET.params[3]!.label.ko), '1DemoSpreadsheetIdForRecipes0')
+    await user.click(screen.getByRole('button', { name: ko['recipes.form.submit'] }))
+    await waitFor(() => expect(calls.filter((call) => call.method === 'instantiateRecipe')).toHaveLength(1))
+    expect(calls.find((call) => call.method === 'instantiateRecipe')!.params).toEqual({
+      recipeId: SHEET.id,
+      values: { watchFolder: '/Users/demo/Receipts', glob: '*.pdf', googleConnection: 'google', spreadsheetId: '1DemoSpreadsheetIdForRecipes0' },
+    })
+    expect(JSON.stringify(calls)).not.toContain('someone@example.com')
+  })
+
+  it('points to the connection settings in the form of the Excel recipe while no Microsoft account is connected', async () => {
+    const { user } = setup({ connections: [...CONNECTIONS, GOOGLE] })
+    await screen.findAllByRole('article')
+    await choose(user, EXCEL.title.ko)
+    expect(screen.getByText(t('recipes.field.noAccount', { kind: ko['recipes.kind.microsoft'] }))).toBeTruthy()
   })
 })

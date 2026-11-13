@@ -15,8 +15,8 @@ function client(instantiate = fixtureRecipeData().instantiate) {
 }
 
 describe('recipe fixtures', () => {
-  it('hold the six real recipes and a draft for each', () => {
-    expect(recipeInfos).toHaveLength(6)
+  it('hold the eight real recipes and a draft for each', () => {
+    expect(recipeInfos).toHaveLength(8)
     expect(Object.keys(recipeDrafts).sort()).toEqual(recipeInfos.map((info) => info.id).sort())
     for (const draft of Object.values(recipeDrafts)) expect(Value.Check(METHODS.instantiateRecipe.result, draft)).toBe(true)
   })

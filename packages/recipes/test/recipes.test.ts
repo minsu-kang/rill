@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { PARAM_KINDS, RECIPES, RecipeSchema, findRecipe, instantiateRecipe, recipeNodeTypes, recipeProblems, type ParamValues, type Recipe } from '../src/index'
 
 const registry = createCoreRegistry()
-const ENV = { registry, allowedRoots: ['/Users/demo'], connections: ['slack-ops'] }
+const ENV = { registry, allowedRoots: ['/Users/demo'], connections: ['slack-ops', 'google', 'microsoft'] }
 
 const EXPECTED_IDS = [
   'receipt-folder-to-csv',
@@ -15,6 +15,8 @@ const EXPECTED_IDS = [
   'webhook-to-slack',
   'monthly-reminder',
   'failure-webhook-alert',
+  'receipt-folder-to-google-sheet',
+  'receipt-folder-to-excel',
 ]
 
 function build(recipe: Recipe, values: ParamValues): Workflow {
@@ -45,7 +47,7 @@ function leaves(value: unknown): unknown[] {
 }
 
 describe('the catalogue', () => {
-  it('holds the six recipes of the plan, in this order', () => {
+  it('holds the six recipes of the plan, in this order, and the two spreadsheet recipes after them', () => {
     expect(RECIPES.map((recipe) => recipe.id)).toEqual(EXPECTED_IDS)
   })
 
@@ -206,7 +208,7 @@ describe('the configuration of each recipe', () => {
     }
   })
 
-  it('declares a Slack connection wherever a recipe asks for one', () => {
+  it('declares the connection kind that its node needs wherever a recipe asks for a connection', () => {
     const connections = RECIPES.flatMap((recipe) => recipe.params.filter((param) => param.kind === 'connection').map((param) => [recipe.id, param.id, param.connectionKind]))
     expect(connections).toEqual([
       ['receipt-big-amount-alert', 'slackConnection', 'slack'],
@@ -214,7 +216,96 @@ describe('the configuration of each recipe', () => {
       ['webhook-to-slack', 'slackConnection', 'slack'],
       ['monthly-reminder', 'slackConnection', 'slack'],
       ['failure-webhook-alert', 'slackConnection', 'slack'],
+      ['receipt-folder-to-google-sheet', 'googleConnection', 'google'],
+      ['receipt-folder-to-excel', 'microsoftConnection', 'microsoft'],
     ])
+  })
+
+  it('asks for the long id of the spreadsheet, a path in the OneDrive and a table, and samples a short made-up id', () => {
+    const sheets = recipeOf('receipt-folder-to-google-sheet')
+    expect(sheets.params.map((param) => [param.id, param.kind, param.required, param.default, param.connectionKind])).toEqual([
+      ['watchFolder', 'folder', true, undefined, undefined],
+      ['glob', 'glob', false, '*.pdf', undefined],
+      ['googleConnection', 'connection', true, undefined, 'google'],
+      ['spreadsheetId', 'spreadsheetId', true, undefined, undefined],
+    ])
+    const excel = recipeOf('receipt-folder-to-excel')
+    expect(excel.params.map((param) => [param.id, param.kind, param.required, param.default, param.connectionKind])).toEqual([
+      ['watchFolder', 'folder', true, undefined, undefined],
+      ['glob', 'glob', false, '*.pdf', undefined],
+      ['microsoftConnection', 'connection', true, undefined, 'microsoft'],
+      ['workbookPath', 'driveFile', true, undefined, undefined],
+      ['tableName', 'tableName', true, undefined, undefined],
+    ])
+    expect(String(sheets.sample.spreadsheetId)).toHaveLength(29)
+    expect(sheets.sample.googleConnection).toBe('google')
+    expect(excel.sample.microsoftConnection).toBe('microsoft')
+  })
+
+  it('receipt-folder-to-google-sheet reads the receipt like the CSV recipe and appends the row to the sheet of the account', () => {
+    const recipe = recipeOf('receipt-folder-to-google-sheet')
+    const workflow = build(recipe, recipe.sample)
+    expect(shape(workflow)).toEqual({ nodes: ['t1:trigger.folderWatch@1', 'n1:llm.extract@1', 'n2:google.sheets.append@1'], edges: ['t1>n1', 'n1>n2'] })
+    expect(nodeOf(workflow, 't1').config).toEqual({ folder: '/Users/demo/Receipts', glob: '*.png' })
+    expect(nodeOf(workflow, 'n1').config).toEqual({ file: '{{t1.output.file}}', fields })
+    expect(nodeOf(workflow, 'n1').retry).toEqual({ maxAttempts: 3 })
+    expect(nodeOf(workflow, 'n2').config).toEqual({
+      connection: 'google',
+      spreadsheetId: recipe.sample.spreadsheetId,
+      values: ['{{n1.output.date}}', '{{n1.output.vendor}}', '{{n1.output.amount}}'],
+    })
+    const csv = build(recipeOf('receipt-folder-to-csv'), recipeOf('receipt-folder-to-csv').sample)
+    expect(nodeOf(workflow, 't1')).toEqual(nodeOf(csv, 't1'))
+    expect(nodeOf(workflow, 'n1')).toEqual(nodeOf(csv, 'n1'))
+    expect(nodeOf(build(recipe, requiredOnly(recipe)), 't1').config).toEqual({ folder: '/Users/demo/Receipts', glob: '*.pdf' })
+  })
+
+  it('receipt-folder-to-excel appends the row to the table of a workbook in the OneDrive of the account', () => {
+    const recipe = recipeOf('receipt-folder-to-excel')
+    const workflow = build(recipe, recipe.sample)
+    expect(shape(workflow)).toEqual({ nodes: ['t1:trigger.folderWatch@1', 'n1:llm.extract@1', 'n2:microsoft.excel.append@1'], edges: ['t1>n1', 'n1>n2'] })
+    expect(nodeOf(workflow, 'n2').config).toEqual({
+      connection: 'microsoft',
+      filePath: 'Receipts/ledger.xlsx',
+      table: 'Expenses',
+      values: ['{{n1.output.date}}', '{{n1.output.vendor}}', '{{n1.output.amount}}'],
+    })
+    const csv = build(recipeOf('receipt-folder-to-csv'), recipeOf('receipt-folder-to-csv').sample)
+    expect(nodeOf(workflow, 't1')).toEqual(nodeOf(csv, 't1'))
+    expect(nodeOf(workflow, 'n1')).toEqual(nodeOf(csv, 'n1'))
+  })
+
+  it('tells in the help text what the spreadsheet id, the workbook path and the table are, in both languages', () => {
+    const helpOf = (id: string, param: string) => recipeOf(id).params.find((entry) => entry.id === param)!.help!
+    expect(helpOf('receipt-folder-to-google-sheet', 'spreadsheetId').en).toMatch(/address/)
+    expect(helpOf('receipt-folder-to-google-sheet', 'spreadsheetId').en).toMatch(/not the title/)
+    expect(helpOf('receipt-folder-to-google-sheet', 'spreadsheetId').ko).toContain('주소')
+    expect(helpOf('receipt-folder-to-excel', 'workbookPath').en).toMatch(/OneDrive/)
+    expect(helpOf('receipt-folder-to-excel', 'workbookPath').en).toMatch(/\.xlsx/)
+    expect(helpOf('receipt-folder-to-excel', 'tableName').en).toMatch(/table/i)
+    expect(helpOf('receipt-folder-to-excel', 'tableName').ko).toContain('표')
+  })
+
+  it('does not accept a value the nodes would refuse, and names it at its field', () => {
+    const sheets = recipeOf('receipt-folder-to-google-sheet')
+    const excel = recipeOf('receipt-folder-to-excel')
+    expect(instantiateRecipe(sheets, { ...sheets.sample, spreadsheetId: 'Receipts 2026' })).toEqual({ problems: [{ param: 'spreadsheetId', rule: 'bad_spreadsheet_id' }] })
+    expect(instantiateRecipe(excel, { ...excel.sample, workbookPath: '/Receipts/ledger.xlsx' })).toEqual({ problems: [{ param: 'workbookPath', rule: 'bad_drive_file' }] })
+    expect(instantiateRecipe(excel, { ...excel.sample, tableName: '1Table' })).toEqual({ problems: [{ param: 'tableName', rule: 'bad_table_name' }] })
+    expect(instantiateRecipe(excel, { ...excel.sample, workbookPath: 'a/{{n1.output.x}}.xlsx', tableName: 'a{{b}}' })).toEqual({
+      problems: [
+        { param: 'workbookPath', rule: 'template_text' },
+        { param: 'tableName', rule: 'template_text' },
+      ],
+    })
+  })
+
+  it('has an instantiated workflow that the real node schemas accept for every edge value of the parameters', () => {
+    const sheets = recipeOf('receipt-folder-to-google-sheet')
+    const excel = recipeOf('receipt-folder-to-excel')
+    for (const spreadsheetId of ['a'.repeat(20), 'a-B_9'.repeat(20)]) expect(codes(build(sheets, { ...sheets.sample, spreadsheetId })), spreadsheetId).toEqual([])
+    for (const workbookPath of ['a.xlsx', 'Budget 2026/Q1/ledger.XLSX', `${'a'.repeat(395)}.xlsx`]) expect(codes(build(excel, { ...excel.sample, workbookPath })), workbookPath).toEqual([])
+    for (const tableName of ['_x', 'T'.repeat(255), '지출']) expect(codes(build(excel, { ...excel.sample, tableName })), tableName).toEqual([])
   })
 
   it('receipt-folder-to-csv watches a folder, extracts the amount, the date and the vendor and appends one row', () => {

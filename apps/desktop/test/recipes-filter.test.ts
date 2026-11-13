@@ -13,7 +13,7 @@ describe('filterRecipes', () => {
   })
 
   it('matches the title and the description of the current language, ignoring case', () => {
-    expect(ids(filterRecipes(recipeInfos, '영수증', [], 'ko'))).toEqual(['receipt-folder-to-csv', 'receipt-big-amount-alert'])
+    expect(ids(filterRecipes(recipeInfos, '영수증', [], 'ko'))).toEqual(['receipt-folder-to-csv', 'receipt-big-amount-alert', 'receipt-folder-to-google-sheet', 'receipt-folder-to-excel'])
     expect(ids(filterRecipes(recipeInfos, 'BIG RECEIPT', [], 'en'))).toEqual(['receipt-big-amount-alert'])
     expect(filterRecipes(recipeInfos, 'receipt', [], 'ko').length).toBeGreaterThan(0)
   })
@@ -64,6 +64,6 @@ describe('node type helpers', () => {
   })
 
   it('finds the recipes that send file contents to the model provider by their node types', () => {
-    expect(recipeInfos.filter((recipe) => sendsToModelProvider(recipe)).map((recipe) => recipe.id)).toEqual(['receipt-folder-to-csv', 'receipt-big-amount-alert'])
+    expect(recipeInfos.filter((recipe) => sendsToModelProvider(recipe)).map((recipe) => recipe.id)).toEqual(['receipt-folder-to-csv', 'receipt-big-amount-alert', 'receipt-folder-to-google-sheet', 'receipt-folder-to-excel'])
   })
 })

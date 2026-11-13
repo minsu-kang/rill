@@ -57,7 +57,7 @@ export const RECEIPT_SAMPLE = {
   csvFile: '/Users/demo/ledger.csv',
 } as const
 
-export function receiptNodes() {
+export function receiptReadNodes() {
   return [
     { id: 't1', type: 'trigger.folderWatch@1', config: { folder: param('watchFolder'), glob: param('glob') } },
     {
@@ -73,10 +73,11 @@ export function receiptNodes() {
       },
       retry: { maxAttempts: 3 },
     },
-    {
-      id: 'n2',
-      type: 'csv.append@1',
-      config: { file: param('csvFile'), row: ['{{n1.output.date}}', '{{n1.output.vendor}}', '{{n1.output.amount}}'] },
-    },
   ]
+}
+
+export const RECEIPT_ROW = ['{{n1.output.date}}', '{{n1.output.vendor}}', '{{n1.output.amount}}']
+
+export function receiptNodes() {
+  return [...receiptReadNodes(), { id: 'n2', type: 'csv.append@1', config: { file: param('csvFile'), row: [...RECEIPT_ROW] } }]
 }

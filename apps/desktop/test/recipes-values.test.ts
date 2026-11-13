@@ -1,7 +1,8 @@
 // @vitest-environment node
 import type { RecipeParamInfo } from '@rill/protocol'
 import { describe, expect, it } from 'vitest'
-import { initialValues, toRequestValues, valueErrorKey, valueOf, visibleConnections, withVisibleConnections, type HostConnection } from '../src/recipes/model/values'
+import type { OAuthAccount } from '../src/shared/host-api'
+import { accountConnections, connectionsWithAccounts, initialValues, selectableConnections, toRequestValues, valueErrorKey, valueOf, visibleConnections, withVisibleConnections, type HostConnection } from '../src/recipes/model/values'
 
 const LABEL = { ko: '라벨', en: 'Label' }
 const param = (overrides: Partial<RecipeParamInfo> & Pick<RecipeParamInfo, 'id' | 'kind'>): RecipeParamInfo => ({ label: LABEL, required: true, ...overrides })
@@ -203,5 +204,106 @@ describe('withVisibleConnections', () => {
   it('makes a required connection that vanished count as missing', () => {
     const effective = withVisibleConnections([SLACK], { conn: 'slack-gone' }, connections)
     expect(toRequestValues([SLACK], effective)).toEqual({ ok: false, errors: { conn: 'required' } })
+  })
+})
+
+
+describe('accountConnections', () => {
+  const account = (provider: OAuthAccount['provider'], status: OAuthAccount['status'], text?: string): OAuthAccount => ({ provider, status, ...(text === undefined ? {} : { account: text }) })
+
+  it('turns a connected account into a connection named like the provider, with its kind and account text', () => {
+    expect(accountConnections([account('google', 'connected', 'someone@example.com'), account('microsoft', 'connected', 'Alex Doe')])).toEqual([
+      { name: 'google', kind: 'google', account: 'someone@example.com' },
+      { name: 'microsoft', kind: 'microsoft', account: 'Alex Doe' },
+    ])
+  })
+
+  it('leaves out the account text when there is none', () => {
+    expect(accountConnections([account('google', 'connected')])).toEqual([{ name: 'google', kind: 'google' }])
+  })
+
+  it('marks an account that needs to be connected again, and keeps it in the list', () => {
+    expect(accountConnections([account('google', 'needs_reconnect', 'someone@example.com')])).toEqual([{ name: 'google', kind: 'google', account: 'someone@example.com', reconnect: true }])
+    expect(accountConnections([account('microsoft', 'needs_reconnect')])).toEqual([{ name: 'microsoft', kind: 'microsoft', reconnect: true }])
+  })
+
+  it('lists nothing for an account that is not set up, not connected or being connected', () => {
+    for (const status of ['not_configured', 'not_connected', 'connecting'] as const) expect(accountConnections([account('google', status), account('microsoft', status, 'x')]), status).toEqual([])
+  })
+
+  it('lists nothing without accounts and keeps the order of the accounts', () => {
+    expect(accountConnections([])).toEqual([])
+    expect(accountConnections([account('microsoft', 'connected'), account('google', 'connected')]).map((entry) => entry.name)).toEqual(['microsoft', 'google'])
+  })
+
+  it('never carries more than the name, the kind, the account text and the mark', () => {
+    for (const entry of accountConnections([{ provider: 'google', status: 'needs_reconnect', account: 'a', extra: 'REFRESH' } as unknown as OAuthAccount])) {
+      expect(Object.keys(entry).sort()).toEqual(['account', 'kind', 'name', 'reconnect'])
+    }
+  })
+})
+
+describe('connectionsWithAccounts', () => {
+  const saved: HostConnection[] = [
+    { name: 'slack-ops', kind: 'slack' },
+    { name: 'api', kind: 'http' },
+  ]
+
+  it('puts the accounts after the saved connections', () => {
+    expect(connectionsWithAccounts(saved, [{ provider: 'google', status: 'connected' }]).map((entry) => entry.name)).toEqual(['slack-ops', 'api', 'google'])
+  })
+
+  it('gives back only the saved connections when no account is connected, and does not change its input', () => {
+    expect(connectionsWithAccounts(saved, [])).toEqual(saved)
+    expect(connectionsWithAccounts(saved, [{ provider: 'google', status: 'not_connected' }])).toEqual(saved)
+    expect(saved).toHaveLength(2)
+  })
+
+  it('handles no saved connections', () => {
+    expect(connectionsWithAccounts([], [{ provider: 'microsoft', status: 'connected' }])).toEqual([{ name: 'microsoft', kind: 'microsoft' }])
+  })
+})
+
+describe('the account parameters of a recipe', () => {
+  const GOOGLE = param({ id: 'googleConnection', kind: 'connection', connectionKind: 'google' })
+  const MICROSOFT = param({ id: 'microsoftConnection', kind: 'connection', connectionKind: 'microsoft' })
+  const SLACK = param({ id: 'slackConnection', kind: 'connection', connectionKind: 'slack' })
+  const HTTP = param({ id: 'httpConnection', kind: 'connection', connectionKind: 'http' })
+  const connections: HostConnection[] = [
+    { name: 'slack-ops', kind: 'slack' },
+    { name: 'api', kind: 'http' },
+    { name: 'google', kind: 'google', account: 'someone@example.com' },
+    { name: 'microsoft', kind: 'microsoft', reconnect: true },
+  ]
+
+  it('list only the account of their own provider, and an account that needs to be connected again too', () => {
+    expect(visibleConnections(GOOGLE, connections).map((entry) => entry.name)).toEqual(['google'])
+    expect(visibleConnections(MICROSOFT, connections).map((entry) => entry.name)).toEqual(['microsoft'])
+  })
+
+  it('never list an account for a Slack or http parameter, and never a saved connection for an account parameter', () => {
+    expect(visibleConnections(SLACK, connections).map((entry) => entry.name)).toEqual(['slack-ops'])
+    expect(visibleConnections(HTTP, connections).map((entry) => entry.name)).toEqual(['api'])
+    expect(visibleConnections(GOOGLE, connections.filter((entry) => entry.kind !== 'google'))).toEqual([])
+    expect(visibleConnections(GOOGLE, [{ name: 'google', kind: 'slack' }, { name: 'microsoft', kind: 'http' }])).toEqual([])
+  })
+
+  it('offer for choosing only the accounts that do not need to be connected again', () => {
+    expect(selectableConnections(GOOGLE, connections).map((entry) => entry.name)).toEqual(['google'])
+    expect(selectableConnections(MICROSOFT, connections)).toEqual([])
+    expect(selectableConnections(SLACK, connections).map((entry) => entry.name)).toEqual(['slack-ops'])
+    expect(selectableConnections(FOLDER, connections)).toEqual([])
+  })
+
+  it('keep the value of a connected account and empty the value of one that needs to be connected again', () => {
+    expect(withVisibleConnections([GOOGLE, MICROSOFT], { googleConnection: 'google', microsoftConnection: 'microsoft' }, connections)).toEqual({ googleConnection: 'google', microsoftConnection: '' })
+  })
+
+  it('empty an account name that sits in a Slack field and a Slack name that sits in an account field', () => {
+    expect(withVisibleConnections([SLACK, GOOGLE], { slackConnection: 'google', googleConnection: 'slack-ops' }, connections)).toEqual({ slackConnection: '', googleConnection: '' })
+  })
+
+  it('empty the value of an account that is gone', () => {
+    expect(withVisibleConnections([GOOGLE], { googleConnection: 'google' }, connections.filter((entry) => entry.kind !== 'google'))).toEqual({ googleConnection: '' })
   })
 })

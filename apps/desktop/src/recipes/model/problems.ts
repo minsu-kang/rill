@@ -38,6 +38,9 @@ const RULE_KEYS: Readonly<Record<string, MessageKey>> = Object.freeze({
   bad_cron: 'recipes.rule.bad_cron',
   bad_url: 'recipes.rule.bad_url',
   url_credentials: 'recipes.rule.url_credentials',
+  bad_spreadsheet_id: 'recipes.rule.bad_spreadsheet_id',
+  bad_drive_file: 'recipes.rule.bad_drive_file',
+  bad_table_name: 'recipes.rule.bad_table_name',
 })
 
 export const PARAM_RULE_IDS: readonly string[] = Object.keys(RULE_KEYS)

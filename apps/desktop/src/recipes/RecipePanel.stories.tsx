@@ -59,6 +59,20 @@ async function openRecipe({ canvas, userEvent }: PlayContext, index: number): Pr
 
 export const TryItYourself: Story = {}
 
+const WITH_ACCOUNTS: RecipePanelProps['connections'] = [...CONNECTIONS, { name: 'google', kind: 'google', account: 'someone@example.com' }, { name: 'microsoft', kind: 'microsoft', reconnect: true }]
+
+export const WithAccounts: Story = { args: { connections: WITH_ACCOUNTS } }
+
+export const GoogleRecipeFormOpened: Story = {
+  args: { connections: WITH_ACCOUNTS },
+  play: async (context) => openRecipe(context, 6),
+}
+
+export const ExcelRecipeFormOpened: Story = {
+  args: { connections: WITH_ACCOUNTS },
+  play: async (context) => openRecipe(context, 7),
+}
+
 export const FormOpened: Story = { play: async (context) => openRecipe(context, 2) }
 
 export const ServerProblemsAtFields: Story = {

@@ -1,6 +1,6 @@
 import Type from 'typebox'
 
-export const PARAM_KINDS = ['folder', 'file', 'glob', 'text', 'number', 'cron', 'url', 'connection'] as const
+export const PARAM_KINDS = ['folder', 'file', 'glob', 'text', 'number', 'cron', 'url', 'connection', 'spreadsheetId', 'driveFile', 'tableName'] as const
 export type ParamKind = (typeof PARAM_KINDS)[number]
 
 export const CONNECTION_KINDS = ['slack', 'http', 'webhookSecret', 'google', 'microsoft'] as const

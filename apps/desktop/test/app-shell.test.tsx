@@ -11,6 +11,7 @@ import { explainCases } from '../src/fixtures/explain'
 import { outcomeOf, results } from '../src/fixtures/plan'
 import { recipeInfos } from '../src/fixtures/recipes'
 import { createTranslator } from '../src/i18n'
+import { ko } from '../src/i18n/ko'
 import { renderThemed } from './render'
 import { violations } from './axe'
 
@@ -60,6 +61,62 @@ async function workflowsLoaded(): Promise<void> {
 }
 
 afterEach(() => vi.restoreAllMocks())
+
+const GOOGLE_ID = '123456789012-abcdefghijklmnop.apps.googleusercontent.com'
+const MICROSOFT_ID = '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d'
+
+function withAccounts(accounts: Array<{ provider: 'google' | 'microsoft'; status: 'connected' | 'needs_reconnect' | 'not_connected'; account?: string }>) {
+  return fakeSettings({
+    configuredProviders: ['anthropic', 'openai'],
+    allowedFolders: ['/Users/demo/Receipts'],
+    connections: [{ name: 'slack-ops', kind: 'slack' }],
+    oauth: {
+      available: true,
+      accounts,
+      apps: accounts.map((entry) => ({ provider: entry.provider, clientId: entry.provider === 'google' ? GOOGLE_ID : MICROSOFT_ID, hasSecret: entry.provider === 'google' })),
+    },
+  })
+}
+
+describe('App shell recipes with accounts', () => {
+  async function openRecipe(user: ReturnType<typeof userEvent.setup>, id: string) {
+    const info = recipeInfos.find((recipe) => recipe.id === id)!
+    await user.click(tab(t('app.tab.recipes')))
+    await user.click(await screen.findByRole('button', { name: t('recipes.card.chooseLabel', { title: info.title.ko }) }))
+    return info
+  }
+
+  it('hands the connected Google account to the form of the Google recipe, and not the Microsoft one', async () => {
+    const { user } = mount({ hostInit: { settings: withAccounts([{ provider: 'google', status: 'connected', account: 'someone@example.com' }, { provider: 'microsoft', status: 'needs_reconnect', account: 'Alex Doe' }]) } })
+    await connected()
+    const info = await openRecipe(user, 'receipt-folder-to-google-sheet')
+    const select = (await screen.findByLabelText(info.params[2]!.label.ko)) as HTMLSelectElement
+    expect([...select.options].map((option) => [option.value, option.disabled])).toEqual([['', false], ['google', false]])
+    expect(select.options[1]!.textContent).toBe('Google (someone@example.com)')
+  })
+
+  it('shows an account that needs to be connected again in the Excel recipe, disabled, with the reason', async () => {
+    const { user } = mount({ hostInit: { settings: withAccounts([{ provider: 'google', status: 'connected' }, { provider: 'microsoft', status: 'needs_reconnect', account: 'Alex Doe' }]) } })
+    await connected()
+    const info = await openRecipe(user, 'receipt-folder-to-excel')
+    const select = (await screen.findByLabelText(info.params[2]!.label.ko)) as HTMLSelectElement
+    expect([...select.options].map((option) => [option.value, option.disabled])).toEqual([['', false], ['microsoft', true]])
+    expect(screen.getByText(t('recipes.field.accountReconnectNote', { kind: ko['recipes.kind.microsoft'] }))).toBeTruthy()
+  })
+
+  it('points to the connection settings when no account is connected, and follows the account once it is', async () => {
+    const world = mount({ hostInit: { settings: withAccounts([{ provider: 'google', status: 'not_connected' }]) } })
+    await connected()
+    const info = await openRecipe(world.user, 'receipt-folder-to-google-sheet')
+    expect(await screen.findByText(t('recipes.field.noAccount', { kind: ko['recipes.kind.google'] }))).toBeTruthy()
+    expect(screen.queryByLabelText(info.params[2]!.label.ko)).toBeNull()
+    act(() => {
+      void world.world.host.oauth.connect('google')
+    })
+    expect(await screen.findByLabelText(info.params[2]!.label.ko)).toBeTruthy()
+    expect(screen.queryByText(t('recipes.field.noAccount', { kind: ko['recipes.kind.google'] }))).toBeNull()
+  })
+})
 
 describe('App shell', () => {
   it('lets the person pick a provider whose key is saved although the engine was started with another provider', async () => {

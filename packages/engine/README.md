@@ -599,7 +599,7 @@ A recipe is a ready-made, validated workflow with a short form. The user picks o
 | `listRecipes` | none | `recipes` |
 | `instantiateRecipe` | `recipeId`, `values` | `recipeId`, `workflow`, `summary` |
 
-`listRecipes` returns one entry per recipe, in catalogue order: `id`, `title` and `description` (each `{ ko, en }`), `tags`, `params` (the form: `id`, `kind`, `label`, optional `help`, `required`, optional `default`, `min` and `max`, optional `extension` for a file and `connectionKind` for a connection), `nodeTypes` (the node types of the workflow, once each) and `needsConnection` (the form has a `connection` parameter). It never carries a workflow body or the sample values of the recipe.
+`listRecipes` returns one entry per recipe, in catalogue order: `id`, `title` and `description` (each `{ ko, en }`), `tags`, `params` (the form: `id`, `kind`, `label`, optional `help`, `required`, optional `default`, `min` and `max`, optional `extension` for a file and `connectionKind` for a connection; the kinds are `folder`, `file`, `glob`, `text`, `number`, `cron`, `url`, `connection`, and for the spreadsheet recipes `spreadsheetId`, `driveFile` and `tableName`), `nodeTypes` (the node types of the workflow, once each) and `needsConnection` (the form has a `connection` parameter). It never carries a workflow body or the sample values of the recipe.
 
 `instantiateRecipe` turns the values of the form into a workflow draft. `values` maps a parameter id to a string or a number: at most 20 values, each string at most 500 characters. The params object is closed. The engine checks in this order:
 

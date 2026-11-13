@@ -62,6 +62,8 @@ describe('every recipe deploys and dry-runs through the real executor with fake 
       'webhook-to-slack',
       'monthly-reminder',
       'failure-webhook-alert',
+      'receipt-folder-to-google-sheet',
+      'receipt-folder-to-excel',
     ])
   })
 
@@ -179,6 +181,43 @@ describe('every recipe deploys and dry-runs through the real executor with fake 
     const { workflowId } = await env.client.request('deploy', { workflow: draft.workflow })
     const result = await env.engine.startRun(workflowId, webhookPayload('/failure-alert', { status: '{"$param":"slackConnection"}' }), { dryRun: true })
     expect(result.outputs.n1).toEqual({ result: true, branch: 'true' })
+  })
+})
+
+describe('the spreadsheet recipes', () => {
+  it('receipt-folder-to-google-sheet reads the receipt with the model and appends nothing in a dry run, with no network', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('the network is not allowed'))
+    const { dryRun, statuses, provider, draft } = await deployed('receipt-folder-to-google-sheet', [{ data: EXTRACTED }])
+    const result = await dryRun(folderPayload())
+    expect(result.status).toBe('succeeded')
+    expect(result.outputs.n1).toEqual(EXTRACTED)
+    expect(result.outputs.n2).toEqual({ appended: false, updatedRange: '' })
+    expect(statuses(result.runId)).toEqual({ n1: 'succeeded', n2: 'succeeded' })
+    expect(provider.requests).toHaveLength(1)
+    expect(draft.workflow.nodes[2]!.config).toMatchObject({ connection: 'google', values: ['{{n1.output.date}}', '{{n1.output.vendor}}', '{{n1.output.amount}}'] })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('receipt-folder-to-excel reads the receipt with the model and appends nothing in a dry run, with no network', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('the network is not allowed'))
+    const { dryRun, statuses, provider, draft } = await deployed('receipt-folder-to-excel', [{ data: EXTRACTED }])
+    const result = await dryRun(folderPayload())
+    expect(result.status).toBe('succeeded')
+    expect(result.outputs.n1).toEqual(EXTRACTED)
+    expect(result.outputs.n2).toEqual({ appended: false })
+    expect(statuses(result.runId)).toEqual({ n1: 'succeeded', n2: 'succeeded' })
+    expect(provider.requests).toHaveLength(1)
+    expect(draft.workflow.nodes[2]!.config).toMatchObject({ connection: 'microsoft', filePath: 'Receipts/ledger.xlsx', table: 'Expenses' })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('refuses a draft of an account that is not connected, by the connection that the validator does not know', async () => {
+    for (const [recipeId, connection] of [['receipt-folder-to-google-sheet', 'googleConnection'], ['receipt-folder-to-excel', 'microsoftConnection']] as const) {
+      const recipe = findRecipe(recipeId)!
+      const env = await startRecipeEnv({ allowedRoots: [allowed], planConnections: [] })
+      const error = await env.client.request('instantiateRecipe', { recipeId, values: rebased(recipe) }).catch((caught: unknown) => caught as { code?: string; problems?: string[] })
+      expect(error, connection).toMatchObject({ code: 'RECIPE_INVALID', problems: ['unknown_connection at /nodes/2/config/connection'] })
+    }
   })
 })
 

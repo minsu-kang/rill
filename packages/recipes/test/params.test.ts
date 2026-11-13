@@ -1,3 +1,5 @@
+import { googleSheetsAppend, microsoftExcelAppend } from '@rill/nodes-core'
+import Value from 'typebox/value'
 import { describe, expect, it } from 'vitest'
 import {
   GENERAL_RULES,
@@ -27,7 +29,12 @@ function param(kind: ParamKind, extra: Partial<RecipeParam> = {}): RecipeParam {
   }
 }
 
+function recipeWith(entry: RecipeParam): Recipe {
+  return { id: 'demo', title: label, description: label, tags: [], params: [entry], workflow: {}, sample: {} }
+}
+
 const MARKER = 'MARKER-7c41d9'
+const SHEET_ID = '1DemoSpreadsheetIdForRecipes0'
 
 const ACCEPTS: Record<ParamKind, unknown[]> = {
   folder: ['/Users/demo/Receipts', '~/Receipts', '/', '/Users/demo/a..b', '/Users/demo/영수증', '/' + 'a'.repeat(499), '/Users/demo/Receipts/', '~/Receipts/', '~/a'],
@@ -38,6 +45,9 @@ const ACCEPTS: Record<ParamKind, unknown[]> = {
   cron: ['0 9 * * 1-5', '*/15 * * * *', '0 9 1 * *', '0 0 * * 0', '5 4 * * sun'],
   url: ['https://example.test/health', 'http://example.test', 'https://example.test:8443/a/b?x=1#y', 'http://127.0.0.1:3000/ping'],
   connection: ['slack-ops', 'Team Alerts', '팀 알림', 'a'.repeat(500)],
+  spreadsheetId: [SHEET_ID, 'a'.repeat(20), 'a-B_9'.repeat(20), 'A'.repeat(100), '_'.repeat(20), '-'.repeat(20)],
+  driveFile: ['Receipts/ledger.xlsx', 'a.xlsx', 'Budget 2026/Q1/ledger.XLSX', 'ledger.xLsX', '영수증/장부.xlsx', `${'a'.repeat(395)}.xlsx`, '.hidden/a.xlsx', 'a.b.xlsx', 'a..b.xlsx'],
+  tableName: ['Expenses', 'Table_1.v2', '지출', '_hidden', 'T'.repeat(255), 'My table-1', 'a b', 'A.B', 'é'],
 }
 
 const REJECTS: Record<ParamKind, Array<[ParamRule, unknown]>> = {
@@ -240,11 +250,95 @@ const REJECTS: Record<ParamKind, Array<[ParamRule, unknown]>> = {
     ['format_character', 'slack‍ops'],
     ['template_text', 'slack-{{ops}}'],
   ],
+  spreadsheetId: [
+    ['wrong_type', 5],
+    ['wrong_type', null],
+    ['wrong_type', [SHEET_ID]],
+    ['empty', ''],
+    ['empty', '   '],
+    ['too_long', 'a'.repeat(501)],
+    ['control_character', `${SHEET_ID}\n`],
+    ['line_separator', `${SHEET_ID}\u2028`],
+    ['bidi_format', `${SHEET_ID}\u202e`],
+    ['format_character', `${SHEET_ID}\u200b`],
+    ['template_text', `${SHEET_ID}{{n1.output.id}}`],
+    ['bad_spreadsheet_id', 'a'.repeat(19)],
+    ['bad_spreadsheet_id', 'a'.repeat(101)],
+    ['bad_spreadsheet_id', 'My receipts'],
+    ['bad_spreadsheet_id', `${SHEET_ID}/`],
+    ['bad_spreadsheet_id', `${SHEET_ID} `],
+    ['bad_spreadsheet_id', ` ${SHEET_ID}`],
+    ['bad_spreadsheet_id', `${SHEET_ID}%2F`],
+    ['bad_spreadsheet_id', `${SHEET_ID}..`],
+    ['bad_spreadsheet_id', `${SHEET_ID}?x=1`],
+    ['bad_spreadsheet_id', `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`],
+    ['bad_spreadsheet_id', 'a'.repeat(19) + '영'],
+  ],
+  driveFile: [
+    ['wrong_type', 5],
+    ['wrong_type', null],
+    ['empty', ''],
+    ['empty', '  '],
+    ['too_long', `${'a'.repeat(500)}.xlsx`],
+    ['control_character', 'Receipts/\nledger.xlsx'],
+    ['line_separator', 'Receipts/\u2029ledger.xlsx'],
+    ['bidi_format', 'Receipts/\u202eledger.xlsx'],
+    ['format_character', 'Receipts/\u200bledger.xlsx'],
+    ['template_text', 'Receipts/{{n1.output.name}}.xlsx'],
+    ['bad_drive_file', '/Receipts/ledger.xlsx'],
+    ['bad_drive_file', '../ledger.xlsx'],
+    ['bad_drive_file', 'Receipts/../ledger.xlsx'],
+    ['bad_drive_file', './ledger.xlsx'],
+    ['bad_drive_file', 'Receipts/./ledger.xlsx'],
+    ['bad_drive_file', 'Receipts//ledger.xlsx'],
+    ['bad_drive_file', 'ledger.xls'],
+    ['bad_drive_file', 'ledger.csv'],
+    ['bad_drive_file', 'ledger.xlsx.txt'],
+    ['bad_drive_file', '.xlsx'],
+    ['bad_drive_file', 'Receipts/.xlsx'],
+    ['bad_drive_file', 'Receipts/'],
+    ['bad_drive_file', 'Receipts'],
+    ['bad_drive_file', 'Receipts\\ledger.xlsx'],
+    ['bad_drive_file', 'C:\\Receipts\\ledger.xlsx'],
+    ['bad_drive_file', 'a:b.xlsx'],
+    ['bad_drive_file', 'a*b.xlsx'],
+    ['bad_drive_file', 'a?b.xlsx'],
+    ['bad_drive_file', 'a"b.xlsx'],
+    ['bad_drive_file', 'a<b.xlsx'],
+    ['bad_drive_file', 'a>b.xlsx'],
+    ['bad_drive_file', 'a|b.xlsx'],
+    ['bad_drive_file', 'a#b.xlsx'],
+    ['bad_drive_file', 'a%b.xlsx'],
+    ['bad_drive_file', `${'a'.repeat(396)}.xlsx`],
+  ],
+  tableName: [
+    ['wrong_type', 5],
+    ['wrong_type', null],
+    ['empty', ''],
+    ['empty', ' '],
+    ['too_long', 'T'.repeat(501)],
+    ['control_character', 'Expenses\n'],
+    ['line_separator', 'Expenses\u2028'],
+    ['bidi_format', 'Expenses\u202e'],
+    ['format_character', 'Expenses\u200b'],
+    ['template_text', 'Table{{x}}'],
+    ['bad_table_name', '1Table'],
+    ['bad_table_name', ' Expenses'],
+    ['bad_table_name', '-Expenses'],
+    ['bad_table_name', '.Expenses'],
+    ['bad_table_name', 'Sheet1!A1:D5'],
+    ['bad_table_name', 'a/b'],
+    ['bad_table_name', 'a\\b'],
+    ['bad_table_name', 'a;b'],
+    ['bad_table_name', "a'b"],
+    ['bad_table_name', 'a(b)'],
+    ['bad_table_name', 'T'.repeat(256)],
+  ],
 }
 
 describe('the parameter kinds', () => {
-  it('are the eight kinds of the plan', () => {
-    expect([...PARAM_KINDS]).toEqual(['folder', 'file', 'glob', 'text', 'number', 'cron', 'url', 'connection'])
+  it('are the eight kinds of the plan and the three kinds of the spreadsheet recipes', () => {
+    expect([...PARAM_KINDS]).toEqual(['folder', 'file', 'glob', 'text', 'number', 'cron', 'url', 'connection', 'spreadsheetId', 'driveFile', 'tableName'])
   })
 
   it('share one limit of 500 characters and 20 values', () => {
@@ -292,8 +386,8 @@ describe('character rules', () => {
     const family = '👨‍👩‍👧'
     expect(checkValue(param('text'), family)).toBeUndefined()
     expect(checkValue(param('text'), 'a‌b')).toBeUndefined()
-    for (const kind of ['folder', 'file', 'glob', 'cron', 'url', 'connection'] as const) {
-      const base = kind === 'folder' || kind === 'file' ? '/Users/demo/' : kind === 'url' ? 'https://example.test/' : kind === 'cron' ? '0 9 * * *' : 'a'
+    for (const kind of ['folder', 'file', 'glob', 'cron', 'url', 'connection', 'spreadsheetId', 'driveFile', 'tableName'] as const) {
+      const base = kind === 'folder' || kind === 'file' ? '/Users/demo/' : kind === 'url' ? 'https://example.test/' : kind === 'cron' ? '0 9 * * *' : kind === 'driveFile' ? 'Receipts/' : 'a'
       expect(checkValue(param(kind), `${base}‍`), kind).toBe('format_character')
     }
   })
@@ -499,5 +593,42 @@ describe('checkParams', () => {
     const values = Object.freeze({ folder: '/Users/demo', limit: 3 })
     expect(() => checkParams(recipe, values)).not.toThrow()
     expect(values).toEqual({ folder: '/Users/demo', limit: 3 })
+  })
+})
+
+
+describe('the spreadsheet kinds follow the schemas of the nodes', () => {
+  const sheets = (spreadsheetId: unknown) => Value.Check(googleSheetsAppend.configSchema, { connection: 'google', spreadsheetId, values: ['a'] })
+  const excelFile = (filePath: unknown) => Value.Check(microsoftExcelAppend.configSchema, { connection: 'microsoft', filePath, table: 'Expenses', values: ['a'] })
+  const excelTable = (table: unknown) => Value.Check(microsoftExcelAppend.configSchema, { connection: 'microsoft', filePath: 'a.xlsx', table, values: ['a'] })
+
+  const corpus = (values: readonly string[]) => [...values, ...values.map((value) => `${value}x`), ...values.map((value) => ` ${value}`), ...values.map((value) => `${value} `)]
+
+  it('accept a spreadsheet id exactly when the google node accepts it', () => {
+    const values = corpus([SHEET_ID, 'a'.repeat(19), 'a'.repeat(20), 'a'.repeat(100), 'a'.repeat(101), 'a-b_c', 'a/b', 'a b', 'ééééééééééééééééééééé', '1'.repeat(20), `${'a'.repeat(20)}-`, `${'a'.repeat(20)}.`, `${'a'.repeat(20)}%`, 'a'.repeat(19) + '\u00e9'])
+    for (const value of values) expect(checkValue(param('spreadsheetId'), value) === undefined, JSON.stringify(value)).toBe(sheets(value))
+  })
+
+  it('accept a workbook path exactly when the excel node accepts it', () => {
+    const values = corpus(['a.xlsx', 'Receipts/ledger.xlsx', 'a/b/c.XLSX', '/a.xlsx', '../a.xlsx', 'a/../b.xlsx', 'a//b.xlsx', 'a.xls', '.xlsx', 'a/.xlsx', 'a:b.xlsx', 'a\\b.xlsx', 'a|b.xlsx', 'a#b.xlsx', 'a%b.xlsx', `${'a'.repeat(395)}.xlsx`, `${'a'.repeat(396)}.xlsx`, '영수증.xlsx', 'a..b.xlsx', '...xlsx', '.../a.xlsx'])
+    for (const value of values) expect(checkValue(param('driveFile'), value) === undefined, JSON.stringify(value)).toBe(excelFile(value))
+  })
+
+  it('accept a table name exactly when the excel node accepts it', () => {
+    const values = corpus(['Expenses', '_x', '1x', 'a b', 'a-b', 'a.b', 'a_b', 'a/b', 'a;b', '지출', 'T'.repeat(255), 'T'.repeat(256), 'é', "a'b", 'a(b)'])
+    for (const value of values) expect(checkValue(param('tableName'), value) === undefined, JSON.stringify(value)).toBe(excelTable(value))
+  })
+
+  it('raise the character rules before the format rule', () => {
+    expect(checkValue(param('spreadsheetId'), '{{abc}}')).toBe('template_text')
+    expect(checkValue(param('driveFile'), 'a{{b}}.xlsx')).toBe('template_text')
+    expect(checkValue(param('tableName'), '{{abc}}')).toBe('template_text')
+    expect(checkValue(param('spreadsheetId'), 'a\nb')).toBe('control_character')
+  })
+
+  it('take no extension, bounds or connection kind into account', () => {
+    expect(checkValue(param('driveFile', { extension: '.csv' }), 'a.xlsx')).toBeUndefined()
+    expect(checkParams(recipeWith(param('spreadsheetId')), { value: SHEET_ID })).toEqual([])
+    expect(checkParams(recipeWith(param('spreadsheetId')), { value: 'My receipts' })).toEqual([{ param: 'value', rule: 'bad_spreadsheet_id' }])
   })
 })

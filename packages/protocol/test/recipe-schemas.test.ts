@@ -43,10 +43,10 @@ const draft = {
 const check = (schema: unknown, value: unknown): boolean => Value.Check(schema as never, value)
 
 describe('the recipe limits and kinds', () => {
-  it('are 20 values of at most 500 characters and the eight parameter kinds', () => {
+  it('are 20 values of at most 500 characters and the eleven parameter kinds', () => {
     expect(RECIPE_MAX_VALUES).toBe(20)
     expect(RECIPE_MAX_STRING_CHARS).toBe(500)
-    expect([...RECIPE_PARAM_KINDS]).toEqual(['folder', 'file', 'glob', 'text', 'number', 'cron', 'url', 'connection'])
+    expect([...RECIPE_PARAM_KINDS]).toEqual(['folder', 'file', 'glob', 'text', 'number', 'cron', 'url', 'connection', 'spreadsheetId', 'driveFile', 'tableName'])
   })
 })
 

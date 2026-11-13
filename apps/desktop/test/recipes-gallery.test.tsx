@@ -22,9 +22,9 @@ function setup(props: Partial<RecipeGalleryProps> = {}, locale: 'ko' | 'en' = 'k
 const cards = () => screen.getAllByRole('article')
 
 describe('RecipeGallery list', () => {
-  it('lists the six recipes with title, description and tags in the current language', () => {
+  it('lists the eight recipes with title, description and tags in the current language', () => {
     setup()
-    expect(cards()).toHaveLength(6)
+    expect(cards()).toHaveLength(8)
     for (const recipe of recipeInfos) {
       expect(screen.getByRole('heading', { name: recipe.title.ko })).toBeTruthy()
       expect(screen.getByText(recipe.description.ko)).toBeTruthy()
@@ -61,10 +61,41 @@ describe('RecipeGallery list', () => {
     expect(within(cards()[0]!).queryByText(ko['recipes.card.needsConnection'])).toBeNull()
   })
 
+  it('notes the spreadsheet recipes like every other recipe that needs a connection, and gives them the transfer mark', () => {
+    setup()
+    for (const id of ['receipt-folder-to-google-sheet', 'receipt-folder-to-excel']) {
+      const info = recipeInfos.find((recipe) => recipe.id === id)!
+      const card = within(screen.getByRole('heading', { name: info.title.ko }).closest('article') as HTMLElement)
+      expect(info.needsConnection, id).toBe(true)
+      expect(card.getByText(ko['recipes.card.needsConnection']), id).toBeTruthy()
+      expect(card.getByText(ko['badge.externalTransfer']), id).toBeTruthy()
+      expect(card.getByText(info.description.ko), id).toBeTruthy()
+    }
+  })
+
+  it('draws the table icon of the CSV step for the Google Sheets and Excel steps, and not the plain square', () => {
+    setup()
+    const lastIcon = (index: number) => within(cards()[index]!).getAllByRole('img').at(-1)!.querySelector('path')!.getAttribute('d')
+    const table = lastIcon(0)
+    expect(table).toBeTruthy()
+    const square = 'M3 3h10v10H3z'
+    expect(within(cards()[6]!).getAllByRole('img').at(-1)!.getAttribute('aria-label')).toBe(catalog.find((node) => node.type === 'google.sheets.append@1')?.title ?? 'google.sheets.append@1')
+    expect(lastIcon(6)).toBe(table)
+    expect(lastIcon(7)).toBe(table)
+    expect(lastIcon(6)).not.toBe(square)
+  })
+
+  it('shows the spreadsheet recipes in English without any Korean text', () => {
+    setup({}, 'en')
+    expect(screen.getByRole('heading', { name: 'Receipt folder to Google Sheet' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Receipt folder to Excel' })).toBeTruthy()
+    expect(screen.queryByText(/구글|엑셀/)).toBeNull()
+  })
+
   it('shows the external transfer badge for a recipe that uses llm.extract, and only that', () => {
     setup()
     const badges = screen.getAllByText(ko['badge.externalTransfer'])
-    expect(badges).toHaveLength(2)
+    expect(badges).toHaveLength(4)
     expect(within(cards()[0]!).getByText(ko['badge.externalTransfer'])).toBeTruthy()
     expect(within(cards()[2]!).queryByText(ko['badge.externalTransfer'])).toBeNull()
   })
@@ -80,7 +111,7 @@ describe('RecipeGallery search and tags', () => {
   it('filters by text and shows a message when nothing matches', async () => {
     const { user } = setup()
     await user.type(screen.getByRole('searchbox', { name: ko['recipes.search'] }), '영수증')
-    expect(cards()).toHaveLength(2)
+    expect(cards()).toHaveLength(4)
     await user.clear(screen.getByRole('searchbox', { name: ko['recipes.search'] }))
     await user.type(screen.getByRole('searchbox', { name: ko['recipes.search'] }), 'zzzzzz')
     expect(screen.queryAllByRole('article')).toHaveLength(0)
@@ -96,7 +127,7 @@ describe('RecipeGallery search and tags', () => {
     expect(slack.getAttribute('aria-pressed')).toBe('true')
     expect(cards().length).toBe(recipeInfos.filter((recipe) => recipe.tags.includes('slack')).length)
     await user.click(slack)
-    expect(cards()).toHaveLength(6)
+    expect(cards()).toHaveLength(8)
   })
 
   it('treats a search with a regular expression character as plain text', async () => {

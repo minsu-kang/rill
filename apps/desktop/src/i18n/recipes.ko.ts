@@ -21,6 +21,9 @@ export const recipesKo = {
   'recipes.rule.bad_cron': '실행 시각 형식이 올바르지 않아요.',
   'recipes.rule.bad_url': 'http 또는 https로 시작하는 올바른 주소가 아니에요.',
   'recipes.rule.url_credentials': '주소에 사용자 이름이나 비밀번호를 넣을 수 없어요.',
+  'recipes.rule.bad_spreadsheet_id': '스프레드시트 주소에서 /d/ 와 /edit 사이에 있는 긴 ID를 넣어 주세요. 제목이나 주소 전체는 안 돼요.',
+  'recipes.rule.bad_drive_file': '원드라이브에 있는 .xlsx 파일의 경로를 넣어 주세요. 예: Receipts/ledger.xlsx. 맨 앞에 /를 붙이지 않고, ".."와 \\ : * ? " < > | # % 는 쓸 수 없어요.',
+  'recipes.rule.bad_table_name': '엑셀 표의 이름을 넣어 주세요. 글자나 밑줄로 시작하고, 글자, 숫자, 공백, 점, 하이픈, 밑줄만 쓸 수 있어요.',
   'recipes.rule.generic': '이 값은 사용할 수 없어요.',
   'recipes.error.not_a_number': '숫자를 입력해 주세요.',
   'recipes.error.too_many': '한 번에 보낼 수 있는 값은 20개까지예요.',
@@ -95,4 +98,8 @@ export const recipesKo = {
   'recipes.error.params': '보낸 값이 올바르지 않아요.',
   'recipes.error.generic': '초안을 만들지 못했어요.',
   'recipes.field.noConnectionAny': '맞는 연결이 없어요. 연결 설정에서 연결을 먼저 만들어 주세요.',
+  'recipes.field.noAccount': '연결된 {kind} 계정이 없어요. 먼저 설정의 연결 화면에서 연결해 주세요.',
+  'recipes.field.accountNamed': '{kind} ({account})',
+  'recipes.field.accountOptionReconnect': '{label}, 다시 연결 필요',
+  'recipes.field.accountReconnectNote': '{kind} 계정을 다시 연결해야 해요. 설정의 연결 화면에서 다시 연결해 주세요.',
 }

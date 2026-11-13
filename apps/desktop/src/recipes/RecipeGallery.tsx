@@ -20,6 +20,8 @@ const ICON_PATHS: Readonly<Record<string, string>> = {
   trigger: 'M9 1.5L3.5 9H8l-1 5.5L12.5 7H8z',
   llm: 'M8 2l1.4 3.6L13 7l-3.6 1.4L8 12 6.6 8.4 3 7l3.6-1.4z',
   csv: 'M2.5 3.5h11v9h-11zM2.5 7h11M2.5 10h11M7 3.5v9',
+  google: 'M2.5 3.5h11v9h-11zM2.5 7h11M2.5 10h11M7 3.5v9',
+  microsoft: 'M2.5 3.5h11v9h-11zM2.5 7h11M2.5 10h11M7 3.5v9',
   http: 'M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11M2.5 8h11M8 2.5c-2 2-2 9 0 11M8 2.5c2 2 2 9 0 11',
   notify: 'M4 11V7.5a4 4 0 0 1 8 0V11l1 1.5H3zM6.5 14h3',
   condition: 'M4 3v10M4 8h5a3 3 0 0 0 3-3V3',

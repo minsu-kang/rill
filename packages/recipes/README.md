@@ -35,7 +35,7 @@ interface Recipe {
 
 interface RecipeParam {
   id: string // [a-z][a-zA-Z0-9]{0,31}
-  kind: 'folder' | 'file' | 'glob' | 'text' | 'number' | 'cron' | 'url' | 'connection'
+  kind: 'folder' | 'file' | 'glob' | 'text' | 'number' | 'cron' | 'url' | 'connection' | 'spreadsheetId' | 'driveFile' | 'tableName'
   label: { ko: string; en: string }
   help?: { ko: string; en: string }
   required: boolean
@@ -75,6 +75,9 @@ All string kinds share these rules, checked in this order, and the first that fa
 | `cron` | Five fields, accepted by the parser of the cron trigger and firing at some time. | `bad_cron` |
 | `url` | Starts with `http://` or `https://` in lower case, has a host, has no whitespace and no user name or password. | `bad_url`, `url_credentials` |
 | `connection` | The shape of a name only. The engine checks that the connection is configured and has the `connectionKind` of the parameter. | none |
+| `spreadsheetId` | The id of a Google Sheets spreadsheet, the long part of its address: 20 to 100 letters, digits, `-` and `_`. The pattern is the one of the `spreadsheetId` of `google.sheets.append` (`SPREADSHEET_ID_PATTERN` of `@rill/nodes-core`), so a title or a whole address is refused here and not at the validator. | `bad_spreadsheet_id` |
+| `driveFile` | The OneDrive path of an `.xlsx` workbook, as `microsoft.excel.append` takes it (`EXCEL_FILE_PATH_PATTERN`): no leading `/`, no `.` or `..` segment, no empty segment, at most 400 characters, none of the characters backslash, colon, asterisk, question mark, double quote, less than, greater than, vertical bar, number sign and percent sign, and a name that ends in `.xlsx` without regard to case. | `bad_drive_file` |
+| `tableName` | The name of an Excel table, as the node takes it (`EXCEL_TABLE_PATTERN`): a letter or `_` first, then letters, digits, `_`, `.`, `-` and spaces, at most 255 characters. | `bad_table_name` |
 
 The exports `PARAM_KINDS`, `PARAM_RULES` (the rule names per kind), `GENERAL_RULES` (`required` and `unknown_param`), `MAX_PARAM_STRING_CHARS` (500) and `MAX_PARAM_VALUES` (20) hold these facts, and the tests prove that every rule in `PARAM_RULES` is reachable and that nothing else is raised.
 
@@ -102,6 +105,8 @@ Notes on `url`: a user name or password in a URL would put a secret into the wor
 | `webhook-to-slack` | `slackConnection` | webhook on `/webhook-to-slack`, Slack message with a fixed text |
 | `monthly-reminder` | `schedule` (default first of the month at 9:00), `message` (has a default), `slackConnection` | cron, Slack message with the text of the form |
 | `failure-webhook-alert` | `slackConnection`, `failedStatus` (default `failed`) | webhook on `/failure-alert`, condition (`body.status` equals the failure status as text), Slack message on the true branch |
+| `receipt-folder-to-google-sheet` | `watchFolder`, `glob` (default `*.pdf`), `googleConnection` (`connectionKind` `google`), `spreadsheetId` | the first two steps of `receipt-folder-to-csv`, then append the row to the spreadsheet (`google.sheets.append`) |
+| `receipt-folder-to-excel` | `watchFolder`, `glob` (default `*.pdf`), `microsoftConnection` (`connectionKind` `microsoft`), `workbookPath`, `tableName` | the first two steps of `receipt-folder-to-csv`, then append the row to the table (`microsoft.excel.append`) |
 
 Notes on the recipes:
 
@@ -109,6 +114,7 @@ Notes on the recipes:
 - `http.request` already fails the node for a redirect and for every answer that is not 2xx, and `daily-health-check` continues after a failure, so the output of the call is empty exactly when the call failed. The condition asks whether a status exists: any 2xx answer, including 201 and 204, is healthy, and the alert goes out on the false branch. A dry run does not call the URL and reports status 0, which counts as an answer, so a dry run sends no alert.
 - The condition of `failure-webhook-alert` compares with strict equality, so `{"status": 500}` does not match the text `500`. The help of the parameter says that the sender must send the status as text.
 - The Slack connection of a recipe is declared with `connectionKind: 'slack'`, so a form can list only the connections of that kind, and the engine refuses a connection of another kind.
+- The two spreadsheet recipes ask for the connected Google or Microsoft account with `connectionKind: 'google'` or `'microsoft'`. The connection is named `google` or `microsoft` (the name of the account in the engine), and the form lists it only when the account is connected. The sample id of the spreadsheet is a made-up 29 character text, short enough not to look like a token. The recipes are the last two of the catalogue so that the order of the first six does not change. A dry run appends nothing and calls no service. A real run uses the access token of the account; when a call is refused with a 401 the node asks the app for a new token once (see the engine README).
 
 The two webhook recipes use fixed paths because a webhook path is not a parameter kind. `activate` fails with `ACTIVATION_FAILED` for a second workflow on a webhook route that is already in use, so only one active workflow per webhook recipe fits until a path parameter exists.
 
@@ -128,7 +134,7 @@ The tests refuse a recipe when:
 - the default or the sample of a parameter breaks its own rules, or the sample misses a parameter or has an extra one;
 - an `extension` sits on a parameter that is not a file, a connection has no `connectionKind` or any other parameter has one;
 - a node type is missing from the core registry;
-- the instantiated sample, or the instantiated required values with defaults, has any issue or warning from `validateWorkflow` (all three stages, allowed folder `/Users/demo`, connection `slack-ops`);
+- the instantiated sample, or the instantiated required values with defaults, has any issue or warning from `validateWorkflow` (all three stages, allowed folder `/Users/demo`, connections `slack-ops`, `google` and `microsoft`);
 - a `{{` stands outside a genuine node reference, or a literal looks like a token or a real host;
 - a path or connection value that should be refused is not refused by the validator.
 

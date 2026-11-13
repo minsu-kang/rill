@@ -59,6 +59,13 @@ export function FieldInput({ param, value, error, raw, connections, onChange, on
   }
 
   const noConnection = param.kind === 'connection' && matching.length === 0
+  const isAccount = param.connectionKind === 'google' || param.connectionKind === 'microsoft'
+  const reconnecting = matching.some((connection) => connection.reconnect === true)
+  const accountLabel = (connection: HostConnection): string => {
+    const kind = t(`recipes.kind.${connection.kind}`)
+    const named = connection.account === undefined ? kind : t('recipes.field.accountNamed', { kind, account: connection.account })
+    return connection.reconnect === true ? t('recipes.field.accountOptionReconnect', { label: named }) : named
+  }
 
   return (
     <div className={styles.root}>
@@ -81,17 +88,26 @@ export function FieldInput({ param, value, error, raw, connections, onChange, on
       )}
       {noConnection ? (
         <p className={styles.notice} role="status">
-          {param.connectionKind === undefined ? t('recipes.field.noConnectionAny') : t('recipes.field.noConnection', { kind: t(`recipes.kind.${param.connectionKind}`) })}
+          {param.connectionKind === undefined
+            ? t('recipes.field.noConnectionAny')
+            : t(isAccount ? 'recipes.field.noAccount' : 'recipes.field.noConnection', { kind: t(`recipes.kind.${param.connectionKind}`) })}
         </p>
       ) : param.kind === 'connection' ? (
-        <select {...common} className={styles.control} onChange={(event) => onChange(event.target.value)}>
-          <option value="">{t('recipes.field.connectionPick')}</option>
-          {matching.map((connection) => (
-            <option key={connection.name} value={connection.name}>
-              {connection.name}
-            </option>
-          ))}
-        </select>
+        <>
+          <select {...common} className={styles.control} onChange={(event) => onChange(event.target.value)}>
+            <option value="">{t('recipes.field.connectionPick')}</option>
+            {matching.map((connection) => (
+              <option key={connection.name} value={connection.name} disabled={connection.reconnect === true}>
+                {isAccount ? accountLabel(connection) : connection.name}
+              </option>
+            ))}
+          </select>
+          {reconnecting && param.connectionKind !== undefined && (
+            <p className={styles.notice} role="status">
+              {t('recipes.field.accountReconnectNote', { kind: t(`recipes.kind.${param.connectionKind}`) })}
+            </p>
+          )}
+        </>
       ) : (
         <div className={styles.inputRow}>
           <input

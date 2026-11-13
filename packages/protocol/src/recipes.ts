@@ -2,7 +2,7 @@ import { WorkflowSchema } from '@rill/dsl'
 import Type from 'typebox'
 import { IdSchema } from './plan'
 
-export const RECIPE_PARAM_KINDS = ['folder', 'file', 'glob', 'text', 'number', 'cron', 'url', 'connection'] as const
+export const RECIPE_PARAM_KINDS = ['folder', 'file', 'glob', 'text', 'number', 'cron', 'url', 'connection', 'spreadsheetId', 'driveFile', 'tableName'] as const
 export const RECIPE_CONNECTION_KINDS = ['slack', 'http', 'webhookSecret', 'google', 'microsoft'] as const
 export const RECIPE_MAX_VALUES = 20
 export const RECIPE_MAX_STRING_CHARS = 500

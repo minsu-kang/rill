@@ -5,6 +5,10 @@ import { maskSecretParts } from './connection-auth'
 import { httpCall } from './http'
 import { RetryableError, type ConnectionResolver } from './types'
 
+export const SPREADSHEET_ID_PATTERN = '^[A-Za-z0-9_-]{20,100}$'
+export const EXCEL_FILE_PATH_PATTERN = '^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?=.*[^/]\\.[xX][lL][sS][xX]$)[^\\p{C}\\\\:*?"<>|#%]{1,400}$'
+export const EXCEL_TABLE_PATTERN = '^[\\p{L}_][\\p{L}\\p{N}_. -]{0,254}$'
+
 export const ROW_MAX = 50
 export const CELL_TEXT_MAX = 2000
 export const UPDATED_RANGE_MAX = 200

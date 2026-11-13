@@ -1,11 +1,14 @@
 import { RECIPE_MAX_STRING_CHARS, RECIPE_MAX_VALUES, type RecipeParamInfo, type RecipeValues } from '@rill/protocol'
 import type { MessageKey } from '../../i18n'
+import type { OAuthAccount } from '../../shared/host-api'
 
 export type FormValues = Record<string, string>
 
 export interface HostConnection {
   name: string
   kind: 'slack' | 'http' | 'webhookSecret' | 'google' | 'microsoft'
+  account?: string
+  reconnect?: true
 }
 
 export type ValueError = 'required' | 'too_long' | 'not_a_number' | 'below_min' | 'above_max' | 'template_text' | 'too_many'
@@ -60,9 +63,24 @@ export function visibleConnections(param: RecipeParamInfo, connections: readonly
   return connections.filter((connection) => param.connectionKind === undefined || connection.kind === param.connectionKind)
 }
 
+export function selectableConnections(param: RecipeParamInfo, connections: readonly HostConnection[]): HostConnection[] {
+  return visibleConnections(param, connections).filter((connection) => connection.reconnect !== true)
+}
+
+export function accountConnections(accounts: readonly OAuthAccount[]): HostConnection[] {
+  return accounts.flatMap((entry): HostConnection[] => {
+    if (entry.status !== 'connected' && entry.status !== 'needs_reconnect') return []
+    return [{ name: entry.provider, kind: entry.provider, ...(entry.account === undefined ? {} : { account: entry.account }), ...(entry.status === 'needs_reconnect' ? { reconnect: true as const } : {}) }]
+  })
+}
+
+export function connectionsWithAccounts(saved: readonly HostConnection[], accounts: readonly OAuthAccount[]): HostConnection[] {
+  return [...saved, ...accountConnections(accounts)]
+}
+
 export function withVisibleConnections(params: readonly RecipeParamInfo[], values: FormValues, connections: readonly HostConnection[]): FormValues {
   const gone = params
-    .filter((param) => param.kind === 'connection' && !visibleConnections(param, connections).some((connection) => connection.name === valueOf(values, param.id)))
+    .filter((param) => param.kind === 'connection' && !selectableConnections(param, connections).some((connection) => connection.name === valueOf(values, param.id)))
     .map((param) => [param.id, ''] as const)
   return gone.length === 0 ? values : { ...values, ...Object.fromEntries(gone) }
 }
