@@ -24,6 +24,8 @@ export async function renewedTokenOf(connections: ConnectionResolver, name: stri
   if (connections.renew === undefined) return undefined
   let next: unknown
   try {
+    const held = connections.get(name)
+    if (isAccessToken(held) && held !== previous) return held
     next = await connections.renew(name)
   } catch {
     return undefined

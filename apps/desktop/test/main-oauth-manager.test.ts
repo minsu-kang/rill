@@ -939,6 +939,60 @@ describe('renew requests from the engine', () => {
     expect(harness.refreshCalls()).toHaveLength(2)
   })
 
+  it('does not take the 30 seconds for a request that was not answered because the refresh failed for a temporary reason', async () => {
+    const harness = await connected()
+    harness.queue.push(() => Promise.reject(new Error('offline')))
+    await harness.manager.renew(renewRequest())
+    expect(harness.messages).toEqual([])
+    harness.clock.jump(10_000)
+    harness.queue.push(() => tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: undefined }))
+    await harness.manager.renew(renewRequest())
+    expect(harness.refreshCalls()).toHaveLength(2)
+    expect(harness.messages).toEqual([{ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_ACCESS_2 }])
+  })
+
+  it('does not take the 30 seconds for a request that was not answered because the rotated refresh token could not be saved', async () => {
+    const harness = await connected({}, 'microsoft')
+    harness.failAccountWrites(true)
+    harness.queue.push(() => microsoftTokenAnswer({ access_token: MICROSOFT_ACCESS_2, refresh_token: MICROSOFT_REFRESH_2 }))
+    await harness.manager.renew(renewRequest('microsoft'))
+    expect(harness.messages).toEqual([])
+    harness.failAccountWrites(false)
+    harness.clock.jump(10_000)
+    harness.queue.push(() => microsoftTokenAnswer({ access_token: MICROSOFT_ACCESS_2, refresh_token: MICROSOFT_REFRESH_2 }))
+    await harness.manager.renew(renewRequest('microsoft'))
+    expect(harness.messages).toEqual([{ type: 'connection.set', name: 'microsoft', kind: 'microsoft', secret: MICROSOFT_ACCESS_2 }])
+  })
+
+  it('counts the 30 seconds from the answer of a refresh that the request shared with a timer', async () => {
+    const harness = await connected()
+    const gate = deferred<Response>()
+    harness.queue.push(() => gate.promise)
+    harness.clock.jump(GOOGLE_EXPIRY_DELAY)
+    harness.manager.resume()
+    await settle()
+    const request = harness.manager.renew(renewRequest())
+    await settle()
+    gate.resolve(tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: undefined }))
+    await request
+    harness.clock.jump(10_000)
+    await harness.manager.renew(renewRequest())
+    expect(harness.refreshCalls()).toHaveLength(1)
+  })
+
+  it('starts the 30 seconds again after the account was disconnected and connected again', async () => {
+    const harness = await connected()
+    await harness.manager.renew(renewRequest())
+    await harness.manager.disconnect('google')
+    await harness.manager.connect('google')
+    harness.calls.length = 0
+    harness.messages.length = 0
+    harness.clock.jump(5_000)
+    await harness.manager.renew(renewRequest())
+    expect(harness.refreshCalls()).toHaveLength(1)
+    expect(harness.messages).toHaveLength(1)
+  })
+
   it('keeps the 30 seconds apart for each provider', async () => {
     const harness = build()
     await withApp(harness, 'google')
@@ -1337,6 +1391,93 @@ describe('a write that overlaps a refresh', () => {
     await settle()
     expect((await h.realStore.getOAuth()).accounts.google!.refreshToken).toBe(GOOGLE_REFRESH_2)
     expect(h.manager.accountConnections()).toEqual([{ name: 'google', kind: 'google', secret: GOOGLE_ACCESS_2 }])
+  })
+
+  it('does not refresh for the engine while a disconnect is still writing, so no token goes out and none is written back', async () => {
+    const h = await queuedConnected('microsoft')
+    const release = h.queued.hold('clearOAuthAccount')
+    const disconnecting = h.manager.disconnect('microsoft')
+    await settle()
+    h.queue.push(() => microsoftTokenAnswer({ access_token: MICROSOFT_ACCESS_2, refresh_token: MICROSOFT_REFRESH_2 }))
+    await h.manager.renew(renewRequest('microsoft'))
+    await settle()
+    expect(h.refreshCalls()).toEqual([])
+    release()
+    await disconnecting
+    await settle()
+    expect(h.refreshCalls()).toEqual([])
+    expect(h.messages).toEqual([{ type: 'connection.remove', name: 'microsoft' }])
+    expect((await h.realStore.getOAuth()).accounts).toEqual({})
+    const again = build({ store: h.realStore })
+    expect(await statusOf(again.manager, 'microsoft')).toEqual({ provider: 'microsoft', status: 'not_connected' })
+    expect(h.logs).not.toContain('oauth microsoft: the engine asked for a new access token')
+  })
+
+  it('does not refresh for the engine while a new app is still being written', async () => {
+    const h = await queuedConnected('google')
+    const release = h.queued.hold('setOAuthApp')
+    const saving = h.manager.setApp('google', { clientId: OTHER_GOOGLE_ID })
+    await settle()
+    h.queue.push(() => tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: GOOGLE_REFRESH_2 }))
+    await h.manager.renew(renewRequest('google'))
+    await settle()
+    release()
+    await saving
+    await settle()
+    expect(h.refreshCalls()).toEqual([])
+    expect(h.messages).toEqual([{ type: 'connection.remove', name: 'google' }])
+    expect((await h.realStore.getOAuth()).accounts).toEqual({})
+  })
+
+  it('does not refresh for the engine while an app is being removed', async () => {
+    const h = await queuedConnected('google')
+    const release = h.queued.hold('clearOAuthApp')
+    const removing = h.manager.clearApp('google')
+    await settle()
+    h.queue.push(() => tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: GOOGLE_REFRESH_2 }))
+    await h.manager.renew(renewRequest('google'))
+    await settle()
+    release()
+    await removing
+    await settle()
+    expect(h.refreshCalls()).toEqual([])
+    expect(await h.realStore.getOAuth()).toEqual({ apps: {}, accounts: {} })
+  })
+
+  it('does not start a refresh on resume while a disconnect is still writing', async () => {
+    const h = await queuedConnected('google')
+    const release = h.queued.hold('clearOAuthAccount')
+    const disconnecting = h.manager.disconnect('google')
+    await settle()
+    h.clock.jump(GOOGLE_EXPIRY_DELAY)
+    h.manager.resume()
+    await settle()
+    expect(h.refreshCalls()).toEqual([])
+    release()
+    await disconnecting
+    await settle()
+    expect(h.refreshCalls()).toEqual([])
+    expect(h.messages).toEqual([{ type: 'connection.remove', name: 'google' }])
+  })
+
+  it('answers renew requests again once a failed write is over', async () => {
+    const h = await queuedConnected('google')
+    const release = h.queued.hold('clearOAuthAccount')
+    h.queued.failNext('clearOAuthAccount')
+    const outcome = h.manager.disconnect('google').then(
+      () => 'done',
+      () => 'failed',
+    )
+    await settle()
+    release()
+    expect(await outcome).toBe('failed')
+    await settle()
+    h.calls.length = 0
+    h.messages.length = 0
+    h.queue.push(() => tokenAnswer({ access_token: GOOGLE_ACCESS_2, refresh_token: undefined }))
+    await h.clock.advance(31_000)
+    await h.manager.renew(renewRequest('google'))
+    expect(h.messages).toContainEqual({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_ACCESS_2 })
   })
 
   it('keeps the account and refreshes it again when the store cannot clear it', async () => {

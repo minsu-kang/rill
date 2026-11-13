@@ -1,4 +1,4 @@
-import { act, screen, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/app/App'
@@ -243,15 +243,63 @@ describe('the reconnect notice: while the window is open', () => {
     expect(screen.queryByText(RECONNECT_ANY)).toBeNull()
   })
 
-  it('names the provider of the event only, and the notice of the other provider replaces the first', async () => {
+  it('names both accounts when the second one follows in its own event while the first is still waiting', async () => {
     const { host } = mount({ google: 'connected', microsoft: 'connected' })
     await ready(en)
     act(() => host.expireOAuth('google'))
     expect(await screen.findByText(sentence(en, 'google'))).toBeTruthy()
     act(() => host.expireOAuth('microsoft'))
-    expect(await screen.findByText(sentence(en, 'microsoft'))).toBeTruthy()
+    expect(await screen.findByText(en('app.notice.reconnectBoth'))).toBeTruthy()
     expect(screen.queryByText(sentence(en, 'google'))).toBeNull()
+    expect(screen.queryByText(sentence(en, 'microsoft'))).toBeNull()
     expect(screen.getAllByText(RECONNECT_ANY)).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: en('app.notice.reconnect.action') })).toHaveLength(1)
+  })
+
+  it('names both accounts in Korean when the second one follows the first', async () => {
+    const { host } = mount({ google: 'connected', microsoft: 'connected' }, { locale: 'ko' })
+    await ready(ko)
+    act(() => host.expireOAuth('microsoft'))
+    expect(await screen.findByText(sentence(ko, 'microsoft'))).toBeTruthy()
+    act(() => host.expireOAuth('google'))
+    expect(await screen.findByText(ko('app.notice.reconnectBoth'))).toBeTruthy()
+    expect(screen.getAllByText(RECONNECT_ANY)).toHaveLength(1)
+  })
+
+  it('names both accounts when the second one follows after the notice of the first was dismissed', async () => {
+    const { host, user } = mount({ google: 'connected', microsoft: 'connected' })
+    await ready(en)
+    act(() => host.expireOAuth('google'))
+    await user.click(await screen.findByRole('button', { name: en('app.notice.dismiss') }))
+    act(() => host.expireOAuth('microsoft'))
+    expect(await screen.findByText(en('app.notice.reconnectBoth'))).toBeTruthy()
+  })
+
+  it('names only the account that needs it when the other one was connected again in the meantime', async () => {
+    const { user, emit } = mount({ google: 'needs_reconnect', microsoft: 'connected' })
+    await user.click(await screen.findByRole('button', { name: en('app.notice.dismiss') }))
+    emit({ provider: 'google', status: 'connecting' })
+    emit({ provider: 'google', status: 'connected', account: 'someone@example.com' })
+    emit({ provider: 'microsoft', status: 'needs_reconnect', account: 'someone@example.com' })
+    expect(await screen.findByText(sentence(en, 'microsoft'))).toBeTruthy()
+    expect(screen.queryByText(en('app.notice.reconnectBoth'))).toBeNull()
+  })
+
+  it('names only the new account while the first one is being connected again', async () => {
+    const { user, emit } = mount({ google: 'needs_reconnect', microsoft: 'connected' })
+    await user.click(await screen.findByRole('button', { name: en('app.notice.dismiss') }))
+    emit({ provider: 'google', status: 'connecting' })
+    emit({ provider: 'microsoft', status: 'needs_reconnect', account: 'someone@example.com' })
+    expect(await screen.findByText(sentence(en, 'microsoft'))).toBeTruthy()
+    expect(screen.queryByText(en('app.notice.reconnectBoth'))).toBeNull()
+  })
+
+  it('shows nothing new for a second event of the account that is already waiting, while the other one is waiting too', async () => {
+    const { user, emit } = mount({ google: 'needs_reconnect', microsoft: 'needs_reconnect' })
+    await user.click(await screen.findByRole('button', { name: en('app.notice.dismiss') }))
+    emit({ provider: 'microsoft', status: 'needs_reconnect' })
+    emit({ provider: 'google', status: 'needs_reconnect' })
+    expect(screen.queryByText(RECONNECT_ANY)).toBeNull()
   })
 })
 
@@ -277,6 +325,36 @@ describe('the reconnect notice: its buttons', () => {
     expect(within(nav).getByRole('button', { name: en('app.settings.section.connections') }).getAttribute('aria-current')).toBe('page')
     const tabs = screen.getByRole('navigation', { name: en('app.top.screens') })
     expect(within(tabs).getByRole('button', { name: en('app.tab.settings') }).getAttribute('aria-current')).toBe('page')
+  })
+
+  it('puts the focus on the heading of Connections when the action opens it from another screen', async () => {
+    const { user } = mount({ google: 'needs_reconnect' })
+    await user.click(await screen.findByRole('button', { name: en('app.notice.reconnect.action') }))
+    const heading = await screen.findByRole('heading', { name: en('app.settings.section.connections') })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+  })
+
+  it('puts the focus on the heading of Connections when Settings shows another section', async () => {
+    const { user, host } = mount({ google: 'connected' })
+    await ready(en)
+    await user.click(within(screen.getByRole('navigation', { name: en('app.top.screens') })).getByRole('button', { name: en('app.tab.settings') }))
+    await screen.findByRole('heading', { name: en('app.settings.section.folders') })
+    act(() => host.expireOAuth('google'))
+    await user.click(await screen.findByRole('button', { name: en('app.notice.reconnect.action') }))
+    const heading = await screen.findByRole('heading', { name: en('app.settings.section.connections') })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+  })
+
+  it('keeps the focus in the page when Connections is already open and the action is used', async () => {
+    const { user, host } = mount({ google: 'connected' })
+    await ready(en)
+    await user.click(within(screen.getByRole('navigation', { name: en('app.top.screens') })).getByRole('button', { name: en('app.tab.settings') }))
+    await user.click(within(await screen.findByRole('navigation', { name: en('app.settings.nav') })).getByRole('button', { name: en('app.settings.section.connections') }))
+    const heading = await screen.findByRole('heading', { name: en('app.settings.section.connections') })
+    act(() => host.expireOAuth('google'))
+    await user.click(await screen.findByRole('button', { name: en('app.notice.reconnect.action') }))
+    expect(screen.queryByText(RECONNECT_ANY)).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(heading))
   })
 
   it('dismisses with the dismiss button and keeps the screen as it is', async () => {

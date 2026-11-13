@@ -1,6 +1,7 @@
 import type { RecipeParamInfo } from '@rill/protocol'
 import { useEffect, useId, useRef } from 'react'
 import { useLocale, useT, type MessageKey } from '../i18n'
+import { MAX_ACCOUNT_SHOWN, escapeInvisible, truncate } from '../model/text'
 import { SafeText } from '../ui/SafeText'
 import styles from './FieldInput.module.css'
 import { visibleConnections, type HostConnection } from './model/values'
@@ -63,7 +64,7 @@ export function FieldInput({ param, value, error, raw, connections, onChange, on
   const reconnecting = matching.some((connection) => connection.reconnect === true)
   const accountLabel = (connection: HostConnection): string => {
     const kind = t(`recipes.kind.${connection.kind}`)
-    const named = connection.account === undefined ? kind : t('recipes.field.accountNamed', { kind, account: connection.account })
+    const named = connection.account === undefined ? kind : t('recipes.field.accountNamed', { kind, account: escapeInvisible(truncate(connection.account, MAX_ACCOUNT_SHOWN)) })
     return connection.reconnect === true ? t('recipes.field.accountOptionReconnect', { label: named }) : named
   }
 

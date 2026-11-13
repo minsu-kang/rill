@@ -73,6 +73,7 @@ export function App({ initial = {} }: AppProps) {
   const [focusAction, setFocusAction] = useState<'dryRun' | 'activate' | undefined>(undefined)
   const [restarting, setRestarting] = useState(false)
   const [deletedTick, setDeletedTick] = useState(0)
+  const [settingsTick, setSettingsTick] = useState(0)
   const chatRoot = useRef<HTMLElement>(null)
   const chatToggle = useRef<HTMLButtonElement>(null)
   const noticeId = useRef(0)
@@ -100,6 +101,10 @@ export function App({ initial = {} }: AppProps) {
     const target = document.querySelector<HTMLElement>('[data-rill-region="workflow-switcher"] select') ?? document.querySelector<HTMLElement>('[data-rill-region="workspace"]')
     target?.focus()
   }, [deletedTick])
+
+  useEffect(() => {
+    if (settingsTick > 0) document.querySelector<HTMLElement>('[data-rill-region="settings"] h2')?.focus()
+  }, [settingsTick])
 
   useEffect(() => {
     if (chatFocus > 0) chatRoot.current?.querySelector<HTMLElement>(COMPOSER)?.focus()
@@ -140,7 +145,13 @@ export function App({ initial = {} }: AppProps) {
   }, [])
 
   useReconnectNotice(accounts, (providers) => {
-    const action: NoticeAction = { key: 'app.notice.reconnect.action', run: () => openSettings('connections') }
+    const action: NoticeAction = {
+      key: 'app.notice.reconnect.action',
+      run: () => {
+        openSettings('connections')
+        setSettingsTick((value) => value + 1)
+      },
+    }
     if (providers.length > 1) notify('app.notice.reconnectBoth', undefined, action)
     else notify('app.notice.reconnect', { provider: t(`app.connections.provider.${providers[0]!}`) }, action)
   })

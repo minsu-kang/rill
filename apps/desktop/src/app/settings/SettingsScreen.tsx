@@ -64,7 +64,7 @@ export function SettingsScreen({ state, client, connection, section, onSectionCh
   const locked = !settings.encryptionAvailable
 
   return (
-    <div className={styles.root} ref={root}>
+    <div className={styles.root} ref={root} data-rill-region="settings">
       <nav className={styles.nav} aria-label={t('app.settings.nav')}>
         {SETTINGS_SECTIONS.map((id) => (
           <button key={id} type="button" className={styles.navButton} aria-current={id === current ? 'page' : undefined} onClick={() => choose(id)}>

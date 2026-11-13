@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { useT, type MessageKey } from '../../i18n'
-import { escapeInvisible, truncate } from '../../model/text'
+import { MAX_ACCOUNT_SHOWN, escapeInvisible, truncate } from '../../model/text'
 import { MAX_CLIENT_ID_LENGTH, OAUTH_REDIRECT_REGISTRATION, hostErrorCode, isOAuthClientId, isOAuthClientSecret, type OAuthProvider, type OAuthState, type OAuthStatus } from '../../shared/host-api'
 import controls from '../controls.module.css'
 import { useHost } from '../host'
@@ -11,7 +11,6 @@ import styles from './OAuthCard.module.css'
 import type { SettingsApi } from './types'
 import { useAction } from './useAction'
 
-const MAX_ACCOUNT_SHOWN = 56
 const MAX_CLIENT_ID_SHOWN = 100
 const SECRET_INPUT_LIMIT = 512
 

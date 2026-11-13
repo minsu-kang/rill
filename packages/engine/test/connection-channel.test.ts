@@ -558,6 +558,32 @@ describe('a run that is refused with a 401 while the desktop app renews the toke
     expect(JSON.stringify(result)).not.toContain('TOKENMARKER')
   })
 
+  it('uses the token that the app sent while the call was in flight, for the 401 that arrives later, and posts nothing', async () => {
+    const seen: Array<string | null> = []
+    let gate!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      gate = resolve
+    })
+    vi.stubGlobal('fetch', async (_input: URL | string, init?: RequestInit) => {
+      const token = new Headers(init?.headers).get('authorization')
+      seen.push(token)
+      if (token !== `Bearer ${GOOGLE_TOKEN}`) return new Response(JSON.stringify({ updates: { updatedRange: 'Sheet1!A1' } }), { status: 200, headers: { 'content-type': 'application/json' } })
+      await waiting
+      return new Response('expired', { status: 401 })
+    })
+    const { loaded, port } = renewSetup(SIGNED_IN)
+    const engine = engineFor(loaded)
+    engines.push(engine)
+    const running = engine.startRun(engine.deploy(workflow))
+    await vi.waitFor(() => expect(seen).toHaveLength(1))
+    port.post({ type: 'connection.set', name: 'google', kind: 'google', secret: GOOGLE_TOKEN_2 })
+    gate()
+    const result = await running
+    expect(result.status).toBe('succeeded')
+    expect(seen).toEqual([`Bearer ${GOOGLE_TOKEN}`, `Bearer ${GOOGLE_TOKEN_2}`])
+    expect(port.sent).toEqual([])
+  })
+
   it('fails the same way, without renewing, when no parent port exists', async () => {
     const seen = stubSheets([401])
     const loaded = parseConnections(SIGNED_IN)

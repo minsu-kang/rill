@@ -538,11 +538,20 @@ describe('RecipeForm accounts', () => {
     expect(submitButton().disabled).toBe(false)
   })
 
-  it('shows the account text as text, also when it holds markup', () => {
-    const hostile = '<img src=x onerror=window.__pwned=1> ‮'
+  it('shows the account text as text, also when it holds markup, with hidden characters made visible', () => {
+    const hostile = '<img src=x onerror=window.__pwned=1> \u202e\u200b'
     const view = setup(SHEET, { connections: [{ name: 'google', kind: 'google', account: hostile }] }, 'en').view
     expect(view.container.querySelector('img')).toBeNull()
-    expect(optionsOf(googleField())[1]!.text).toBe(`Google (${hostile})`)
+    expect(optionsOf(googleField())[1]!.text).toBe('Google (<img src=x onerror=window.__pwned=1> ‹U+202E›‹U+200B›)')
+  })
+
+  it('cuts a long account text the way the connection card does, and keeps the reconnect reason', () => {
+    const long = `${'a'.repeat(60)}@example.com`
+    setup(SHEET, { connections: [{ name: 'google', kind: 'google', account: long }] }, 'en')
+    expect(optionsOf(googleField())[1]!.text).toBe(`Google (${'a'.repeat(55)}…)`)
+    setup(SHEET, { connections: [{ name: 'google', kind: 'google', account: `a\u200b${long}`, reconnect: true }] }, 'en')
+    const options = optionsOf(screen.getAllByLabelText(SHEET.params[2]!.label.en).at(-1) as HTMLSelectElement)
+    expect(options[1]!.text).toBe(`Google (a‹U+200B›${'a'.repeat(53)}…), needs to be connected again`)
   })
 
   it('has no axe violation with a connected account, an account to connect again and no account', async () => {

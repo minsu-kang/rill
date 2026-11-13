@@ -257,6 +257,60 @@ for (const kind of KINDS) {
       expect(JSON.stringify(error)).not.toContain('MARKER')
     })
 
+    it('repeats the call with the token the table already holds, without asking for a renewal', async () => {
+      let answers = 0
+      let current = kind.first
+      const seen = stubFetch(() => {
+        if (++answers === 1) {
+          current = kind.second
+          return textResponse('expired', 401)
+        }
+        return kind.success()
+      })
+      const renew = vi.fn(async () => undefined)
+      const ctx = makeCtx({ connections: resolverFor(kind, renew, () => current) })
+      expect(await kind.run(kind.config, ctx)).toEqual(kind.output)
+      expect(renew).not.toHaveBeenCalled()
+      expect(seen.map(authOf)).toEqual([`Bearer ${kind.first}`, `Bearer ${kind.second}`])
+    })
+
+    it('asks for a renewal when the table still holds the token that was refused', async () => {
+      const seen = stubFetch(textResponse('expired', 401))
+      const renew = vi.fn(async () => kind.second)
+      const error = await fail(makeCtx({ connections: resolverFor(kind, renew, () => kind.first) }))
+      expect(error.message).toBe(UNAUTHORISED)
+      expect(renew).toHaveBeenCalledTimes(1)
+      expect(seen.map(authOf)).toEqual([`Bearer ${kind.first}`, `Bearer ${kind.second}`])
+    })
+
+    it('does not take a newer table value that is not an access token, it asks for a renewal', async () => {
+      for (const secret of ['', 'short', `${kind.second}\nX-Evil: 1`, 'xoxb-SLACKTOKENMARKER0123456789', 'a'.repeat(8193)]) {
+        let current = kind.first
+        const seen = stubFetch(() => {
+          current = secret
+          return textResponse('expired', 401)
+        })
+        const renew = vi.fn(async () => undefined)
+        const error = await fail(makeCtx({ connections: resolverFor(kind, renew, () => current) }))
+        expect(error.message, JSON.stringify(secret)).toBe(UNAUTHORISED)
+        expect(renew, JSON.stringify(secret)).toHaveBeenCalledTimes(1)
+        expect(seen, JSON.stringify(secret)).toHaveLength(1)
+      }
+    })
+
+    it('fails with the usual 401 text when the table token that was found is refused too, and asks for nothing', async () => {
+      let current = kind.first
+      const seen = stubFetch(() => {
+        current = kind.second
+        return textResponse('expired', 401)
+      })
+      const renew = vi.fn(async () => 'ya29.THIRDMARKER00000000000')
+      const error = await fail(makeCtx({ connections: resolverFor(kind, renew, () => current) }))
+      expect(error.message).toBe(UNAUTHORISED)
+      expect(renew).not.toHaveBeenCalled()
+      expect(seen).toHaveLength(2)
+    })
+
     it('does not look at the connection table again for the retry, it uses what the renewal returned', async () => {
       let answers = 0
       const seen = stubFetch(() => (++answers === 1 ? textResponse('expired', 401) : kind.success()))

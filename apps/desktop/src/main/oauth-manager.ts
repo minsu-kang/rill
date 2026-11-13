@@ -47,6 +47,8 @@ interface Slot {
   refreshing: Promise<void> | undefined
   failures: number
   generation: number
+  writes: number
+  pushes: number
 }
 
 interface Active {
@@ -64,7 +66,7 @@ const RENEW_INTERVAL_MS = 30_000
 const BACKOFF_MS = [30_000, 60_000, 120_000, 300_000] as const
 
 function newSlot(): Slot {
-  return { status: 'not_configured', account: undefined, scope: undefined, connectedAt: undefined, refreshToken: undefined, persistedToken: undefined, accessToken: undefined, expiresAt: undefined, timer: undefined, refreshing: undefined, failures: 0, generation: 0 }
+  return { status: 'not_configured', account: undefined, scope: undefined, connectedAt: undefined, refreshToken: undefined, persistedToken: undefined, accessToken: undefined, expiresAt: undefined, timer: undefined, refreshing: undefined, failures: 0, generation: 0, writes: 0, pushes: 0 }
 }
 
 export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
@@ -137,7 +139,7 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
     slot.timer = undefined
   }
 
-  function dropTokens(slot: Slot): void {
+  function dropTokens(provider: OAuthProvider, slot: Slot): void {
     clearTimer(slot)
     slot.accessToken = undefined
     slot.expiresAt = undefined
@@ -146,6 +148,7 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
     slot.refreshing = undefined
     slot.failures = 0
     slot.generation += 1
+    lastRenewal.delete(provider)
   }
 
   function suspend(slot: Slot): void {
@@ -156,20 +159,24 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
 
   function rearm(provider: OAuthProvider): void {
     const slot = slotOf(provider)
-    if (slot.status !== 'connected' || slot.refreshToken === undefined) return
+    if (slot.status !== 'connected' || slot.refreshToken === undefined || slot.writes > 0) return
     const stale = slot.accessToken === undefined || slot.expiresAt === undefined || slot.expiresAt - clock.now() <= REFRESH_MARGIN_MS + RESUME_SLACK_MS
     if (stale) void refresh(provider)
     else schedule(provider)
   }
 
   async function guardedWrite(provider: OAuthProvider, write: () => Promise<unknown>): Promise<void> {
-    suspend(slotOf(provider))
+    const slot = slotOf(provider)
+    suspend(slot)
+    slot.writes += 1
     try {
       await write()
     } catch (error) {
+      slot.writes -= 1
       rearm(provider)
       throw error
     }
+    slot.writes -= 1
   }
 
   function send(message: unknown): void {
@@ -186,7 +193,9 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
 
   function pushToken(provider: OAuthProvider): void {
     const slot = slotOf(provider)
-    if (hasLiveToken(slot)) send({ type: 'connection.set', name: provider, kind: provider, secret: slot.accessToken })
+    if (!hasLiveToken(slot)) return
+    slot.pushes += 1
+    send({ type: 'connection.set', name: provider, kind: provider, secret: slot.accessToken })
   }
 
   function pushRemove(provider: OAuthProvider): void {
@@ -234,7 +243,7 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
       note(`oauth ${provider}: could not save the reconnect mark`)
     }
     if (slot.generation !== generation) return
-    dropTokens(slot)
+    dropTokens(provider, slot)
     pushRemove(provider)
     change(provider, () => {
       slot.status = 'needs_reconnect'
@@ -311,7 +320,7 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
 
   function forget(provider: OAuthProvider): void {
     const slot = slotOf(provider)
-    dropTokens(slot)
+    dropTokens(provider, slot)
     slot.account = undefined
     slot.scope = undefined
     slot.connectedAt = undefined
@@ -409,7 +418,7 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
           await revoke(provider, result.refreshToken)
           throw error
         }
-        dropTokens(slot)
+        dropTokens(provider, slot)
         slot.refreshToken = result.refreshToken
         slot.persistedToken = result.refreshToken
         slot.accessToken = result.accessToken
@@ -480,13 +489,14 @@ export function createOAuthManager(deps: OAuthManagerDeps): OAuthManager {
       if (parsed === undefined) return
       const provider = parsed.name
       const slot = slotOf(provider)
-      if (slot.status !== 'connected' || slot.refreshToken === undefined) return
+      if (slot.status !== 'connected' || slot.refreshToken === undefined || slot.writes > 0) return
       const now = clock.now()
       const last = lastRenewal.get(provider)
       if (last !== undefined && now - last < RENEW_INTERVAL_MS) return
-      lastRenewal.set(provider, now)
       note(`oauth ${provider}: the engine asked for a new access token`)
+      const pushed = slot.pushes
       await refresh(provider)
+      if (slot.pushes > pushed) lastRenewal.set(provider, clock.now())
     },
 
     onChange(listener) {
