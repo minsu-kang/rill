@@ -173,7 +173,7 @@ Not run yet. The suite has 48 approved cases: 20 easy, 10 ambiguous (the right a
 ## Known limitations
 
 - macOS first. The installer is signed ad hoc and not notarized, and the smoke check of the packed app runs on macOS only. Windows and Linux are untested.
-- The graph is read-only. You change a workflow by selecting a node and asking in the chat (patch mode), or with a recipe. Editing node settings in forms is not built. There is no delete for a workflow.
+- The graph is read-only. You change a workflow by selecting a node and asking in the chat (patch mode), or with a recipe. Editing node settings in forms is not built. A workflow can be deleted with its run history from the Workflows screen. It cannot be undone, and the engine refuses while a run is queued or running.
 - The delivery guarantee is at least once. A crash between sending a Slack message and recording it, or a retry after a server error, can send the message twice. CSV rows are deduplicated by an idempotency key.
 - A dry run still reads the file and calls the model, because reading is not a side effect. It skips the CSV write, the Slack message and HTTP requests.
 - Webhook triggers listen on `localhost` only. There is no tunnel and no cloud sync.

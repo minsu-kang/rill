@@ -2,7 +2,7 @@
 
 The React renderer of the Rill desktop app, built so that every screen can be looked at in Storybook without starting the app, the engine, a network or a model key.
 
-The screens take their data as props or read it through a small `EngineClient` interface (`request` and `onEvent`). The stories and the tests give them a fake client that answers from fixtures. The Electron shell that wraps them (main process, engine process, secrets, tray, installer) is described in [The desktop app](#the-desktop-app). The screens are not wired into it yet: the window shows a small status page, and Plan 4e puts the real app screen there.
+The screens take their data as props or read it through a small `EngineClient` interface (`request` and `onEvent`). The stories and the tests give them a fake client that answers from fixtures. The Electron shell that wraps them (main process, engine process, secrets, tray, installer) is described in [The desktop app](#the-desktop-app). The window shows the app screen in `src/app/`, which wires the screens to the host API and the engine client, as described in [The window](#the-window).
 
 ## What is here
 
@@ -14,7 +14,8 @@ The screens take their data as props or read it through a small `EngineClient` i
 | Workspace | `src/workspace/` | The three screens together as in the design: graph in the middle, inspector on the right, history below. Live events from the client change the node cards as they arrive. |
 | Failure explanation | `src/explain/` | The "why did it fail" flow for a failed run: a notice of what is sent to the model provider, an effort choice, the explanation card with the likely cause, signal chips, action buttons and an optional fix proposal handed to the chat box as a draft. |
 | Recipe gallery | `src/recipes/` | The six ready-made recipes with search and tag filter, a form built from each recipe's params, a draft preview with the graph, side-effect lines and the "external transfer" line, and a deploy button. |
-| Chat panel | `src/chat/` | The right pane: a conversation with the planner (questions, workflow preview, unsupported), an effort slider, file attachments, flag confirmation before deploy, a model picker and a notes screen. See the next section. |
+| Chat panel | `src/chat/` | The right pane: chat tabs, each a conversation with the planner (questions, workflow preview, unsupported), an effort control, file attachments, flag confirmation before deploy, a model picker and a notes screen. See the next section. |
+| App shell | `src/app/` | The top bar, the page container, the Workflows, Recipes and Settings screens and the chat aside, wired to the host API and the engine client. See [The window](#the-window). |
 | Shared pieces | `src/ui/`, `src/theme/`, `src/i18n/` | Status chip and icons, color tokens for light and dark, and a typed Korean and English dictionary. |
 
 Run state lives in `src/model/` as pure functions: `statesFromSteps` for a finished run, `reduceEvent` for the live event stream, `displayState` for what a card shows. A trigger writes no step row, so a trigger of an open run is shown as succeeded.
@@ -32,22 +33,36 @@ Run state lives in `src/model/` as pure functions: `statesFromSteps` for a finis
 | `editContext` | Optional `{ workflowId, nodeId? }`. When given, every `plan` request carries `workflowId` and `selection`, which puts the planner in patch mode. |
 | `newId` | Optional plan id generator, for tests and stories. The default is `crypto.randomUUID`. |
 | `onDeployed`, `onSelectModel`, `onClearEditContext` | Callbacks. The panel does none of these things itself. |
-| `initialEntries`, `initialDraft` | Optional starting conversation and draft text, for stories and tests. |
+| `initialEntries`, `initialDraft` | Optional starting conversation and draft text for the first chat tab, for stories and tests. |
 
-The conversation lives only in component state: a pure reducer (`src/chat/model/conversation.ts`) holds the entries, the draft, the attachments, the effort and the memory switch. Nothing is written to disk, `localStorage` or `sessionStorage`. The provider side is stateless, so each `plan` request carries the whole history as `turns` (at most 40, the engine's limit); when a conversation reaches the limit the panel asks for a new chat. A new chat keeps the effort and the memory choice and clears the rest.
+The conversation lives only in component state: a pure reducer (`src/chat/model/conversation.ts`) holds the entries, the draft, the attachments, the effort and the memory switch. Nothing is written to disk, `localStorage` or `sessionStorage`. The provider side is stateless, so each `plan` request carries the whole history as `turns` (at most 40, the engine's limit); when a conversation reaches the limit the panel offers to open a new chat tab. A new tab starts with the defaults.
 
 What the person sees and decides:
 
+- Composer layout, top to bottom: the text area; one toolbar row with Attach files and the effort control on the left and Send on the right (when the panel is narrower than about 470px the effort control moves to a second line); a small Options line that is closed by default and holds the notes switch and the advanced effort step; and one muted footer with the external transfer notice and the shortcut hint. The transfer notice never needs a click to be seen.
 - Effort steps: fast `low`, normal `medium` (default), careful `high`, very careful `xhigh`, and `max` under an advanced toggle. A step the active model does not list in `capabilities.effortLevels` is disabled with the reason. The answer shows requested and effective effort when the engine lowered it, and the cost as an upper bound (`null` shows "unknown").
 - Send is Ctrl+Enter or Cmd+Enter. Plain Enter is a line break, so a multi-line draft is safe to write. It is never sent while a plan runs, while a file is being added, with an empty draft, with more than 8000 characters or without a model.
 - Questions: a default that is one of the options is preselected and counts as an answer. A question with no options is a free text field that starts empty; the model default is shown beside it as a suggestion that the person accepts with a click or types over. A default that is not one of the options is ignored. The planner also treats an unchanged default as model text, never as text the person wrote. Answers travel as the `answers` of a user turn, never as part of the request text, because the planner treats a chosen option differently from text the person wrote.
 - Flags: each flag of a plan has its own checkbox, grouped by node. Deploy stays disabled until the confirmed keys equal the flag keys of the plan (`flagKey` from `@rill/protocol`); the engine requires the same.
 - Every place that sends something to the model provider says so: the composer notice (request, attached files, notes), the badge on each attached file, the model picker (`dataNote`) and the notes screen.
-- A plan that is running can be cancelled and the draft and attachments come back. When the engine has answered `cancelPlan` (or failed to) and the plan request has still not settled, the panel leaves the planning state itself and ignores a late answer for that plan. Closing the panel while a plan runs sends `cancelPlan` and drops the answer.
+- A plan that is running can be cancelled and the draft and attachments come back. When the engine has answered `cancelPlan` (or failed to) and the plan request has still not settled, the panel leaves the planning state itself and ignores a late answer for that plan. Closing the panel, or closing the chat tab, while a plan runs sends `cancelPlan` and drops the answer.
 - Only the newest workflow card can be deployed. An earlier one says that a newer plan replaced it, and its flag boxes and Deploy button are off. While a new plan is being made, every Deploy button is off.
 - The notes switch is on only when the engine reported at least one note. While `listMemory` is pending or failed, the composer says "Notes not loaded", leaves notes out of the transfer notice and sends `useMemory: false`, so what the screen says is what leaves the computer.
 
 Text written by the model (summary, questions, options, reason, nearest idea, flag messages) and names of attached files are untrusted. They are shown as plain text only, with bidi, zero-width and control characters made visible as `‹U+202E›`, a length cap and a "show more" button. A test reads the sources of `src/chat` and fails on `dangerouslySetInnerHTML`, `innerHTML`, `eval`, `localStorage`, `sessionStorage`, anchors, `href`, `src` and network calls.
+
+### Chat tabs
+
+The panel holds up to 8 chats as tabs. `ChatPanel` owns the header (title, the Chat, Model and Notes switch, the model text), the tab strip and the shared views. Each tab is a `Conversation` (`src/chat/Conversation.tsx`) with its own reducer, draft, attachments, effort, notes switch, deploy state and running request. The list of tabs is a pure reducer in `src/chat/model/tabs.ts`.
+
+- Every tab stays mounted while the app runs, and the inactive ones are hidden. Switching between tabs loses nothing. The tabs also survive closing and opening the chat aside, because the app keeps the panel mounted.
+- The tabs live in memory only. After a restart of the app there is one empty chat. Nothing is saved to disk.
+- The model list and the notes count are loaded once for all tabs. The Model and Notes views are shared, and the tab strip shows only in the Chat view.
+- A tab is titled with its first message, cut to 28 characters and shown as plain text with invisible characters made visible. A tab without a message is called "New chat". There is no New chat button: the plus button after the tabs opens a new empty tab and makes it the active one.
+- A tab that has a request running shows an activity indicator. An answer that arrives in a tab the person is not looking at lands in that tab and marks it with a dot until the tab is opened.
+- A tab closes with its x button, or with the Delete key while it has the focus. A tab that has messages, a draft, attached files or a running request asks first. Closing sends `cancelPlan` for the running request and asks the port to remove the files that were not sent. Workflows that were deployed from the tab stay.
+- Requests at the same time: the engine plans at most 2 at once and answers the next with `PLAN_BUSY`. A second tab can send while the first one waits for its answer. A third request at the same time fails in the tab that sent it, with the text of `PLAN_BUSY`, and the text comes back to the draft of that tab.
+- Keyboard: the strip is a `tablist`, each tab has `aria-selected` and `aria-controls`, and each conversation is a `tabpanel` labelled by its tab. The arrow keys, Home and End move the focus between the tabs, Enter or Space opens the focused tab. Only the focused tab and its close button are in the Tab order. The strip scrolls sideways and keeps the active tab in view. The close buttons and the activity marks sit beside the tablist, so the tablist holds only tabs.
 
 ### The attachment port (for the real client)
 
@@ -58,7 +73,7 @@ interface AttachmentPort {
 }
 ```
 
-The panel validates a file before it calls `add`: the media type must be one of the eight in `AttachmentRefSchema`. A declared type of the eight must agree with the extension (`tool.exe` declared as `image/png` is refused; a declared text type may stand for any text extension, including unknown ones like `.log`); a declared type outside the eight, such as `application/vnd.ms-excel` that Windows gives to `.csv`, falls back to the extension. A dropped folder is skipped even when it is named like a file. PDF up to 20 MiB, image up to 3.75 MiB, text up to 1 MiB, not empty, at most 5 files per message and 10 per conversation. `add` must copy the file into the engine's attachment folder and resolve with the protocol `AttachmentRef` (`id`, `mediaType`, `name`, `bytes`). File bytes never go through the protocol. If `add` rejects, the panel shows the localized text of the error code (`ATTACHMENT_REJECTED` and the others) and never the text of the error. `remove` is optional and best effort. The panel calls it for a file that finished adding after the composer was gone, for the unsent files of a chat that is cleared with New chat, and for the unsent files (and those of a request that was cancelled) when the panel is closed.
+The panel validates a file before it calls `add`: the media type must be one of the eight in `AttachmentRefSchema`. A declared type of the eight must agree with the extension (`tool.exe` declared as `image/png` is refused; a declared text type may stand for any text extension, including unknown ones like `.log`); a declared type outside the eight, such as `application/vnd.ms-excel` that Windows gives to `.csv`, falls back to the extension. A dropped folder is skipped even when it is named like a file. PDF up to 20 MiB, image up to 3.75 MiB, text up to 1 MiB, not empty, at most 5 files per message and 10 per conversation. `add` must copy the file into the engine's attachment folder and resolve with the protocol `AttachmentRef` (`id`, `mediaType`, `name`, `bytes`). File bytes never go through the protocol. If `add` rejects, the panel shows the localized text of the error code (`ATTACHMENT_REJECTED` and the others) and never the text of the error. `remove` is optional and best effort. The panel calls it for a file that finished adding after the composer was gone, for the unsent files of a chat tab that is closed, and for the unsent files (and those of a request that was cancelled) when the panel is closed.
 
 ### Choosing the model
 
@@ -185,15 +200,22 @@ The host contract:
 
 ## The desktop app
 
-`apps/desktop` is also the macOS app named Rill. The main process starts the engine as a child process, keeps keys and connection secrets in the system keychain, shows a tray icon, can start at login and can be packed into an unsigned installer. The window itself only shows a status page (engine state and ping time) until Plan 4e.
+`apps/desktop` is also the macOS app named Rill. The main process starts the engine as a child process, keeps keys and connection secrets in the system keychain, shows a tray icon, can start at login and can be packed into an unsigned installer. The window shows the app screen from `src/app/`.
 
 | Part | Files | What it does |
 | --- | --- | --- |
 | Host API | `src/shared/host-api.ts` | The typed API between the window and the main process, defined once with TypeBox schemas. Main, preload and renderer all check against it. |
 | Main process | `src/main/` | Plain modules that take Electron and file system objects as arguments, so Vitest runs them without Electron: `config-store`, `secret-store`, `key-check`, `engine-supervisor`, `attachments`, `ipc-handlers`. Only `index.ts`, `window.ts`, `tray.ts` and `login-item.ts` touch real Electron objects. |
 | Preload | `src/preload/` | Exposes `window.rill`, the host API, and nothing else. It never exposes `ipcRenderer`. |
-| Status page | `src/renderer-shell/` | Shows the engine state and the ping time through `window.rill` and `RillClient`. Outside the app it says to run it inside the app. |
+| App root | `src/renderer-shell/` | `LiveRoot` renders the app with the theme and with the language of the setting, and sets `<html lang>`. Outside the app, without `window.rill`, it says to run it inside the app. |
 | Engine bundle | `scripts/bundle-engine.ts` | Bundles `packages/engine` into one `.mjs` file with esbuild. The app starts it with `utilityProcess.fork`. |
+
+### The window
+
+- Top bar: the brand, the workflow switcher, the three screens, and the chat toggle (narrow windows only). While the engine is connected its state is a small green dot with the tooltip "Engine connected". A visually hidden live region carries the words and the `data-rill-ping` attributes that the smoke check reads. In every other state (connecting, reconnecting, restarting, stopped, no host) the text chip shows again, with the reason and the restart button when the engine is stopped. The external transfer badge and the model are not in the top bar: the model text is in the header of the chat panel and opens the Model view, and the transfer notice stays beside the Send button.
+- Page padding: every screen sits in one page container (`src/app/Page.tsx`). It keeps 24px from the window edge, 16px when the window is under 700px wide, and the content is at most 1200px wide and centered.
+- Language: Settings, General has a Language select with System default, English and 한국어. The labels are the same in every language. The choice is saved in `config.json` and applies at once. System default follows `navigator.language`: a language that starts with `ko` means Korean, anything else English. `LiveRoot` starts from the system language, reads the setting when the settings load, switches when the select saves, and keeps `<html lang>` in step. The window title and the native menus do not change.
+- Delete a workflow: the Delete button stands after the run buttons. Its dialog names the workflow, says that the run history is deleted too and that it cannot be undone. The engine refuses with `WORKFLOW_BUSY` while a run is queued or running, and the dialog then says to stop the running run first. After a delete the window shows the next workflow, or the empty state, and refreshes the list. Other windows refresh through the `workflow.deleted` event. The focus moves to the workflow switcher, or to the main area when no workflow is left.
 
 ### Run it
 
