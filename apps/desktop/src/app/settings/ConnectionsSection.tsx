@@ -6,9 +6,7 @@ import {
   MAX_AUTH_NAME_LENGTH,
   MAX_AUTH_VALUE_LENGTH,
   MAX_NAME_LENGTH,
-  MAX_SECRET_LENGTH,
   OAUTH_PROVIDERS,
-  foldName,
   type AuthType,
   type ConnectionSummary,
   type OAuthProvider,
@@ -17,29 +15,14 @@ import { SafeText } from '../../ui/SafeText'
 import controls from '../controls.module.css'
 import { useHost } from '../host'
 import { ConfirmDialog } from '../workflows/ConfirmDialog'
-import { buildCustomAuth, type CustomField, type CustomFieldValues } from './connection-form'
+import { buildCustomAuth, nameProblem, type CustomField, type CustomFieldValues } from './connection-form'
 import look from './ConnectionsSection.module.css'
+import { SlackCard } from './SlackCard'
 import styles from './Settings.module.css'
 import type { SettingsApi } from './types'
 import { useAction } from './useAction'
 
 const MAX_CONNECTIONS = 200
-const CONTROL = /\p{Cc}/u
-
-function looksLikeUrl(value: string): boolean {
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:' || url.protocol === 'http:'
-  } catch {
-    return false
-  }
-}
-
-function nameProblem(name: string, connections: readonly ConnectionSummary[]): MessageKey | undefined {
-  if (name === '' || name.length > MAX_NAME_LENGTH || CONTROL.test(name)) return 'app.connections.nameInvalid'
-  if (connections.some((entry) => foldName(entry.name) === foldName(name))) return 'app.connections.duplicate'
-  return undefined
-}
 
 function readField(form: HTMLFormElement, name: string): string {
   const field = form.elements.namedItem(name)
@@ -86,126 +69,6 @@ interface GroupProps {
   locked: boolean
   full: boolean
   onRemove(name: string): void
-}
-
-function SlackWebhook({ api, locked, full, onRemove }: GroupProps) {
-  const t = useT()
-  const host = useHost()
-  const action = useAction()
-  const panelId = useId()
-  const nameId = useId()
-  const urlId = useId()
-  const nameField = useRef<HTMLInputElement>(null)
-  const urlField = useRef<HTMLInputElement>(null)
-  const submitting = useRef(false)
-  const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [urlState, setUrlState] = useState({ filled: false, urlLike: false })
-  const [problem, setProblem] = useState<MessageKey | undefined>(undefined)
-  const [saved, setSaved] = useState(false)
-  const { connections } = api.settings
-  const webhooks = connections.filter((entry) => entry.kind === 'slack')
-  const off = locked || action.busy || full
-
-  function submit(event: FormEvent<HTMLFormElement>): void {
-    event.preventDefault()
-    const field = urlField.current
-    if (field === null || locked || action.busy || submitting.current) return
-    setSaved(false)
-    const trimmed = name.trim()
-    const refused = nameProblem(trimmed, connections)
-    if (refused !== undefined) {
-      setProblem(refused)
-      nameField.current?.focus()
-      return
-    }
-    const value = field.value.trim()
-    if (value === '') return
-    field.value = ''
-    setUrlState({ filled: false, urlLike: false })
-    setProblem(undefined)
-    submitting.current = true
-    void action
-      .run(async () => {
-        await host.secrets.setConnection({ name: trimmed, kind: 'slack', secret: value })
-        await api.reload()
-        setName('')
-        setSaved(true)
-      })
-      .finally(() => {
-        submitting.current = false
-      })
-  }
-
-  return (
-    <>
-      <button type="button" className={`${controls.button} ${look.toggle}`} aria-expanded={open} aria-controls={open ? panelId : undefined} onClick={() => setOpen(!open)}>
-        {t('app.connections.slack.advanced')}
-      </button>
-      {open ? (
-        <div id={panelId} className={look.advanced}>
-          <p className={controls.note}>{t('app.connections.slack.note')}</p>
-          <strong className={look.stepsTitle}>{t('app.connections.slack.stepsTitle')}</strong>
-          <ol className={look.steps}>
-            <li>{t('app.connections.slack.step1')}</li>
-            <li>{t('app.connections.slack.step2')}</li>
-            <li>{t('app.connections.slack.step3')}</li>
-            <li>{t('app.connections.slack.step4')}</li>
-          </ol>
-          <SavedList
-            entries={webhooks}
-            chip={() => t('app.connections.provider.slack')}
-            label={t('app.connections.slack.saved')}
-            empty={t('app.connections.slack.none')}
-            disabled={locked || action.busy}
-            onRemove={onRemove}
-          />
-          <form className={styles.form} onSubmit={submit} noValidate>
-            <label className={`${controls.label} ${styles.grow}`} htmlFor={nameId}>
-              {t('app.connections.slack.name')}
-              <input ref={nameField} id={nameId} className={controls.input} type="text" maxLength={MAX_NAME_LENGTH} autoComplete="off" value={name} disabled={off} onChange={(event) => setName(event.target.value)} />
-            </label>
-            <label className={`${controls.label} ${styles.grow}`} htmlFor={urlId}>
-              {t('app.connections.slack.url')}
-              <input
-                ref={urlField}
-                id={urlId}
-                className={controls.input}
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                maxLength={MAX_SECRET_LENGTH}
-                disabled={off}
-                onInput={(event) => {
-                  const value = event.currentTarget.value.trim()
-                  setUrlState({ filled: value !== '', urlLike: looksLikeUrl(value) })
-                }}
-              />
-            </label>
-            <button type="submit" className={controls.primary} disabled={off || !urlState.filled || name.trim() === ''}>
-              {t('app.connections.slack.save')}
-            </button>
-          </form>
-          {urlState.filled && !urlState.urlLike ? <p className={controls.warn}>{t('app.connections.slackHint')}</p> : null}
-          {problem === undefined ? null : (
-            <p className={controls.error} role="alert">
-              {t(problem)}
-            </p>
-          )}
-          {saved && action.error === undefined ? (
-            <p className={controls.ok} role="status">
-              {t('app.connections.slack.didSave')}
-            </p>
-          ) : null}
-          {action.error === undefined ? null : (
-            <p className={controls.error} role="alert">
-              {t(action.error)}
-            </p>
-          )}
-        </div>
-      ) : null}
-    </>
-  )
 }
 
 function Accounts({ api, locked }: GroupProps) {
@@ -280,19 +143,6 @@ function Accounts({ api, locked }: GroupProps) {
           {t(action.error)}
         </p>
       )}
-    </section>
-  )
-}
-
-function SlackBlock(props: GroupProps) {
-  const t = useT()
-  const headingId = useId()
-  return (
-    <section className={look.group} aria-labelledby={headingId}>
-      <h3 id={headingId} className={look.groupTitle}>
-        {t('app.connections.provider.slack')}
-      </h3>
-      <SlackWebhook {...props} />
     </section>
   )
 }
@@ -502,7 +352,7 @@ export function ConnectionsSection({ api, locked }: { api: SettingsApi; locked: 
       <p className={controls.note}>{t('app.connections.intro')}</p>
       {full ? <p className={controls.warn}>{t('app.connections.limit')}</p> : null}
       <Accounts api={api} locked={locked} full={full} onRemove={setRemoving} />
-      <SlackBlock api={api} locked={locked} full={full} onRemove={setRemoving} />
+      <SlackCard api={api} locked={locked} full={full} onRemove={setRemoving} />
       <CustomConnection api={api} locked={locked} full={full} onRemove={setRemoving} />
       {other.length === 0 ? null : <OtherSecrets entries={other} disabled={locked || action.busy} onRemove={setRemoving} />}
       {removing === undefined ? null : (

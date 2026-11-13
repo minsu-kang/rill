@@ -367,6 +367,14 @@ export function hasWholeText(value: string | undefined): boolean {
   return value === undefined || !LONE_SURROGATE.test(value)
 }
 
+export function isSlackToken(value: string): boolean {
+  return new RegExp(SLACK_TOKEN_PATTERN).test(value)
+}
+
+export function isSlackChannel(value: string): boolean {
+  return Value.Check(SlackChannelSchema, value) && hasWholeText(value)
+}
+
 export function isValidSlackBot(value: unknown): value is SlackBot {
   return Value.Check(SlackBotSchema, value) && hasWholeText(value.channel)
 }

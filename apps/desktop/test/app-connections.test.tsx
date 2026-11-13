@@ -52,8 +52,8 @@ function labelsOf(container: HTMLElement): string[] {
   return [...container.querySelectorAll('label')].map((label) => (label.firstChild?.textContent ?? '').trim())
 }
 
-function passwordInputs(): HTMLInputElement[] {
-  return [...document.querySelectorAll<HTMLInputElement>('input[type="password"]')]
+function passwordInputs(t: T): HTMLInputElement[] {
+  return [...region(t, 'custom').querySelectorAll<HTMLInputElement>('input[type="password"]')]
 }
 
 async function pick(user: User, t: T, type: AuthType) {
@@ -142,100 +142,12 @@ describe('accounts', () => {
   })
 })
 
-describe('the Slack webhook part', () => {
-  const toggle = (t: T) => button(t('app.connections.slack.advanced'))
-
-  it('is collapsed by default and opens and closes', async () => {
-    const { t, user } = await open()
-    expect(toggle(t).getAttribute('aria-expanded')).toBe('false')
-    expect(screen.queryByLabelText(t('app.connections.slack.url'))).toBeNull()
-    expect(screen.queryByText(t('app.connections.slack.stepsTitle'))).toBeNull()
-    await user.click(toggle(t))
-    expect(toggle(t).getAttribute('aria-expanded')).toBe('true')
-    expect(screen.getByLabelText(t('app.connections.slack.url'))).toBeTruthy()
-    expect(screen.getByText(t('app.connections.slack.note'))).toBeTruthy()
-    for (const step of [1, 2, 3, 4] as const) expect(screen.getByText(t(`app.connections.slack.step${step}`))).toBeTruthy()
-    expect(screen.getByText(t('app.connections.slack.none'))).toBeTruthy()
-    await user.click(toggle(t))
-    expect(screen.queryByLabelText(t('app.connections.slack.url'))).toBeNull()
-  })
-
-  it('saves a slack connection with the URL as a password field and then forgets it', async () => {
-    const { t, user, host } = await open()
-    const set = vi.spyOn(host.secrets, 'setConnection')
-    await user.click(toggle(t))
-    expect(field(t('app.connections.slack.url')).type).toBe('password')
-    await user.type(field(t('app.connections.slack.name')), 'team-alerts')
-    await user.type(field(t('app.connections.slack.url')), `https://hooks.slack.com/${MARKER}`)
-    await user.click(button(t('app.connections.slack.save')))
-    expect(set).toHaveBeenCalledExactlyOnceWith({ name: 'team-alerts', kind: 'slack', secret: `https://hooks.slack.com/${MARKER}` })
-    expect((await screen.findByRole('status')).textContent).toBe(t('app.connections.slack.didSave'))
-    const list = screen.getByRole('list', { name: t('app.connections.slack.saved') })
-    expect(within(list).getByText('team-alerts')).toBeTruthy()
-    expect(field(t('app.connections.slack.url')).value).toBe('')
-    expect(field(t('app.connections.slack.name')).value).toBe('')
-    nothingSecretShown(host.state())
-    expect(host.state().settings.connections).toEqual([{ name: 'team-alerts', kind: 'slack' }])
-  })
-
-  it('hints at a webhook that is not a URL and still allows saving it', async () => {
-    const { t, user, host } = await open()
-    await user.click(toggle(t))
-    await user.type(field(t('app.connections.slack.name')), 'ops')
-    await user.type(field(t('app.connections.slack.url')), 'not a url')
-    expect(screen.getByText(t('app.connections.slackHint'))).toBeTruthy()
-    await user.click(button(t('app.connections.slack.save')))
-    await screen.findByText(t('app.connections.slack.didSave'))
-    expect(host.state().settings.connections).toEqual([{ name: 'ops', kind: 'slack' }])
-    expect(screen.queryByText(t('app.connections.slackHint'))).toBeNull()
-  })
-
-  it('lists the saved webhooks and removes one after a confirmation that names it', async () => {
-    const { t, user, host } = await open({ init: { settings: fakeSettings({ connections: [{ name: 'team-alerts', kind: 'slack' }, { name: 'billing', kind: 'http', authType: 'bearer' }] }) } })
-    await user.click(toggle(t))
-    const list = screen.getByRole('list', { name: t('app.connections.slack.saved') })
-    expect(within(list).getAllByRole('listitem')).toHaveLength(1)
-    const trigger = within(list).getByRole('button', { name: t('app.connections.removeLabel', { name: 'team-alerts' }) })
-    await user.click(trigger)
-    const dialog = screen.getByRole('dialog', { name: t('app.connections.removeTitle') })
-    expect(dialog.textContent).toContain(t('app.connections.removeConfirm', { name: 'team-alerts' }))
-    await user.click(within(dialog).getByRole('button', { name: t('app.common.cancel') }))
-    expect(host.state().settings.connections).toHaveLength(2)
-    await waitFor(() => expect(document.activeElement).toBe(trigger))
-    await user.click(trigger)
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: t('app.connections.removeAction') }))
-    await waitFor(() => expect(host.state().settings.connections).toEqual([{ name: 'billing', kind: 'http', authType: 'bearer' }]))
-    expect(screen.queryByRole('dialog')).toBeNull()
-  })
-
-  it('refuses a name that another connection of any kind already uses, without calling the host', async () => {
-    const { t, user, host } = await open({ init: { settings: fakeSettings({ connections: [{ name: 'Billing', kind: 'http', authType: 'bearer' }] }) } })
-    const set = vi.spyOn(host.secrets, 'setConnection')
-    await user.click(toggle(t))
-    await user.type(field(t('app.connections.slack.name')), 'billing')
-    await user.type(field(t('app.connections.slack.url')), 'https://hooks.slack.com/x')
-    await user.click(button(t('app.connections.slack.save')))
-    expect((await screen.findByRole('alert')).textContent).toBe(t('app.connections.duplicate'))
-    expect(set).not.toHaveBeenCalled()
-    expect(field(t('app.connections.slack.url')).value).toBe('https://hooks.slack.com/x')
-    expect(document.activeElement).toBe(field(t('app.connections.slack.name')))
-  })
-
-  it('disables the form without a keychain', async () => {
-    const { t, user } = await open({ init: { settings: fakeSettings({ encryptionAvailable: false }) } })
-    await user.click(toggle(t))
-    expect(field(t('app.connections.slack.name')).disabled).toBe(true)
-    expect(field(t('app.connections.slack.url')).disabled).toBe(true)
-    expect(button(t('app.connections.slack.save')).disabled).toBe(true)
-  })
-})
-
 describe('the custom connection form', () => {
   it('starts as No Auth with a note and no credential field', async () => {
     const { t } = await open()
     expect(typeSelect(t).value).toBe('none')
     expect(screen.getByText(t('app.connections.custom.noneNote'))).toBeTruthy()
-    expect(passwordInputs()).toEqual([])
+    expect(passwordInputs(t)).toEqual([])
     expect(labelsOf(region(t, 'custom'))).toEqual([t('app.connections.name'), t('app.connections.custom.authType')])
   })
 
@@ -272,12 +184,12 @@ describe('the custom connection form', () => {
     await user.type(field(t('app.connections.custom.username')), 'someone')
     await user.type(field(t('app.connections.custom.password')), MARKER)
     await pick(user, t, 'bearer')
-    expect(passwordInputs().map((item) => item.value)).toEqual([''])
+    expect(passwordInputs(t).map((item) => item.value)).toEqual([''])
     await user.type(field(t('app.connections.custom.token')), MARKER)
     await pick(user, t, 'apiKey')
     await user.type(field(t('app.connections.custom.keyValue')), MARKER)
     await pick(user, t, 'basic')
-    expect(passwordInputs().map((item) => item.value)).toEqual([''])
+    expect(passwordInputs(t).map((item) => item.value)).toEqual([''])
     expect(field(t('app.connections.custom.username')).value).toBe('')
     await pick(user, t, 'bearer')
     expect(field(t('app.connections.custom.token')).value).toBe('')
@@ -393,7 +305,7 @@ describe('the custom connection form', () => {
     expect(set).toHaveBeenCalledExactlyOnceWith({ name: 'My API', auth })
     expect((await screen.findByRole('status')).textContent).toBe(t('app.connections.custom.didSave'))
     expect(field(t('app.connections.name')).value).toBe('')
-    expect(passwordInputs().every((item) => item.value === '')).toBe(true)
+    expect(passwordInputs(t).every((item) => item.value === '')).toBe(true)
     expect([...document.querySelectorAll<HTMLInputElement>('input[type="text"]')].every((item) => item.value === '')).toBe(true)
     nothingSecretShown(host.state())
     expect(host.state().settings.connections).toEqual([{ name: 'My API', kind: 'http', authType: type }])
@@ -513,10 +425,8 @@ describe('Other saved secrets', () => {
 })
 
 describe('accessibility and languages', () => {
-  it('has no axe violations in the default view, with the Slack part open and with each auth type chosen', async () => {
+  it('has no axe violations in the default view and with each auth type chosen', async () => {
     const { t, user, view } = await open({ init: { settings: fakeSettings({ connections: [{ name: 'billing-api', kind: 'http', authType: 'basic' }, { name: 'team', kind: 'slack' }, { name: 'shop-hook', kind: 'webhookSecret' }], oauth: { available: true, accounts: [{ provider: 'google', account: 'a@b.example' }] } }) } })
-    expect(await violations(view.container)).toEqual([])
-    await user.click(button(t('app.connections.slack.advanced')))
     expect(await violations(view.container)).toEqual([])
     for (const type of ['apiKey', 'bearer', 'basic'] as const) {
       await pick(user, t, type)
@@ -526,7 +436,6 @@ describe('accessibility and languages', () => {
 
   it.each(['ko', 'en'] as const)('renders every part in %s without a missing key', async (locale) => {
     const { t, user } = await open({ locale, init: { settings: fakeSettings({ connections: [{ name: 'shop-hook', kind: 'webhookSecret' }] }) } })
-    await user.click(button(t('app.connections.slack.advanced')))
     for (const type of ['apiKey', 'bearer', 'basic', 'none'] as const) await pick(user, t, type)
     await user.click(button(t('app.connections.custom.save')))
     expect(document.body.textContent).not.toMatch(/\bapp\.[a-z]+\./)

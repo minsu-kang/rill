@@ -26,9 +26,9 @@ const CUSTOM: ConnectionSummary[] = [
   { name: 'legacy-portal', kind: 'http', authType: 'basic' },
   { name: 'older-http-secret', kind: 'http' },
 ]
-const WEBHOOKS: ConnectionSummary[] = [
-  { name: 'team-alerts', kind: 'slack' },
-  { name: 'billing-alerts', kind: 'slack' },
+const SLACK: ConnectionSummary[] = [
+  { name: 'team-alerts', kind: 'slack', slack: { mode: 'bot', account: 'rill-bot in Rill Team', channel: '#alerts' } },
+  { name: 'old-hook', kind: 'slack' },
 ]
 const OTHER: ConnectionSummary[] = [{ name: 'shop-webhook', kind: 'webhookSecret' }]
 
@@ -39,57 +39,33 @@ async function chooseType({ canvas, userEvent }: Context, type: string): Promise
   await userEvent.selectOptions(select!, type)
 }
 
-async function textFields({ canvas }: Context): Promise<HTMLElement[]> {
-  return canvas.findAllByRole('textbox')
+function customForm({ canvasElement }: Context): HTMLElement {
+  const forms = canvasElement.querySelectorAll<HTMLElement>('form')
+  return forms[forms.length - 1]!
+}
+
+async function textFields(context: Context): Promise<HTMLElement[]> {
+  await context.canvas.findAllByRole('combobox')
+  return [...customForm(context).querySelectorAll<HTMLElement>('input[type="text"]')]
 }
 
 function secretFields(context: Context): HTMLInputElement[] {
-  return [...context.canvasElement.querySelectorAll<HTMLInputElement>('input[type="password"]')]
+  return [...customForm(context).querySelectorAll<HTMLInputElement>('input[type="password"]')]
 }
 
 function saveButton(context: Context): HTMLElement {
-  return context.canvasElement.querySelector('button[type="submit"]')!
-}
-
-async function openSlack({ canvas, userEvent }: Context): Promise<void> {
-  const buttons = await canvas.findAllByRole('button', { expanded: false })
-  await userEvent.click(buttons[0]!)
+  return customForm(context).querySelector('button[type="submit"]')!
 }
 
 export const Empty: Story = { args: { init: init({ oauth: ONLINE }) } }
 
-export const OAuthUnavailable: Story = { args: { init: init({ connections: [...CUSTOM, ...WEBHOOKS] }) } }
+export const OAuthUnavailable: Story = { args: { init: init({ connections: [...CUSTOM, ...SLACK] }) } }
 
 export const OAuthConnected: Story = { args: { init: init({ oauth: SIGNED_IN }) } }
 
-export const Filled: Story = { args: { init: init({ oauth: SIGNED_IN, connections: [...WEBHOOKS, ...CUSTOM, ...OTHER] }) } }
+export const Filled: Story = { args: { init: init({ oauth: SIGNED_IN, connections: [...SLACK, ...CUSTOM, ...OTHER] }) } }
 
-export const NoKeychain: Story = { args: { init: init({ encryptionAvailable: false, oauth: ONLINE, connections: [...WEBHOOKS, ...CUSTOM] }) } }
-
-export const SlackAdvancedOpen: Story = { args: { init: init({ oauth: ONLINE }) }, play: openSlack }
-
-export const SlackAdvancedOpenWithSaved: Story = { args: { init: init({ oauth: ONLINE, connections: WEBHOOKS }) }, play: openSlack }
-
-export const SlackWebhookNotAUrl: Story = {
-  args: { init: init({ oauth: ONLINE }) },
-  play: async (context) => {
-    await openSlack(context)
-    const [name] = await textFields(context)
-    await context.userEvent.type(name!, 'ops')
-    await context.userEvent.type(secretFields(context)[0]!, 'not a url')
-  },
-}
-
-export const SlackWebhookDuplicateName: Story = {
-  args: { init: init({ oauth: ONLINE, connections: [...WEBHOOKS, ...CUSTOM] }) },
-  play: async (context) => {
-    await openSlack(context)
-    const [name] = await textFields(context)
-    await context.userEvent.type(name!, 'BILLING-API')
-    await context.userEvent.type(secretFields(context)[0]!, 'https://hooks.slack.com/services/T000/B000/XXXX')
-    await context.userEvent.click(saveButton(context))
-  },
-}
+export const NoKeychain: Story = { args: { init: init({ encryptionAvailable: false, oauth: ONLINE, connections: [...SLACK, ...CUSTOM] }) } }
 
 export const AuthNoAuth: Story = { args: { init: init({ oauth: ONLINE }) } }
 
