@@ -14,7 +14,7 @@ export const AUTH_MAX_PASSWORD = 2000
 const TOKEN_CHARS = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
 const CONTROL = /\p{Cc}/u
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
-const LEADING_BLANK = /^[\s\uFEFF]+/
+const LEADING_BLANK = /^\s+/
 export const FORBIDDEN_NAMES: ReadonlySet<string> = new Set([
   'host',
   'content-length',

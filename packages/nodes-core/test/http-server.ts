@@ -37,6 +37,11 @@ export async function startTestServer(): Promise<TestServer> {
         res.end(`${'x'.repeat(183)}invalid key ${String(req.headers['x-api-key'] ?? '')}`)
         return
       }
+      if (route === '/echo-in-array') {
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify({ items: [{ nested: [String(req.headers['x-api-key'] ?? '')] }] }))
+        return
+      }
       if (route === '/echo-as-key') {
         res.setHeader('content-type', 'application/json')
         res.end(JSON.stringify({ [String(req.headers['x-api-key'] ?? '')]: 1 }))

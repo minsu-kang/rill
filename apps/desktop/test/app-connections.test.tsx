@@ -534,3 +534,24 @@ describe('accessibility and languages', () => {
     expect(screen.getByRole('heading', { name: t('app.connections.custom.heading') })).toBeTruthy()
   })
 })
+
+describe('switching the auth type', () => {
+  it('drops the message about the previous type', async () => {
+    const { t, user } = await open()
+    await user.type(field(t('app.connections.name')), 'my-api')
+    await pick(user, t, 'apiKey')
+    await user.click(button(t('app.connections.custom.save')))
+    expect((await screen.findByRole('alert')).textContent).toBe(t('app.connections.custom.missing'))
+    await pick(user, t, 'bearer')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('drops the saved note', async () => {
+    const { t, user } = await open()
+    await user.type(field(t('app.connections.name')), 'my-api')
+    await user.click(button(t('app.connections.custom.save')))
+    expect((await screen.findByRole('status')).textContent).toBe(t('app.connections.custom.didSave'))
+    await pick(user, t, 'bearer')
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+})

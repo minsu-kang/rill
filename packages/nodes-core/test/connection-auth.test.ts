@@ -154,6 +154,11 @@ describe('applyConnectionAuth', () => {
     expect(out.url).toBe('http://h.test/p?a=b%20c&d=e+f&key=k%201%26%3D%23%C3%A9')
   })
 
+  it('reads + in an existing query name as a space, so only a name that decodes to the key is replaced', () => {
+    const out = applyConnectionAuth({ type: 'apiKey', in: 'query', name: 'a+b', value: 'new' }, 'http://h.test/p?a+b=space&a%2Bb=plus&x=1', {})
+    expect(out.url).toBe('http://h.test/p?a+b=space&x=1&a%2Bb=new')
+  })
+
   it('replaces every parameter of the same name', () => {
     const out = applyConnectionAuth({ type: 'apiKey', in: 'query', name: 'key', value: 'new' }, 'http://h.test/p?key=old&x=1&k%65y=old2', {})
     expect(out.url).toBe('http://h.test/p?x=1&key=new')
@@ -162,6 +167,13 @@ describe('applyConnectionAuth', () => {
   it('encodes characters that URLSearchParams would leave', () => {
     const out = applyConnectionAuth({ type: 'apiKey', in: 'query', name: 'k', value: "!'()*" }, 'http://h.test/p', {})
     expect(out.url).toBe('http://h.test/p?k=%21%27%28%29%2A')
+  })
+
+  it('replaces an Authorization header of any case for Basic too', () => {
+    expect(applyConnectionAuth({ type: 'basic', username: 'u', password: 'p' }, 'http://h.test/', { authorization: 'old', Other: '1' }).headers).toEqual({
+      Other: '1',
+      Authorization: `Basic ${Buffer.from('u:p').toString('base64')}`,
+    })
   })
 
   it('builds Bearer and Basic and replaces an Authorization header', () => {
@@ -199,6 +211,11 @@ describe('secretParts and maskSecretParts', () => {
     const part = 'a b+c/d"e\\f'
     const forms = ['a%20b%2Bc%2Fd%22e%5Cf', 'a%20b%2bc%2fd%22e%5cf', 'a+b%2Bc%2Fd%22e%5Cf', 'a+b%2bc%2fd%22e%5cf', 'a b+c/d\\"e\\\\f', part]
     for (const form of forms) expect(maskSecretParts(`x ${form} y`, [part]), form).toBe('x <secret> y')
+  })
+
+  it('masks the encodeURIComponent form, which leaves ! \' ( ) * as they are', () => {
+    expect(maskSecretParts('x a%20b! y', ['a b!'])).toBe('x <secret> y')
+    expect(maskSecretParts("x a%20b%21 y a%20b(*)' z", ['a b!', "a b(*)'"])).toBe('x <secret> y <secret> z')
   })
 
   it('masks a part that is at least four characters long and no shorter one', () => {

@@ -310,6 +310,22 @@ describe('http.request@1 with a structured secret', () => {
     expect(output).toMatchObject({ status: 200, body: { '<secret>': 1 } })
   })
 
+  it('hides a key inside nested arrays and objects of the response', async () => {
+    const key = 'KEY-abcdefghijklmnopqrstuvwxyz0123456789'
+    const ctx = structured({ type: 'apiKey', in: 'header', name: 'X-Api-Key', value: key })
+    const output = await httpRequest.execute({ url: `${server.base}/echo-in-array`, auth: { connection: 'api' } }, ctx)
+    expect(output).toMatchObject({ status: 200, body: { items: [{ nested: ['<secret>'] }] } })
+  })
+
+  it('keeps the original error and its cause when there is nothing to hide', async () => {
+    const ctx = structured({ type: 'bearer', token: MARKER })
+    const large = await httpRequest.execute({ url: `${server.base}/big`, maxBytes: 100, auth: { connection: 'api' } }, ctx).catch((e: unknown) => e)
+    expect((large as Error).message).toBe('response is larger than 100 bytes')
+    expect((large as Error).cause).toBeInstanceOf(Error)
+    const busy = await httpRequest.execute({ url: `${server.base}/busy`, auth: { connection: 'api' } }, ctx).catch((e: unknown) => e)
+    expect(busy).toBeInstanceOf(RetryableError)
+  })
+
   it('leaves a response that does not echo anything unchanged', async () => {
     const output = await httpRequest.execute({ url: `${server.base}/json`, auth: { connection: 'api' } }, structured({ type: 'bearer', token: MARKER }))
     expect(output).toMatchObject({ status: 200, body: { hello: 'world' } })
