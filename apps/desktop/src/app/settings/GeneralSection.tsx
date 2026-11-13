@@ -4,6 +4,8 @@ import controls from '../controls.module.css'
 import type { ConnectionState } from '../connection'
 import { useHost } from '../host'
 import styles from './Settings.module.css'
+import { isLanguage } from '../../shared/host-api'
+import { LANGUAGE_OPTIONS } from './languages'
 import type { SettingsApi } from './types'
 import { useAction } from './useAction'
 
@@ -12,12 +14,20 @@ export function GeneralSection({ api, connection }: { api: SettingsApi; connecti
   const host = useHost()
   const action = useAction()
   const loginId = useId()
+  const languageId = useId()
   const state = connection.status?.state ?? 'starting'
   const error = connection.status?.error
 
   function toggle(next: boolean): void {
     void action.run(async () => {
       api.apply(await host.settings.update({ openAtLogin: next }))
+    })
+  }
+
+  function chooseLanguage(value: string): void {
+    if (!isLanguage(value)) return
+    void action.run(async () => {
+      api.apply(await host.settings.update({ language: value }))
     })
   }
 
@@ -29,6 +39,17 @@ export function GeneralSection({ api, connection }: { api: SettingsApi; connecti
 
   return (
     <section className={styles.panel} aria-label={t('app.settings.section.general')}>
+      <div className={controls.row}>
+        <label htmlFor={languageId}>{t('app.general.language')}</label>
+        <select id={languageId} className={controls.input} value={api.settings.language} disabled={action.busy} onChange={(event) => chooseLanguage(event.target.value)}>
+          {LANGUAGE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className={controls.note}>{t('app.general.languageHint')}</p>
       <div className={styles.checkbox}>
         <input id={loginId} type="checkbox" checked={api.settings.openAtLogin} disabled={action.busy} onChange={(event) => toggle(event.target.checked)} />
         <label htmlFor={loginId}>{t('app.general.openAtLogin')}</label>

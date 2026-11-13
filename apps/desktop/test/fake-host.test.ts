@@ -17,7 +17,7 @@ async function codeOf(work: Promise<unknown>): Promise<string> {
 describe('createFakeHost settings', () => {
   it('starts with the defaults and keeps what a patch changes', async () => {
     const host = createFakeHost()
-    expect(await host.settings.get()).toEqual({ allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [], encryptionAvailable: true, oauth: { available: false, accounts: [] } })
+    expect(await host.settings.get()).toEqual({ allowedFolders: [], provider: 'anthropic', openAtLogin: false, language: 'system', configuredProviders: [], connections: [], encryptionAvailable: true, oauth: { available: false, accounts: [] } })
     const next = await host.settings.update({ openAtLogin: true })
     expect(next.openAtLogin).toBe(true)
     expect((await host.settings.get()).openAtLogin).toBe(true)
@@ -59,6 +59,18 @@ describe('createFakeHost settings', () => {
     expect(await codeOf(host.settings.update({ provider: 'openai' }))).toBe('INVALID_SETTINGS')
     const next = await host.settings.update({ provider: 'openai', model: 'gpt-5-mini' })
     expect([next.provider, next.model]).toEqual(['openai', 'gpt-5-mini'])
+  })
+
+  it('keeps the language, refuses a value that is not one, and does not restart the engine for it', async () => {
+    const host = createFakeHost({}, { restartDelayMs: 0 })
+    expect((await host.settings.update({ language: 'ko' })).language).toBe('ko')
+    expect((await host.settings.get()).language).toBe('ko')
+    expect((await host.settings.update({ openAtLogin: true })).language).toBe('ko')
+    expect(await codeOf(host.settings.update({ language: 'fr' } as never))).toBe('INVALID_SETTINGS')
+    expect(await codeOf(host.settings.update({ language: null } as never))).toBe('INVALID_SETTINGS')
+    expect((await host.settings.get()).language).toBe('ko')
+    expect((await host.settings.update({ language: 'system' })).language).toBe('system')
+    expect(host.state().restartCalls).toBe(0)
   })
 
   it('restarts the engine when the provider, the model or the folders change, and not for the login setting', async () => {

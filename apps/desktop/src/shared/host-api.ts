@@ -28,6 +28,14 @@ export const OAUTH_PROVIDERS = ['google', 'microsoft'] as const
 export const OAuthProviderSchema = Type.Union([Type.Literal('google'), Type.Literal('microsoft')])
 export type OAuthProvider = Type.Static<typeof OAuthProviderSchema>
 
+export const LANGUAGES = ['system', 'en', 'ko'] as const
+export const LanguageSchema = Type.Union([Type.Literal('system'), Type.Literal('en'), Type.Literal('ko')])
+export type Language = Type.Static<typeof LanguageSchema>
+
+export function isLanguage(value: unknown): value is Language {
+  return Value.Check(LanguageSchema, value)
+}
+
 export const MAX_FOLDERS = 50
 export const MAX_NAME_LENGTH = 64
 export const MAX_SECRET_LENGTH = 2000
@@ -163,6 +171,7 @@ export const SettingsSchema = Type.Object(
     provider: ProviderIdSchema,
     model: Type.Optional(ModelSchema),
     openAtLogin: Type.Boolean(),
+    language: LanguageSchema,
     configuredProviders: Type.Array(ProviderIdSchema, { maxItems: PROVIDER_IDS.length }),
     connections: Type.Array(ConnectionSummarySchema, { maxItems: 200 }),
     encryptionAvailable: Type.Boolean(),
@@ -177,6 +186,7 @@ export const SettingsPatchSchema = Type.Object(
     provider: Type.Optional(ProviderIdSchema),
     model: Type.Optional(Type.Union([ModelSchema, Type.Null()])),
     openAtLogin: Type.Optional(Type.Boolean()),
+    language: Type.Optional(LanguageSchema),
   },
   closed,
 )

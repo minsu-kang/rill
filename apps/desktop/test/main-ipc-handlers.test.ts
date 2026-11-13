@@ -149,6 +149,7 @@ describe('ipc handlers: settings', () => {
       provider: 'openai',
       model: 'gpt-6.1-sol',
       openAtLogin: false,
+      language: 'system',
       configuredProviders: ['openai'],
       connections: [{ name: 'team', kind: 'slack' }],
       encryptionAvailable: true,
@@ -238,6 +239,17 @@ describe('ipc handlers: settings', () => {
     expect(h.loginItem.set).toHaveBeenCalledTimes(1)
     await h.call(CHANNELS.settingsUpdate, { openAtLogin: false })
     expect(h.loginItem.set).toHaveBeenLastCalledWith(false)
+  })
+
+  it('saves the language and answers with it, without a restart or a login item change', async () => {
+    const h = harness()
+    const settings = (await h.call(CHANNELS.settingsUpdate, { language: 'ko' })) as { language: string }
+    expect(settings.language).toBe('ko')
+    expect(((await h.call(CHANNELS.settingsGet)) as { language: string }).language).toBe('ko')
+    expect(h.supervisor.restart).not.toHaveBeenCalled()
+    expect(h.loginItem.set).not.toHaveBeenCalled()
+    expect(((await h.call(CHANNELS.settingsUpdate, { language: 'system' })) as { language: string }).language).toBe('system')
+    expect(h.supervisor.restart).not.toHaveBeenCalled()
   })
 
   it('maps a bad folder or a missing model to INVALID_SETTINGS, without a restart', async () => {

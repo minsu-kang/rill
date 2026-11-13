@@ -32,6 +32,7 @@ const SETTINGS: Settings = {
   provider: 'anthropic',
   model: 'claude-opus-5-5',
   openAtLogin: false,
+  language: 'system',
   configuredProviders: ['anthropic'],
   connections: [{ name: 'team', kind: 'slack' }],
   encryptionAvailable: true,
@@ -67,6 +68,9 @@ describe('argument schemas', () => {
       [CHANNELS.settingsGet, undefined],
       [CHANNELS.settingsUpdate, { allowedFolders: ['/a'], provider: 'openai', model: 'gpt-6.1-sol', openAtLogin: true }],
       [CHANNELS.settingsUpdate, { model: null }],
+      [CHANNELS.settingsUpdate, { language: 'system' }],
+      [CHANNELS.settingsUpdate, { language: 'en' }],
+      [CHANNELS.settingsUpdate, { language: 'ko', openAtLogin: false }],
       [CHANNELS.settingsUpdate, {}],
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k'.repeat(2000) }],
       [CHANNELS.secretsSetProviderKey, { provider: 'anthropic', value: 'k', options: {} }],
@@ -90,6 +94,11 @@ describe('argument schemas', () => {
       [CHANNELS.engineStatus, {}],
       [CHANNELS.settingsUpdate, { openAtLogin: 'yes' }],
       [CHANNELS.settingsUpdate, { extra: 1 }],
+      [CHANNELS.settingsUpdate, { language: 'fr' }],
+      [CHANNELS.settingsUpdate, { language: '' }],
+      [CHANNELS.settingsUpdate, { language: 'EN' }],
+      [CHANNELS.settingsUpdate, { language: null }],
+      [CHANNELS.settingsUpdate, { language: 1 }],
       [CHANNELS.settingsUpdate, { provider: 'azure' }],
       [CHANNELS.settingsUpdate, { model: 'Has Spaces' }],
       [CHANNELS.settingsUpdate, { model: '' }],
@@ -158,6 +167,7 @@ describe('result schemas', () => {
     expect(validateResult(CHANNELS.engineStatus, { state: 'paused', restarts: 0 })).toBe(false)
     expect(validateResult(CHANNELS.settingsGet, SETTINGS)).toBe(true)
     expect(validateResult(CHANNELS.settingsGet, { ...SETTINGS, model: undefined })).toBe(true)
+    for (const language of ['system', 'en', 'ko']) expect(validateResult(CHANNELS.settingsGet, { ...SETTINGS, language }), language).toBe(true)
     expect(validateResult(CHANNELS.attachmentsAddFromPath, REF)).toBe(true)
     expect(validateResult(CHANNELS.dialogsPickFolder, undefined)).toBe(true)
     expect(validateResult(CHANNELS.dialogsPickFolder, '/a')).toBe(true)
@@ -167,6 +177,8 @@ describe('result schemas', () => {
 
   it('reject results with extra fields, such as a secret', () => {
     expect(validateResult(CHANNELS.settingsGet, { ...SETTINGS, apiKey: 'x' })).toBe(false)
+    expect(validateResult(CHANNELS.settingsGet, { ...SETTINGS, language: 'fr' })).toBe(false)
+    expect(validateResult(CHANNELS.settingsGet, { ...SETTINGS, language: undefined })).toBe(false)
     expect(validateResult(CHANNELS.settingsGet, { ...SETTINGS, connections: [{ name: 'team', kind: 'slack', secret: 'x' }] })).toBe(false)
     expect(validateResult(CHANNELS.secretsSetConnection, { stored: true })).toBe(false)
     expect(validateResult(CHANNELS.engineInfo, { url: 'ws://x', token: 't', protocol: 1, key: 'k' })).toBe(false)

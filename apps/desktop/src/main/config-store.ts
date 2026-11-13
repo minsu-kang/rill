@@ -3,7 +3,7 @@ import * as fsp from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path'
 import Value from 'typebox/value'
-import { MAX_FOLDERS, MAX_PATH_LENGTH, ModelSchema, PROVIDER_IDS, type ProviderId, type SettingsPatch } from '../shared/host-api'
+import { MAX_FOLDERS, MAX_PATH_LENGTH, ModelSchema, PROVIDER_IDS, isLanguage, type Language, type ProviderId, type SettingsPatch } from '../shared/host-api'
 
 export type FsLike = Pick<typeof fsp, 'mkdir' | 'readFile' | 'writeFile' | 'rename' | 'rm' | 'chmod' | 'lstat' | 'open' | 'realpath' | 'readdir'>
 
@@ -12,6 +12,7 @@ export interface AppConfig {
   provider: ProviderId
   model: string | undefined
   openAtLogin: boolean
+  language: Language
 }
 
 export interface ConfigStore {
@@ -19,7 +20,7 @@ export interface ConfigStore {
   update(patch: SettingsPatch): Promise<{ before: AppConfig; after: AppConfig }>
 }
 
-export type ConfigErrorReason = 'invalid_folder' | 'too_many_folders' | 'invalid_model' | 'model_required' | 'write_failed'
+export type ConfigErrorReason = 'invalid_folder' | 'too_many_folders' | 'invalid_model' | 'invalid_language' | 'model_required' | 'write_failed'
 
 export class ConfigError extends Error {
   readonly reason: ConfigErrorReason
@@ -49,7 +50,7 @@ export async function ensurePrivateDir(fs: FsLike, dir: string): Promise<void> {
 }
 
 function defaults(): AppConfig {
-  return { allowedFolders: [], provider: 'anthropic', model: undefined, openAtLogin: false }
+  return { allowedFolders: [], provider: 'anthropic', model: undefined, openAtLogin: false, language: 'system' }
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -96,6 +97,10 @@ function fromStored(value: unknown): AppConfig {
     if (typeof value.openAtLogin !== 'boolean') throw new ConfigError('invalid_model')
     config.openAtLogin = value.openAtLogin
   }
+  if (value.language !== undefined) {
+    if (!isLanguage(value.language)) throw new ConfigError('invalid_language')
+    config.language = value.language
+  }
   return validated(config)
 }
 
@@ -106,11 +111,12 @@ function serialize(config: AppConfig): string {
     provider: config.provider,
     ...(config.model === undefined ? {} : { model: config.model }),
     openAtLogin: config.openAtLogin,
+    language: config.language,
   })}\n`
 }
 
 function same(a: AppConfig, b: AppConfig): boolean {
-  return a.provider === b.provider && a.model === b.model && a.openAtLogin === b.openAtLogin && a.allowedFolders.length === b.allowedFolders.length && a.allowedFolders.every((folder, index) => folder === b.allowedFolders[index])
+  return a.provider === b.provider && a.model === b.model && a.openAtLogin === b.openAtLogin && a.language === b.language && a.allowedFolders.length === b.allowedFolders.length && a.allowedFolders.every((folder, index) => folder === b.allowedFolders[index])
 }
 
 function copy(config: AppConfig): AppConfig {
@@ -192,6 +198,10 @@ export function createConfigStore(deps: { dir: string; fs?: FsLike; homeDir?: st
         }
         if (patch.model !== undefined) next.model = patch.model === null ? undefined : patch.model
         if (patch.openAtLogin !== undefined) next.openAtLogin = patch.openAtLogin
+        if (patch.language !== undefined) {
+          if (!isLanguage(patch.language)) throw new ConfigError('invalid_language')
+          next.language = patch.language
+        }
         validated(next)
         if (patch.allowedFolders !== undefined) await assertSafeFolders(next.allowedFolders)
         if (same(before, next)) return { before: copy(before), after: copy(before) }

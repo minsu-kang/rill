@@ -169,6 +169,8 @@ export const appEn: Record<keyof typeof appKo, string> = {
   'app.connections.nameInvalid': 'A name is 1 to 64 characters and has no control characters.',
   'app.connections.limit': 'You can have at most 200 connections.',
   'app.general.heading': 'General',
+  'app.general.language': 'Language',
+  'app.general.languageHint': 'Applies right away. System default follows the language of your computer.',
   'app.general.openAtLogin': 'Start automatically when I log in',
   'app.general.openAtLoginHint': 'The engine keeps running in the tray when the window is closed.',
   'app.general.engine': 'Engine status',

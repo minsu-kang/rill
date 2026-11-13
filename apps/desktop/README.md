@@ -224,7 +224,7 @@ Everything is in `~/Library/Application Support/Rill`:
 
 | File | Content |
 | --- | --- |
-| `config.json` | Allowed folders, provider, model and the login setting. No secrets. A corrupt file is kept as `config.json.bak` and the defaults are used. |
+| `config.json` | Allowed folders, provider, model, the login setting and the language (`system`, `en` or `ko`; a file from an older version without it reads as `system`). No secrets. A corrupt file is kept as `config.json.bak` and the defaults are used. |
 | `secrets.bin` | The provider keys and the connection secrets (with the auth type of a custom connection, which is not secret), encrypted as one blob with Electron `safeStorage`. A file that cannot be decrypted is moved to `secrets.bin.bak` (or `secrets.bin.bak.1` to `.9` when that name is taken; no backup is ever overwritten) the next time a key or connection is saved, and the keys must be entered again. When all ten names are taken, saving is refused. |
 | `rill.db` | The engine database (workflows, runs, plans, memory). |
 | `attachments/` | Files the user attached, copied there as `<id>.<ext>` with mode 0600 in a folder with mode 0700. At most 500 files and 512 MiB in total; a file over either limit is refused with `ATTACHMENT_REJECTED`. Half-written `.partial-*` files left by a crash are removed at start. |

@@ -167,6 +167,8 @@ export const appKo = {
   'app.connections.nameInvalid': '이름은 1자에서 64자이고 제어 문자는 쓸 수 없어요.',
   'app.connections.limit': '연결은 최대 200개까지 만들 수 있어요.',
   'app.general.heading': '일반',
+  'app.general.language': '언어',
+  'app.general.languageHint': '바로 적용돼요. 시스템 기본값은 컴퓨터의 언어를 따라요.',
   'app.general.openAtLogin': '로그인할 때 자동으로 시작',
   'app.general.openAtLoginHint': '창을 닫아도 트레이에서 엔진이 계속 돌아요.',
   'app.general.engine': '엔진 상태',

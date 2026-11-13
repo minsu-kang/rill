@@ -5,7 +5,7 @@ import { CHANNELS, ENGINE_STATUS_EVENT, HOST_API_METHODS, hostErrorCode, type At
 
 const REF: AttachmentRef = { id: 'abcdefgh1234', mediaType: 'text/plain', name: 'a.txt', bytes: 3 }
 const VERDICT = { verdict: { status: 'valid' } }
-const SETTINGS = { allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [], encryptionAvailable: true, oauth: { available: false, accounts: [] } }
+const SETTINGS = { allowedFolders: [], provider: 'anthropic', openAtLogin: false, language: 'system', configuredProviders: [], connections: [], encryptionAvailable: true, oauth: { available: false, accounts: [] } }
 
 type Handler = (event: unknown, payload: unknown) => void
 

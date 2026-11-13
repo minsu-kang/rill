@@ -67,3 +67,18 @@ export const NarrowWindow: Story = {
   name: 'Narrow window',
   args: { width: 900, world: { hostInit: { settings: ready } }, initial: { workflowId: ids.workflows.receipt, chatOpen: true } },
 }
+
+export const RecipesScreen: Story = {
+  name: 'Recipes screen',
+  args: { world: { hostInit: { settings: ready } }, initial: { tab: 'recipes' } },
+}
+
+export const GeneralSettings: Story = {
+  name: 'General settings',
+  args: { world: { hostInit: { settings: ready } }, initial: { tab: 'settings', settingsSection: 'general' } },
+}
+
+export const NarrowRecipes: Story = {
+  name: 'Narrow window, recipes',
+  args: { width: 700, world: { hostInit: { settings: ready } }, initial: { tab: 'recipes' } },
+}

@@ -707,6 +707,69 @@ describe('GeneralSection', () => {
     expect(host.state().settings.openAtLogin).toBe(true)
   })
 
+  describe('language', () => {
+    const FIXED_LABELS = ['System default / 시스템 기본값', 'English', '한국어']
+    const picker = (t: ReturnType<typeof createTranslator>) => screen.getByRole('combobox', { name: t('app.general.language') }) as HTMLSelectElement
+
+    it.each(['ko', 'en'] as const)('offers three options whose labels are the same in every language (%s)', async (locale) => {
+      const { t } = await openGeneral({ locale })
+      const select = picker(t)
+      expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual(FIXED_LABELS)
+      expect(within(select).getAllByRole('option').map((option) => (option as HTMLOptionElement).value)).toEqual(['system', 'en', 'ko'])
+    })
+
+    it('shows the saved language and the hint', async () => {
+      const { t } = await openGeneral({ init: { settings: fakeSettings({ language: 'ko' }) } })
+      expect(picker(t).value).toBe('ko')
+      expect(screen.getByText(t('app.general.languageHint'))).toBeTruthy()
+    })
+
+    it('starts on system for the default settings', async () => {
+      const { t } = await openGeneral()
+      expect(picker(t).value).toBe('system')
+    })
+
+    it('saves the choice through settings.update and shows it', async () => {
+      const { host, t, user } = await openGeneral()
+      const update = vi.spyOn(host.settings, 'update')
+      await user.selectOptions(picker(t), 'en')
+      await waitFor(() => expect(host.state().settings.language).toBe('en'))
+      expect(update).toHaveBeenCalledExactlyOnceWith({ language: 'en' })
+      expect(picker(t).value).toBe('en')
+      expect(host.state().restartCalls).toBe(0)
+    })
+
+    it('shows the error and keeps the saved value when saving fails', async () => {
+      const host = createFakeHost({}, { restartDelayMs: 0 })
+      vi.spyOn(host.settings, 'update').mockRejectedValue(new HostError('INTERNAL'))
+      const { t, user } = await openGeneral({ host })
+      await user.selectOptions(picker(t), 'ko')
+      expect((await screen.findByRole('alert')).textContent).toBe(t('app.error.host.INTERNAL'))
+      expect(picker(t).value).toBe('system')
+    })
+
+    it('is disabled while the choice is being saved', async () => {
+      const host = createFakeHost({}, { restartDelayMs: 0 })
+      let release!: () => void
+      const original = host.settings.update.bind(host.settings)
+      vi.spyOn(host.settings, 'update').mockImplementation(async (patch) => {
+        await new Promise<void>((resolve) => (release = resolve))
+        return original(patch)
+      })
+      const { t, user } = await openGeneral({ host })
+      await user.selectOptions(picker(t), 'ko')
+      await waitFor(() => expect(picker(t).disabled).toBe(true))
+      release()
+      await waitFor(() => expect(picker(t).disabled).toBe(false))
+      expect(picker(t).value).toBe('ko')
+    })
+
+    it('has no axe violations', async () => {
+      const { view } = await openGeneral({ locale: 'en' })
+      expect(await violations(view.container)).toEqual([])
+    })
+  })
+
   it('shows the engine status and restarts the engine on request', async () => {
     const { host, t, user } = await openGeneral({ connection: { state: 'connected', status: { state: 'running', restarts: 2 } } })
     expect(screen.getByText(t('app.engine.state.running'))).toBeTruthy()

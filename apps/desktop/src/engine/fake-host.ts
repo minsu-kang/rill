@@ -16,6 +16,7 @@ import {
   foldName,
   isByteInput,
   isSlackVerdict,
+  isLanguage,
   isValidCustomAuth,
   isValidSlackBot,
   slackAccountText,
@@ -93,6 +94,7 @@ export function fakeSettings(overrides: Partial<Settings> = {}): Settings {
     allowedFolders: [],
     provider: 'anthropic',
     openAtLogin: false,
+    language: 'system',
     configuredProviders: [],
     connections: [],
     encryptionAvailable: true,
@@ -226,6 +228,10 @@ export function createFakeHost(init: Partial<FakeHostState> = {}, options: FakeH
         }
         if (next.provider !== 'anthropic' && next.model === undefined) throw invalid()
         if (patch.openAtLogin !== undefined) next.openAtLogin = patch.openAtLogin
+        if (patch.language !== undefined) {
+          if (!isLanguage(patch.language)) throw invalid()
+          next.language = patch.language
+        }
         settings = next
         const changed =
           before.provider !== next.provider ||

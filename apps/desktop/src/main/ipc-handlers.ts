@@ -124,6 +124,7 @@ export function createIpcHandlers(deps: IpcDeps): Record<Channel, IpcHandler> {
       provider: config.provider,
       ...(config.model === undefined ? {} : { model: config.model }),
       openAtLogin: config.openAtLogin,
+      language: config.language,
       configuredProviders: await deps.secrets.configuredProviders(),
       connections: await deps.secrets.listConnections(),
       encryptionAvailable: deps.secrets.encryptionAvailable(),

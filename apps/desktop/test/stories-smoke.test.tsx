@@ -69,6 +69,9 @@ const SHOWN: Readonly<Record<string, (t: Translate) => string[]>> = {
   [`${APP_SCREEN} EngineStopped`]: (t) => [t('app.top.engine.stopped'), t('app.engine.error.crashed'), t('app.top.engine.restart')],
   [`${APP_SCREEN} NoKeychain`]: (t) => [t('app.top.engine.stopped'), t('app.engine.error.no_keychain'), t('app.settings.noKeychain.title'), t('app.keys.heading')],
   [`${APP_SCREEN} NarrowWindow`]: (t) => [t('app.top.engine.connected'), t('app.top.chat.close'), t('app.wf.actions.dryRun')],
+  [`${APP_SCREEN} RecipesScreen`]: (t) => [t('recipes.heading'), t('recipes.search')],
+  [`${APP_SCREEN} GeneralSettings`]: (t) => [t('app.general.heading'), t('app.general.language'), t('app.general.openAtLogin')],
+  [`${APP_SCREEN} NarrowRecipes`]: (t) => [t('recipes.heading'), t('recipes.search')],
 }
 
 describe('story files', () => {

@@ -17,7 +17,7 @@ afterEach(() => {
 })
 
 const file = () => join(dir, 'config.json')
-const DEFAULTS = { allowedFolders: [], provider: 'anthropic', model: undefined, openAtLogin: false }
+const DEFAULTS = { allowedFolders: [], provider: 'anthropic', model: undefined, openAtLogin: false, language: 'system' }
 
 async function reason(promise: Promise<unknown>): Promise<string | undefined> {
   try {
@@ -38,11 +38,11 @@ describe('config store: reading', () => {
   it('reads a saved file and drops unknown keys', async () => {
     writeFileSync(file(), JSON.stringify({ allowedFolders: ['/a'], provider: 'openai', model: 'gpt-6.1-sol', openAtLogin: true, extra: 'x', apiKey: 'nope' }))
     const config = await createConfigStore({ dir }).get()
-    expect(config).toEqual({ allowedFolders: ['/a'], provider: 'openai', model: 'gpt-6.1-sol', openAtLogin: true })
-    expect(Object.keys(config).sort()).toEqual(['allowedFolders', 'model', 'openAtLogin', 'provider'])
+    expect(config).toEqual({ allowedFolders: ['/a'], provider: 'openai', model: 'gpt-6.1-sol', openAtLogin: true, language: 'system' })
+    expect(Object.keys(config).sort()).toEqual(['allowedFolders', 'language', 'model', 'openAtLogin', 'provider'])
   })
 
-  it.each([['not json {'], ['[]'], ['"text"'], ['null'], [JSON.stringify({ provider: 'azure' })], [JSON.stringify({ allowedFolders: ['relative/path'] })], [JSON.stringify({ openAtLogin: 'yes' })], [JSON.stringify({ provider: 'openai' })]])(
+  it.each([['not json {'], ['[]'], ['"text"'], ['null'], [JSON.stringify({ provider: 'azure' })], [JSON.stringify({ allowedFolders: ['relative/path'] })], [JSON.stringify({ openAtLogin: 'yes' })], [JSON.stringify({ provider: 'openai' })], [JSON.stringify({ language: 'fr' })], [JSON.stringify({ language: 1 })], [JSON.stringify({ language: null })]])(
     'falls back to the defaults for a corrupt or invalid file and keeps it as config.json.bak: %s',
     async (text) => {
       writeFileSync(file(), text)
@@ -51,6 +51,41 @@ describe('config store: reading', () => {
       expect(readFileSync(join(dir, 'config.json.bak'), 'utf8')).toBe(text)
     },
   )
+})
+
+describe('config store: language', () => {
+  it('loads an older file without a language as system', async () => {
+    writeFileSync(file(), JSON.stringify({ version: 1, allowedFolders: [], provider: 'anthropic', openAtLogin: true }))
+    expect((await createConfigStore({ dir }).get()).language).toBe('system')
+  })
+
+  it.each(['system', 'en', 'ko'] as const)('saves %s and reads it back after a restart', async (language) => {
+    const { after } = await createConfigStore({ dir }).update({ language: 'ko' })
+    expect(after.language).toBe('ko')
+    const store = createConfigStore({ dir })
+    expect((await store.update({ language })).after.language).toBe(language)
+    expect(JSON.parse(readFileSync(file(), 'utf8')).language).toBe(language)
+    expect((await createConfigStore({ dir }).get()).language).toBe(language)
+  })
+
+  it('changes nothing else and writes nothing for the same value', async () => {
+    const store = createConfigStore({ dir })
+    await store.update({ provider: 'openai', model: 'gpt-6.1-sol', openAtLogin: true })
+    const { before, after } = await store.update({ language: 'en' })
+    expect(after).toEqual({ ...before, language: 'en' })
+    const writes: string[] = []
+    const spying = createConfigStore({ dir, fs: { ...fsp, writeFile: ((path: string, ...rest: unknown[]) => (writes.push(path), (fsp.writeFile as (...a: unknown[]) => Promise<void>)(path, ...rest))) as FsLike['writeFile'] } })
+    await spying.update({ language: 'en' })
+    expect(writes).toEqual([])
+  })
+
+  it.each([['fr'], [''], ['EN'], [null], [1]])('refuses %j and keeps the saved language', async (value) => {
+    const store = createConfigStore({ dir })
+    await store.update({ language: 'ko' })
+    expect(await reason(store.update({ language: value } as never))).toBe('invalid_language')
+    expect((await store.get()).language).toBe('ko')
+    expect((await createConfigStore({ dir }).get()).language).toBe('ko')
+  })
 })
 
 describe('config store: folders', () => {
@@ -152,7 +187,7 @@ describe('config store: update', () => {
     expect(after.openAtLogin).toBe(true)
     expect(statSync(join(sub, 'config.json')).mode & 0o777).toBe(0o600)
     expect(statSync(sub).mode & 0o777).toBe(0o700)
-    expect(JSON.parse(readFileSync(join(sub, 'config.json'), 'utf8'))).toEqual({ version: 1, allowedFolders: [], provider: 'anthropic', openAtLogin: true })
+    expect(JSON.parse(readFileSync(join(sub, 'config.json'), 'utf8'))).toEqual({ version: 1, allowedFolders: [], provider: 'anthropic', openAtLogin: true, language: 'system' })
   })
 
   it('does not write when nothing changes', async () => {
@@ -213,6 +248,6 @@ describe('config store: update', () => {
     mkdirSync(dir, { recursive: true })
     const store = createConfigStore({ dir })
     await store.update({ allowedFolders: ['/a'], provider: 'openai', model: 'gpt-6.1-sol', openAtLogin: true })
-    expect(Object.keys(JSON.parse(readFileSync(file(), 'utf8'))).sort()).toEqual(['allowedFolders', 'model', 'openAtLogin', 'provider', 'version'])
+    expect(Object.keys(JSON.parse(readFileSync(file(), 'utf8'))).sort()).toEqual(['allowedFolders', 'language', 'model', 'openAtLogin', 'provider', 'version'])
   })
 })

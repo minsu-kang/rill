@@ -179,7 +179,7 @@ describe('host contract for Slack bots', () => {
   })
 
   it('accepts in the summary and the settings only what the store holds', () => {
-    const connection = (extra: object) => ({ allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [{ name: 'a', kind: 'slack', ...extra }], encryptionAvailable: true, oauth: { available: false, accounts: [] } })
+    const connection = (extra: object) => ({ allowedFolders: [], provider: 'anthropic', openAtLogin: false, configuredProviders: [], connections: [{ name: 'a', kind: 'slack', ...extra }], encryptionAvailable: true, language: 'system', oauth: { available: false, accounts: [] } })
     expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'bot', account: 'rill-bot in Acme', channel: '#a' } }))).toBe(true)
     expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'bot' } }))).toBe(true)
     expect(validateResult(CHANNELS.settingsGet, connection({ slack: { mode: 'bot', confirmed: true } }))).toBe(true)
