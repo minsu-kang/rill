@@ -6,7 +6,7 @@ Describe an automation in plain language, review it as a graph, and run it on yo
 
 Rill is a desktop app for macOS. You type what you want ("when a receipt PDF lands in a folder, read the amount and date, add them to a CSV and tell me on Slack"), a language model proposes a workflow, and you read it as a graph before anything runs. A durable engine inside the app then runs the workflow locally, retries what can be retried, and picks up where it stopped after a crash.
 
-Status: early development, not released. The engine, the planner, the five model providers, the recipes, the failure explanation and every screen of the app are built and tested. The macOS installer (ad hoc signed, not notarized) builds. The planner evaluation has run twice, on one model (see [Evaluation](#evaluation)).
+Status: early development. The first release, v0.1.0, is a preview for macOS on Apple Silicon. The engine, the planner, the five model providers, the recipes, the failure explanation and every screen of the app are built and tested. The macOS installer (ad hoc signed, not notarized) builds. The planner evaluation has run twice, on one model (see [Evaluation](#evaluation)).
 
 Rill is an independent project. It has no affiliation with any workflow-automation vendor, and it is unrelated to Rill Data, Inc. and its open-source BI tool of the same name. All product and company names mentioned here, such as Slack, Google, Microsoft, Anthropic and OpenAI, are trademarks of their owners.
 
@@ -96,7 +96,7 @@ Three rules shape the design. The engine is a headless package, and the app is a
 
 ## Install
 
-There is no release yet. A release attaches the macOS app (a `dmg` and a `zip`, built by CI on an Apple Silicon runner) to its GitHub Release.
+The [latest release](https://github.com/minsu-kang/rill/releases/latest) has the macOS app for Apple Silicon as a `dmg` and a `zip`, built by CI.
 
 The app is signed ad hoc and is not notarized, because notarization needs a paid Apple Developer Program membership. macOS blocks a downloaded copy until you allow it once:
 
