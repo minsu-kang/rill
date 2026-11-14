@@ -6,7 +6,7 @@ Rill turns a plain-language request into a workflow and runs it on the user's ow
 
 Run everything from the repository root, with Node 24 and pnpm 11 (`.nvmrc` and `packageManager` in `package.json`).
 
-- `pnpm check` runs lint, typecheck and every test. CI runs the same steps as separate jobs, with one job per vitest project, and builds the app (`.github/workflows/ci.yml`), so `pnpm check` must pass.
+- `pnpm check` runs lint, typecheck and every test. CI runs the same steps as separate jobs, splits the tests of each vitest project into shards, and builds the app (`.github/workflows/ci.yml`), so `pnpm check` must pass.
 - `pnpm lint`, `pnpm typecheck` and `pnpm test` run those steps one at a time.
 - `pnpm exec vitest run packages/engine` runs the tests of one package. Use `apps/desktop` for the app, or a test file path for one file.
 - CI installs with `--frozen-lockfile`, so commit `pnpm-lock.yaml` together with a dependency change. `pnpm-workspace.yaml` lists which dependencies may run install scripts (`allowBuilds`).

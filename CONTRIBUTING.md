@@ -23,7 +23,7 @@ release-please reads those commit messages. It keeps a release pull request open
 These settings live on GitHub, not in the repository, so no file can enforce them. Set them once, after the first push:
 
 1. Settings, General, Features, Pull requests: choose "Collaborators only".
-2. Settings, Rules, Rulesets: add a ruleset for the default branch that requires a pull request and a review from code owners, blocks force pushes and deletion, and requires the CI jobs (`lint`, `typecheck`, `unit-packages`, `unit-desktop` and `build`) to pass. Let the owner bypass it, because a sole owner cannot approve their own pull request.
+2. Settings, Rules, Rulesets: add a ruleset for the default branch that requires a pull request and a review from code owners, blocks force pushes and deletion, and requires the CI jobs (`lint`, `typecheck`, `unit` and `build`) to pass. Let the owner bypass it, because a sole owner cannot approve their own pull request.
 3. Settings, General, Pull Requests: allow squash merging only, and set its default message to the pull request title.
 4. Settings, Actions, General, Workflow permissions: allow GitHub Actions to create and approve pull requests, which release-please needs.
 

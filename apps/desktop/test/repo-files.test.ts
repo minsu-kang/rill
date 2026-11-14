@@ -137,13 +137,23 @@ describe('the workflows', () => {
     const projects = read('vitest.config.ts').match(/name: '(\w+)'/g) ?? []
     expect(projects).toEqual(["name: 'packages'"])
     expect(read('apps/desktop/vitest.config.ts')).toContain("name: 'desktop'")
-    for (const job of ['lint', 'typecheck', 'unit-packages', 'unit-desktop', 'build']) expect(CI, job).toMatch(new RegExp(`\\n  ${job}:\\n`))
+    for (const job of ['lint', 'typecheck', 'unit-packages', 'unit-desktop', 'unit', 'build']) expect(CI, job).toMatch(new RegExp(`\\n  ${job}:\\n`))
     expect(CI).toContain('pnpm lint')
     expect(CI).toContain('pnpm typecheck')
-    expect(CI).toContain('pnpm exec vitest run --project packages')
-    expect(CI).toContain('pnpm exec vitest run --project desktop')
     expect(CI).toContain('pnpm --filter @rill/desktop build')
     expect(CI).toContain('pnpm install --frozen-lockfile')
+  })
+
+  it('split the tests of each vitest project into shards, one matrix entry per shard, and gate on all of them in one job', () => {
+    const SHARD = '${{ matrix.shard }}'
+    for (const [job, project, count] of [['unit-packages', 'packages', 3], ['unit-desktop', 'desktop', 4]] as const) {
+      expect(CI, job).toContain(`name: ${job} (${SHARD}/${count})`)
+      expect(CI, job).toContain(`pnpm exec vitest run --project ${project} --shard=${SHARD}/${count}`)
+      expect(CI, job).toContain(`shard: [${Array.from({ length: count }, (_, index) => index + 1).join(', ')}]`)
+    }
+    expect(CI).toContain('needs: [unit-packages, unit-desktop]')
+    expect(CI).toContain('if: ${{ always() }}')
+    expect(CI).toContain('test "${{ needs.unit-packages.result }}" = success && test "${{ needs.unit-desktop.result }}" = success')
   })
 })
 

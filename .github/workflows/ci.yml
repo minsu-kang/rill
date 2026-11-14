@@ -45,7 +45,13 @@ jobs:
       - run: pnpm typecheck
 
   unit-packages:
+    name: unit-packages (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -59,10 +65,16 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm exec vitest run --project packages
+      - run: pnpm exec vitest run --project packages --shard=${{ matrix.shard }}/3
 
   unit-desktop:
+    name: unit-desktop (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -76,7 +88,16 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm exec vitest run --project desktop
+      - run: pnpm exec vitest run --project desktop --shard=${{ matrix.shard }}/4
+
+  unit:
+    needs: [unit-packages, unit-desktop]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Every test shard passed
+        run: test "${{ needs.unit-packages.result }}" = success && test "${{ needs.unit-desktop.result }}" = success
 
   build:
     runs-on: ubuntu-latest
