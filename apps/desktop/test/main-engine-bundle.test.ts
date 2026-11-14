@@ -36,7 +36,7 @@ describe('the engine bundle', () => {
     expect(inputs.length).toBeGreaterThan(50)
     expect(inputs.filter((input) => /node_modules\/(tsx|esbuild)\//.test(input) || /\/\.pnpm\/(tsx|esbuild)@/.test(input))).toEqual([])
     expect(text).not.toMatch(/--import\s+tsx|from\s+["']tsx["']|require\(["']tsx["']\)/)
-    for (const absolute of [REPO_ROOT, homedir(), tmpdir()]) expect(text, absolute).not.toContain(absolute)
+    for (const absolute of [REPO_ROOT, homedir(), dir]) expect(text, absolute).not.toContain(absolute)
     expect(text).not.toContain('sourceMappingURL')
   })
 
