@@ -161,14 +161,14 @@ describe('the data blocks', () => {
 
   it('leave out the advanced settings that the user sets in the inspector, like the planner does for an existing workflow', async () => {
     const workflow = workflowOf(
-      [node('t1', 'trigger.folderWatch@1', { folder: '/data/in', glob: '*.pdf', pollMs: 777, stableMs: 888 }), node('n1', 'http.request@1', { url: 'https://api.example.com/x', timeoutMs: 999 })],
+      [node('t1', 'trigger.folderWatch@1', { folder: '/data/in', glob: '*.pdf', pollMs: 7770001, stableMs: 8880002 }), node('n1', 'http.request@1', { url: 'https://api.example.com/x', timeoutMs: 9990003 })],
       [edge('t1', 'n1')],
     )
     const text = await textOf({ workflow })
     const sent = JSON.parse(block(text, 'workflow')) as { nodes: Array<{ config: Record<string, unknown> }> }
     expect(sent.nodes[0]!.config).toEqual({ folder: '/data/in', glob: '*.pdf' })
     expect(sent.nodes[1]!.config).toEqual({ url: 'https://api.example.com/x' })
-    expect(text).not.toMatch(/777|888|999/)
+    expect(text).not.toMatch(/7770001|8880002|9990003/)
   })
 
   it('send the workflow as JSON of the same shape that the plan holds', async () => {
