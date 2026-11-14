@@ -150,7 +150,8 @@ describe('the workflows', () => {
 describe('the release setup', () => {
   const config = JSON.parse(read('release-please-config.json')) as {
     'include-component-in-tag': boolean
-    packages: Record<string, { 'release-type': string; 'extra-files': { type: string; path: string; jsonpath: string }[] }>
+    'bootstrap-sha': string
+    packages: Record<string, { 'release-type': string; 'initial-version': string; 'extra-files': { type: string; path: string; jsonpath: string }[] }>
   }
   const version = (path: string): string => (JSON.parse(read(path)) as { version: string }).version
 
@@ -158,6 +159,8 @@ describe('the release setup', () => {
     expect(Object.keys(config.packages)).toEqual(['.'])
     expect(config.packages['.']?.['release-type']).toBe('node')
     expect(config['include-component-in-tag']).toBe(false)
+    expect(config.packages['.']?.['initial-version']).toBe('0.1.0')
+    expect(config['bootstrap-sha']).toMatch(/^[0-9a-f]{40}$/)
     expect(config.packages['.']?.['extra-files']).toEqual([{ type: 'json', path: 'apps/desktop/package.json', jsonpath: '$.version' }])
   })
 
@@ -201,5 +204,17 @@ describe('the license', () => {
     const readme = read('README.md')
     expect(readme).toContain('unrelated to Rill Data, Inc. and its open-source BI tool of the same name')
     expect(readme).toContain('are trademarks of their owners')
+  })
+})
+
+describe('the install steps', () => {
+  it('tell a person how to open the ad hoc signed app and how to build it themselves', () => {
+    const readme = read('README.md')
+    const install = readme.slice(readme.indexOf('## Install'), readme.indexOf('## Run it'))
+    expect(install.length).toBeGreaterThan(300)
+    expect(install).toContain('Open Anyway')
+    expect(install).toContain('xattr -dr com.apple.quarantine /Applications/Rill.app')
+    expect(install).toContain('notarization needs a paid Apple Developer Program membership')
+    expect(install).toContain('(#run-it)')
   })
 })

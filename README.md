@@ -94,6 +94,18 @@ flowchart LR
 
 Three rules shape the design. The engine is a headless package, and the app is a thin client that talks to it over a protocol. The model decides the graph only while planning, and never while a workflow runs. Every workflow, whether it comes from the planner, a recipe or a client, goes through the same validator.
 
+## Install
+
+There is no release yet. A release attaches the macOS app (a `dmg` and a `zip`, built by CI on an Apple Silicon runner) to its GitHub Release.
+
+The app is signed ad hoc and is not notarized, because notarization needs a paid Apple Developer Program membership. macOS blocks a downloaded copy until you allow it once:
+
+1. Open the app. macOS blocks it.
+2. Open System Settings, Privacy & Security, scroll to Security and choose Open Anyway next to the app. Right click, then Open, no longer works on macOS 15 and later.
+3. Or run `xattr -dr com.apple.quarantine /Applications/Rill.app` in a terminal. It removes the download mark of that one app, so use it only on a copy you trust.
+
+A copy that you build yourself (see [Run it](#run-it)) carries no download mark, so macOS does not block it.
+
 ## Run it
 
 Requirements: Node.js 24 (see `.nvmrc`) and pnpm 11 (pinned in `package.json`).
