@@ -85,7 +85,7 @@ describe('the agent guides', () => {
 
   it('hold no private material, no local-only document and no character outside ASCII', () => {
     const forbidden = /integromat|make\.com|superpowers|gmail|\/Users\/(?!demo\b)|[\w.%+-]+@[\w-]+\.[a-z]{2,}/i
-    for (const file of [...GUIDES, 'CONTRIBUTING.md', '.github/CODEOWNERS']) {
+    for (const file of [...GUIDES, 'CONTRIBUTING.md', 'SECURITY.md', '.github/CODEOWNERS']) {
       const text = read(file)
       expect(forbidden.test(text), file).toBe(false)
       expect([...text].filter((char) => char.charCodeAt(0) > 127), file).toEqual([])
@@ -226,5 +226,15 @@ describe('the install steps', () => {
     expect(install).toContain('xattr -dr com.apple.quarantine /Applications/Rill.app')
     expect(install).toContain('notarization needs a paid Apple Developer Program membership')
     expect(install).toContain('(#run-it)')
+  })
+})
+
+describe('the security policy', () => {
+  it('tells a person to report privately, never in public, and points to the security document that exists', () => {
+    const policy = read('SECURITY.md')
+    expect(policy).toContain('private vulnerability reporting')
+    expect(policy).toContain('Do not open a public issue or a pull request for a vulnerability')
+    expect(policy).toContain('[docs/security.md](docs/security.md)')
+    expect(existsSync(join(ROOT, 'docs/security.md'))).toBe(true)
   })
 })
