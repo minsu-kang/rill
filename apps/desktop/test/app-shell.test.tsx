@@ -60,6 +60,16 @@ async function workflowsLoaded(): Promise<void> {
   await waitFor(() => expect(document.querySelectorAll('.react-flow__node').length).toBeGreaterThan(0))
 }
 
+async function pickNode(id: string, shown: RegExp | string): Promise<void> {
+  await waitFor(
+    () => {
+      fireEvent.click(screen.getByTestId(`rf__node-${id}`))
+      expect(screen.queryByText(shown)).not.toBeNull()
+    },
+    { timeout: 5000 },
+  )
+}
+
 afterEach(() => vi.restoreAllMocks())
 
 const GOOGLE_ID = '123456789012-abcdefghijklmnop.apps.googleusercontent.com'
@@ -354,8 +364,7 @@ describe('edit context', () => {
     const { user } = mount({ hostInit: { settings: KEYED }, initial: { workflowId: ids.workflows.receipt } })
     await workflowsLoaded()
     expect(screen.queryByText(/수정 중/)).toBeNull()
-    fireEvent.click(screen.getByTestId('rf__node-extract'))
-    expect(await screen.findByText(t('chat.composer.editingNode', { workflow: ids.workflows.receipt, node: 'extract' }), undefined, { timeout: 5000 })).toBeTruthy()
+    await pickNode('extract', t('chat.composer.editingNode', { workflow: ids.workflows.receipt, node: 'extract' }))
     const chat = screen.getByRole('complementary', { name: t('app.region.chat') })
     const clear = within(chat).getAllByRole('button').find((button) => /수정 해제|해제|지우기|취소/.test(button.textContent ?? '') && button.closest('[class*="composer"], form, div') !== null && chat.textContent?.includes('수정 중'))
     expect(clear).toBeTruthy()
@@ -367,8 +376,7 @@ describe('edit context', () => {
   it('sends the workflow and the node with the next plan request', async () => {
     const { user, world } = mount({ hostInit: { settings: KEYED }, initial: { workflowId: ids.workflows.receipt } })
     await workflowsLoaded()
-    fireEvent.click(screen.getByTestId('rf__node-extract'))
-    await screen.findByText(/수정 중/, undefined, { timeout: 5000 })
+    await pickNode('extract', /수정 중/)
     await user.type(screen.getByLabelText(t('chat.composer.label')), '금액만 뽑아 줘')
     await user.keyboard('{Control>}{Enter}{/Control}')
     await waitFor(() => expect(world.callsOf('plan')).toHaveLength(1))
@@ -378,8 +386,7 @@ describe('edit context', () => {
   it('forgets the edit context when another workflow is chosen', async () => {
     const { user } = mount({ hostInit: { settings: KEYED }, initial: { workflowId: ids.workflows.receipt } })
     await workflowsLoaded()
-    fireEvent.click(screen.getByTestId('rf__node-extract'))
-    await screen.findByText(/수정 중/, undefined, { timeout: 5000 })
+    await pickNode('extract', /수정 중/)
     await user.selectOptions(screen.getByLabelText(t('app.wf.switcher.label')), ids.workflows.webhook)
     await waitFor(() => expect(screen.queryByText(/수정 중/)).toBeNull(), { timeout: 5000 })
   })
